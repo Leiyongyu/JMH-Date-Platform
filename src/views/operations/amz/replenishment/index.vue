@@ -63,13 +63,16 @@
 
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
-        <el-button
-          type="warning"
-          plain
-          icon="Download"
-          @click="handleExport"
-          v-hasPermi="['operations:amzReplenishment:export']"
-        >导出</el-button>
+        <el-dropdown @command="handleExport" v-hasPermi="['operations:amzReplenishment:export']">
+          <el-button type="warning" plain icon="Download">导出<el-icon class="el-icon--right"><arrow-down /></el-icon></el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="filtered">导出筛选结果</el-dropdown-item>
+              <el-dropdown-item command="selected">导出选中数据</el-dropdown-item>
+              <el-dropdown-item command="all">导出全部数据</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
@@ -77,11 +80,12 @@
     <el-table
       v-loading="loading"
       :data="replenishmentList"
-      border
-      stripe
-      height="640"
+      border stripe height="640"
+      :row-key="(row) => (row.sid||'') + '|' + (row.sellerSku||'') + '|' + (row.warehouseSku||'')"
+      @selection-change="handleSelectionChange"
       @sort-change="handleSortChange"
     >
+      <el-table-column type="selection" width="45" fixed />
       <el-table-column label="店铺" align="left" prop="storeName" width="160" fixed sortable="custom" :show-overflow-tooltip="true" />
       <el-table-column label="Seller SKU" align="left" prop="sellerSku" width="180" fixed sortable="custom" :show-overflow-tooltip="true" />
       <el-table-column label="仓库SKU" align="left" prop="warehouseSku" width="170" sortable="custom" :show-overflow-tooltip="true" />
@@ -153,6 +157,7 @@ const loading = ref(false)
 const showSearch = ref(true)
 const total = ref(0)
 const replenishmentList = ref([])
+const checkedRows = ref([])
 const data = reactive({
   queryParams: {
     pageNum: 1,
@@ -199,10 +204,31 @@ function handleSortChange({ prop, order }) {
   getList()
 }
 
-function handleExport() {
-  proxy.download('operations/amz/replenishment/export', {
-    ...queryParams.value
-  }, `amz_replenishment_${new Date().getTime()}.xlsx`)
+function handleSelectionChange(rows) { checkedRows.value = rows }
+
+function handleExport(command) {
+  if (command === 'selected' && checkedRows.value.length === 0) {
+    proxy.$modal.msgWarning('请先选择要导出的数据'); return
+  }
+  const body = {
+    scope: command === 'selected' ? 'SELECTED' : (command === 'all' ? 'ALL' : 'FILTERED'),
+    rowKeys: command === 'selected' ? checkedRows.value.map(r => (r.sid||'') + '|' + (r.sellerSku||'') + '|' + (r.warehouseSku||'')) : undefined
+  }
+  if (command !== 'all') {
+    body.filters = []
+    const p = queryParams.value
+    if (p.storeName) body.filters.push({ field: 'storeName', value: p.storeName })
+    if (p.sellerSku) body.filters.push({ field: 'sellerSku', value: p.sellerSku })
+    if (p.warehouseSku) body.filters.push({ field: 'warehouseSku', value: p.warehouseSku })
+    if (p.asin) body.filters.push({ field: 'asin', value: p.asin })
+    if (p.principalName) body.filters.push({ field: 'principalName', value: p.principalName })
+    if (p.productCategory) body.filters.push({ field: 'productCategory', value: p.productCategory })
+    if (p.sortField) { body.sortField = p.sortField; body.sortOrder = p.sortOrder || 'descending' }
+  }
+  request({ url: 'operations/amz/replenishment/export', method: 'post', data: body, responseType: 'blob' }).then(res => {
+    const blob = new Blob([res]); const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+    a.download = `amz_replenishment_${new Date().getTime()}.xlsx`; a.click()
+  })
 }
 
 function formatPercentNumber(value) {
