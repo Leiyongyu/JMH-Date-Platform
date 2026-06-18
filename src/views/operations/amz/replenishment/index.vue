@@ -119,6 +119,26 @@
             <span>{{ parseTime(scope.row[col.key]) }}</span>
           </template>
         </el-table-column>
+        <!-- 产品分类：内联编辑 -->
+        <el-table-column
+          v-else-if="col.format === 'productCategory'"
+          :label="col.label" :align="col.align" :width="col.width"
+        >
+          <template #default="scope">
+            <el-input v-model="editCache[amzKey(scope.row,'cat')]" size="small" placeholder="分类" clearable style="width:110px"
+              @blur="onAmzCellBlur(scope.row,'cat')" @keyup.enter="onAmzCellBlur(scope.row,'cat')" @clear="onAmzCellClear(scope.row,'cat')" />
+          </template>
+        </el-table-column>
+        <!-- 已采购数量：内联编辑 -->
+        <el-table-column
+          v-else-if="col.format === 'purchasedQty'"
+          :label="col.label" :align="col.align" :width="col.width" sortable="custom"
+        >
+          <template #default="scope">
+            <el-input v-model="editCache[amzKey(scope.row,'pqty')]" size="small" placeholder="数量" clearable style="width:100px"
+              @blur="onAmzCellBlur(scope.row,'pqty')" @keyup.enter="onAmzCellBlur(scope.row,'pqty')" @clear="onAmzCellClear(scope.row,'pqty')" />
+          </template>
+        </el-table-column>
         <el-table-column
           v-else
           :label="col.label"
@@ -164,6 +184,30 @@ const showSearch = ref(true)
 const total = ref(0)
 const replenishmentList = ref([])
 const checkedRows = ref([])
+const editCache = reactive({})
+function amzKey(row, field) { return (row.sid || '') + '|' + (row.sellerSku || '') + '_' + field }
+function initAmzEditCache() {
+  for (const row of replenishmentList.value) {
+    const cat = amzKey(row, 'cat'); if (!(cat in editCache)) editCache[cat] = row.productCategory ?? ''
+    const pq = amzKey(row, 'pqty'); if (!(pq in editCache)) editCache[pq] = row.purchasedQty ?? ''
+  }
+}
+watch(replenishmentList, initAmzEditCache, { flush: 'post' })
+async function onAmzCellBlur(row, field) {
+  const k = amzKey(row, field)
+  const v = editCache[k] || ''; const oldV = field === 'cat' ? (row.productCategory ?? '') : String(row.purchasedQty ?? '')
+  if (v === oldV || row._saving) return; row._saving = true
+  try {
+    const body = { sid: String(row.sid || ''), sellerSku: row.sellerSku }
+    if (field === 'cat') body.productCategory = v || ''
+    else body.manualPurchasedQty = v || null
+    await request({ url: '/operations/amz/replenishment/override', method: 'post', data: body })
+    if (field === 'cat') row.productCategory = v || ''
+    else row.purchasedQty = v || ''
+  } catch { editCache[k] = oldV } finally { row._saving = false }
+}
+function onAmzCellClear(row, field) { editCache[amzKey(row, field)] = ''; onAmzCellBlur(row, field) }
+
 const fixedColumnKeys = ['storeName', 'sellerSku']
 const columnDefs = [
   { key: 'storeName', label: '店铺', align: 'left', width: 160, fixed: true, sortable: true, tooltip: true },
@@ -172,13 +216,13 @@ const columnDefs = [
   { key: 'warehouseName', label: '仓库', align: 'left', width: 170, tooltip: true },
   { key: 'asin', label: 'ASIN', align: 'center', width: 130, sortable: true, tooltip: true },
   { key: 'principalName', label: '负责人', align: 'center', width: 120, tooltip: true },
-  { key: 'productCategory', label: '产品分类', align: 'center', width: 130, tooltip: true },
+  { key: 'productCategory', label: '产品分类', align: 'center', width: 130, format: 'productCategory' },
   { key: 'rating', label: '评分', align: 'right', width: 80, sortable: true },
   { key: 'reviewCount', label: '评论数', align: 'right', width: 100, sortable: true },
   { key: 'adRate', label: '广告费率', align: 'right', width: 105, sortable: true, format: 'percentNumber' },
   { key: 'profitRate30d', label: '30天利润率', align: 'right', width: 120, sortable: true, format: 'percentNumber' },
   { key: 'refundRate90d', label: '90天退款率', align: 'right', width: 120, sortable: true, format: 'percentNumber' },
-  { key: 'purchasedQty', label: '已采购数量', align: 'right', width: 120, sortable: true },
+  { key: 'purchasedQty', label: '已采购数量', align: 'right', width: 120, sortable: true, format: 'purchasedQty' },
   { key: 'domesticStock', label: '国内仓库存', align: 'right', width: 120, sortable: true },
   { key: 'pendingShipQty', label: '待出库', align: 'right', width: 95, sortable: true },
   { key: 'fbaStock', label: 'FBA在库', align: 'right', width: 105, sortable: true },
