@@ -1,14 +1,5 @@
 <template>
   <div class="app-container ebay-price-tracking-page">
-    <el-card class="platform-card" shadow="never">
-      <div class="platform-bar">
-        <el-segmented v-model="activePlatform" :options="platformOptions" @change="handlePlatformChange" />
-        <el-tabs v-model="activeFeature" class="feature-tabs" @tab-change="handleFeatureChange">
-          <el-tab-pane label="每日跟价" name="priceTracking" />
-        </el-tabs>
-      </div>
-    </el-card>
-
     <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" label-width="72px">
       <el-form-item label="站点" prop="site">
         <el-select v-model="queryParams.site" placeholder="全部站点" clearable style="width: 160px">
@@ -125,14 +116,6 @@ const loading = ref(false)
 const showSearch = ref(true)
 const total = ref(0)
 const records = ref([])
-const activePlatform = ref('EBAY')
-const activeFeature = ref('priceTracking')
-
-const platformOptions = [
-  { label: 'eBay', value: 'EBAY' },
-  { label: 'Amazon', value: 'AMZ' }
-]
-
 const data = reactive({
   queryParams: {
     pageNum: 1,
@@ -192,12 +175,6 @@ function handleSortChange({ prop, order }) {
   getList()
 }
 
-function handlePlatformChange(value) {
-  if (value === 'AMZ') router.push('/operations/replenishment/amz-replenishment')
-}
-
-function handleFeatureChange() {}
-
 async function handleRefresh() {
   if (loading.value) return
   loading.value = true
@@ -252,10 +229,5 @@ getList()
 
 <style scoped>
 .ebay-price-tracking-page { background: #f5f7fa; }
-.platform-card { margin-bottom: 12px; border-radius: 4px; }
-.platform-bar { display: flex; align-items: center; gap: 18px; }
-.feature-tabs { flex: 1; }
-.feature-tabs :deep(.el-tabs__header) { margin: 0; }
-.feature-tabs :deep(.el-tabs__nav-wrap::after) { display: none; }
 :deep(.el-table .cell) { white-space: nowrap; }
 </style>

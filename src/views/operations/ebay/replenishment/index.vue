@@ -1,15 +1,5 @@
 <template>
   <div class="app-container ebay-replenishment-page">
-    <el-card class="platform-card" shadow="never">
-      <div class="platform-bar">
-        <el-segmented v-model="activePlatform" :options="platformOptions" @change="handlePlatformChange" />
-        <el-tabs v-model="activeFeature" class="feature-tabs" @tab-change="handleFeatureChange">
-          <el-tab-pane label="补货" name="replenishment" />
-          <el-tab-pane label="每日跟价" name="priceTracking" />
-        </el-tabs>
-      </div>
-    </el-card>
-
     <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" label-width="72px">
       <el-form-item label="站点" prop="site">
         <el-select v-model="queryParams.site" placeholder="全部站点" clearable style="width: 160px">
@@ -163,14 +153,6 @@ const loading = ref(false)
 const showSearch = ref(true)
 const total = ref(0)
 const replenishmentList = ref([])
-const activePlatform = ref('EBAY')
-const activeFeature = ref('replenishment')
-
-const platformOptions = [
-  { label: 'eBay', value: 'EBAY' },
-  { label: 'Amazon', value: 'AMZ' }
-]
-
 const data = reactive({
   queryParams: {
     pageNum: 1,
@@ -214,18 +196,6 @@ function handleSortChange({ prop, order }) {
   queryParams.value.sortOrder = order || undefined
   queryParams.value.pageNum = 1
   getList()
-}
-
-function handlePlatformChange(value) {
-  if (value === 'AMZ') {
-    router.push('/operations/replenishment/amz-replenishment')
-  }
-}
-
-function handleFeatureChange(name) {
-  if (name === 'priceTracking') {
-    router.push('/operations/price-tracking/ebay-price-tracking')
-  }
 }
 
 function handleImport(command) {
@@ -279,34 +249,6 @@ getList()
 </script>
 
 <style scoped>
-.ebay-replenishment-page {
-  background: #f5f7fa;
-}
-
-.platform-card {
-  margin-bottom: 12px;
-  border-radius: 4px;
-}
-
-.platform-bar {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-
-.feature-tabs {
-  flex: 1;
-}
-
-.feature-tabs :deep(.el-tabs__header) {
-  margin: 0;
-}
-
-.feature-tabs :deep(.el-tabs__nav-wrap::after) {
-  display: none;
-}
-
-:deep(.el-table .cell) {
-  white-space: nowrap;
-}
+.ebay-replenishment-page { background: #f5f7fa; }
+:deep(.el-table .cell) { white-space: nowrap; }
 </style>
