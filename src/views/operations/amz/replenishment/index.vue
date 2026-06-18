@@ -63,26 +63,8 @@
 
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
-      <el-col :span="1.5">
         <el-button type="warning" plain icon="Download" @click="handleExport"
           v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
-      </el-col>
-      <el-col :span="1.5">
-        <el-button type="warning" plain icon="Download" @click="handleExport"
-          v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
-      </el-col>
-      <el-col :span="1.5">
-        <el-button type="warning" plain icon="Download" @click="handleExport"
-          v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
-      </el-col>
-      <el-col :span="1.5">
-        <el-button type="warning" plain icon="Download" @click="handleExport"
-          v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
-      </el-col>
-      <el-col :span="1.5">
-        <el-button type="warning" plain icon="Download" @click="handleExport"
-          v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
-      </el-col>
       </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
@@ -217,12 +199,10 @@ function handleSortChange({ prop, order }) {
 function handleSelectionChange(rows) { checkedRows.value = rows }
 
 function handleExport() {
-  const selectedKey = checkedRows.value.length > 0
-  const body = {
-    scope: selectedKey ? 'SELECTED' : 'FILTERED',
-    rowKeys: selectedKey ? checkedRows.value.map(r => (r.sid||'') + '|' + (r.sellerSku||'') + '|' + (r.warehouseSku||'')) : undefined
-  }
-  if (!selectedKey) {
+  const sel = checkedRows.value.length > 0
+  const body = { scope: sel ? 'SELECTED' : 'FILTERED',
+    rowKeys: sel ? checkedRows.value.map(r => (r.sid||'') + '|' + (r.sellerSku||'') + '|' + (r.warehouseSku||'')) : undefined }
+  if (!sel) {
     body.filters = []
     const p = queryParams.value
     if (p.storeName) body.filters.push({ field: 'storeName', value: p.storeName })
