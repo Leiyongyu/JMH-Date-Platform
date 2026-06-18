@@ -10,6 +10,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 const props = defineProps({ field: String, title: String, filterInfo: Object, numeric: Boolean, label: String })
 const emit = defineEmits(['openFilter'])
 const isActive = computed(() => props.filterInfo && props.filterInfo[props.field])
@@ -26,5 +27,4 @@ function onFilterClick(e) {
 .filter-icon.active { color:#409EFF }
 .filter-icon:hover { color:#409EFF }
 .label { white-space:nowrap }
-</style>
 </style>
