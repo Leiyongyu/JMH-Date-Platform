@@ -69,10 +69,17 @@
         <el-button type="warning" plain icon="Download" @click="handleExport"
           v-hasPermi="['operations:ebayReplenishment:export']">导出</el-button>
       </el-col>
-      <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
+      <right-toolbar
+        v-model:showSearch="showSearch"
+        :show-column-config="true"
+        @queryTable="getList"
+        @columnConfig="openColumnConfig"
+      ></right-toolbar>
     </el-row>
 
     <el-table
+      v-if="columnConfigLoaded"
+      :key="columnTableKey"
       v-loading="loading"
       :data="replenishmentList"
       border stripe height="640"
@@ -81,53 +88,72 @@
       @sort-change="handleSortChange"
     >
       <el-table-column type="selection" width="45" fixed />
-      <el-table-column label="站点" align="center" prop="site" width="90" fixed sortable="custom" />
-      <el-table-column label="SKU" align="left" prop="sku" width="170" fixed sortable="custom" :show-overflow-tooltip="true" />
-      <el-table-column label="产品名称" align="left" prop="productName" width="260" :show-overflow-tooltip="true" />
-      <el-table-column label="等级" align="center" prop="skuLevel" width="80" sortable="custom">
-        <template #default="scope">
-          <el-tag :type="levelTagType(scope.row.skuLevel)" effect="light">{{ scope.row.skuLevel || '-' }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="近30天利润" align="right" prop="profitRate30d" width="120" sortable="custom">
-        <template #default="scope">{{ formatPercentNumber(scope.row.profitRate30d) }}</template>
-      </el-table-column>
-      <el-table-column label="退货率" align="right" prop="returnRate" width="100" sortable="custom">
-        <template #default="scope">{{ formatRate(scope.row.returnRate) }}</template>
-      </el-table-column>
-      <el-table-column label="海外在途" align="right" prop="overseasOnway" width="105" sortable="custom" />
-      <el-table-column label="海外可售" align="right" prop="overseasSellable" width="105" sortable="custom" />
-      <el-table-column label="海外总库存" align="right" prop="overseasTotal" width="120" sortable="custom" />
-      <el-table-column label="采购待交付" align="right" prop="purchasePendingDelivery" width="120" sortable="custom" />
-      <el-table-column label="成都可售" align="right" prop="localSellable" width="105" sortable="custom" />
-      <el-table-column label="成都在途" align="right" prop="localOnway" width="105" sortable="custom" />
-      <el-table-column label="采购计划" align="right" prop="purchasePlanQty" width="105" sortable="custom" />
-      <el-table-column label="待出库" align="right" prop="lockedQty" width="95" sortable="custom" />
-      <el-table-column label="总库存" align="right" prop="totalInventory" width="105" sortable="custom" />
-      <el-table-column label="近7天销量" align="right" prop="sales7d" width="110" sortable="custom" />
-      <el-table-column label="近30天销量" align="right" prop="sales30d" width="120" sortable="custom" />
-      <el-table-column label="近90天销量" align="right" prop="sales90d" width="120" sortable="custom" />
-      <el-table-column label="历史最大月销" align="right" prop="maxMonthlySales" width="130" sortable="custom" />
-      <el-table-column label="海外在库库销比" align="right" prop="overseasSellableSalesRatio" width="145" sortable="custom">
-        <template #default="scope">{{ formatRatio(scope.row.overseasSellableSalesRatio) }}</template>
-      </el-table-column>
-      <el-table-column label="海外总库销比" align="right" prop="overseasTotalSalesRatio" width="135" sortable="custom">
-        <template #default="scope">{{ formatRatio(scope.row.overseasTotalSalesRatio) }}</template>
-      </el-table-column>
-      <el-table-column label="总库存库销比" align="right" prop="totalInventorySalesRatio" width="135" sortable="custom">
-        <template #default="scope">{{ formatRatio(scope.row.totalInventorySalesRatio) }}</template>
-      </el-table-column>
-      <el-table-column label="最近本地出库" align="center" prop="lastLocalOutboundTime" width="140" :show-overflow-tooltip="true" />
-      <el-table-column label="出库天数" align="right" prop="outboundDays" width="105" sortable="custom" />
-      <el-table-column label="采购周期" align="right" prop="purchaseCycleDays" width="105" sortable="custom" />
-      <el-table-column label="采购数量" align="right" prop="suggestPurchaseQty" width="110" sortable="custom" />
-      <el-table-column label="最大月销补货量" align="right" prop="maxMonthlyReplenishQty" width="145" sortable="custom" />
-      <el-table-column label="负责人" align="center" prop="ownerName" width="110" :show-overflow-tooltip="true" />
-      <el-table-column label="计算时间" align="center" prop="calcTime" width="170">
-        <template #default="scope">
-          <span>{{ parseTime(scope.row.calcTime) }}</span>
-        </template>
-      </el-table-column>
+      <template v-for="col in visibleColumns" :key="col.key">
+        <el-table-column
+          v-if="col.key === 'skuLevel'"
+          :label="col.label"
+          align="center"
+          prop="skuLevel"
+          :width="col.width"
+          sortable="custom"
+        >
+          <template #default="scope">
+            <el-tag :type="levelTagType(scope.row.skuLevel)" effect="light">{{ scope.row.skuLevel || '-' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'percentNumber'"
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+          sortable="custom"
+        >
+          <template #default="scope">{{ formatPercentNumber(scope.row[col.key]) }}</template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'rate'"
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+          sortable="custom"
+        >
+          <template #default="scope">{{ formatRate(scope.row[col.key]) }}</template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'ratio'"
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+          sortable="custom"
+        >
+          <template #default="scope">{{ formatRatio(scope.row[col.key]) }}</template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'time'"
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+          :show-overflow-tooltip="col.tooltip"
+        >
+          <template #default="scope">
+            <span>{{ parseTime(scope.row[col.key]) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-else
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+          :fixed="col.fixed || false"
+          :sortable="col.sortable ? 'custom' : false"
+          :show-overflow-tooltip="col.tooltip"
+        />
+      </template>
     </el-table>
 
     <pagination
@@ -137,12 +163,22 @@
       v-model:limit="queryParams.pageSize"
       @pagination="getList"
     />
+
+    <column-config-drawer
+      v-model="showColumnDrawer"
+      :columns="columnDefs"
+      :fixed-keys="fixedColumnKeys"
+      :visible-keys="visibleKeys"
+      @apply="handleColumnApply"
+    />
   </div>
 </template>
 
 <script setup name="EbayReplenishment">
 import { listEbayReplenishment } from '@/api/operations/ebay/replenishment'
 import request from '@/utils/request'
+import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
+import { useColumnConfig } from '@/composables/useColumnConfig'
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
@@ -152,6 +188,49 @@ const showSearch = ref(true)
 const total = ref(0)
 const replenishmentList = ref([])
 const checkedRows = ref([])
+const fixedColumnKeys = ['site', 'sku']
+const columnDefs = [
+  { key: 'site', label: '站点', align: 'center', width: 90, fixed: true, sortable: true },
+  { key: 'sku', label: 'SKU', align: 'left', width: 170, fixed: true, sortable: true, tooltip: true },
+  { key: 'productName', label: '产品名称', align: 'left', width: 260, tooltip: true },
+  { key: 'skuLevel', label: '等级', align: 'center', width: 80, sortable: true },
+  { key: 'profitRate30d', label: '近30天利润', align: 'right', width: 120, sortable: true, format: 'percentNumber' },
+  { key: 'returnRate', label: '退货率', align: 'right', width: 100, sortable: true, format: 'rate' },
+  { key: 'overseasOnway', label: '海外在途', align: 'right', width: 105, sortable: true },
+  { key: 'overseasSellable', label: '海外可售', align: 'right', width: 105, sortable: true },
+  { key: 'overseasTotal', label: '海外总库存', align: 'right', width: 120, sortable: true },
+  { key: 'purchasePendingDelivery', label: '采购待交付', align: 'right', width: 120, sortable: true },
+  { key: 'localSellable', label: '成都可售', align: 'right', width: 105, sortable: true },
+  { key: 'localOnway', label: '成都在途', align: 'right', width: 105, sortable: true },
+  { key: 'purchasePlanQty', label: '采购计划', align: 'right', width: 105, sortable: true },
+  { key: 'lockedQty', label: '待出库', align: 'right', width: 95, sortable: true },
+  { key: 'totalInventory', label: '总库存', align: 'right', width: 105, sortable: true },
+  { key: 'sales7d', label: '近7天销量', align: 'right', width: 110, sortable: true },
+  { key: 'sales30d', label: '近30天销量', align: 'right', width: 120, sortable: true },
+  { key: 'sales90d', label: '近90天销量', align: 'right', width: 120, sortable: true },
+  { key: 'maxMonthlySales', label: '历史最大月销', align: 'right', width: 130, sortable: true },
+  { key: 'overseasSellableSalesRatio', label: '海外在库库销比', align: 'right', width: 145, sortable: true, format: 'ratio' },
+  { key: 'overseasTotalSalesRatio', label: '海外总库销比', align: 'right', width: 135, sortable: true, format: 'ratio' },
+  { key: 'totalInventorySalesRatio', label: '总库存库销比', align: 'right', width: 135, sortable: true, format: 'ratio' },
+  { key: 'lastLocalOutboundTime', label: '最近本地出库', align: 'center', width: 140, tooltip: true },
+  { key: 'outboundDays', label: '出库天数', align: 'right', width: 105, sortable: true },
+  { key: 'purchaseCycleDays', label: '采购周期', align: 'right', width: 105, sortable: true },
+  { key: 'suggestPurchaseQty', label: '采购数量', align: 'right', width: 110, sortable: true },
+  { key: 'maxMonthlyReplenishQty', label: '最大月销补货量', align: 'right', width: 145, sortable: true },
+  { key: 'ownerName', label: '负责人', align: 'center', width: 110, tooltip: true },
+  { key: 'calcTime', label: '计算时间', align: 'center', width: 170, format: 'time' }
+]
+const {
+  showColumnDrawer,
+  columnConfigLoaded,
+  columnTableKey,
+  visibleKeys,
+  visibleColumns,
+  exportColumns,
+  openColumnConfig,
+  initColumnConfig,
+  applyColumnConfig
+} = useColumnConfig('operations:ebay:replenishment', columnDefs, fixedColumnKeys)
 const data = reactive({
   queryParams: {
     pageNum: 1,
@@ -217,11 +296,17 @@ function handleImport(command) {
 
 function handleSelectionChange(rows) { checkedRows.value = rows }
 
+async function handleColumnApply(keys) {
+  await applyColumnConfig(keys)
+  proxy.$modal.msgSuccess('列配置已保存')
+}
+
 function handleExport() {
   const selected = checkedRows.value.length > 0
   const body = {
     scope: selected ? 'SELECTED' : 'FILTERED',
-    rowKeys: selected ? checkedRows.value.map(r => r.site + '|' + r.sku) : undefined
+    rowKeys: selected ? checkedRows.value.map(r => r.site + '|' + r.sku) : undefined,
+    columns: exportColumns.value
   }
   if (!selected) {
     body.filters = []
@@ -262,7 +347,12 @@ function levelTagType(level) {
   return map[level] || 'info'
 }
 
-getList()
+async function initPage() {
+  await initColumnConfig()
+  getList()
+}
+
+initPage()
 </script>
 
 <style scoped>

@@ -44,69 +44,119 @@
         <el-button type="warning" plain icon="Download" @click="handleExport"
           v-hasPermi="['operations:ebayReplenishment:export']">导出</el-button>
       </el-col>
-      <right-toolbar v-model:showSearch="showSearch" @queryTable="handleRefresh"></right-toolbar>
+      <right-toolbar
+        v-model:showSearch="showSearch"
+        :show-column-config="true"
+        @queryTable="handleRefresh"
+        @columnConfig="openColumnConfig"
+      ></right-toolbar>
     </el-row>
 
-    <el-table v-loading="loading" :data="records" border stripe height="640" :row-key="(row) => row.site + '|' + row.sku" @selection-change="handleSelectionChange" @sort-change="handleSortChange">
+    <el-table v-if="columnConfigLoaded" :key="columnTableKey" v-loading="loading" :data="records" border stripe height="640" :row-key="(row) => row.site + '|' + row.sku" @selection-change="handleSelectionChange" @sort-change="handleSortChange">
       <el-table-column type="selection" width="45" fixed />
-      <el-table-column label="站点" align="center" prop="site" width="90" fixed sortable="custom" />
-      <el-table-column label="SKU" align="left" prop="sku" width="170" fixed sortable="custom" :show-overflow-tooltip="true" />
-      <el-table-column label="产品名称" align="left" prop="productName" width="260" :show-overflow-tooltip="true" />
-      <el-table-column label="等级" align="center" prop="skuLevel" width="80">
-        <template #default="scope">
-          <el-tag :type="levelTagType(scope.row.skuLevel)" effect="light">{{ scope.row.skuLevel || '-' }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="我方最低价" align="right" prop="ourLowestPrice" width="110" sortable="custom">
-        <template #default="scope">{{ scope.row.ourLowestPrice ?? '-' }}</template>
-      </el-table-column>
-      <el-table-column label="跟卖价" align="right" prop="trackingPrice" width="110" sortable="custom">
-        <template #default="scope">{{ scope.row.trackingPrice ?? '-' }}</template>
-      </el-table-column>
-      <el-table-column label="跟卖利润率" align="right" prop="trackingProfitMargin" width="130" sortable="custom">
-        <template #default="scope">{{ formatPercent(scope.row.trackingProfitMargin) }}</template>
-      </el-table-column>
-      <el-table-column label="底线价" align="right" prop="floorPrice" width="100" sortable="custom">
-        <template #default="scope">{{ scope.row.floorPrice ?? '-' }}</template>
-      </el-table-column>
-      <el-table-column label="退货率" align="right" prop="returnRate" width="90" sortable="custom">
-        <template #default="scope">{{ formatRate(scope.row.returnRate) }}</template>
-      </el-table-column>
-      <el-table-column label="近3天销量" align="right" prop="sales3d" width="110" sortable="custom" />
-      <el-table-column label="近7天销量" align="right" prop="sales7d" width="110" sortable="custom" />
-      <el-table-column label="近30天销量" align="right" prop="sales30d" width="120" sortable="custom" />
-      <el-table-column label="近90天销量" align="right" prop="sales90d" width="120" sortable="custom" />
-      <el-table-column label="历史最大月销" align="right" prop="maxMonthlySales" width="140" sortable="custom" />
-      <el-table-column label="OE号" align="center" prop="oeNumber" width="120" :show-overflow-tooltip="true" />
-      <el-table-column label="售前链接" align="center" prop="presaleUrl" width="70">
-        <template #default="scope"><a v-if="scope.row.presaleUrl" :href="scope.row.presaleUrl" target="_blank" style="color:#409EFF">链接</a><span v-else>-</span></template>
-      </el-table-column>
-      <el-table-column label="售后链接" align="center" prop="soldUrl" width="70">
-        <template #default="scope"><a v-if="scope.row.soldUrl" :href="scope.row.soldUrl" target="_blank" style="color:#409EFF">链接</a><span v-else>-</span></template>
-      </el-table-column>
-      <el-table-column label="海外仓库存" align="right" prop="overseasStock" width="120" sortable="custom" />
-      <el-table-column label="海外仓库龄" align="right" prop="overseasStockAgeDays" width="120" sortable="custom">
-        <template #default="scope">{{ scope.row.overseasStockAgeDays != null ? scope.row.overseasStockAgeDays + '天' : '-' }}</template>
-      </el-table-column>
-      <el-table-column label="库销比" align="right" prop="stockSalesRatio" width="100" sortable="custom">
-        <template #default="scope">{{ scope.row.stockSalesRatio != null ? scope.row.stockSalesRatio + '%' : '-' }}</template>
-      </el-table-column>
-      <el-table-column label="预估补货量" align="right" prop="estimatedReplenishQty" width="120" sortable="custom" />
-      <el-table-column label="品牌" align="center" prop="brandCode" width="90" :show-overflow-tooltip="true" />
-      <el-table-column label="操作员" align="center" prop="operatorName" width="100" :show-overflow-tooltip="true" />
-      <el-table-column label="备注" align="left" prop="remark" width="180" :show-overflow-tooltip="true" />
-      <el-table-column label="计算时间" align="center" prop="calcTime" width="170">
-        <template #default="scope"><span>{{ parseTime(scope.row.calcTime) }}</span></template>
-      </el-table-column>
+      <template v-for="col in visibleColumns" :key="col.key">
+        <el-table-column
+          v-if="col.key === 'skuLevel'"
+          :label="col.label"
+          align="center"
+          prop="skuLevel"
+          :width="col.width"
+        >
+          <template #default="scope">
+            <el-tag :type="levelTagType(scope.row.skuLevel)" effect="light">{{ scope.row.skuLevel || '-' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'percent'"
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+          sortable="custom"
+        >
+          <template #default="scope">{{ formatPercent(scope.row[col.key]) }}</template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'rate'"
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+          sortable="custom"
+        >
+          <template #default="scope">{{ formatRate(scope.row[col.key]) }}</template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'days'"
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+          sortable="custom"
+        >
+          <template #default="scope">{{ scope.row[col.key] != null ? scope.row[col.key] + '天' : '-' }}</template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'percentText'"
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+          sortable="custom"
+        >
+          <template #default="scope">{{ scope.row[col.key] != null ? scope.row[col.key] + '%' : '-' }}</template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'link'"
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+        >
+          <template #default="scope">
+            <a v-if="scope.row[col.key]" :href="scope.row[col.key]" target="_blank" style="color:#409EFF">链接</a>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'time'"
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+        >
+          <template #default="scope"><span>{{ parseTime(scope.row[col.key]) }}</span></template>
+        </el-table-column>
+        <el-table-column
+          v-else
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+          :fixed="col.fixed || false"
+          :sortable="col.sortable ? 'custom' : false"
+          :show-overflow-tooltip="col.tooltip"
+        />
+      </template>
     </el-table>
 
     <pagination v-show="total > 0" :total="total" v-model:page="queryParams.pageNum" v-model:limit="queryParams.pageSize" @pagination="getList" />
+
+    <column-config-drawer
+      v-model="showColumnDrawer"
+      :columns="columnDefs"
+      :fixed-keys="fixedColumnKeys"
+      :visible-keys="visibleKeys"
+      @apply="handleColumnApply"
+    />
   </div>
 </template>
 
 <script setup name="EbayPriceTracking">
 import { searchPriceTracking, refreshPriceTracking } from '@/api/operations/ebay/priceTracking'
 import request from '@/utils/request'
+import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
+import { useColumnConfig } from '@/composables/useColumnConfig'
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
@@ -116,6 +166,45 @@ const showSearch = ref(true)
 const total = ref(0)
 const records = ref([])
 const checkedRows = ref([])
+const fixedColumnKeys = ['site', 'sku']
+const columnDefs = [
+  { key: 'site', label: '站点', align: 'center', width: 90, fixed: true, sortable: true },
+  { key: 'sku', label: 'SKU', align: 'left', width: 170, fixed: true, sortable: true, tooltip: true },
+  { key: 'productName', label: '产品名称', align: 'left', width: 260, tooltip: true },
+  { key: 'skuLevel', label: '等级', align: 'center', width: 80 },
+  { key: 'ourLowestPrice', label: '我方最低价', align: 'right', width: 110, sortable: true },
+  { key: 'trackingPrice', label: '跟卖价', align: 'right', width: 110, sortable: true },
+  { key: 'trackingProfitMargin', label: '跟卖利润率', align: 'right', width: 130, sortable: true, format: 'percent' },
+  { key: 'floorPrice', label: '底线价', align: 'right', width: 100, sortable: true },
+  { key: 'returnRate', label: '退货率', align: 'right', width: 90, sortable: true, format: 'rate' },
+  { key: 'sales3d', label: '近3天销量', align: 'right', width: 110, sortable: true },
+  { key: 'sales7d', label: '近7天销量', align: 'right', width: 110, sortable: true },
+  { key: 'sales30d', label: '近30天销量', align: 'right', width: 120, sortable: true },
+  { key: 'sales90d', label: '近90天销量', align: 'right', width: 120, sortable: true },
+  { key: 'maxMonthlySales', label: '历史最大月销', align: 'right', width: 140, sortable: true },
+  { key: 'oeNumber', label: 'OE号', align: 'center', width: 120, tooltip: true },
+  { key: 'presaleUrl', label: '售前链接', align: 'center', width: 70, format: 'link' },
+  { key: 'soldUrl', label: '售后链接', align: 'center', width: 70, format: 'link' },
+  { key: 'overseasStock', label: '海外仓库存', align: 'right', width: 120, sortable: true },
+  { key: 'overseasStockAgeDays', label: '海外仓库龄', align: 'right', width: 120, sortable: true, format: 'days' },
+  { key: 'stockSalesRatio', label: '库销比', align: 'right', width: 100, sortable: true, format: 'percentText' },
+  { key: 'estimatedReplenishQty', label: '预估补货量', align: 'right', width: 120, sortable: true },
+  { key: 'brandCode', label: '品牌', align: 'center', width: 90, tooltip: true },
+  { key: 'operatorName', label: '操作员', align: 'center', width: 100, tooltip: true },
+  { key: 'remark', label: '备注', align: 'left', width: 180, tooltip: true },
+  { key: 'calcTime', label: '计算时间', align: 'center', width: 170, format: 'time' }
+]
+const {
+  showColumnDrawer,
+  columnConfigLoaded,
+  columnTableKey,
+  visibleKeys,
+  visibleColumns,
+  exportColumns,
+  openColumnConfig,
+  initColumnConfig,
+  applyColumnConfig
+} = useColumnConfig('operations:ebay:priceTracking', columnDefs, fixedColumnKeys)
 const data = reactive({
   queryParams: {
     pageNum: 1,
@@ -203,10 +292,16 @@ function handleImport(command) {
 
 function handleSelectionChange(rows) { checkedRows.value = rows }
 
+async function handleColumnApply(keys) {
+  await applyColumnConfig(keys)
+  proxy.$modal.msgSuccess('列配置已保存')
+}
+
 function handleExport() {
   const sel = checkedRows.value.length > 0
   const body = { scope: sel ? 'SELECTED' : 'FILTERED',
-    rowKeys: sel ? checkedRows.value.map(r => r.site + '|' + r.sku) : undefined }
+    rowKeys: sel ? checkedRows.value.map(r => r.site + '|' + r.sku) : undefined,
+    columns: exportColumns.value }
   if (!sel) {
     body.filters = []
     const p = queryParams.value
@@ -240,7 +335,12 @@ function levelTagType(level) {
   return map[level] || 'info'
 }
 
-getList()
+async function initPage() {
+  await initColumnConfig()
+  getList()
+}
+
+initPage()
 </script>
 
 <style scoped>

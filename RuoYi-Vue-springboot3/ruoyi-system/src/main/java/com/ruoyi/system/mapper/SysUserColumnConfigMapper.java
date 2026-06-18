@@ -1,11 +1,13 @@
 package com.ruoyi.system.mapper;
 
-import com.ruoyi.system.domain.SysUserColumnConfig;
 import org.apache.ibatis.annotations.Param;
+import com.ruoyi.system.domain.SysUserColumnConfig;
 
 public interface SysUserColumnConfigMapper
 {
-    SysUserColumnConfig selectByUserAndPage(@Param("userId") Long userId, @Param("pageKey") String pageKey);
-    int insert(SysUserColumnConfig config);
-    int update(SysUserColumnConfig config);
+    SysUserColumnConfig selectByUserPage(@Param("userId") Long userId, @Param("pageKey") String pageKey);
+
+    int insertConfig(SysUserColumnConfig config);
+
+    int updateConfig(SysUserColumnConfig config);
 }

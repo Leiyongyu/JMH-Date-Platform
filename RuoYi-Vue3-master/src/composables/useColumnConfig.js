@@ -1,87 +1,103 @@
-import { ref, computed } from 'vue'
-import { getColumnConfig, saveColumnConfig } from '@/api/system/userColumnConfig'
+import { computed, ref } from 'vue'
+import { getUserColumnConfig, saveUserColumnConfig } from '@/api/system/userColumnConfig'
 
-export function useColumnConfig(pageKey, fixedKeys = [], columnMap = {}) {
-  const allKeys = Object.keys(columnMap)
+export function useColumnConfig(pageKey, columns, fixedKeys = []) {
+  const showColumnDrawer = ref(false)
+  const allKeys = columns.map((item) => item.key)
+  const columnMap = new Map(columns.map((item) => [item.key, item]))
   const visibleKeys = ref([...allKeys])
-  const showDrawer = ref(false)
-  const loading = ref(false)
-  let snapshot = []
+  const columnConfigLoaded = ref(false)
 
-  async function init() {
-    loading.value = true
-    try {
-      const res = await getColumnConfig(pageKey)
-      if (res?.data && Array.isArray(JSON.parse(res.data))) {
-        const saved = JSON.parse(res.data)
-        const newKeys = allKeys.filter(k => !saved.includes(k))
-        visibleKeys.value = [...saved.filter(k => allKeys.includes(k)), ...newKeys]
+  function normalizeKeys(keys, appendMissing = true) {
+    const valid = Array.isArray(keys) ? keys.filter((key) => columnMap.has(key)) : []
+    const merged = []
+    fixedKeys.forEach((key) => {
+      if (columnMap.has(key) && !merged.includes(key)) merged.push(key)
+    })
+    valid.forEach((key) => {
+      if (!merged.includes(key)) merged.push(key)
+    })
+    if (appendMissing) {
+      allKeys.forEach((key) => {
+        if (!merged.includes(key)) merged.push(key)
+      })
+    }
+    return merged
+  }
+
+  function parseSavedConfig(raw) {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (Array.isArray(parsed)) {
+      return {
+        visibleKeys: parsed,
+        knownKeys: parsed,
+        appendMissing: false
       }
-    } catch (e) { /* 无配置则用默认 */ }
-    finally { loading.value = false }
+    }
+    return {
+      visibleKeys: Array.isArray(parsed.visibleKeys) ? parsed.visibleKeys : [],
+      knownKeys: Array.isArray(parsed.allKeys) ? parsed.allKeys : [],
+      appendMissing: true
+    }
   }
 
-  function openDrawer() {
-    snapshot = [...visibleKeys.value]
-    showDrawer.value = true
+  function restoreKeys(saved) {
+    const restored = normalizeKeys(saved.visibleKeys, false)
+    if (!saved.appendMissing) return restored
+
+    const knownKeys = new Set(saved.knownKeys || [])
+    allKeys.forEach((key) => {
+      if (!knownKeys.has(key) && !restored.includes(key)) {
+        restored.push(key)
+      }
+    })
+    return restored
   }
 
-  function closeDrawer(apply) {
-    if (apply) save()
-    else visibleKeys.value = [...snapshot]
-    showDrawer.value = false
+  async function initColumnConfig() {
+    try {
+      const res = await getUserColumnConfig(pageKey)
+      if (res.data) {
+        visibleKeys.value = restoreKeys(parseSavedConfig(res.data))
+      }
+    } catch (e) {
+      visibleKeys.value = normalizeKeys([], true)
+    } finally {
+      columnConfigLoaded.value = true
+    }
   }
 
-  const selectedColumns = computed(() =>
-    visibleKeys.value.filter(k => allKeys.includes(k)).map(k => ({ key: k, ...columnMap[k] }))
-  )
-
-  const leftCols = computed(() =>
-    allKeys.map(k => ({
-      key: k, title: columnMap[k]?.label || k,
-      checked: visibleKeys.value.includes(k), disabled: fixedKeys.includes(k)
+  async function applyColumnConfig(keys) {
+    visibleKeys.value = normalizeKeys(keys, false)
+    await saveUserColumnConfig(pageKey, JSON.stringify({
+      version: 1,
+      visibleKeys: visibleKeys.value,
+      allKeys
     }))
-  )
-
-  const isAllChecked = computed(() => visibleKeys.value.length === allKeys.length)
-
-  function toggleAll() {
-    if (isAllChecked.value) visibleKeys.value = [...fixedKeys]
-    else visibleKeys.value = [...allKeys]
   }
 
-  function toggleColumn(key) {
-    if (fixedKeys.includes(key)) return
-    const idx = visibleKeys.value.indexOf(key)
-    if (idx >= 0) visibleKeys.value.splice(idx, 1)
-    else visibleKeys.value.push(key)
+  function isColumnVisible(key) {
+    return visibleKeys.value.includes(key)
   }
 
-  let dragIdx = -1
-  function onDragStart(idx) { dragIdx = idx }
-  function onDragOver(e) { e.preventDefault() }
-  function onDrop(idx) {
-    if (dragIdx < 0 || dragIdx === idx) return
-    const arr = [...visibleKeys.value]
-    const item = arr.splice(dragIdx, 1)[0]
-    if (fixedKeys.includes(item) && idx > fixedKeys.length - 1) return
-    arr.splice(idx, 0, item)
-    visibleKeys.value = arr
-    dragIdx = -1
-  }
-  function onDragEnd() { dragIdx = -1 }
-
-  async function save() {
-    const keys = visibleKeys.value.filter(k => allKeys.includes(k))
-    try { await saveColumnConfig(pageKey, JSON.stringify(keys)) }
-    catch { /* silent */ }
+  function openColumnConfig() {
+    showColumnDrawer.value = true
   }
 
-  function colVisible(key) { return visibleKeys.value.includes(key) }
+  const visibleColumns = computed(() => visibleKeys.value.map((key) => columnMap.get(key)).filter(Boolean))
+  const exportColumns = computed(() => visibleColumns.value.map((item) => ({ key: item.key, title: item.label })))
+  const columnTableKey = computed(() => `${pageKey}:${visibleKeys.value.join('|')}`)
 
   return {
-    visibleKeys, showDrawer, loading, selectedColumns, leftCols, isAllChecked,
-    init, openDrawer, closeDrawer, colVisible,
-    toggleAll, toggleColumn, onDragStart, onDragOver, onDrop, onDragEnd
+    showColumnDrawer,
+    columnConfigLoaded,
+    columnTableKey,
+    visibleKeys,
+    visibleColumns,
+    exportColumns,
+    isColumnVisible,
+    openColumnConfig,
+    initColumnConfig,
+    applyColumnConfig
   }
 }

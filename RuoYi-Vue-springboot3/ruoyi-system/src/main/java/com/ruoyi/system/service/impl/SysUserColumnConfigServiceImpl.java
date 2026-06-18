@@ -1,39 +1,50 @@
 package com.ruoyi.system.service.impl;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import com.ruoyi.system.domain.SysUserColumnConfig;
 import com.ruoyi.system.mapper.SysUserColumnConfigMapper;
 import com.ruoyi.system.service.ISysUserColumnConfigService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
 
 @Service
 public class SysUserColumnConfigServiceImpl implements ISysUserColumnConfigService
 {
     @Autowired
-    private SysUserColumnConfigMapper mapper;
+    private SysUserColumnConfigMapper columnConfigMapper;
 
     @Override
-    public String getConfig(Long userId, String userName, String pageKey)
+    public String selectConfigJson(Long userId, String pageKey)
     {
-        SysUserColumnConfig cfg = mapper.selectByUserAndPage(userId, pageKey);
-        return cfg != null ? cfg.getConfigJson() : null;
+        if (userId == null || !StringUtils.hasText(pageKey))
+        {
+            return null;
+        }
+        SysUserColumnConfig config = columnConfigMapper.selectByUserPage(userId, pageKey);
+        return config != null ? config.getConfigJson() : null;
     }
 
     @Override
-    public void saveConfig(Long userId, String userName, String pageKey, String configJson)
+    public int saveConfigJson(Long userId, String userName, String pageKey, String configJson)
     {
-        SysUserColumnConfig cfg = mapper.selectByUserAndPage(userId, pageKey);
-        if (cfg != null)
+        if (userId == null || !StringUtils.hasText(pageKey))
         {
-            cfg.setConfigJson(configJson);
-            mapper.update(cfg);
+            throw new IllegalArgumentException("pageKey is required");
         }
-        else
+        SysUserColumnConfig config = columnConfigMapper.selectByUserPage(userId, pageKey);
+        if (config == null)
         {
-            SysUserColumnConfig newCfg = new SysUserColumnConfig();
-            newCfg.setUserId(userId); newCfg.setUserName(userName);
-            newCfg.setPageKey(pageKey); newCfg.setConfigJson(configJson);
-            mapper.insert(newCfg);
+            config = new SysUserColumnConfig();
+            config.setUserId(userId);
+            config.setUserName(userName);
+            config.setPageKey(pageKey);
+            config.setConfigJson(configJson);
+            config.setCreateBy(userName);
+            return columnConfigMapper.insertConfig(config);
         }
+        config.setUserName(userName);
+        config.setConfigJson(configJson);
+        config.setUpdateBy(userName);
+        return columnConfigMapper.updateConfig(config);
     }
 }
