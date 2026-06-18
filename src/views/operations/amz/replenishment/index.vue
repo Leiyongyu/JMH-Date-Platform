@@ -74,7 +74,6 @@
           </template>
         </el-dropdown>
       </el-col>
-      <el-col :span="1.5"><el-button icon="Setting" circle @click="openColDrawer" title="列设置" /></el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
@@ -87,51 +86,51 @@
       @sort-change="handleSortChange"
     >
       <el-table-column type="selection" width="45" fixed />
-      <el-table-column label="店铺" align="left" prop="storeName" v-if="colVisible('storeName')" width="160" fixed sortable="custom" :show-overflow-tooltip="true" />
-      <el-table-column label="Seller SKU" align="left" prop="sellerSku" v-if="colVisible('sellerSku')" width="180" fixed sortable="custom" :show-overflow-tooltip="true" />
-      <el-table-column label="仓库SKU" align="left" prop="warehouseSku" v-if="colVisible('warehouseSku')" width="170" sortable="custom" :show-overflow-tooltip="true" />
-      <el-table-column label="仓库" align="left" prop="warehouseName" v-if="colVisible('warehouseName')" width="170" :show-overflow-tooltip="true" />
-      <el-table-column label="ASIN" align="center" prop="asin" v-if="colVisible('asin')" width="130" sortable="custom" :show-overflow-tooltip="true" />
-      <el-table-column label="负责人" align="center" prop="principalName" v-if="colVisible('principalName')" width="120" :show-overflow-tooltip="true" />
-      <el-table-column label="产品分类" align="center" prop="productCategory" v-if="colVisible('productCategory')" width="130" :show-overflow-tooltip="true" />
-      <el-table-column label="评分" align="right" prop="rating" v-if="colVisible('rating')" width="80" sortable="custom" />
-      <el-table-column label="评论数" align="right" prop="reviewCount" v-if="colVisible('reviewCount')" width="100" sortable="custom" />
-      <el-table-column label="广告费率" align="right" prop="adRate" v-if="colVisible('adRate')" width="105" sortable="custom">
+      <el-table-column label="店铺" align="left" prop="storeName" width="160" fixed sortable="custom" :show-overflow-tooltip="true" />
+      <el-table-column label="Seller SKU" align="left" prop="sellerSku" width="180" fixed sortable="custom" :show-overflow-tooltip="true" />
+      <el-table-column label="仓库SKU" align="left" prop="warehouseSku" width="170" sortable="custom" :show-overflow-tooltip="true" />
+      <el-table-column label="仓库" align="left" prop="warehouseName" width="170" :show-overflow-tooltip="true" />
+      <el-table-column label="ASIN" align="center" prop="asin" width="130" sortable="custom" :show-overflow-tooltip="true" />
+      <el-table-column label="负责人" align="center" prop="principalName" width="120" :show-overflow-tooltip="true" />
+      <el-table-column label="产品分类" align="center" prop="productCategory" width="130" :show-overflow-tooltip="true" />
+      <el-table-column label="评分" align="right" prop="rating" width="80" sortable="custom" />
+      <el-table-column label="评论数" align="right" prop="reviewCount" width="100" sortable="custom" />
+      <el-table-column label="广告费率" align="right" prop="adRate" width="105" sortable="custom">
         <template #default="scope">{{ formatPercentNumber(scope.row.adRate) }}</template>
       </el-table-column>
-      <el-table-column label="30天利润率" align="right" prop="profitRate30d" v-if="colVisible('profitRate30d')" width="120" sortable="custom">
+      <el-table-column label="30天利润率" align="right" prop="profitRate30d" width="120" sortable="custom">
         <template #default="scope">{{ formatPercentNumber(scope.row.profitRate30d) }}</template>
       </el-table-column>
-      <el-table-column label="90天退款率" align="right" prop="refundRate90d" v-if="colVisible('refundRate90d')" width="120" sortable="custom">
+      <el-table-column label="90天退款率" align="right" prop="refundRate90d" width="120" sortable="custom">
         <template #default="scope">{{ formatPercentNumber(scope.row.refundRate90d) }}</template>
       </el-table-column>
-      <el-table-column label="已采购数量" align="right" prop="purchasedQty" v-if="colVisible('purchasedQty')" width="120" sortable="custom" />
-      <el-table-column label="国内仓库存" align="right" prop="domesticStock" v-if="colVisible('domesticStock')" width="120" sortable="custom" />
-      <el-table-column label="待出库" align="right" prop="pendingShipQty" v-if="colVisible('pendingShipQty')" width="95" sortable="custom" />
-      <el-table-column label="FBA在库" align="right" prop="fbaStock" v-if="colVisible('fbaStock')" width="105" sortable="custom" />
-      <el-table-column label="FBA在途" align="right" prop="fbaInbound" v-if="colVisible('fbaInbound')" width="105" sortable="custom" />
-      <el-table-column label="总库存" align="right" prop="totalInventory" v-if="colVisible('totalInventory')" width="105" sortable="custom" />
-      <el-table-column label="7天销量" align="right" prop="sales7d" v-if="colVisible('sales7d')" width="95" sortable="custom" />
-      <el-table-column label="14天销量" align="right" prop="sales14d" v-if="colVisible('sales14d')" width="100" sortable="custom" />
-      <el-table-column label="30天销量" align="right" prop="sales30d" v-if="colVisible('sales30d')" width="100" sortable="custom" />
-      <el-table-column label="60天销量" align="right" prop="sales60d" v-if="colVisible('sales60d')" width="100" sortable="custom" />
-      <el-table-column label="14日均销" align="right" prop="salesSpeed14d" v-if="colVisible('salesSpeed14d')" width="105" sortable="custom" />
-      <el-table-column label="30日均销" align="right" prop="salesSpeed30d" v-if="colVisible('salesSpeed30d')" width="105" sortable="custom" />
-      <el-table-column label="60日均销" align="right" prop="salesSpeed60d" v-if="colVisible('salesSpeed60d')" width="105" sortable="custom" />
-      <el-table-column label="平均月销量" align="right" prop="avgMonthlySales" v-if="colVisible('avgMonthlySales')" width="120" sortable="custom" />
-      <el-table-column label="安全库存" align="right" prop="safetyStock" v-if="colVisible('safetyStock')" width="110" sortable="custom" />
-      <el-table-column label="发货量" align="right" prop="shipQty" v-if="colVisible('shipQty')" width="100" sortable="custom">
+      <el-table-column label="已采购数量" align="right" prop="purchasedQty" width="120" sortable="custom" />
+      <el-table-column label="国内仓库存" align="right" prop="domesticStock" width="120" sortable="custom" />
+      <el-table-column label="待出库" align="right" prop="pendingShipQty" width="95" sortable="custom" />
+      <el-table-column label="FBA在库" align="right" prop="fbaStock" width="105" sortable="custom" />
+      <el-table-column label="FBA在途" align="right" prop="fbaInbound" width="105" sortable="custom" />
+      <el-table-column label="总库存" align="right" prop="totalInventory" width="105" sortable="custom" />
+      <el-table-column label="7天销量" align="right" prop="sales7d" width="95" sortable="custom" />
+      <el-table-column label="14天销量" align="right" prop="sales14d" width="100" sortable="custom" />
+      <el-table-column label="30天销量" align="right" prop="sales30d" width="100" sortable="custom" />
+      <el-table-column label="60天销量" align="right" prop="sales60d" width="100" sortable="custom" />
+      <el-table-column label="14日均销" align="right" prop="salesSpeed14d" width="105" sortable="custom" />
+      <el-table-column label="30日均销" align="right" prop="salesSpeed30d" width="105" sortable="custom" />
+      <el-table-column label="60日均销" align="right" prop="salesSpeed60d" width="105" sortable="custom" />
+      <el-table-column label="平均月销量" align="right" prop="avgMonthlySales" width="120" sortable="custom" />
+      <el-table-column label="安全库存" align="right" prop="safetyStock" width="110" sortable="custom" />
+      <el-table-column label="发货量" align="right" prop="shipQty" width="100" sortable="custom">
         <template #default="scope">
           <span :class="{ 'negative-value': Number(scope.row.shipQty) < 0 }">{{ formatNumber(scope.row.shipQty) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="补货量" align="right" prop="replenishQty" v-if="colVisible('replenishQty')" width="100" sortable="custom">
+      <el-table-column label="补货量" align="right" prop="replenishQty" width="100" sortable="custom">
         <template #default="scope">
           <span :class="{ 'negative-value': Number(scope.row.replenishQty) < 0 }">{{ formatNumber(scope.row.replenishQty) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="补货时间" align="right" prop="restockDays" v-if="colVisible('restockDays')" width="105" sortable="custom" />
-      <el-table-column label="计算时间" align="center" prop="calcTime" v-if="colVisible('calcTime')" width="170">
+      <el-table-column label="补货时间" align="right" prop="restockDays" width="105" sortable="custom" />
+      <el-table-column label="计算时间" align="center" prop="calcTime" width="170">
         <template #default="scope">
           <span>{{ parseTime(scope.row.calcTime) }}</span>
         </template>
@@ -146,12 +145,9 @@
       @pagination="getList"
     />
   </div>
-<ColumnConfigDrawer :showDrawer="colShowDrawer" :leftCols="colLeftCols" :selectedColumns="colSelected" :isAllChecked="colIsAllChecked" :fixedKeys="colFixedKeys" :toggleAll="colToggleAll" :toggleColumn="colToggleColumn" :onDragStart="colOnDragStart" :onDragOver="colOnDragOver" :onDrop="colOnDrop" :onDragEnd="colOnDragEnd" @close="closeColDrawer(false)" @save="closeColDrawer(true)" />
 </template>
 
 <script setup name="AmzReplenishment">
-import { useColumnConfig } from '@/composables/useColumnConfig'
-import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { listAmzReplenishment } from '@/api/operations/amz/replenishment'
 
 const router = useRouter()

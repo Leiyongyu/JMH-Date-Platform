@@ -52,71 +52,67 @@
           </template>
         </el-dropdown>
       </el-col>
-      <el-col :span="1.5"><el-button icon="Setting" circle @click="openColDrawer" title="列设置" /></el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="handleRefresh"></right-toolbar>
     </el-row>
 
     <el-table v-loading="loading" :data="records" border stripe height="640" :row-key="(row) => row.site + '|' + row.sku" @selection-change="handleSelectionChange" @sort-change="handleSortChange">
       <el-table-column type="selection" width="45" fixed />
-      <el-table-column label="站点" align="center" prop="site" v-if="colVisible('site')" width="90" fixed sortable="custom" />
-      <el-table-column label="SKU" align="left" prop="sku" v-if="colVisible('sku')" width="170" fixed sortable="custom" :show-overflow-tooltip="true" />
-      <el-table-column label="产品名称" align="left" prop="productName" v-if="colVisible('productName')" width="260" :show-overflow-tooltip="true" />
-      <el-table-column label="等级" align="center" prop="skuLevel" v-if="colVisible('skuLevel')" width="80">
+      <el-table-column label="站点" align="center" prop="site" width="90" fixed sortable="custom" />
+      <el-table-column label="SKU" align="left" prop="sku" width="170" fixed sortable="custom" :show-overflow-tooltip="true" />
+      <el-table-column label="产品名称" align="left" prop="productName" width="260" :show-overflow-tooltip="true" />
+      <el-table-column label="等级" align="center" prop="skuLevel" width="80">
         <template #default="scope">
           <el-tag :type="levelTagType(scope.row.skuLevel)" effect="light">{{ scope.row.skuLevel || '-' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="我方最低价" align="right" prop="ourLowestPrice" v-if="colVisible('ourLowestPrice')" width="110" sortable="custom">
+      <el-table-column label="我方最低价" align="right" prop="ourLowestPrice" width="110" sortable="custom">
         <template #default="scope">{{ scope.row.ourLowestPrice ?? '-' }}</template>
       </el-table-column>
-      <el-table-column label="跟卖价" align="right" prop="trackingPrice" v-if="colVisible('trackingPrice')" width="110" sortable="custom">
+      <el-table-column label="跟卖价" align="right" prop="trackingPrice" width="110" sortable="custom">
         <template #default="scope">{{ scope.row.trackingPrice ?? '-' }}</template>
       </el-table-column>
-      <el-table-column label="跟卖利润率" align="right" prop="trackingProfitMargin" v-if="colVisible('trackingProfitMargin')" width="130" sortable="custom">
+      <el-table-column label="跟卖利润率" align="right" prop="trackingProfitMargin" width="130" sortable="custom">
         <template #default="scope">{{ formatPercent(scope.row.trackingProfitMargin) }}</template>
       </el-table-column>
-      <el-table-column label="底线价" align="right" prop="floorPrice" v-if="colVisible('floorPrice')" width="100" sortable="custom">
+      <el-table-column label="底线价" align="right" prop="floorPrice" width="100" sortable="custom">
         <template #default="scope">{{ scope.row.floorPrice ?? '-' }}</template>
       </el-table-column>
-      <el-table-column label="退货率" align="right" prop="returnRate" v-if="colVisible('returnRate')" width="90" sortable="custom">
+      <el-table-column label="退货率" align="right" prop="returnRate" width="90" sortable="custom">
         <template #default="scope">{{ formatRate(scope.row.returnRate) }}</template>
       </el-table-column>
-      <el-table-column label="近3天销量" align="right" prop="sales3d" v-if="colVisible('sales3d')" width="110" sortable="custom" />
-      <el-table-column label="近7天销量" align="right" prop="sales7d" v-if="colVisible('sales7d')" width="110" sortable="custom" />
-      <el-table-column label="近30天销量" align="right" prop="sales30d" v-if="colVisible('sales30d')" width="120" sortable="custom" />
-      <el-table-column label="近90天销量" align="right" prop="sales90d" v-if="colVisible('sales90d')" width="120" sortable="custom" />
-      <el-table-column label="历史最大月销" align="right" prop="maxMonthlySales" v-if="colVisible('maxMonthlySales')" width="140" sortable="custom" />
-      <el-table-column label="OE号" align="center" prop="oeNumber" v-if="colVisible('oeNumber')" width="120" :show-overflow-tooltip="true" />
-      <el-table-column label="售前链接" align="center" prop="presaleUrl" v-if="colVisible('presaleUrl')" width="70">
+      <el-table-column label="近3天销量" align="right" prop="sales3d" width="110" sortable="custom" />
+      <el-table-column label="近7天销量" align="right" prop="sales7d" width="110" sortable="custom" />
+      <el-table-column label="近30天销量" align="right" prop="sales30d" width="120" sortable="custom" />
+      <el-table-column label="近90天销量" align="right" prop="sales90d" width="120" sortable="custom" />
+      <el-table-column label="历史最大月销" align="right" prop="maxMonthlySales" width="140" sortable="custom" />
+      <el-table-column label="OE号" align="center" prop="oeNumber" width="120" :show-overflow-tooltip="true" />
+      <el-table-column label="售前链接" align="center" prop="presaleUrl" width="70">
         <template #default="scope"><a v-if="scope.row.presaleUrl" :href="scope.row.presaleUrl" target="_blank" style="color:#409EFF">链接</a><span v-else>-</span></template>
       </el-table-column>
-      <el-table-column label="售后链接" align="center" prop="soldUrl" v-if="colVisible('soldUrl')" width="70">
+      <el-table-column label="售后链接" align="center" prop="soldUrl" width="70">
         <template #default="scope"><a v-if="scope.row.soldUrl" :href="scope.row.soldUrl" target="_blank" style="color:#409EFF">链接</a><span v-else>-</span></template>
       </el-table-column>
-      <el-table-column label="海外仓库存" align="right" prop="overseasStock" v-if="colVisible('overseasStock')" width="120" sortable="custom" />
-      <el-table-column label="海外仓库龄" align="right" prop="overseasStockAgeDays" v-if="colVisible('overseasStockAgeDays')" width="120" sortable="custom">
+      <el-table-column label="海外仓库存" align="right" prop="overseasStock" width="120" sortable="custom" />
+      <el-table-column label="海外仓库龄" align="right" prop="overseasStockAgeDays" width="120" sortable="custom">
         <template #default="scope">{{ scope.row.overseasStockAgeDays != null ? scope.row.overseasStockAgeDays + '天' : '-' }}</template>
       </el-table-column>
-      <el-table-column label="库销比" align="right" prop="stockSalesRatio" v-if="colVisible('stockSalesRatio')" width="100" sortable="custom">
+      <el-table-column label="库销比" align="right" prop="stockSalesRatio" width="100" sortable="custom">
         <template #default="scope">{{ scope.row.stockSalesRatio != null ? scope.row.stockSalesRatio + '%' : '-' }}</template>
       </el-table-column>
-      <el-table-column label="预估补货量" align="right" prop="estimatedReplenishQty" v-if="colVisible('estimatedReplenishQty')" width="120" sortable="custom" />
-      <el-table-column label="品牌" align="center" prop="brandCode" v-if="colVisible('brandCode')" width="90" :show-overflow-tooltip="true" />
-      <el-table-column label="操作员" align="center" prop="operatorName" v-if="colVisible('operatorName')" width="100" :show-overflow-tooltip="true" />
-      <el-table-column label="备注" align="left" prop="remark" v-if="colVisible('remark')" width="180" :show-overflow-tooltip="true" />
-      <el-table-column label="计算时间" align="center" prop="calcTime" v-if="colVisible('calcTime')" width="170">
+      <el-table-column label="预估补货量" align="right" prop="estimatedReplenishQty" width="120" sortable="custom" />
+      <el-table-column label="品牌" align="center" prop="brandCode" width="90" :show-overflow-tooltip="true" />
+      <el-table-column label="操作员" align="center" prop="operatorName" width="100" :show-overflow-tooltip="true" />
+      <el-table-column label="备注" align="left" prop="remark" width="180" :show-overflow-tooltip="true" />
+      <el-table-column label="计算时间" align="center" prop="calcTime" width="170">
         <template #default="scope"><span>{{ parseTime(scope.row.calcTime) }}</span></template>
       </el-table-column>
     </el-table>
 
     <pagination v-show="total > 0" :total="total" v-model:page="queryParams.pageNum" v-model:limit="queryParams.pageSize" @pagination="getList" />
   </div>
-<ColumnConfigDrawer :showDrawer="colShowDrawer" :leftCols="colLeftCols" :selectedColumns="colSelected" :isAllChecked="colIsAllChecked" :fixedKeys="colFixedKeys" :toggleAll="colToggleAll" :toggleColumn="colToggleColumn" :onDragStart="colOnDragStart" :onDragOver="colOnDragOver" :onDrop="colOnDrop" :onDragEnd="colOnDragEnd" @close="closeColDrawer(false)" @save="closeColDrawer(true)" />
 </template>
 
 <script setup name="EbayPriceTracking">
-import { useColumnConfig } from '@/composables/useColumnConfig'
-import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { searchPriceTracking, refreshPriceTracking } from '@/api/operations/ebay/priceTracking'
 import request from '@/utils/request'
 
