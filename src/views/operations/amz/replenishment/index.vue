@@ -63,16 +63,26 @@
 
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
-        <el-dropdown @command="handleExport" v-hasPermi="['operations:amzReplenishment:export']">
-          <el-button type="warning" plain icon="Download">导出<el-icon class="el-icon--right"><arrow-down /></el-icon></el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="filtered">导出筛选结果</el-dropdown-item>
-              <el-dropdown-item command="selected">导出选中数据</el-dropdown-item>
-              <el-dropdown-item command="all">导出全部数据</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+      <el-col :span="1.5">
+        <el-button type="warning" plain icon="Download" @click="handleExport"
+          v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button type="warning" plain icon="Download" @click="handleExport"
+          v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button type="warning" plain icon="Download" @click="handleExport"
+          v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button type="warning" plain icon="Download" @click="handleExport"
+          v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button type="warning" plain icon="Download" @click="handleExport"
+          v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
+      </el-col>
       </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
@@ -206,15 +216,13 @@ function handleSortChange({ prop, order }) {
 
 function handleSelectionChange(rows) { checkedRows.value = rows }
 
-function handleExport(command) {
-  if (command === 'selected' && checkedRows.value.length === 0) {
-    proxy.$modal.msgWarning('请先选择要导出的数据'); return
-  }
+function handleExport() {
+  const selectedKey = checkedRows.value.length > 0
   const body = {
-    scope: command === 'selected' ? 'SELECTED' : (command === 'all' ? 'ALL' : 'FILTERED'),
-    rowKeys: command === 'selected' ? checkedRows.value.map(r => (r.sid||'') + '|' + (r.sellerSku||'') + '|' + (r.warehouseSku||'')) : undefined
+    scope: selectedKey ? 'SELECTED' : 'FILTERED',
+    rowKeys: selectedKey ? checkedRows.value.map(r => (r.sid||'') + '|' + (r.sellerSku||'') + '|' + (r.warehouseSku||'')) : undefined
   }
-  if (command !== 'all') {
+  if (!selectedKey) {
     body.filters = []
     const p = queryParams.value
     if (p.storeName) body.filters.push({ field: 'storeName', value: p.storeName })
