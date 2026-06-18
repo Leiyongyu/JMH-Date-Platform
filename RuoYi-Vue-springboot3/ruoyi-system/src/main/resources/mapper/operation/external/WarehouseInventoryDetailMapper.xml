@@ -9,6 +9,10 @@
         <result property="productId" column="product_id" />
         <result property="sellerId" column="seller_id" />
         <result property="fnsku" column="fnsku" />
+        <result property="productValidNum" column="product_valid_num" />
+        <result property="productLockNum" column="product_lock_num" />
+        <result property="productOnway" column="product_onway" />
+        <result property="quantityReceive" column="quantity_receive" />
     </resultMap>
 
     <select id="selectAll" resultMap="Result">

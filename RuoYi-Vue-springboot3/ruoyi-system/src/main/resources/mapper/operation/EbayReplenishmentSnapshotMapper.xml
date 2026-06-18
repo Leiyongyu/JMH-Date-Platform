@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<!DOCTYPE mapper
-PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
-"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ruoyi.system.mapper.operation.EbayReplenishmentSnapshotMapper">
 
     <resultMap type="com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot" id="EbayReplenishmentSnapshotResult">
@@ -37,39 +35,150 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="calcTime" column="calc_time" />
     </resultMap>
 
-    <sql id="selectSnapshotVo">
-        select id, site, sku, product_name, sku_level, profit_rate_30d, return_rate,
-               overseas_onway, overseas_sellable, overseas_total, purchase_pending_delivery,
-               local_sellable, local_onway, purchase_plan_qty, locked_qty, total_inventory,
-               sales_7d, sales_30d, sales_90d, max_monthly_sales,
-               overseas_sellable_sales_ratio, overseas_total_sales_ratio, total_inventory_sales_ratio,
-               last_local_outbound_time, outbound_days, purchase_cycle_days, suggest_purchase_qty,
-               max_monthly_replenish_qty, owner_name, calc_time
-        from ebay_replenishment_snapshot
+    <sql id="columns">
+        id, site, sku, product_name, sku_level, profit_rate_30d, return_rate,
+        overseas_onway, overseas_sellable, overseas_total, purchase_pending_delivery,
+        local_sellable, local_onway, purchase_plan_qty, locked_qty, total_inventory,
+        sales_7d, sales_30d, sales_90d, max_monthly_sales,
+        overseas_sellable_sales_ratio, overseas_total_sales_ratio, total_inventory_sales_ratio,
+        last_local_outbound_time, outbound_days, purchase_cycle_days, suggest_purchase_qty,
+        max_monthly_replenish_qty, owner_name, calc_time
     </sql>
 
-    <select id="selectEbayReplenishmentSnapshotList" parameterType="com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot" resultMap="EbayReplenishmentSnapshotResult">
-        <include refid="selectSnapshotVo"/>
+    <sql id="fromTable">from ebay_replenishment_snapshot</sql>
+
+    <!-- ==================================================================== -->
+    <!-- 新版搜索：全部筛选下推 SQL，不由 Java 内存过滤                          -->
+    <!-- params map 由 Service 层解析并校验后传入                                -->
+    <!-- ==================================================================== -->
+    <select id="search" parameterType="map" resultMap="EbayReplenishmentSnapshotResult">
+        select <include refid="columns"/> <include refid="fromTable"/>
         <where>
-            <if test="site != null and site != ''">and site = #{site}</if>
-            <if test="sku != null and sku != ''">and sku like concat('%', #{sku}, '%')</if>
-            <if test="productName != null and productName != ''">and product_name like concat('%', #{productName}, '%')</if>
-            <if test="skuLevel != null and skuLevel != ''">and sku_level = #{skuLevel}</if>
-            <if test="ownerName != null and ownerName != ''">and owner_name like concat('%', #{ownerName}, '%')</if>
+            <!-- ====== 文本字段 ====== -->
+            <if test="site != null and site != ''">
+                <choose>
+                    <when test="site.contains(',')">
+                        and site in
+                        <foreach collection="site.split(',')" item="it" open="(" separator="," close=")">#{it}</foreach>
+                    </when>
+                    <otherwise>and site like concat('%', #{site}, '%')</otherwise>
+                </choose>
+            </if>
+            <if test="sku != null and sku != ''">
+                <choose>
+                    <when test="sku.contains(',')">and sku in <foreach collection="sku.split(',')" item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <otherwise>and sku like concat('%', #{sku}, '%')</otherwise>
+                </choose>
+            </if>
+            <if test="productName != null and productName != ''">
+                and product_name like concat('%', #{productName}, '%')
+            </if>
+            <if test="skuLevel != null and skuLevel != ''">
+                <choose>
+                    <when test="skuLevel.contains(',')">and sku_level in <foreach collection="skuLevel.split(',')" item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <otherwise>and sku_level = #{skuLevel}</otherwise>
+                </choose>
+            </if>
+            <if test="ownerName != null and ownerName != ''">
+                and owner_name like concat('%', #{ownerName}, '%')
+            </if>
+
+            <!-- ====== 数值字段：每个字段有 {col}_op 和 {col}_val ====== -->
+            <if test="overseasOnway_op != null and overseasOnway_val != null">
+                and overseas_onway ${overseasOnway_op} #{overseasOnway_val}
+            </if>
+            <if test="overseasSellable_op != null and overseasSellable_val != null">
+                and overseas_sellable ${overseasSellable_op} #{overseasSellable_val}
+            </if>
+            <if test="overseasTotal_op != null and overseasTotal_val != null">
+                and overseas_total ${overseasTotal_op} #{overseasTotal_val}
+            </if>
+            <if test="totalInventory_op != null and totalInventory_val != null">
+                and total_inventory ${totalInventory_op} #{totalInventory_val}
+            </if>
+            <if test="sales7d_op != null and sales7d_val != null">
+                and sales_7d ${sales7d_op} #{sales7d_val}
+            </if>
+            <if test="sales30d_op != null and sales30d_val != null">
+                and sales_30d ${sales30d_op} #{sales30d_val}
+            </if>
+            <if test="sales90d_op != null and sales90d_val != null">
+                and sales_90d ${sales90d_op} #{sales90d_val}
+            </if>
+            <if test="maxMonthlySales_op != null and maxMonthlySales_val != null">
+                and max_monthly_sales ${maxMonthlySales_op} #{maxMonthlySales_val}
+            </if>
+            <if test="localSellable_op != null and localSellable_val != null">
+                and local_sellable ${localSellable_op} #{localSellable_val}
+            </if>
+            <if test="localOnway_op != null and localOnway_val != null">
+                and local_onway ${localOnway_op} #{localOnway_val}
+            </if>
+            <if test="lockedQty_op != null and lockedQty_val != null">
+                and locked_qty ${lockedQty_op} #{lockedQty_val}
+            </if>
+            <if test="purchasePendingDelivery_op != null and purchasePendingDelivery_val != null">
+                and purchase_pending_delivery ${purchasePendingDelivery_op} #{purchasePendingDelivery_val}
+            </if>
+            <if test="purchasePlanQty_op != null and purchasePlanQty_val != null">
+                and purchase_plan_qty ${purchasePlanQty_op} #{purchasePlanQty_val}
+            </if>
+            <if test="outboundDays_op != null and outboundDays_val != null">
+                and outbound_days ${outboundDays_op} #{outboundDays_val}
+            </if>
+            <if test="purchaseCycleDays_op != null and purchaseCycleDays_val != null">
+                and purchase_cycle_days ${purchaseCycleDays_op} #{purchaseCycleDays_val}
+            </if>
+            <if test="suggestPurchaseQty_op != null and suggestPurchaseQty_val != null">
+                and suggest_purchase_qty ${suggestPurchaseQty_op} #{suggestPurchaseQty_val}
+            </if>
+            <if test="maxMonthlyReplenishQty_op != null and maxMonthlyReplenishQty_val != null">
+                and max_monthly_replenish_qty ${maxMonthlyReplenishQty_op} #{maxMonthlyReplenishQty_val}
+            </if>
+            <if test="profitRate30d_op != null and profitRate30d_val != null">
+                and profit_rate_30d ${profitRate30d_op} #{profitRate30d_val}
+            </if>
+            <if test="returnRate_op != null and returnRate_val != null">
+                and return_rate ${returnRate_op} #{returnRate_val}
+            </if>
+            <if test="overseasSellableSalesRatio_op != null and overseasSellableSalesRatio_val != null">
+                and overseas_sellable_sales_ratio ${overseasSellableSalesRatio_op} #{overseasSellableSalesRatio_val}
+            </if>
+            <if test="overseasTotalSalesRatio_op != null and overseasTotalSalesRatio_val != null">
+                and overseas_total_sales_ratio ${overseasTotalSalesRatio_op} #{overseasTotalSalesRatio_val}
+            </if>
+            <if test="totalInventorySalesRatio_op != null and totalInventorySalesRatio_val != null">
+                and total_inventory_sales_ratio ${totalInventorySalesRatio_op} #{totalInventorySalesRatio_val}
+            </if>
         </where>
+        <include refid="sortClause"/>
+    </select>
+
+    <sql id="sortClause">
         <choose>
             <when test="sortField == 'site'">order by site</when>
             <when test="sortField == 'sku'">order by sku</when>
             <when test="sortField == 'skuLevel'">order by sku_level</when>
             <when test="sortField == 'profitRate30d'">order by profit_rate_30d</when>
             <when test="sortField == 'returnRate'">order by return_rate</when>
+            <when test="sortField == 'overseasOnway'">order by overseas_onway</when>
             <when test="sortField == 'overseasSellable'">order by overseas_sellable</when>
             <when test="sortField == 'overseasTotal'">order by overseas_total</when>
+            <when test="sortField == 'purchasePendingDelivery'">order by purchase_pending_delivery</when>
+            <when test="sortField == 'localSellable'">order by local_sellable</when>
+            <when test="sortField == 'localOnway'">order by local_onway</when>
+            <when test="sortField == 'purchasePlanQty'">order by purchase_plan_qty</when>
+            <when test="sortField == 'lockedQty'">order by locked_qty</when>
             <when test="sortField == 'totalInventory'">order by total_inventory</when>
             <when test="sortField == 'sales7d'">order by sales_7d</when>
             <when test="sortField == 'sales30d'">order by sales_30d</when>
             <when test="sortField == 'sales90d'">order by sales_90d</when>
             <when test="sortField == 'maxMonthlySales'">order by max_monthly_sales</when>
+            <when test="sortField == 'overseasSellableSalesRatio'">order by overseas_sellable_sales_ratio</when>
+            <when test="sortField == 'overseasTotalSalesRatio'">order by overseas_total_sales_ratio</when>
+            <when test="sortField == 'totalInventorySalesRatio'">order by total_inventory_sales_ratio</when>
+            <when test="sortField == 'outboundDays'">order by outbound_days</when>
+            <when test="sortField == 'purchaseCycleDays'">order by purchase_cycle_days</when>
             <when test="sortField == 'suggestPurchaseQty'">order by suggest_purchase_qty</when>
             <when test="sortField == 'maxMonthlyReplenishQty'">order by max_monthly_replenish_qty</when>
             <otherwise>order by site asc, sku asc</otherwise>
@@ -80,5 +189,88 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                 <otherwise>desc</otherwise>
             </choose>
         </if>
+    </sql>
+
+    <!-- ==================================================================== -->
+    <!-- 基础查询：保留向后兼容                                               -->
+    <!-- ==================================================================== -->
+    <select id="selectEbayReplenishmentSnapshotList" parameterType="com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot" resultMap="EbayReplenishmentSnapshotResult">
+        select <include refid="columns"/> <include refid="fromTable"/>
+        <where>
+            <if test="site != null and site != ''">and site = #{site}</if>
+            <if test="sku != null and sku != ''">and sku like concat('%', #{sku}, '%')</if>
+            <if test="productName != null and productName != ''">and product_name like concat('%', #{productName}, '%')</if>
+            <if test="skuLevel != null and skuLevel != ''">and sku_level = #{skuLevel}</if>
+            <if test="ownerName != null and ownerName != ''">and owner_name like concat('%', #{ownerName}, '%')</if>
+        </where>
+        <include refid="sortClause"/>
     </select>
+
+    <!-- distinct 候选值：SQL 级去重，不走内存 -->
+    <select id="selectDistinctValues" parameterType="map" resultType="string">
+        select distinct t.`${column}`
+        from ebay_replenishment_snapshot t
+        where t.`${column}` is not null and t.`${column}` != ''
+        <if test="keyword != null and keyword != ''">
+            and t.`${column}` like concat('%', #{keyword}, '%')
+        </if>
+        order by t.`${column}`
+        limit 50
+    </select>
+
+    <!-- ==================================================================== -->
+    <!-- 写入                                                              -->
+    <!-- ==================================================================== -->
+    <insert id="insertSnapshot" parameterType="com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot">
+        INSERT INTO ebay_replenishment_snapshot (
+            site, sku, product_name, sku_level, profit_rate_30d, return_rate,
+            overseas_onway, overseas_sellable, overseas_total, purchase_pending_delivery,
+            local_sellable, local_onway, purchase_plan_qty, locked_qty, total_inventory,
+            sales_7d, sales_30d, sales_90d, max_monthly_sales,
+            overseas_sellable_sales_ratio, overseas_total_sales_ratio, total_inventory_sales_ratio,
+            last_local_outbound_time, outbound_days, purchase_cycle_days, suggest_purchase_qty,
+            max_monthly_replenish_qty, owner_name, calc_time
+        ) VALUES (
+            #{site}, #{sku}, #{productName}, #{skuLevel}, #{profitRate30d}, #{returnRate},
+            #{overseasOnway}, #{overseasSellable}, #{overseasTotal}, #{purchasePendingDelivery},
+            #{localSellable}, #{localOnway}, #{purchasePlanQty}, #{lockedQty}, #{totalInventory},
+            #{sales7d}, #{sales30d}, #{sales90d}, #{maxMonthlySales},
+            #{overseasSellableSalesRatio}, #{overseasTotalSalesRatio}, #{totalInventorySalesRatio},
+            #{lastLocalOutboundTime}, #{outboundDays}, #{purchaseCycleDays}, #{suggestPurchaseQty},
+            #{maxMonthlyReplenishQty}, #{ownerName}, NOW()
+        )
+    </insert>
+
+    <insert id="batchInsertSnapshots" parameterType="list">
+        INSERT INTO ebay_replenishment_snapshot (
+            site, sku, product_name, sku_level, profit_rate_30d, return_rate,
+            overseas_onway, overseas_sellable, overseas_total, purchase_pending_delivery,
+            local_sellable, local_onway, purchase_plan_qty, locked_qty, total_inventory,
+            sales_7d, sales_30d, sales_90d, max_monthly_sales,
+            overseas_sellable_sales_ratio, overseas_total_sales_ratio, total_inventory_sales_ratio,
+            last_local_outbound_time, outbound_days, purchase_cycle_days, suggest_purchase_qty,
+            max_monthly_replenish_qty, owner_name, calc_time
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+        (
+            #{item.site}, #{item.sku}, #{item.productName}, #{item.skuLevel},
+            #{item.profitRate30d}, #{item.returnRate},
+            #{item.overseasOnway}, #{item.overseasSellable}, #{item.overseasTotal},
+            #{item.purchasePendingDelivery},
+            #{item.localSellable}, #{item.localOnway}, #{item.purchasePlanQty},
+            #{item.lockedQty}, #{item.totalInventory},
+            #{item.sales7d}, #{item.sales30d}, #{item.sales90d}, #{item.maxMonthlySales},
+            #{item.overseasSellableSalesRatio}, #{item.overseasTotalSalesRatio},
+            #{item.totalInventorySalesRatio},
+            #{item.lastLocalOutboundTime}, #{item.outboundDays}, #{item.purchaseCycleDays},
+            #{item.suggestPurchaseQty},
+            #{item.maxMonthlyReplenishQty}, #{item.ownerName}, NOW()
+        )
+        </foreach>
+    </insert>
+
+    <delete id="deleteAll">
+        DELETE FROM ebay_replenishment_snapshot
+    </delete>
+
 </mapper>
