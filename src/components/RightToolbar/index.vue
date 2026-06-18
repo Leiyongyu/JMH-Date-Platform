@@ -7,6 +7,9 @@
       <el-tooltip class="item" effect="dark" content="刷新" placement="top">
         <el-button circle icon="Refresh" @click="refresh()" />
       </el-tooltip>
+      <el-tooltip class="item" effect="dark" content="列配置" placement="top" v-if="showColumnConfig">
+        <el-button circle icon="Menu" @click="openColumnConfig()" />
+      </el-tooltip>
       <el-tooltip class="item" effect="dark" content="显隐列" placement="top" v-if="Object.keys(columns).length > 0">
         <el-button circle icon="Menu" @click="showColumn()" v-if="showColumnsType == 'transfer'"/>
         <el-dropdown trigger="click" :hide-on-click="false" style="padding-left: 12px" v-if="showColumnsType == 'checkbox'">
@@ -72,10 +75,14 @@ const props = defineProps({
   storageKey: {
     type: String,
     default: ""
+  },
+  showColumnConfig: {
+    type: Boolean,
+    default: false
   }
 })
 
-const emits = defineEmits(['update:showSearch', 'queryTable'])
+const emits = defineEmits(['update:showSearch', 'queryTable', 'columnConfig'])
 
 // 显隐数据
 const value = ref([])
@@ -135,6 +142,10 @@ function animateSearch(el, isHide) {
 // 刷新
 function refresh() {
   emits("queryTable")
+}
+
+function openColumnConfig() {
+  emits("columnConfig")
 }
 
 // 右侧列表元素变化

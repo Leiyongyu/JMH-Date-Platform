@@ -66,10 +66,17 @@
         <el-button type="warning" plain icon="Download" @click="handleExport"
           v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
       </el-col>
-      <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
+      <right-toolbar
+        v-model:showSearch="showSearch"
+        :show-column-config="true"
+        @queryTable="getList"
+        @columnConfig="openColumnConfig"
+      ></right-toolbar>
     </el-row>
 
     <el-table
+      v-if="columnConfigLoaded"
+      :key="columnTableKey"
       v-loading="loading"
       :data="replenishmentList"
       border stripe height="640"
@@ -78,55 +85,51 @@
       @sort-change="handleSortChange"
     >
       <el-table-column type="selection" width="45" fixed />
-      <el-table-column label="店铺" align="left" prop="storeName" width="160" fixed sortable="custom" :show-overflow-tooltip="true" />
-      <el-table-column label="Seller SKU" align="left" prop="sellerSku" width="180" fixed sortable="custom" :show-overflow-tooltip="true" />
-      <el-table-column label="仓库SKU" align="left" prop="warehouseSku" width="170" sortable="custom" :show-overflow-tooltip="true" />
-      <el-table-column label="仓库" align="left" prop="warehouseName" width="170" :show-overflow-tooltip="true" />
-      <el-table-column label="ASIN" align="center" prop="asin" width="130" sortable="custom" :show-overflow-tooltip="true" />
-      <el-table-column label="负责人" align="center" prop="principalName" width="120" :show-overflow-tooltip="true" />
-      <el-table-column label="产品分类" align="center" prop="productCategory" width="130" :show-overflow-tooltip="true" />
-      <el-table-column label="评分" align="right" prop="rating" width="80" sortable="custom" />
-      <el-table-column label="评论数" align="right" prop="reviewCount" width="100" sortable="custom" />
-      <el-table-column label="广告费率" align="right" prop="adRate" width="105" sortable="custom">
-        <template #default="scope">{{ formatPercentNumber(scope.row.adRate) }}</template>
-      </el-table-column>
-      <el-table-column label="30天利润率" align="right" prop="profitRate30d" width="120" sortable="custom">
-        <template #default="scope">{{ formatPercentNumber(scope.row.profitRate30d) }}</template>
-      </el-table-column>
-      <el-table-column label="90天退款率" align="right" prop="refundRate90d" width="120" sortable="custom">
-        <template #default="scope">{{ formatPercentNumber(scope.row.refundRate90d) }}</template>
-      </el-table-column>
-      <el-table-column label="已采购数量" align="right" prop="purchasedQty" width="120" sortable="custom" />
-      <el-table-column label="国内仓库存" align="right" prop="domesticStock" width="120" sortable="custom" />
-      <el-table-column label="待出库" align="right" prop="pendingShipQty" width="95" sortable="custom" />
-      <el-table-column label="FBA在库" align="right" prop="fbaStock" width="105" sortable="custom" />
-      <el-table-column label="FBA在途" align="right" prop="fbaInbound" width="105" sortable="custom" />
-      <el-table-column label="总库存" align="right" prop="totalInventory" width="105" sortable="custom" />
-      <el-table-column label="7天销量" align="right" prop="sales7d" width="95" sortable="custom" />
-      <el-table-column label="14天销量" align="right" prop="sales14d" width="100" sortable="custom" />
-      <el-table-column label="30天销量" align="right" prop="sales30d" width="100" sortable="custom" />
-      <el-table-column label="60天销量" align="right" prop="sales60d" width="100" sortable="custom" />
-      <el-table-column label="14日均销" align="right" prop="salesSpeed14d" width="105" sortable="custom" />
-      <el-table-column label="30日均销" align="right" prop="salesSpeed30d" width="105" sortable="custom" />
-      <el-table-column label="60日均销" align="right" prop="salesSpeed60d" width="105" sortable="custom" />
-      <el-table-column label="平均月销量" align="right" prop="avgMonthlySales" width="120" sortable="custom" />
-      <el-table-column label="安全库存" align="right" prop="safetyStock" width="110" sortable="custom" />
-      <el-table-column label="发货量" align="right" prop="shipQty" width="100" sortable="custom">
-        <template #default="scope">
-          <span :class="{ 'negative-value': Number(scope.row.shipQty) < 0 }">{{ formatNumber(scope.row.shipQty) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="补货量" align="right" prop="replenishQty" width="100" sortable="custom">
-        <template #default="scope">
-          <span :class="{ 'negative-value': Number(scope.row.replenishQty) < 0 }">{{ formatNumber(scope.row.replenishQty) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="补货时间" align="right" prop="restockDays" width="105" sortable="custom" />
-      <el-table-column label="计算时间" align="center" prop="calcTime" width="170">
-        <template #default="scope">
-          <span>{{ parseTime(scope.row.calcTime) }}</span>
-        </template>
-      </el-table-column>
+      <template v-for="col in visibleColumns" :key="col.key">
+        <el-table-column
+          v-if="col.format === 'percentNumber'"
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+          sortable="custom"
+        >
+          <template #default="scope">{{ formatPercentNumber(scope.row[col.key]) }}</template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'number'"
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+          sortable="custom"
+        >
+          <template #default="scope">
+            <span :class="{ 'negative-value': Number(scope.row[col.key]) < 0 }">{{ formatNumber(scope.row[col.key]) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'time'"
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+        >
+          <template #default="scope">
+            <span>{{ parseTime(scope.row[col.key]) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-else
+          :label="col.label"
+          :align="col.align"
+          :prop="col.key"
+          :width="col.width"
+          :fixed="col.fixed || false"
+          :sortable="col.sortable ? 'custom' : false"
+          :show-overflow-tooltip="col.tooltip"
+        />
+      </template>
     </el-table>
 
     <pagination
@@ -136,12 +139,22 @@
       v-model:limit="queryParams.pageSize"
       @pagination="getList"
     />
+
+    <column-config-drawer
+      v-model="showColumnDrawer"
+      :columns="columnDefs"
+      :fixed-keys="fixedColumnKeys"
+      :visible-keys="visibleKeys"
+      @apply="handleColumnApply"
+    />
   </div>
 </template>
 
 <script setup name="AmzReplenishment">
 import { listAmzReplenishment } from '@/api/operations/amz/replenishment'
 import request from '@/utils/request'
+import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
+import { useColumnConfig } from '@/composables/useColumnConfig'
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
@@ -151,6 +164,51 @@ const showSearch = ref(true)
 const total = ref(0)
 const replenishmentList = ref([])
 const checkedRows = ref([])
+const fixedColumnKeys = ['storeName', 'sellerSku']
+const columnDefs = [
+  { key: 'storeName', label: '店铺', align: 'left', width: 160, fixed: true, sortable: true, tooltip: true },
+  { key: 'sellerSku', label: 'Seller SKU', align: 'left', width: 180, fixed: true, sortable: true, tooltip: true },
+  { key: 'warehouseSku', label: '仓库SKU', align: 'left', width: 170, sortable: true, tooltip: true },
+  { key: 'warehouseName', label: '仓库', align: 'left', width: 170, tooltip: true },
+  { key: 'asin', label: 'ASIN', align: 'center', width: 130, sortable: true, tooltip: true },
+  { key: 'principalName', label: '负责人', align: 'center', width: 120, tooltip: true },
+  { key: 'productCategory', label: '产品分类', align: 'center', width: 130, tooltip: true },
+  { key: 'rating', label: '评分', align: 'right', width: 80, sortable: true },
+  { key: 'reviewCount', label: '评论数', align: 'right', width: 100, sortable: true },
+  { key: 'adRate', label: '广告费率', align: 'right', width: 105, sortable: true, format: 'percentNumber' },
+  { key: 'profitRate30d', label: '30天利润率', align: 'right', width: 120, sortable: true, format: 'percentNumber' },
+  { key: 'refundRate90d', label: '90天退款率', align: 'right', width: 120, sortable: true, format: 'percentNumber' },
+  { key: 'purchasedQty', label: '已采购数量', align: 'right', width: 120, sortable: true },
+  { key: 'domesticStock', label: '国内仓库存', align: 'right', width: 120, sortable: true },
+  { key: 'pendingShipQty', label: '待出库', align: 'right', width: 95, sortable: true },
+  { key: 'fbaStock', label: 'FBA在库', align: 'right', width: 105, sortable: true },
+  { key: 'fbaInbound', label: 'FBA在途', align: 'right', width: 105, sortable: true },
+  { key: 'totalInventory', label: '总库存', align: 'right', width: 105, sortable: true },
+  { key: 'sales7d', label: '7天销量', align: 'right', width: 95, sortable: true },
+  { key: 'sales14d', label: '14天销量', align: 'right', width: 100, sortable: true },
+  { key: 'sales30d', label: '30天销量', align: 'right', width: 100, sortable: true },
+  { key: 'sales60d', label: '60天销量', align: 'right', width: 100, sortable: true },
+  { key: 'salesSpeed14d', label: '14日均销', align: 'right', width: 105, sortable: true },
+  { key: 'salesSpeed30d', label: '30日均销', align: 'right', width: 105, sortable: true },
+  { key: 'salesSpeed60d', label: '60日均销', align: 'right', width: 105, sortable: true },
+  { key: 'avgMonthlySales', label: '平均月销量', align: 'right', width: 120, sortable: true },
+  { key: 'safetyStock', label: '安全库存', align: 'right', width: 110, sortable: true },
+  { key: 'shipQty', label: '发货量', align: 'right', width: 100, sortable: true, format: 'number' },
+  { key: 'replenishQty', label: '补货量', align: 'right', width: 100, sortable: true, format: 'number' },
+  { key: 'restockDays', label: '补货时间', align: 'right', width: 105, sortable: true },
+  { key: 'calcTime', label: '计算时间', align: 'center', width: 170, format: 'time' }
+]
+const {
+  showColumnDrawer,
+  columnConfigLoaded,
+  columnTableKey,
+  visibleKeys,
+  visibleColumns,
+  exportColumns,
+  openColumnConfig,
+  initColumnConfig,
+  applyColumnConfig
+} = useColumnConfig('operations:amz:replenishment', columnDefs, fixedColumnKeys)
 const data = reactive({
   queryParams: {
     pageNum: 1,
@@ -199,10 +257,16 @@ function handleSortChange({ prop, order }) {
 
 function handleSelectionChange(rows) { checkedRows.value = rows }
 
+async function handleColumnApply(keys) {
+  await applyColumnConfig(keys)
+  proxy.$modal.msgSuccess('列配置已保存')
+}
+
 function handleExport() {
   const sel = checkedRows.value.length > 0
   const body = { scope: sel ? 'SELECTED' : 'FILTERED',
-    rowKeys: sel ? checkedRows.value.map(r => (r.sid||'') + '|' + (r.sellerSku||'') + '|' + (r.warehouseSku||'')) : undefined }
+    rowKeys: sel ? checkedRows.value.map(r => (r.sid||'') + '|' + (r.sellerSku||'') + '|' + (r.warehouseSku||'')) : undefined,
+    columns: exportColumns.value }
   if (!sel) {
     body.filters = []
     const p = queryParams.value
@@ -232,7 +296,12 @@ function formatNumber(value) {
   return Number.isFinite(num) ? num.toFixed(2).replace(/\.?0+$/, '') : '-'
 }
 
-getList()
+async function initPage() {
+  await initColumnConfig()
+  getList()
+}
+
+initPage()
 </script>
 
 <style scoped>
