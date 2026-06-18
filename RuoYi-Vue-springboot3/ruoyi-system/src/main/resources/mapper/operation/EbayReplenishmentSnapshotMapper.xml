@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.EbayReplenishmentSnapshotMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot" id="EbayReplenishmentSnapshotResult">
+        <id property="id" column="id" />
+        <result property="site" column="site" />
+        <result property="sku" column="sku" />
+        <result property="productName" column="product_name" />
+        <result property="skuLevel" column="sku_level" />
+        <result property="profitRate30d" column="profit_rate_30d" />
+        <result property="returnRate" column="return_rate" />
+        <result property="overseasOnway" column="overseas_onway" />
+        <result property="overseasSellable" column="overseas_sellable" />
+        <result property="overseasTotal" column="overseas_total" />
+        <result property="purchasePendingDelivery" column="purchase_pending_delivery" />
+        <result property="localSellable" column="local_sellable" />
+        <result property="localOnway" column="local_onway" />
+        <result property="purchasePlanQty" column="purchase_plan_qty" />
+        <result property="lockedQty" column="locked_qty" />
+        <result property="totalInventory" column="total_inventory" />
+        <result property="sales7d" column="sales_7d" />
+        <result property="sales30d" column="sales_30d" />
+        <result property="sales90d" column="sales_90d" />
+        <result property="maxMonthlySales" column="max_monthly_sales" />
+        <result property="overseasSellableSalesRatio" column="overseas_sellable_sales_ratio" />
+        <result property="overseasTotalSalesRatio" column="overseas_total_sales_ratio" />
+        <result property="totalInventorySalesRatio" column="total_inventory_sales_ratio" />
+        <result property="lastLocalOutboundTime" column="last_local_outbound_time" />
+        <result property="outboundDays" column="outbound_days" />
+        <result property="purchaseCycleDays" column="purchase_cycle_days" />
+        <result property="suggestPurchaseQty" column="suggest_purchase_qty" />
+        <result property="maxMonthlyReplenishQty" column="max_monthly_replenish_qty" />
+        <result property="ownerName" column="owner_name" />
+        <result property="calcTime" column="calc_time" />
+    </resultMap>
+
+    <sql id="selectSnapshotVo">
+        select id, site, sku, product_name, sku_level, profit_rate_30d, return_rate,
+               overseas_onway, overseas_sellable, overseas_total, purchase_pending_delivery,
+               local_sellable, local_onway, purchase_plan_qty, locked_qty, total_inventory,
+               sales_7d, sales_30d, sales_90d, max_monthly_sales,
+               overseas_sellable_sales_ratio, overseas_total_sales_ratio, total_inventory_sales_ratio,
+               last_local_outbound_time, outbound_days, purchase_cycle_days, suggest_purchase_qty,
+               max_monthly_replenish_qty, owner_name, calc_time
+        from ebay_replenishment_snapshot
+    </sql>
+
+    <select id="selectEbayReplenishmentSnapshotList" parameterType="com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot" resultMap="EbayReplenishmentSnapshotResult">
+        <include refid="selectSnapshotVo"/>
+        <where>
+            <if test="site != null and site != ''">and site = #{site}</if>
+            <if test="sku != null and sku != ''">and sku like concat('%', #{sku}, '%')</if>
+            <if test="productName != null and productName != ''">and product_name like concat('%', #{productName}, '%')</if>
+            <if test="skuLevel != null and skuLevel != ''">and sku_level = #{skuLevel}</if>
+            <if test="ownerName != null and ownerName != ''">and owner_name like concat('%', #{ownerName}, '%')</if>
+        </where>
+        <choose>
+            <when test="sortField == 'site'">order by site</when>
+            <when test="sortField == 'sku'">order by sku</when>
+            <when test="sortField == 'skuLevel'">order by sku_level</when>
+            <when test="sortField == 'profitRate30d'">order by profit_rate_30d</when>
+            <when test="sortField == 'returnRate'">order by return_rate</when>
+            <when test="sortField == 'overseasSellable'">order by overseas_sellable</when>
+            <when test="sortField == 'overseasTotal'">order by overseas_total</when>
+            <when test="sortField == 'totalInventory'">order by total_inventory</when>
+            <when test="sortField == 'sales7d'">order by sales_7d</when>
+            <when test="sortField == 'sales30d'">order by sales_30d</when>
+            <when test="sortField == 'sales90d'">order by sales_90d</when>
+            <when test="sortField == 'maxMonthlySales'">order by max_monthly_sales</when>
+            <when test="sortField == 'suggestPurchaseQty'">order by suggest_purchase_qty</when>
+            <when test="sortField == 'maxMonthlyReplenishQty'">order by max_monthly_replenish_qty</when>
+            <otherwise>order by site asc, sku asc</otherwise>
+        </choose>
+        <if test="sortField != null and sortField != ''">
+            <choose>
+                <when test="sortOrder == 'ascending'">asc</when>
+                <otherwise>desc</otherwise>
+            </choose>
+        </if>
+    </select>
+</mapper>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.WarehouseMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.Warehouse" id="WarehouseResult">
+        <id property="id" column="id" />
+        <result property="wid" column="wid" />
+        <result property="name" column="name" />
+        <result property="type" column="type" />
+        <result property="subType" column="sub_type" />
+        <result property="isDelete" column="is_delete" />
+        <result property="countryCode" column="country_code" />
+        <result property="wpId" column="wp_id" />
+        <result property="wpName" column="wp_name" />
+        <result property="tWarehouseName" column="t_warehouse_name" />
+        <result property="tWarehouseCode" column="t_warehouse_code" />
+        <result property="tCountryAreaName" column="t_country_area_name" />
+        <result property="tStatus" column="t_status" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="WarehouseResult">
+        SELECT * FROM warehouse WHERE is_delete = 0
+    </select>
+
+    <select id="selectByWid" resultMap="WarehouseResult" parameterType="Integer">
+        SELECT * FROM warehouse WHERE wid = #{wid}
+    </select>
+
+</mapper>

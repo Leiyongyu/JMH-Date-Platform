@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.GoodcangGrnListMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.GoodcangGrnList" id="Result">
+        <id property="id" column="id" />
+        <result property="receivingCode" column="receiving_code" />
+        <result property="warehouseCode" column="warehouse_code" />
+        <result property="createAt" column="create_at" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="Result">
+        SELECT id, receiving_code, warehouse_code, create_at FROM goodcang_grn_list
+    </select>
+
+    <select id="selectByReceivingCodes" resultMap="Result" parameterType="java.util.List">
+        SELECT id, receiving_code, warehouse_code, create_at FROM goodcang_grn_list
+        WHERE receiving_code IN
+        <foreach collection="list" item="code" open="(" separator="," close=")">
+            #{code}
+        </foreach>
+    </select>
+
+</mapper>

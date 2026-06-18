@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.EbaySalesMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.EbaySales" id="Result">
+        <id property="id" column="id" />
+        <result property="currency" column="currency" />
+        <result property="sku" column="sku" />
+        <result property="quantity" column="quantity" />
+        <result property="paymentTime" column="payment_time" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="Result">
+        SELECT id, currency, sku, quantity, payment_time FROM ebay_sales
+    </select>
+
+</mapper>

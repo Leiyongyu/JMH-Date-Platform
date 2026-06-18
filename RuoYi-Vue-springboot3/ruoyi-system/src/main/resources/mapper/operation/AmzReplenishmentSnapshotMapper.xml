@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.AmzReplenishmentSnapshotMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot" id="AmzReplenishmentSnapshotResult">
+        <id property="id" column="id" />
+        <result property="sid" column="sid" />
+        <result property="sellerSku" column="seller_sku" />
+        <result property="warehouseSku" column="warehouse_sku" />
+        <result property="warehouseName" column="warehouse_name" />
+        <result property="asin" column="asin" />
+        <result property="principalName" column="principal_name" />
+        <result property="storeName" column="store_name" />
+        <result property="productCategory" column="product_category" />
+        <result property="rating" column="rating" />
+        <result property="reviewCount" column="review_count" />
+        <result property="adRate" column="ad_rate" />
+        <result property="profitRate30d" column="profit_rate_30d" />
+        <result property="refundRate90d" column="refund_rate_90d" />
+        <result property="purchasedQty" column="purchased_qty" />
+        <result property="domesticStock" column="domestic_stock" />
+        <result property="pendingShipQty" column="pending_ship_qty" />
+        <result property="fbaStock" column="fba_stock" />
+        <result property="fbaInbound" column="fba_inbound" />
+        <result property="totalInventory" column="total_inventory" />
+        <result property="sales7d" column="sales_7d" />
+        <result property="sales14d" column="sales_14d" />
+        <result property="sales30d" column="sales_30d" />
+        <result property="sales60d" column="sales_60d" />
+        <result property="salesSpeed14d" column="sales_speed_14d" />
+        <result property="salesSpeed30d" column="sales_speed_30d" />
+        <result property="salesSpeed60d" column="sales_speed_60d" />
+        <result property="avgMonthlySales" column="avg_monthly_sales" />
+        <result property="safetyStock" column="safety_stock" />
+        <result property="shipQty" column="ship_qty" />
+        <result property="replenishQty" column="replenish_qty" />
+        <result property="restockDays" column="restock_days" />
+        <result property="calcTime" column="calc_time" />
+    </resultMap>
+
+    <sql id="selectSnapshotVo">
+        select id, sid, seller_sku, warehouse_sku, warehouse_name, asin, principal_name,
+               store_name, product_category, rating, review_count, ad_rate, profit_rate_30d,
+               refund_rate_90d, purchased_qty, domestic_stock, pending_ship_qty, fba_stock,
+               fba_inbound, total_inventory, sales_7d, sales_14d, sales_30d, sales_60d,
+               sales_speed_14d, sales_speed_30d, sales_speed_60d, avg_monthly_sales,
+               safety_stock, ship_qty, replenish_qty, restock_days, calc_time
+        from amz_replenishment_snapshot
+    </sql>
+
+    <select id="selectAmzReplenishmentSnapshotList" parameterType="com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot" resultMap="AmzReplenishmentSnapshotResult">
+        <include refid="selectSnapshotVo"/>
+        <where>
+            <if test="storeName != null and storeName != ''">and store_name like concat('%', #{storeName}, '%')</if>
+            <if test="sellerSku != null and sellerSku != ''">and seller_sku like concat('%', #{sellerSku}, '%')</if>
+            <if test="warehouseSku != null and warehouseSku != ''">and warehouse_sku like concat('%', #{warehouseSku}, '%')</if>
+            <if test="asin != null and asin != ''">and asin like concat('%', #{asin}, '%')</if>
+            <if test="principalName != null and principalName != ''">and principal_name like concat('%', #{principalName}, '%')</if>
+            <if test="productCategory != null and productCategory != ''">and product_category like concat('%', #{productCategory}, '%')</if>
+        </where>
+        <choose>
+            <when test="sortField == 'storeName'">order by store_name</when>
+            <when test="sortField == 'sellerSku'">order by seller_sku</when>
+            <when test="sortField == 'warehouseSku'">order by warehouse_sku</when>
+            <when test="sortField == 'asin'">order by asin</when>
+            <when test="sortField == 'rating'">order by rating</when>
+            <when test="sortField == 'reviewCount'">order by review_count</when>
+            <when test="sortField == 'adRate'">order by ad_rate</when>
+            <when test="sortField == 'profitRate30d'">order by profit_rate_30d</when>
+            <when test="sortField == 'refundRate90d'">order by refund_rate_90d</when>
+            <when test="sortField == 'domesticStock'">order by domestic_stock</when>
+            <when test="sortField == 'pendingShipQty'">order by pending_ship_qty</when>
+            <when test="sortField == 'fbaStock'">order by fba_stock</when>
+            <when test="sortField == 'fbaInbound'">order by fba_inbound</when>
+            <when test="sortField == 'totalInventory'">order by total_inventory</when>
+            <when test="sortField == 'sales7d'">order by sales_7d</when>
+            <when test="sortField == 'sales14d'">order by sales_14d</when>
+            <when test="sortField == 'sales30d'">order by sales_30d</when>
+            <when test="sortField == 'sales60d'">order by sales_60d</when>
+            <when test="sortField == 'avgMonthlySales'">order by avg_monthly_sales</when>
+            <when test="sortField == 'safetyStock'">order by safety_stock</when>
+            <when test="sortField == 'shipQty'">order by ship_qty</when>
+            <when test="sortField == 'replenishQty'">order by replenish_qty</when>
+            <when test="sortField == 'restockDays'">order by restock_days</when>
+            <otherwise>order by store_name asc, seller_sku asc</otherwise>
+        </choose>
+        <if test="sortField != null and sortField != ''">
+            <choose>
+                <when test="sortOrder == 'ascending'">asc</when>
+                <otherwise>desc</otherwise>
+            </choose>
+        </if>
+    </select>
+</mapper>

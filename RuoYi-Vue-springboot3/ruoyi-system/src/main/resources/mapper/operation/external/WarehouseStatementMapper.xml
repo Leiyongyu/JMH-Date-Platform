@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.WarehouseStatementMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.WarehouseStatement" id="Result">
+        <id property="id" column="id" />
+        <result property="wid" column="wid" />
+        <result property="wareHouseName" column="ware_house_name" />
+        <result property="sku" column="sku" />
+        <result property="optTime" column="opt_time" />
+        <result property="type" column="type" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="Result">
+        SELECT id, wid, ware_house_name, sku, opt_time, type FROM warehouse_statement
+    </select>
+
+    <select id="selectByType" resultMap="Result" parameterType="Integer">
+        SELECT id, wid, ware_house_name, sku, opt_time, type FROM warehouse_statement
+        WHERE type = #{type}
+    </select>
+
+</mapper>

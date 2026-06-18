@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.GoodcangWarehouseMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.GoodcangWarehouse" id="Result">
+        <id property="id" column="id" />
+        <result property="warehouseCode" column="warehouse_code" />
+        <result property="wid" column="wid" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="Result">
+        SELECT id, warehouse_code, wid FROM goodcang_warehouse
+    </select>
+
+    <select id="selectByWarehouseCodes" resultMap="Result" parameterType="java.util.List">
+        SELECT id, warehouse_code, wid FROM goodcang_warehouse
+        WHERE warehouse_code IN
+        <foreach collection="list" item="code" open="(" separator="," close=")">
+            #{code}
+        </foreach>
+    </select>
+
+</mapper>

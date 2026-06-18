@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.WarehouseInventoryDetailMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.WarehouseInventoryDetail" id="Result">
+        <id property="id" column="id" />
+        <result property="wid" column="wid" />
+        <result property="sku" column="sku" />
+        <result property="productId" column="product_id" />
+        <result property="sellerId" column="seller_id" />
+        <result property="fnsku" column="fnsku" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="Result">
+        SELECT id, wid, product_id, sku, seller_id, fnsku,
+               product_valid_num, product_lock_num, product_onway, quantity_receive
+        FROM warehouse_inventory_detail
+    </select>
+
+    <select id="selectByWids" resultMap="Result" parameterType="java.util.List">
+        SELECT id, wid, product_id, sku, seller_id, fnsku,
+               product_valid_num, product_lock_num, product_onway, quantity_receive
+        FROM warehouse_inventory_detail
+        WHERE wid IN
+        <foreach collection="list" item="w" open="(" separator="," close=")">
+            #{w}
+        </foreach>
+    </select>
+
+</mapper>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.PurchasePlanMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.PurchasePlan" id="Result">
+        <id property="id" column="id" />
+        <result property="sku" column="sku" />
+        <result property="statusText" column="status_text" />
+        <result property="wid" column="wid" />
+        <result property="warehouseName" column="warehouse_name" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="Result">
+        SELECT id, sku, status_text, wid, warehouse_name FROM purchase_plan
+    </select>
+
+    <select id="selectByStatusText" resultMap="Result" parameterType="String">
+        SELECT id, sku, status_text, wid, warehouse_name FROM purchase_plan
+        WHERE status_text = #{statusText}
+    </select>
+
+</mapper>

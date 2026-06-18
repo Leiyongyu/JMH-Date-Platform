@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.GoodcangGrnDetailMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.GoodcangGrnDetail" id="Result">
+        <id property="id" column="id" />
+        <result property="receivingCode" column="receiving_code" />
+        <result property="productSku" column="product_sku" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="Result">
+        SELECT id, receiving_code, product_sku FROM goodcang_grn_detail
+    </select>
+
+</mapper>
