@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.AmzReplenishmentOverrideMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.AmzReplenishmentOverride" id="Result">
+        <id property="id" column="id"/>
+        <result property="sid" column="sid"/>
+        <result property="sellerSku" column="seller_sku"/>
+        <result property="manualPurchasedQty" column="manual_purchased_qty"/>
+        <result property="productCategory" column="product_category"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+    </resultMap>
+
+    <select id="selectBySidSku" resultMap="Result">
+        SELECT * FROM amz_replenishment_override WHERE sid = #{sid} AND seller_sku = #{sellerSku}
+    </select>
+
+    <insert id="upsert" parameterType="com.ruoyi.system.domain.operation.external.AmzReplenishmentOverride">
+        INSERT INTO amz_replenishment_override (sid, seller_sku, manual_purchased_qty, product_category, create_time, update_time)
+        VALUES (#{sid}, #{sellerSku}, #{manualPurchasedQty}, #{productCategory}, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+            manual_purchased_qty = VALUES(manual_purchased_qty),
+            product_category = VALUES(product_category),
+            update_time = NOW()
+    </insert>
+
+</mapper>

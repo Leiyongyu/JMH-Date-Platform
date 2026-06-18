@@ -97,27 +97,32 @@
     <!-- 增强搜索：全部筛选下推 SQL，支持列头筛选 + 数值比较                      -->
     <!-- ==================================================================== -->
     <select id="search" parameterType="map" resultMap="AmzReplenishmentSnapshotResult">
-        SELECT id, sid, seller_sku, warehouse_sku, warehouse_name, asin, principal_name,
-               store_name, product_category, rating, review_count, ad_rate, profit_rate_30d,
-               refund_rate_90d, purchased_qty, domestic_stock, pending_ship_qty, fba_stock,
-               fba_inbound, total_inventory, sales_7d, sales_14d, sales_30d, sales_60d,
-               sales_speed_14d, sales_speed_30d, sales_speed_60d, avg_monthly_sales,
-               safety_stock, ship_qty, replenish_qty, restock_days, calc_time
-        FROM amz_replenishment_snapshot
+        SELECT s.id, s.sid, s.seller_sku, s.warehouse_sku, s.warehouse_name, s.asin, s.principal_name,
+               s.store_name,
+               COALESCE(o.product_category, s.product_category) AS product_category,
+               s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
+               s.refund_rate_90d,
+               COALESCE(o.manual_purchased_qty, s.purchased_qty) AS purchased_qty,
+               s.domestic_stock, s.pending_ship_qty, s.fba_stock,
+               s.fba_inbound, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,
+               s.sales_speed_14d, s.sales_speed_30d, s.sales_speed_60d, s.avg_monthly_sales,
+               s.safety_stock, s.ship_qty, s.replenish_qty, s.restock_days, s.calc_time
+        FROM amz_replenishment_snapshot s
+        LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) = o.sid AND s.seller_sku = o.seller_sku
         <where>
             <!-- 文本字段 -->
             <if test="storeName != null and storeName != ''">
                 <choose>
-                    <when test="storeName.contains(',')">and store_name in <foreach collection="storeName.split(',')" item="it" open="(" separator="," close=")">#{it}</foreach></when>
-                    <otherwise>and store_name like concat('%', #{storeName}, '%')</otherwise>
+                    <when test="storeName.contains(',')">and s.store_name in <foreach collection="storeName.split(',')" item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <otherwise>and s.store_name like concat('%', #{storeName}, '%')</otherwise>
                 </choose>
             </if>
-            <if test="sellerSku != null and sellerSku != ''">and seller_sku like concat('%', #{sellerSku}, '%')</if>
-            <if test="warehouseSku != null and warehouseSku != ''">and warehouse_sku like concat('%', #{warehouseSku}, '%')</if>
-            <if test="asin != null and asin != ''">and asin like concat('%', #{asin}, '%')</if>
-            <if test="principalName != null and principalName != ''">and principal_name like concat('%', #{principalName}, '%')</if>
-            <if test="productCategory != null and productCategory != ''">and product_category like concat('%', #{productCategory}, '%')</if>
-            <if test="warehouseName != null and warehouseName != ''">and warehouse_name like concat('%', #{warehouseName}, '%')</if>
+            <if test="sellerSku != null and sellerSku != ''">and s.seller_sku like concat('%', #{sellerSku}, '%')</if>
+            <if test="warehouseSku != null and warehouseSku != ''">and s.warehouse_sku like concat('%', #{warehouseSku}, '%')</if>
+            <if test="asin != null and asin != ''">and s.asin like concat('%', #{asin}, '%')</if>
+            <if test="principalName != null and principalName != ''">and s.principal_name like concat('%', #{principalName}, '%')</if>
+            <if test="productCategory != null and productCategory != ''">and COALESCE(o.product_category, s.product_category) like concat('%', #{productCategory}, '%')</if>
+            <if test="warehouseName != null and warehouseName != ''">and s.warehouse_name like concat('%', #{warehouseName}, '%')</if>
             <!-- 数值字段 -->
             <include refid="num"><property name="col" value="rating"/><property name="op" value="rating_op"/><property name="val" value="rating_val"/></include>
             <include refid="num"><property name="col" value="review_count"/><property name="op" value="review_count_op"/><property name="val" value="review_count_val"/></include>
@@ -159,20 +164,25 @@
     <!-- 基础查询（保留若依兼容）                                              -->
     <!-- ==================================================================== -->
     <select id="selectAmzReplenishmentSnapshotList" parameterType="com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot" resultMap="AmzReplenishmentSnapshotResult">
-        SELECT id, sid, seller_sku, warehouse_sku, warehouse_name, asin, principal_name,
-               store_name, product_category, rating, review_count, ad_rate, profit_rate_30d,
-               refund_rate_90d, purchased_qty, domestic_stock, pending_ship_qty, fba_stock,
-               fba_inbound, total_inventory, sales_7d, sales_14d, sales_30d, sales_60d,
-               sales_speed_14d, sales_speed_30d, sales_speed_60d, avg_monthly_sales,
-               safety_stock, ship_qty, replenish_qty, restock_days, calc_time
-        FROM amz_replenishment_snapshot
+        SELECT s.id, s.sid, s.seller_sku, s.warehouse_sku, s.warehouse_name, s.asin, s.principal_name,
+               s.store_name,
+               COALESCE(o.product_category, s.product_category) AS product_category,
+               s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
+               s.refund_rate_90d,
+               COALESCE(o.manual_purchased_qty, s.purchased_qty) AS purchased_qty,
+               s.domestic_stock, s.pending_ship_qty, s.fba_stock,
+               s.fba_inbound, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,
+               s.sales_speed_14d, s.sales_speed_30d, s.sales_speed_60d, s.avg_monthly_sales,
+               s.safety_stock, s.ship_qty, s.replenish_qty, s.restock_days, s.calc_time
+        FROM amz_replenishment_snapshot s
+        LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) = o.sid AND s.seller_sku = o.seller_sku
         <where>
-            <if test="storeName != null and storeName != ''">and store_name like concat('%', #{storeName}, '%')</if>
-            <if test="sellerSku != null and sellerSku != ''">and seller_sku like concat('%', #{sellerSku}, '%')</if>
-            <if test="warehouseSku != null and warehouseSku != ''">and warehouse_sku like concat('%', #{warehouseSku}, '%')</if>
-            <if test="asin != null and asin != ''">and asin like concat('%', #{asin}, '%')</if>
-            <if test="principalName != null and principalName != ''">and principal_name like concat('%', #{principalName}, '%')</if>
-            <if test="productCategory != null and productCategory != ''">and product_category like concat('%', #{productCategory}, '%')</if>
+            <if test="storeName != null and storeName != ''">and s.store_name like concat('%', #{storeName}, '%')</if>
+            <if test="sellerSku != null and sellerSku != ''">and s.seller_sku like concat('%', #{sellerSku}, '%')</if>
+            <if test="warehouseSku != null and warehouseSku != ''">and s.warehouse_sku like concat('%', #{warehouseSku}, '%')</if>
+            <if test="asin != null and asin != ''">and s.asin like concat('%', #{asin}, '%')</if>
+            <if test="principalName != null and principalName != ''">and s.principal_name like concat('%', #{principalName}, '%')</if>
+            <if test="productCategory != null and productCategory != ''">and COALESCE(o.product_category, s.product_category) like concat('%', #{productCategory}, '%')</if>
         </where>
         <include refid="sortClause"/>
     </select>
