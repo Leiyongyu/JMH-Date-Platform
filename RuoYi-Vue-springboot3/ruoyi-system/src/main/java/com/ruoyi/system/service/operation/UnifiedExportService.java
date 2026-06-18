@@ -16,8 +16,6 @@ import com.ruoyi.system.mapper.operation.*;
 @Service
 public class UnifiedExportService
 {
-    private static final int BATCH_SIZE = 1000;
-
     @Autowired private EbayReplenishmentSnapshotMapper ebayReplenishmentMapper;
     @Autowired private EbayPriceTrackingSnapshotMapper ebayPriceTrackingMapper;
     @Autowired private AmzReplenishmentSnapshotMapper amzReplenishmentMapper;
@@ -57,53 +55,32 @@ public class UnifiedExportService
         writeExcel(response, "Amazon补货数据", data, resolveColumns(req, keys, allowed, amzReplenishmentTitles()));
     }
 
-    // ========== 数据查询（分页批量） ==========
+    // ========== 数据查询 ==========
 
-    private List<Map<String, Object>> fetchEbayReplenishmentData(ExportRequest req, List<String> keys) throws Exception
+    private List<Map<String, Object>> fetchEbayReplenishmentData(ExportRequest req, List<String> keys)
     {
+        Map<String, Object> params = buildEbayReplenishmentParams(req, 1, 0);
+        List<EbayReplenishmentSnapshot> list = ebayReplenishmentMapper.search(params);
         List<Map<String, Object>> all = new ArrayList<>();
-        int page = 1;
-        while (true)
-        {
-            Map<String, Object> params = buildEbayReplenishmentParams(req, page, BATCH_SIZE);
-            List<EbayReplenishmentSnapshot> batch = ebayReplenishmentMapper.search(params);
-            if (batch.isEmpty()) break;
-            for (EbayReplenishmentSnapshot s : batch) all.add(toMap(s, keys));
-            if (batch.size() < BATCH_SIZE) break;
-            page++;
-        }
+        for (EbayReplenishmentSnapshot s : list) all.add(toMap(s, keys));
         return all;
     }
 
-    private List<Map<String, Object>> fetchEbayPriceTrackingData(ExportRequest req, List<String> keys) throws Exception
+    private List<Map<String, Object>> fetchEbayPriceTrackingData(ExportRequest req, List<String> keys)
     {
+        Map<String, Object> params = buildEbayPriceTrackingParams(req, 1, 0);
+        List<EbayPriceTrackingSnapshot> list = ebayPriceTrackingMapper.search(params);
         List<Map<String, Object>> all = new ArrayList<>();
-        int page = 1;
-        while (true)
-        {
-            Map<String, Object> params = buildEbayPriceTrackingParams(req, page, BATCH_SIZE);
-            List<EbayPriceTrackingSnapshot> batch = ebayPriceTrackingMapper.search(params);
-            if (batch.isEmpty()) break;
-            for (EbayPriceTrackingSnapshot s : batch) all.add(toMap(s, keys));
-            if (batch.size() < BATCH_SIZE) break;
-            page++;
-        }
+        for (EbayPriceTrackingSnapshot s : list) all.add(toMap(s, keys));
         return all;
     }
 
-    private List<Map<String, Object>> fetchAmzReplenishmentData(ExportRequest req, List<String> keys) throws Exception
+    private List<Map<String, Object>> fetchAmzReplenishmentData(ExportRequest req, List<String> keys)
     {
+        Map<String, Object> params = buildAmzReplenishmentParams(req, 1, 0);
+        List<AmzReplenishmentSnapshot> list = amzReplenishmentMapper.search(params);
         List<Map<String, Object>> all = new ArrayList<>();
-        int page = 1;
-        while (true)
-        {
-            Map<String, Object> params = buildAmzReplenishmentParams(req, page, BATCH_SIZE);
-            List<AmzReplenishmentSnapshot> batch = amzReplenishmentMapper.search(params);
-            if (batch.isEmpty()) break;
-            for (AmzReplenishmentSnapshot s : batch) all.add(toMap(s, keys));
-            if (batch.size() < BATCH_SIZE) break;
-            page++;
-        }
+        for (AmzReplenishmentSnapshot s : list) all.add(toMap(s, keys));
         return all;
     }
 
