@@ -69,7 +69,8 @@ public class EbayPriceTrackingController extends BaseController
         return AjaxResult.success(result);
     }
 
-    // ====== 保存操作 ======
+    // ====== 保存操作（写 config 表，乐观锁 + 操作日志） ======
+    @Log(title = "eBay跟价-保存跟卖价", businessType = BusinessType.UPDATE)
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
     @PostMapping("/save-tracking-price")
     public AjaxResult saveTrackingPrice(@RequestBody Map<String, String> body)
@@ -78,6 +79,7 @@ public class EbayPriceTrackingController extends BaseController
         return success();
     }
 
+    @Log(title = "eBay跟价-保存OE号", businessType = BusinessType.UPDATE)
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
     @PostMapping("/oe")
     public AjaxResult saveOe(@RequestBody Map<String, String> body)
@@ -86,6 +88,7 @@ public class EbayPriceTrackingController extends BaseController
         return success();
     }
 
+    @Log(title = "eBay跟价-保存备注", businessType = BusinessType.UPDATE)
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
     @PostMapping("/remark")
     public AjaxResult saveRemark(@RequestBody Map<String, String> body)
@@ -102,6 +105,7 @@ public class EbayPriceTrackingController extends BaseController
         return AjaxResult.success(priceTrackingService.listLinkTemplates());
     }
 
+    @Log(title = "eBay跟价-保存链接模板", businessType = BusinessType.UPDATE)
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
     @PostMapping("/link-template")
     public AjaxResult saveLinkTemplate(@RequestBody EbayLinkTemplate template)

@@ -31,7 +31,25 @@
         <result property="calcTime" column="calc_time" />
     </resultMap>
 
-    <sql id="columns">
+    <!-- 查询列：可编辑字段优先从 config 表取（COALESCE），computed 字段从 snapshot -->
+    <sql id="searchColumns">
+        s.id, s.site, s.sku, s.product_name, s.sku_level,
+        COALESCE(c.our_lowest_price, s.our_lowest_price) AS our_lowest_price,
+        COALESCE(c.tracking_price, s.tracking_price) AS tracking_price,
+        COALESCE(c.tracking_profit_margin, s.tracking_profit_margin) AS tracking_profit_margin,
+        COALESCE(c.floor_price, s.floor_price) AS floor_price,
+        s.return_rate,
+        s.sales_3d, s.sales_7d, s.sales_30d, s.sales_90d, s.max_monthly_sales,
+        s.overseas_stock, s.overseas_stock_age_days, s.stock_sales_ratio,
+        s.estimated_replenish_qty, s.brand_code, s.operator_name,
+        COALESCE(c.oe_number, s.oe_number) AS oe_number,
+        s.presale_url, s.sold_url,
+        COALESCE(c.remark, s.remark) AS remark,
+        s.calc_time
+    </sql>
+
+    <!-- 写入列（refresh 用，直接取 Java 对象字段） -->
+    <sql id="insertColumns">
         id, site, sku, product_name, sku_level, our_lowest_price, tracking_price,
         tracking_profit_margin, floor_price, return_rate,
         sales_3d, sales_7d, sales_30d, sales_90d, max_monthly_sales,
@@ -41,54 +59,56 @@
     </sql>
 
     <select id="search" parameterType="map" resultMap="Result">
-        select <include refid="columns"/> from ebay_price_tracking_snapshot
+        select <include refid="searchColumns"/>
+        from ebay_price_tracking_snapshot s
+        left join ebay_price_tracking_config c on s.site = c.site and s.sku = c.sku
         <where>
             <!-- 文本 -->
             <if test="site != null and site != ''">
                 <choose>
-                    <when test="site.contains(',')">and site in <foreach collection="site.split(',')" item="it" open="(" separator="," close=")">#{it}</foreach></when>
-                    <otherwise>and site like concat('%', #{site}, '%')</otherwise>
+                    <when test="site.contains(',')">and s.site in <foreach collection="site.split(',')" item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <otherwise>and s.site like concat('%', #{site}, '%')</otherwise>
                 </choose>
             </if>
             <if test="sku != null and sku != ''">
-                and sku like concat('%', #{sku}, '%')
+                and s.sku like concat('%', #{sku}, '%')
             </if>
             <if test="productName != null and productName != ''">
-                and product_name like concat('%', #{productName}, '%')
+                and s.product_name like concat('%', #{productName}, '%')
             </if>
             <if test="brandCode != null and brandCode != ''">
-                and brand_code like concat('%', #{brandCode}, '%')
+                and s.brand_code like concat('%', #{brandCode}, '%')
             </if>
             <if test="operatorName != null and operatorName != ''">
-                and operator_name like concat('%', #{operatorName}, '%')
+                and s.operator_name like concat('%', #{operatorName}, '%')
             </if>
-            <!-- 数值 -->
-            <include refid="num"><property name="col" value="our_lowest_price"/><property name="op" value="our_lowest_price_op"/><property name="val" value="our_lowest_price_val"/></include>
-            <include refid="num"><property name="col" value="tracking_price"/><property name="op" value="tracking_price_op"/><property name="val" value="tracking_price_val"/></include>
-            <include refid="num"><property name="col" value="tracking_profit_margin"/><property name="op" value="tracking_profit_margin_op"/><property name="val" value="tracking_profit_margin_val"/></include>
-            <include refid="num"><property name="col" value="floor_price"/><property name="op" value="floor_price_op"/><property name="val" value="floor_price_val"/></include>
-            <include refid="num"><property name="col" value="return_rate"/><property name="op" value="return_rate_op"/><property name="val" value="return_rate_val"/></include>
-            <include refid="num"><property name="col" value="sales_3d"/><property name="op" value="sales_3d_op"/><property name="val" value="sales_3d_val"/></include>
-            <include refid="num"><property name="col" value="sales_7d"/><property name="op" value="sales_7d_op"/><property name="val" value="sales_7d_val"/></include>
-            <include refid="num"><property name="col" value="sales_30d"/><property name="op" value="sales_30d_op"/><property name="val" value="sales_30d_val"/></include>
-            <include refid="num"><property name="col" value="sales_90d"/><property name="op" value="sales_90d_op"/><property name="val" value="sales_90d_val"/></include>
-            <include refid="num"><property name="col" value="max_monthly_sales"/><property name="op" value="max_monthly_sales_op"/><property name="val" value="max_monthly_sales_val"/></include>
-            <include refid="num"><property name="col" value="overseas_stock"/><property name="op" value="overseas_stock_op"/><property name="val" value="overseas_stock_val"/></include>
-            <include refid="num"><property name="col" value="overseas_stock_age_days"/><property name="op" value="overseas_stock_age_days_op"/><property name="val" value="overseas_stock_age_days_val"/></include>
-            <include refid="num"><property name="col" value="stock_sales_ratio"/><property name="op" value="stock_sales_ratio_op"/><property name="val" value="stock_sales_ratio_val"/></include>
-            <include refid="num"><property name="col" value="estimated_replenish_qty"/><property name="op" value="estimated_replenish_qty_op"/><property name="val" value="estimated_replenish_qty_val"/></include>
+            <!-- 数值（筛选 snapshot 的 computed 列） -->
+            <include refid="num"><property name="col" value="s.our_lowest_price"/><property name="op" value="our_lowest_price_op"/><property name="val" value="our_lowest_price_val"/></include>
+            <include refid="num"><property name="col" value="s.tracking_price"/><property name="op" value="tracking_price_op"/><property name="val" value="tracking_price_val"/></include>
+            <include refid="num"><property name="col" value="s.tracking_profit_margin"/><property name="op" value="tracking_profit_margin_op"/><property name="val" value="tracking_profit_margin_val"/></include>
+            <include refid="num"><property name="col" value="s.floor_price"/><property name="op" value="floor_price_op"/><property name="val" value="floor_price_val"/></include>
+            <include refid="num"><property name="col" value="s.return_rate"/><property name="op" value="return_rate_op"/><property name="val" value="return_rate_val"/></include>
+            <include refid="num"><property name="col" value="s.sales_3d"/><property name="op" value="sales_3d_op"/><property name="val" value="sales_3d_val"/></include>
+            <include refid="num"><property name="col" value="s.sales_7d"/><property name="op" value="sales_7d_op"/><property name="val" value="sales_7d_val"/></include>
+            <include refid="num"><property name="col" value="s.sales_30d"/><property name="op" value="sales_30d_op"/><property name="val" value="sales_30d_val"/></include>
+            <include refid="num"><property name="col" value="s.sales_90d"/><property name="op" value="sales_90d_op"/><property name="val" value="sales_90d_val"/></include>
+            <include refid="num"><property name="col" value="s.max_monthly_sales"/><property name="op" value="max_monthly_sales_op"/><property name="val" value="max_monthly_sales_val"/></include>
+            <include refid="num"><property name="col" value="s.overseas_stock"/><property name="op" value="overseas_stock_op"/><property name="val" value="overseas_stock_val"/></include>
+            <include refid="num"><property name="col" value="s.overseas_stock_age_days"/><property name="op" value="overseas_stock_age_days_op"/><property name="val" value="overseas_stock_age_days_val"/></include>
+            <include refid="num"><property name="col" value="s.stock_sales_ratio"/><property name="op" value="stock_sales_ratio_op"/><property name="val" value="stock_sales_ratio_val"/></include>
+            <include refid="num"><property name="col" value="s.estimated_replenish_qty"/><property name="op" value="estimated_replenish_qty_op"/><property name="val" value="estimated_replenish_qty_val"/></include>
         </where>
         <choose>
-            <when test="sortField == 'site'">order by site</when>
-            <when test="sortField == 'sku'">order by sku</when>
-            <when test="sortField == 'sales30d'">order by sales_30d</when>
-            <when test="sortField == 'sales90d'">order by sales_90d</when>
-            <when test="sortField == 'overseasStock'">order by overseas_stock</when>
-            <when test="sortField == 'stockSalesRatio'">order by stock_sales_ratio</when>
-            <when test="sortField == 'estimatedReplenishQty'">order by estimated_replenish_qty</when>
-            <when test="sortField == 'ourLowestPrice'">order by our_lowest_price</when>
-            <when test="sortField == 'trackingPrice'">order by tracking_price</when>
-            <otherwise>order by site asc, sku asc</otherwise>
+            <when test="sortField == 'site'">order by s.site</when>
+            <when test="sortField == 'sku'">order by s.sku</when>
+            <when test="sortField == 'sales30d'">order by s.sales_30d</when>
+            <when test="sortField == 'sales90d'">order by s.sales_90d</when>
+            <when test="sortField == 'overseasStock'">order by s.overseas_stock</when>
+            <when test="sortField == 'stockSalesRatio'">order by s.stock_sales_ratio</when>
+            <when test="sortField == 'estimatedReplenishQty'">order by s.estimated_replenish_qty</when>
+            <when test="sortField == 'ourLowestPrice'">order by s.our_lowest_price</when>
+            <when test="sortField == 'trackingPrice'">order by s.tracking_price</when>
+            <otherwise>order by s.site asc, s.sku asc</otherwise>
         </choose>
         <if test="sortField != null and sortField != ''">
             <choose><when test="sortOrder == 'ascending'">asc</when><otherwise>desc</otherwise></choose>

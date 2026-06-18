@@ -31,7 +31,9 @@ import com.ruoyi.system.service.operation.external.lingxing.LingxingProperties;
  *   5. ebay_replenishment_snapshot → 预估补货量(匹配 site + stripPcPrefix(sku))
  *   6. brand_owner → 品牌 & 操作员
  *   7. ebay_link_template → 售前/售后链接(OE号替换)
- *   8. ebay_product_dedup → 跟卖价/利润率/底线价/最低价/备注/OE号（实时补充）
+ *   7. ebay_link_template → 售前/售后链接(OE号替换)
+ *   8. ebay_price_tracking_config → 跟卖价/利润率/底线价/最低价/备注/OE号（用户可编辑字段，独立配置表）
+ *   9. ebay_product_dedup → 退货率（Excel导入，非编辑字段）
  */
 @Service
 public class EbayPriceTrackingComputeService
@@ -49,6 +51,7 @@ public class EbayPriceTrackingComputeService
     private final BrandOwnerMapper brandOwnerMapper;
     private final EbayLinkTemplateMapper linkTemplateMapper;
     private final EbayReplenishmentSnapshotMapper replenishmentMapper;
+    private final EbayPriceTrackingConfigMapper configMapper;
 
     public EbayPriceTrackingComputeService(
             LingxingProperties lingxingProperties,
@@ -61,7 +64,8 @@ public class EbayPriceTrackingComputeService
             GoodcangWarehouseMapper gcWarehouseMapper,
             BrandOwnerMapper brandOwnerMapper,
             EbayLinkTemplateMapper linkTemplateMapper,
-            EbayReplenishmentSnapshotMapper replenishmentMapper)
+            EbayReplenishmentSnapshotMapper replenishmentMapper,
+            EbayPriceTrackingConfigMapper configMapper)
     {
         this.lingxingProperties = lingxingProperties;
         this.warehouseMapper = warehouseMapper;
@@ -74,6 +78,7 @@ public class EbayPriceTrackingComputeService
         this.brandOwnerMapper = brandOwnerMapper;
         this.linkTemplateMapper = linkTemplateMapper;
         this.replenishmentMapper = replenishmentMapper;
+        this.configMapper = configMapper;
     }
 
     public List<EbayPriceTrackingSnapshot> compute()
@@ -134,6 +139,12 @@ public class EbayPriceTrackingComputeService
             if (snap.getSuggestPurchaseQty() != null)
                 purchaseQtyMap.put(snap.getSite() + "|" + snap.getSku(), snap.getSuggestPurchaseQty().intValue());
         }
+
+        // ---- 7b. 可编辑配置表 (site|sku → config) ----
+        Map<String, EbayPriceTrackingConfig> configByKey = new LinkedHashMap<>();
+        for (EbayPriceTrackingConfig cfg : configMapper.selectAll())
+            if (cfg.getSite() != null && cfg.getSku() != null)
+                configByKey.put(cfg.getSite() + "|" + cfg.getSku(), cfg);
 
         // ---- 8. 组装 ----
         LocalDate today = LocalDate.now();
@@ -198,23 +209,41 @@ public class EbayPriceTrackingComputeService
 
                 // 链接模板
                 EbayLinkTemplate lt = linkBySite.get(site);
-                String oe = dedup != null ? dedup.getOeNumber() : "";
+
+                // 用户可编辑字段：优先从 config 表取（source of truth），回退到 dedup
+                EbayPriceTrackingConfig cfg = configByKey.get(site + "|" + baseSku);
+                if (cfg != null)
+                {
+                    s.setOeNumber(cfg.getOeNumber());
+                    s.setTrackingPrice(cfg.getTrackingPrice());
+                    s.setTrackingProfitMargin(cfg.getTrackingProfitMargin());
+                    s.setFloorPrice(cfg.getFloorPrice());
+                    s.setOurLowestPrice(cfg.getOurLowestPrice());
+                    s.setRemark(cfg.getRemark());
+                }
+                else if (dedup != null)
+                {
+                    // 回退：config 表中无记录时从 dedup 取
+                    s.setOeNumber(dedup.getOeNumber());
+                    s.setTrackingPrice(dedup.getTrackingPrice());
+                    s.setTrackingProfitMargin(dedup.getTrackingProfitMargin());
+                    s.setFloorPrice(dedup.getFloorPrice());
+                    s.setOurLowestPrice(dedup.getLowestPrice());
+                    s.setRemark(dedup.getRemark());
+                }
+
+                // 退货率始终从 dedup 取（Excel 导入，非用户手动编辑）
+                if (dedup != null) s.setReturnRate(dedup.getReturnRate());
+
+                // 链接：用 config 的 OE 或 dedup 回退
+                String oe = s.getOeNumber() != null ? s.getOeNumber()
+                        : (dedup != null ? dedup.getOeNumber() : "");
+                if (oe == null) oe = "";
                 s.setOeNumber(oe);
                 if (lt != null)
                 {
                     s.setPresaleUrl(buildUrl(lt.getPresaleUrl(), oe));
                     s.setSoldUrl(buildUrl(lt.getSoldUrl(), oe));
-                }
-
-                // 从 ebay_product_dedup 取：跟卖价/利润率/底线价/最低价/退货率/备注
-                if (dedup != null)
-                {
-                    s.setTrackingPrice(dedup.getTrackingPrice());
-                    s.setTrackingProfitMargin(dedup.getTrackingProfitMargin());
-                    s.setFloorPrice(dedup.getFloorPrice());
-                    s.setOurLowestPrice(dedup.getLowestPrice());
-                    s.setReturnRate(dedup.getReturnRate());
-                    s.setRemark(dedup.getRemark());
                 }
 
                 result.add(s);
