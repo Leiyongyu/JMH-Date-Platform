@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<!DOCTYPE mapper
-PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
-"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ruoyi.system.mapper.operation.AmzReplenishmentSnapshotMapper">
 
     <resultMap type="com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot" id="AmzReplenishmentSnapshotResult">
@@ -40,18 +38,134 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="calcTime" column="calc_time" />
     </resultMap>
 
-    <sql id="selectSnapshotVo">
-        select id, sid, seller_sku, warehouse_sku, warehouse_name, asin, principal_name,
+    <!-- ==================================================================== -->
+    <!-- 核心：INSERT...SELECT 聚合生成快照（from 旧项目 SQL）                    -->
+    <!-- ==================================================================== -->
+    <insert id="insertByListing">
+        INSERT INTO amz_replenishment_snapshot (
+            sid, seller_sku, warehouse_sku, warehouse_name, asin, principal_name, store_name,
+            product_category, rating, review_count, ad_rate, profit_rate_30d, refund_rate_90d,
+            purchased_qty, domestic_stock, pending_ship_qty, fba_stock, fba_inbound, total_inventory,
+            sales_7d, sales_14d, sales_30d, sales_60d,
+            sales_speed_14d, sales_speed_30d, sales_speed_60d,
+            avg_monthly_sales, safety_stock, ship_qty, replenish_qty, restock_days, calc_time
+        )
+        SELECT
+            pl.sid, pl.seller_sku,
+            ANY_VALUE(wd.sku) AS warehouse_sku,
+            ANY_VALUE(wh.name) AS warehouse_name,
+            ANY_VALUE(pl.asin) AS asin,
+            ANY_VALUE(pl.principal_name) AS principal_name,
+            ANY_VALUE(COALESCE(sl.store_name, '')) AS store_name,
+            ANY_VALUE(COALESCE(pc.category, '')) AS product_category,
+            ANY_VALUE(NULLIF(pl.last_star, '')) AS rating,
+            ANY_VALUE(pl.review_num) AS review_count,
+            ANY_VALUE(op.spend_rate * 100) AS ad_rate,
+            ANY_VALUE(op.gross_margin * 100) AS profit_rate_30d,
+            ANY_VALUE(op.refund_amount_rate * 100) AS refund_rate_90d,
+            COALESCE(MAX(wd.product_valid_num), 0) AS purchased_qty,
+            COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)), 0) AS domestic_stock,
+            COALESCE(MAX(wd.product_lock_num), 0) AS pending_ship_qty,
+            COALESCE(MAX(rs.fba_sellable), 0) AS fba_stock,
+            COALESCE(MAX(rs.fba_inbound), 0) AS fba_inbound,
+            COALESCE(MAX(rs.fba_sellable), 0) + COALESCE(MAX(rs.fba_inbound), 0) AS total_inventory,
+            COALESCE(MAX(rs.sales_7d), 0) AS sales_7d,
+            COALESCE(MAX(rs.sales_14d), 0) AS sales_14d,
+            COALESCE(MAX(rs.sales_30d), 0) AS sales_30d,
+            COALESCE(MAX(rs.sales_60d), 0) AS sales_60d,
+            MAX(rs.avg_sales_14d) AS sales_speed_14d,
+            MAX(rs.avg_sales_30d) AS sales_speed_30d,
+            MAX(rs.avg_sales_60d) AS sales_speed_60d,
+            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 30, 2) AS avg_monthly_sales,
+            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 90, 2) AS safety_stock,
+            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 90, 2) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) AS ship_qty,
+            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 120, 2) - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0) AS replenish_qty,
+            ROUND(((COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - ((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 120 - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0))) / NULLIF((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1), 0), 2) AS restock_days,
+            NOW() AS calc_time
+        FROM amz_warehouse_inventory_detail wd
+        LEFT JOIN amz_product_listing pl ON pl.local_sku = wd.sku AND pl.sid = wd.seller_id
+        LEFT JOIN shop_list sl ON sl.sid = pl.sid AND sl.platform_code = '10001'
+        LEFT JOIN amz_product_category pc ON pc.sid = pl.sid AND pc.seller_sku = pl.seller_sku
+        LEFT JOIN amz_order_profit op ON op.sid = pl.sid AND op.seller_sku = pl.seller_sku
+        LEFT JOIN amz_restock_summary rs ON rs.sid = pl.sid AND rs.msku = pl.seller_sku
+        LEFT JOIN warehouse wh ON wh.wid = wd.wid
+        WHERE pl.sid IS NOT NULL AND pl.seller_sku IS NOT NULL
+        GROUP BY pl.sid, pl.seller_sku
+    </insert>
+
+    <!-- ==================================================================== -->
+    <!-- 增强搜索：全部筛选下推 SQL，支持列头筛选 + 数值比较                      -->
+    <!-- ==================================================================== -->
+    <select id="search" parameterType="map" resultMap="AmzReplenishmentSnapshotResult">
+        SELECT id, sid, seller_sku, warehouse_sku, warehouse_name, asin, principal_name,
                store_name, product_category, rating, review_count, ad_rate, profit_rate_30d,
                refund_rate_90d, purchased_qty, domestic_stock, pending_ship_qty, fba_stock,
                fba_inbound, total_inventory, sales_7d, sales_14d, sales_30d, sales_60d,
                sales_speed_14d, sales_speed_30d, sales_speed_60d, avg_monthly_sales,
                safety_stock, ship_qty, replenish_qty, restock_days, calc_time
-        from amz_replenishment_snapshot
+        FROM amz_replenishment_snapshot
+        <where>
+            <!-- 文本字段 -->
+            <if test="storeName != null and storeName != ''">
+                <choose>
+                    <when test="storeName.contains(',')">and store_name in <foreach collection="storeName.split(',')" item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <otherwise>and store_name like concat('%', #{storeName}, '%')</otherwise>
+                </choose>
+            </if>
+            <if test="sellerSku != null and sellerSku != ''">and seller_sku like concat('%', #{sellerSku}, '%')</if>
+            <if test="warehouseSku != null and warehouseSku != ''">and warehouse_sku like concat('%', #{warehouseSku}, '%')</if>
+            <if test="asin != null and asin != ''">and asin like concat('%', #{asin}, '%')</if>
+            <if test="principalName != null and principalName != ''">and principal_name like concat('%', #{principalName}, '%')</if>
+            <if test="productCategory != null and productCategory != ''">and product_category like concat('%', #{productCategory}, '%')</if>
+            <if test="warehouseName != null and warehouseName != ''">and warehouse_name like concat('%', #{warehouseName}, '%')</if>
+            <!-- 数值字段 -->
+            <include refid="num"><property name="col" value="rating"/><property name="op" value="rating_op"/><property name="val" value="rating_val"/></include>
+            <include refid="num"><property name="col" value="review_count"/><property name="op" value="review_count_op"/><property name="val" value="review_count_val"/></include>
+            <include refid="num"><property name="col" value="ad_rate"/><property name="op" value="ad_rate_op"/><property name="val" value="ad_rate_val"/></include>
+            <include refid="num"><property name="col" value="profit_rate_30d"/><property name="op" value="profit_rate_30d_op"/><property name="val" value="profit_rate_30d_val"/></include>
+            <include refid="num"><property name="col" value="refund_rate_90d"/><property name="op" value="refund_rate_90d_op"/><property name="val" value="refund_rate_90d_val"/></include>
+            <include refid="num"><property name="col" value="purchased_qty"/><property name="op" value="purchased_qty_op"/><property name="val" value="purchased_qty_val"/></include>
+            <include refid="num"><property name="col" value="domestic_stock"/><property name="op" value="domestic_stock_op"/><property name="val" value="domestic_stock_val"/></include>
+            <include refid="num"><property name="col" value="pending_ship_qty"/><property name="op" value="pending_ship_qty_op"/><property name="val" value="pending_ship_qty_val"/></include>
+            <include refid="num"><property name="col" value="fba_stock"/><property name="op" value="fba_stock_op"/><property name="val" value="fba_stock_val"/></include>
+            <include refid="num"><property name="col" value="fba_inbound"/><property name="op" value="fba_inbound_op"/><property name="val" value="fba_inbound_val"/></include>
+            <include refid="num"><property name="col" value="total_inventory"/><property name="op" value="total_inventory_op"/><property name="val" value="total_inventory_val"/></include>
+            <include refid="num"><property name="col" value="sales_7d"/><property name="op" value="sales_7d_op"/><property name="val" value="sales_7d_val"/></include>
+            <include refid="num"><property name="col" value="sales_14d"/><property name="op" value="sales_14d_op"/><property name="val" value="sales_14d_val"/></include>
+            <include refid="num"><property name="col" value="sales_30d"/><property name="op" value="sales_30d_op"/><property name="val" value="sales_30d_val"/></include>
+            <include refid="num"><property name="col" value="sales_60d"/><property name="op" value="sales_60d_op"/><property name="val" value="sales_60d_val"/></include>
+            <include refid="num"><property name="col" value="avg_monthly_sales"/><property name="op" value="avg_monthly_sales_op"/><property name="val" value="avg_monthly_sales_val"/></include>
+            <include refid="num"><property name="col" value="safety_stock"/><property name="op" value="safety_stock_op"/><property name="val" value="safety_stock_val"/></include>
+            <include refid="num"><property name="col" value="ship_qty"/><property name="op" value="ship_qty_op"/><property name="val" value="ship_qty_val"/></include>
+            <include refid="num"><property name="col" value="replenish_qty"/><property name="op" value="replenish_qty_op"/><property name="val" value="replenish_qty_val"/></include>
+            <include refid="num"><property name="col" value="restock_days"/><property name="op" value="restock_days_op"/><property name="val" value="restock_days_val"/></include>
+        </where>
+        <include refid="sortClause"/>
+    </select>
+
+    <sql id="num">
+        <if test="${op} != null and ${val} != null">and ${col} ${op} #{${val}}</if>
     </sql>
 
+    <!-- distinct 候选值 -->
+    <select id="selectDistinctValues" parameterType="map" resultType="string">
+        select distinct t.`${column}` from amz_replenishment_snapshot t
+        where t.`${column}` is not null and t.`${column}` != ''
+        <if test="keyword != null and keyword != ''">and t.`${column}` like concat('%', #{keyword}, '%')</if>
+        order by t.`${column}` limit 50
+    </select>
+
+    <!-- ==================================================================== -->
+    <!-- 基础查询（保留若依兼容）                                              -->
+    <!-- ==================================================================== -->
     <select id="selectAmzReplenishmentSnapshotList" parameterType="com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot" resultMap="AmzReplenishmentSnapshotResult">
-        <include refid="selectSnapshotVo"/>
+        SELECT id, sid, seller_sku, warehouse_sku, warehouse_name, asin, principal_name,
+               store_name, product_category, rating, review_count, ad_rate, profit_rate_30d,
+               refund_rate_90d, purchased_qty, domestic_stock, pending_ship_qty, fba_stock,
+               fba_inbound, total_inventory, sales_7d, sales_14d, sales_30d, sales_60d,
+               sales_speed_14d, sales_speed_30d, sales_speed_60d, avg_monthly_sales,
+               safety_stock, ship_qty, replenish_qty, restock_days, calc_time
+        FROM amz_replenishment_snapshot
         <where>
             <if test="storeName != null and storeName != ''">and store_name like concat('%', #{storeName}, '%')</if>
             <if test="sellerSku != null and sellerSku != ''">and seller_sku like concat('%', #{sellerSku}, '%')</if>
@@ -60,6 +174,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="principalName != null and principalName != ''">and principal_name like concat('%', #{principalName}, '%')</if>
             <if test="productCategory != null and productCategory != ''">and product_category like concat('%', #{productCategory}, '%')</if>
         </where>
+        <include refid="sortClause"/>
+    </select>
+
+    <sql id="sortClause">
         <choose>
             <when test="sortField == 'storeName'">order by store_name</when>
             <when test="sortField == 'sellerSku'">order by seller_sku</when>
@@ -87,10 +205,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <otherwise>order by store_name asc, seller_sku asc</otherwise>
         </choose>
         <if test="sortField != null and sortField != ''">
-            <choose>
-                <when test="sortOrder == 'ascending'">asc</when>
-                <otherwise>desc</otherwise>
-            </choose>
+            <choose><when test="sortOrder == 'ascending'">asc</when><otherwise>desc</otherwise></choose>
         </if>
-    </select>
+    </sql>
+
+    <!-- ==================================================================== -->
+    <!-- 写入                                                              -->
+    <!-- ==================================================================== -->
+    <delete id="deleteAll">DELETE FROM amz_replenishment_snapshot</delete>
+
 </mapper>
