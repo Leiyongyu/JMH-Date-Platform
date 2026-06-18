@@ -127,6 +127,36 @@
         >
           <template #default="scope"><span>{{ parseTime(scope.row[col.key]) }}</span></template>
         </el-table-column>
+        <!-- 跟卖价：内联编辑 -->
+        <el-table-column
+          v-else-if="col.format === 'trackingPrice'"
+          :label="col.label" :align="col.align" :width="col.width" sortable="custom"
+        >
+          <template #default="scope">
+            <el-input v-model="editCache[key(scope.row, 'tp')]" size="small" placeholder="跟卖价" style="width:100px"
+              @blur="onTrackingBlur(scope.row)" @keyup.enter="onTrackingBlur(scope.row)" />
+          </template>
+        </el-table-column>
+        <!-- OE号：内联编辑 -->
+        <el-table-column
+          v-else-if="col.format === 'oeNumber'"
+          :label="col.label" :align="col.align" :width="col.width"
+        >
+          <template #default="scope">
+            <el-input v-model="editCache[key(scope.row, 'oe')]" size="small" placeholder="OE号" clearable style="width:110px"
+              @blur="onOeBlur(scope.row)" @keyup.enter="onOeBlur(scope.row)" @clear="onOeClear(scope.row)" />
+          </template>
+        </el-table-column>
+        <!-- 备注：内联编辑 -->
+        <el-table-column
+          v-else-if="col.format === 'remark'"
+          :label="col.label" :align="col.align" :width="col.width"
+        >
+          <template #default="scope">
+            <el-input v-model="editCache[key(scope.row, 'rk')]" size="small" placeholder="备注" clearable style="width:160px"
+              @blur="onRemarkBlur(scope.row)" @keyup.enter="onRemarkBlur(scope.row)" @clear="onRemarkClear(scope.row)" />
+          </template>
+        </el-table-column>
         <el-table-column
           v-else
           :label="col.label"
@@ -153,7 +183,7 @@
 </template>
 
 <script setup name="EbayPriceTracking">
-import { searchPriceTracking, refreshPriceTracking } from '@/api/operations/ebay/priceTracking'
+import { searchPriceTracking, refreshPriceTracking, calcTracking, saveOe, saveRemark } from '@/api/operations/ebay/priceTracking'
 import request from '@/utils/request'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
@@ -166,6 +196,49 @@ const showSearch = ref(true)
 const total = ref(0)
 const records = ref([])
 const checkedRows = ref([])
+const editCache = reactive({})
+
+function key(row, field) { return (row.site || '') + '|' + (row.sku || '') + '_' + field }
+function initEditCache() {
+  for (const row of records.value) {
+    const k = key(row, 'tp'); if (!(k in editCache)) editCache[k] = row.trackingPrice ?? ''
+    const ko = key(row, 'oe'); if (!(ko in editCache)) editCache[ko] = row.oeNumber ?? ''
+    const kr = key(row, 'rk'); if (!(kr in editCache)) editCache[kr] = row.remark ?? ''
+  }
+}
+watch(records, initEditCache, { flush: 'post' })
+
+async function onTrackingBlur(row) {
+  const k = key(row, 'tp')
+  const v = editCache[k]; if (v === (row.trackingPrice != null ? String(row.trackingPrice) : '')) return
+  if (row._saving) return; row._saving = true
+  try {
+    const r = await calcTracking(row.site, row.sku, v || '')
+    const d = r.data; row.trackingPrice = d.trackingPrice; row.trackingProfitMargin = d.trackingProfitMargin; row.floorPrice = d.floorPrice
+  } catch { editCache[k] = row.trackingPrice ?? '' }
+  finally { row._saving = false }
+}
+async function onOeBlur(row) {
+  const k = key(row, 'oe')
+  const v = editCache[k] || ''; if (v === (row.oeNumber || '')) return
+  if (row._saving) return; row._saving = true
+  try {
+    const r = await saveOe(row.site, row.sku, v)
+    const d = r.data; row.oeNumber = d.oeNumber; row.presaleUrl = d.presaleUrl; row.soldUrl = d.soldUrl
+  } catch { editCache[k] = row.oeNumber || '' }
+  finally { row._saving = false }
+}
+async function onOeClear(row) { editCache[key(row, 'oe')] = ''; onOeBlur(row) }
+async function onRemarkBlur(row) {
+  const k = key(row, 'rk')
+  const v = editCache[k] || ''; if (v === (row.remark || '')) return
+  if (row._saving) return; row._saving = true
+  try { await saveRemark(row.site, row.sku, v); row.remark = v }
+  catch { editCache[k] = row.remark || '' }
+  finally { row._saving = false }
+}
+async function onRemarkClear(row) { editCache[key(row, 'rk')] = ''; onRemarkBlur(row) }
+
 const fixedColumnKeys = ['site', 'sku']
 const columnDefs = [
   { key: 'site', label: '站点', align: 'center', width: 90, fixed: true, sortable: true },
@@ -173,7 +246,7 @@ const columnDefs = [
   { key: 'productName', label: '产品名称', align: 'left', width: 260, tooltip: true },
   { key: 'skuLevel', label: '等级', align: 'center', width: 80 },
   { key: 'ourLowestPrice', label: '我方最低价', align: 'right', width: 110, sortable: true },
-  { key: 'trackingPrice', label: '跟卖价', align: 'right', width: 110, sortable: true },
+  { key: 'trackingPrice', label: '跟卖价', align: 'right', width: 120, format: 'trackingPrice', sortable: true },
   { key: 'trackingProfitMargin', label: '跟卖利润率', align: 'right', width: 130, sortable: true, format: 'percent' },
   { key: 'floorPrice', label: '底线价', align: 'right', width: 100, sortable: true },
   { key: 'returnRate', label: '退货率', align: 'right', width: 90, sortable: true, format: 'rate' },
@@ -182,7 +255,7 @@ const columnDefs = [
   { key: 'sales30d', label: '近30天销量', align: 'right', width: 120, sortable: true },
   { key: 'sales90d', label: '近90天销量', align: 'right', width: 120, sortable: true },
   { key: 'maxMonthlySales', label: '历史最大月销', align: 'right', width: 140, sortable: true },
-  { key: 'oeNumber', label: 'OE号', align: 'center', width: 120, tooltip: true },
+  { key: 'oeNumber', label: 'OE号', align: 'center', width: 130, format: 'oeNumber' },
   { key: 'presaleUrl', label: '售前链接', align: 'center', width: 70, format: 'link' },
   { key: 'soldUrl', label: '售后链接', align: 'center', width: 70, format: 'link' },
   { key: 'overseasStock', label: '海外仓库存', align: 'right', width: 120, sortable: true },
@@ -191,7 +264,7 @@ const columnDefs = [
   { key: 'estimatedReplenishQty', label: '预估补货量', align: 'right', width: 120, sortable: true },
   { key: 'brandCode', label: '品牌', align: 'center', width: 90, tooltip: true },
   { key: 'operatorName', label: '操作员', align: 'center', width: 100, tooltip: true },
-  { key: 'remark', label: '备注', align: 'left', width: 180, tooltip: true },
+  { key: 'remark', label: '备注', align: 'left', width: 180, format: 'remark' },
   { key: 'calcTime', label: '计算时间', align: 'center', width: 170, format: 'time' }
 ]
 const {
