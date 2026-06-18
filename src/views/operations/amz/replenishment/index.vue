@@ -141,6 +141,7 @@
 
 <script setup name="AmzReplenishment">
 import { listAmzReplenishment } from '@/api/operations/amz/replenishment'
+import request from '@/utils/request'
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
