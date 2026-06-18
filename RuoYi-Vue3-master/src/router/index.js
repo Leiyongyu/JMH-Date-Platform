@@ -163,6 +163,41 @@ export const dynamicRoutes = [
         meta: { title: '修改生成配置', activeMenu: '/tool/gen' }
       }
     ]
+  },
+  // 运营页面
+  {
+    path: '/operations/replenishment',
+    component: Layout,
+    name: 'OperationsReplenishment',
+    meta: { title: '运营补货', icon: 'list' },
+    children: [
+      {
+        path: 'ebay-replenishment',
+        component: () => import('@/views/operations/ebay/replenishment/index'),
+        name: 'EbayReplenishment',
+        meta: { title: 'eBay补货', permissions: ['operations:ebayReplenishment:list'] }
+      },
+      {
+        path: 'amz-replenishment',
+        component: () => import('@/views/operations/amz/replenishment/index'),
+        name: 'AmzReplenishment',
+        meta: { title: 'Amazon补货', permissions: ['operations:amzReplenishment:list'] }
+      }
+    ]
+  },
+  {
+    path: '/operations/price-tracking',
+    component: Layout,
+    hidden: true,
+    children: [
+      {
+        path: 'ebay-price-tracking',
+        component: () => import('@/views/operations/ebay/priceTracking/index'),
+        name: 'EbayPriceTracking',
+        meta: { title: 'eBay每日跟价', activeMenu: '/operations/replenishment/ebay-replenishment',
+                permissions: ['operations:ebayReplenishment:list'] }
+      }
+    ]
   }
 ]
 
