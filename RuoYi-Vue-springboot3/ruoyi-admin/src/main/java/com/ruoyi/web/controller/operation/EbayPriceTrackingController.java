@@ -24,6 +24,7 @@ import com.ruoyi.system.domain.operation.EbayPriceTrackingSnapshot;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.domain.operation.external.EbayLinkTemplate;
 import com.ruoyi.system.service.operation.IEbayPriceTrackingService;
+import com.github.pagehelper.PageHelper;
 
 @RestController
 @RequestMapping("/operations/ebay/price-tracking")
@@ -37,7 +38,8 @@ public class EbayPriceTrackingController extends BaseController
     @PostMapping("/search")
     public TableDataInfo search(@RequestBody EbayReplenishmentSearchRequest req)
     {
-        startPage(req.getPageNum(), req.getPageSize());
+        PageHelper.startPage(req.getPageNum() != null ? req.getPageNum() : 1,
+                             req.getPageSize() != null ? req.getPageSize() : 20);
         List<EbayPriceTrackingSnapshot> list = priceTrackingService.search(req);
         return getDataTable(list);
     }

@@ -22,6 +22,7 @@ import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot;
 import com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService;
+import com.github.pagehelper.PageHelper;
 
 @RestController
 @RequestMapping("/operations/ebay/replenishment")
@@ -51,7 +52,8 @@ public class EbayReplenishmentController extends BaseController
     @PostMapping("/search")
     public TableDataInfo search(@RequestBody EbayReplenishmentSearchRequest req)
     {
-        startPage(req.getPageNum(), req.getPageSize());
+        PageHelper.startPage(req.getPageNum() != null ? req.getPageNum() : 1,
+                             req.getPageSize() != null ? req.getPageSize() : 20);
         List<EbayReplenishmentSnapshot> list = snapshotService.search(req);
         return getDataTable(list);
     }
@@ -64,7 +66,7 @@ public class EbayReplenishmentController extends BaseController
             @RequestParam(required = false) String keyword)
     {
         List<String> values = snapshotService.distinctValues(field, keyword);
-        return success(values);
+        return AjaxResult.success(values);
     }
 
     // ========================================================================

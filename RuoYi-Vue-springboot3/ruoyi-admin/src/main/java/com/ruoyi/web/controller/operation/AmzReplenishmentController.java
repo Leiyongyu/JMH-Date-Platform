@@ -22,6 +22,7 @@ import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService;
+import com.github.pagehelper.PageHelper;
 
 @RestController
 @RequestMapping("/operations/amz/replenishment")
@@ -44,7 +45,8 @@ public class AmzReplenishmentController extends BaseController
     @PostMapping("/search")
     public TableDataInfo search(@RequestBody EbayReplenishmentSearchRequest req)
     {
-        startPage(req.getPageNum(), req.getPageSize());
+        PageHelper.startPage(req.getPageNum() != null ? req.getPageNum() : 1,
+                             req.getPageSize() != null ? req.getPageSize() : 20);
         return getDataTable(snapshotService.search(req));
     }
 
