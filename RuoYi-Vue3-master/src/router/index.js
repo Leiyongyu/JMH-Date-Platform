@@ -169,6 +169,7 @@ export const dynamicRoutes = [
     path: '/operations/replenishment',
     component: Layout,
     name: 'OperationsReplenishment',
+    permissions: ['operations:ebayReplenishment:list'],
     meta: { title: '运营补货', icon: 'list' },
     children: [
       {
@@ -189,6 +190,7 @@ export const dynamicRoutes = [
     path: '/operations/price-tracking',
     component: Layout,
     hidden: true,
+    permissions: ['operations:ebayReplenishment:list'],
     children: [
       {
         path: 'ebay-price-tracking',
