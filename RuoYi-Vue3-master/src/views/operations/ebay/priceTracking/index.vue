@@ -41,26 +41,8 @@
         </el-dropdown>
       </el-col>
       <el-col :span="1.5">
-      <el-col :span="1.5">
         <el-button type="warning" plain icon="Download" @click="handleExport"
           v-hasPermi="['operations:ebayReplenishment:export']">导出</el-button>
-      </el-col>
-      <el-col :span="1.5">
-        <el-button type="warning" plain icon="Download" @click="handleExport"
-          v-hasPermi="['operations:ebayReplenishment:export']">导出</el-button>
-      </el-col>
-      <el-col :span="1.5">
-        <el-button type="warning" plain icon="Download" @click="handleExport"
-          v-hasPermi="['operations:ebayReplenishment:export']">导出</el-button>
-      </el-col>
-      <el-col :span="1.5">
-        <el-button type="warning" plain icon="Download" @click="handleExport"
-          v-hasPermi="['operations:ebayReplenishment:export']">导出</el-button>
-      </el-col>
-      <el-col :span="1.5">
-        <el-button type="warning" plain icon="Download" @click="handleExport"
-          v-hasPermi="['operations:ebayReplenishment:export']">导出</el-button>
-      </el-col>
       </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="handleRefresh"></right-toolbar>
     </el-row>
@@ -222,12 +204,10 @@ function handleImport(command) {
 function handleSelectionChange(rows) { checkedRows.value = rows }
 
 function handleExport() {
-  const selectedKey = checkedRows.value.length > 0
-  const body = {
-    scope: selectedKey ? 'SELECTED' : 'FILTERED',
-    rowKeys: selectedKey ? checkedRows.value.map(r => r.site + '|' + r.sku) : undefined
-  }
-  if (!selectedKey) {
+  const sel = checkedRows.value.length > 0
+  const body = { scope: sel ? 'SELECTED' : 'FILTERED',
+    rowKeys: sel ? checkedRows.value.map(r => r.site + '|' + r.sku) : undefined }
+  if (!sel) {
     body.filters = []
     const p = queryParams.value
     if (p.site) body.filters.push({ field: 'site', value: p.site })
