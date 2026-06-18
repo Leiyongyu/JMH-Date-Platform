@@ -59,14 +59,16 @@ public final class InventoryUtils
     /**
      * 提取中间码: 取 SKU 去掉品牌前缀后的部分。
      * 例: "BMW-30087-A" → "BMW-30087"
-     *      "2PC-BMW-30087" → "2PC-BMW-30087" (保留前三段)
+     *     "2PC-BMW-30087" → "2PC-BMW-30087" (保留前三段)
+     *     "4PC-DAS-10254" → "4PC-DAS-10254" (PC前缀保留前三段)
      */
     public static String extractMiddleCode(String sku)
     {
         if (sku == null || sku.isEmpty()) return "";
         String s = sku.trim();
         String[] parts = s.split("-");
-        if (parts.length >= 3 && "2PC".equalsIgnoreCase(parts[0]))
+        // 所有数字+PC 前缀 (2PC, 4PC, PC 等) 保留前三段
+        if (parts.length >= 3 && parts[0].matches("\\d*PC"))
         {
             return parts[0] + "-" + parts[1] + "-" + parts[2];
         }
