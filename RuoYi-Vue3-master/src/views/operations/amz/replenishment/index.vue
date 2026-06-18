@@ -69,7 +69,7 @@
       <right-toolbar
         v-model:showSearch="showSearch"
         :show-column-config="true"
-        @queryTable="getList"
+        @queryTable="handleRefresh"
         @columnConfig="openColumnConfig"
       ></right-toolbar>
     </el-row>
@@ -151,7 +151,7 @@
 </template>
 
 <script setup name="AmzReplenishment">
-import { listAmzReplenishment } from '@/api/operations/amz/replenishment'
+import { listAmzReplenishment, refreshAmzReplenishment } from '@/api/operations/amz/replenishment'
 import request from '@/utils/request'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
@@ -234,6 +234,13 @@ function getList() {
   }).finally(() => {
     loading.value = false
   })
+}
+
+async function handleRefresh() {
+  if (loading.value) return
+  loading.value = true
+  try { await refreshAmzReplenishment(); await getList() }
+  finally { loading.value = false }
 }
 
 function handleQuery() {
