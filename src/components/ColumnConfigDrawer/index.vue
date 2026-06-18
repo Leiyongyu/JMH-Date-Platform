@@ -1,5 +1,5 @@
 <template>
-  <el-drawer :model-value="showDrawer" title="列设置" :size="480" direction="rtl" :before-close="onClose">
+  <el-drawer :model-value="showDrawer" title="列设置" :size="480" direction="rtl">
     <div style="display:flex;gap:16px;min-height:300px">
       <div style="width:160px;flex-shrink:0;border-right:1px solid #eee;padding:8px;max-height:400px;overflow-y:auto">
         <div style="margin-bottom:8px"><el-checkbox :model-value="isAllChecked" @change="toggleAll">全选</el-checkbox></div>
@@ -16,6 +16,12 @@
         </div>
       </div>
     </div>
+    <template #footer>
+      <div style="text-align:right">
+        <el-button @click="onCancel">取消</el-button>
+        <el-button type="primary" @click="onApply">应用</el-button>
+      </div>
+    </template>
   </el-drawer>
 </template>
 
@@ -25,7 +31,8 @@ defineProps({
   toggleAll: Function, toggleColumn: Function, onDragStart: Function, onDragOver: Function, onDrop: Function, onDragEnd: Function
 })
 const emit = defineEmits(['close', 'save'])
-function onClose() { emit('close'); emit('save') }
+function onCancel() { emit('close') }
+function onApply() { emit('save'); emit('close') }
 </script>
 
 <style scoped>

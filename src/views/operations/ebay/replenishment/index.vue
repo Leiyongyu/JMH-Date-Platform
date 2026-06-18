@@ -79,9 +79,7 @@
           </template>
         </el-dropdown>
       </el-col>
-      <el-col :span="1.5">
-        <el-button icon="Setting" circle @click="showColDrawer = true" title="列设置" />
-      </el-col>
+      <el-col :span="1.5"><el-button icon="Setting" circle @click="openColDrawer" title="列设置" /></el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
@@ -151,14 +149,7 @@
       @pagination="getList"
     />
   </div>
-
-  <ColumnConfigDrawer
-    :showDrawer="showColDrawer" :leftCols="colLeftCols" :selectedColumns="colSelected"
-    :isAllChecked="colIsAllChecked" :fixedKeys="colFixedKeys"
-    :toggleAll="colToggleAll" :toggleColumn="colToggleColumn"
-    :onDragStart="colOnDragStart" :onDragOver="colOnDragOver"
-    :onDrop="colOnDrop" :onDragEnd="colOnDragEnd"
-    @close="showColDrawer = false" @save="colSave" />
+  <ColumnConfigDrawer :showDrawer="colShowDrawer" :leftCols="colLeftCols" :selectedColumns="colSelected" :isAllChecked="colIsAllChecked" :fixedKeys="colFixedKeys" :toggleAll="colToggleAll" :toggleColumn="colToggleColumn" :onDragStart="colOnDragStart" :onDragOver="colOnDragOver" :onDrop="colOnDrop" :onDragEnd="colOnDragEnd" @close="closeColDrawer(false)" @save="closeColDrawer(true)" />
 </template>
 
 <script setup name="EbayReplenishment">
@@ -192,13 +183,10 @@ const data = reactive({
 const { queryParams } = toRefs(data)
 
 // 列配置
-const showColDrawer = ref(false)
 const colFixedKeys = ['site', 'sku']
-const colKeyMap = { site:{label:'站点',prop:'site'}, sku:{label:'SKU',prop:'sku'}, productName:{label:'产品名称',prop:'productName'}, skuLevel:{label:'等级',prop:'skuLevel'}, profitRate30d:{label:'近30天利润',prop:'profitRate30d'}, returnRate:{label:'退货率',prop:'returnRate'}, overseasOnway:{label:'海外在途',prop:'overseasOnway'}, overseasSellable:{label:'海外可售',prop:'overseasSellable'}, overseasTotal:{label:'海外总库存',prop:'overseasTotal'}, purchasePendingDelivery:{label:'采购待交付',prop:'purchasePendingDelivery'}, localSellable:{label:'成都可售',prop:'localSellable'}, localOnway:{label:'成都在途',prop:'localOnway'}, purchasePlanQty:{label:'采购计划',prop:'purchasePlanQty'}, lockedQty:{label:'待出库',prop:'lockedQty'}, totalInventory:{label:'总库存',prop:'totalInventory'}, sales7d:{label:'近7天销量',prop:'sales7d'}, sales30d:{label:'近30天销量',prop:'sales30d'}, sales90d:{label:'近90天销量',prop:'sales90d'}, maxMonthlySales:{label:'历史最大月销',prop:'maxMonthlySales'}, overseasSellableSalesRatio:{label:'海外在库库销比',prop:'overseasSellableSalesRatio'}, overseasTotalSalesRatio:{label:'海外总库销比',prop:'overseasTotalSalesRatio'}, totalInventorySalesRatio:{label:'总库存库销比',prop:'totalInventorySalesRatio'}, lastLocalOutboundTime:{label:'最近本地出库',prop:'lastLocalOutboundTime'}, outboundDays:{label:'出库天数',prop:'outboundDays'}, purchaseCycleDays:{label:'采购周期',prop:'purchaseCycleDays'}, suggestPurchaseQty:{label:'采购数量',prop:'suggestPurchaseQty'}, maxMonthlyReplenishQty:{label:'最大月销补货量',prop:'maxMonthlyReplenishQty'}, ownerName:{label:'负责人',prop:'ownerName'}, calcTime:{label:'计算时间',prop:'calcTime'} }
+const colKeyMap = { site:{label:'站点'}, sku:{label:'SKU'}, productName:{label:'产品名称'}, skuLevel:{label:'等级'}, profitRate30d:{label:'近30天利润'}, returnRate:{label:'退货率'}, overseasOnway:{label:'海外在途'}, overseasSellable:{label:'海外可售'}, overseasTotal:{label:'海外总库存'}, purchasePendingDelivery:{label:'采购待交付'}, localSellable:{label:'成都可售'}, localOnway:{label:'成都在途'}, purchasePlanQty:{label:'采购计划'}, lockedQty:{label:'待出库'}, totalInventory:{label:'总库存'}, sales7d:{label:'近7天销量'}, sales30d:{label:'近30天销量'}, sales90d:{label:'近90天销量'}, maxMonthlySales:{label:'历史最大月销'}, overseasSellableSalesRatio:{label:'海外在库库销比'}, overseasTotalSalesRatio:{label:'海外总库销比'}, totalInventorySalesRatio:{label:'总库存库销比'}, lastLocalOutboundTime:{label:'最近本地出库'}, outboundDays:{label:'出库天数'}, purchaseCycleDays:{label:'采购周期'}, suggestPurchaseQty:{label:'采购数量'}, maxMonthlyReplenishQty:{label:'最大月销补货量'}, ownerName:{label:'负责人'}, calcTime:{label:'计算时间'} }
 const colConfig = useColumnConfig('operations:ebay:replenishment', colFixedKeys, colKeyMap)
-const { visibleKeys: colVisibleKeys, leftCols: colLeftCols, selectedColumns: colSelected, isAllChecked: colIsAllChecked, toggleAll: colToggleAll, toggleColumn: colToggleColumn, onDragStart: colOnDragStart, onDragOver: colOnDragOver, onDrop: colOnDrop, onDragEnd: colOnDragEnd, init: colInit, save: colSave_ } = colConfig
-function colVisible(key) { return colVisibleKeys.value.includes(key) }
-function colSave() { colSave_(proxy); showColDrawer.value = false }
+const { visibleKeys:colVKeys, showDrawer:colShowDrawer, leftCols:colLeftCols, selectedColumns:colSelected, isAllChecked:colIsAllChecked, toggleAll:colToggleAll, toggleColumn:colToggleColumn, onDragStart:colOnDragStart, onDragOver:colOnDragOver, onDrop:colOnDrop, onDragEnd:colOnDragEnd, init:colInit, openDrawer:openColDrawer, closeDrawer:closeColDrawer, colVisible } = colConfig
 
 function getList() {
   loading.value = true
