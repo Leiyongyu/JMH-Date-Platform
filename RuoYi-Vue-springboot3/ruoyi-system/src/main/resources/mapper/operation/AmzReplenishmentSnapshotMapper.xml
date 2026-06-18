@@ -108,7 +108,7 @@
                s.sales_speed_14d, s.sales_speed_30d, s.sales_speed_60d, s.avg_monthly_sales,
                s.safety_stock, s.ship_qty, s.replenish_qty, s.restock_days, s.calc_time
         FROM amz_replenishment_snapshot s
-        LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) = o.sid AND s.seller_sku = o.seller_sku
+        LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = o.sid AND s.seller_sku = o.seller_sku
         <where>
             <!-- 文本字段 -->
             <if test="storeName != null and storeName != ''">
@@ -175,7 +175,7 @@
                s.sales_speed_14d, s.sales_speed_30d, s.sales_speed_60d, s.avg_monthly_sales,
                s.safety_stock, s.ship_qty, s.replenish_qty, s.restock_days, s.calc_time
         FROM amz_replenishment_snapshot s
-        LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) = o.sid AND s.seller_sku = o.seller_sku
+        LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = o.sid AND s.seller_sku = o.seller_sku
         <where>
             <if test="storeName != null and storeName != ''">and s.store_name like concat('%', #{storeName}, '%')</if>
             <if test="sellerSku != null and sellerSku != ''">and s.seller_sku like concat('%', #{sellerSku}, '%')</if>
