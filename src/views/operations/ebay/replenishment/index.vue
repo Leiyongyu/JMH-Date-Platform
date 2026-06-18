@@ -79,6 +79,9 @@
           </template>
         </el-dropdown>
       </el-col>
+      <el-col :span="1.5">
+        <el-button icon="Setting" circle @click="showColDrawer = true" title="列设置" />
+      </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
@@ -91,49 +94,49 @@
       @sort-change="handleSortChange"
     >
       <el-table-column type="selection" width="45" fixed />
-      <el-table-column label="站点" align="center" prop="site" width="90" fixed sortable="custom" />
-      <el-table-column label="SKU" align="left" prop="sku" width="170" fixed sortable="custom" :show-overflow-tooltip="true" />
-      <el-table-column label="产品名称" align="left" prop="productName" width="260" :show-overflow-tooltip="true" />
-      <el-table-column label="等级" align="center" prop="skuLevel" width="80" sortable="custom">
+      <el-table-column label="站点" align="center" prop="site" v-if="colVisible('site')" width="90" fixed sortable="custom" />
+      <el-table-column label="SKU" align="left" prop="sku" v-if="colVisible('sku')" width="170" fixed sortable="custom" :show-overflow-tooltip="true" />
+      <el-table-column label="产品名称" align="left" prop="productName" v-if="colVisible('productName')" width="260" :show-overflow-tooltip="true" />
+      <el-table-column label="等级" align="center" prop="skuLevel" v-if="colVisible('skuLevel')" width="80" sortable="custom">
         <template #default="scope">
           <el-tag :type="levelTagType(scope.row.skuLevel)" effect="light">{{ scope.row.skuLevel || '-' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="近30天利润" align="right" prop="profitRate30d" width="120" sortable="custom">
+      <el-table-column label="近30天利润" align="right" prop="profitRate30d" v-if="colVisible('profitRate30d')" width="120" sortable="custom">
         <template #default="scope">{{ formatPercentNumber(scope.row.profitRate30d) }}</template>
       </el-table-column>
-      <el-table-column label="退货率" align="right" prop="returnRate" width="100" sortable="custom">
+      <el-table-column label="退货率" align="right" prop="returnRate" v-if="colVisible('returnRate')" width="100" sortable="custom">
         <template #default="scope">{{ formatRate(scope.row.returnRate) }}</template>
       </el-table-column>
-      <el-table-column label="海外在途" align="right" prop="overseasOnway" width="105" sortable="custom" />
-      <el-table-column label="海外可售" align="right" prop="overseasSellable" width="105" sortable="custom" />
-      <el-table-column label="海外总库存" align="right" prop="overseasTotal" width="120" sortable="custom" />
-      <el-table-column label="采购待交付" align="right" prop="purchasePendingDelivery" width="120" sortable="custom" />
-      <el-table-column label="成都可售" align="right" prop="localSellable" width="105" sortable="custom" />
-      <el-table-column label="成都在途" align="right" prop="localOnway" width="105" sortable="custom" />
-      <el-table-column label="采购计划" align="right" prop="purchasePlanQty" width="105" sortable="custom" />
-      <el-table-column label="待出库" align="right" prop="lockedQty" width="95" sortable="custom" />
-      <el-table-column label="总库存" align="right" prop="totalInventory" width="105" sortable="custom" />
-      <el-table-column label="近7天销量" align="right" prop="sales7d" width="110" sortable="custom" />
-      <el-table-column label="近30天销量" align="right" prop="sales30d" width="120" sortable="custom" />
-      <el-table-column label="近90天销量" align="right" prop="sales90d" width="120" sortable="custom" />
-      <el-table-column label="历史最大月销" align="right" prop="maxMonthlySales" width="130" sortable="custom" />
-      <el-table-column label="海外在库库销比" align="right" prop="overseasSellableSalesRatio" width="145" sortable="custom">
+      <el-table-column label="海外在途" align="right" prop="overseasOnway" v-if="colVisible('overseasOnway')" width="105" sortable="custom" />
+      <el-table-column label="海外可售" align="right" prop="overseasSellable" v-if="colVisible('overseasSellable')" width="105" sortable="custom" />
+      <el-table-column label="海外总库存" align="right" prop="overseasTotal" v-if="colVisible('overseasTotal')" width="120" sortable="custom" />
+      <el-table-column label="采购待交付" align="right" prop="purchasePendingDelivery" v-if="colVisible('purchasePendingDelivery')" width="120" sortable="custom" />
+      <el-table-column label="成都可售" align="right" prop="localSellable" v-if="colVisible('localSellable')" width="105" sortable="custom" />
+      <el-table-column label="成都在途" align="right" prop="localOnway" v-if="colVisible('localOnway')" width="105" sortable="custom" />
+      <el-table-column label="采购计划" align="right" prop="purchasePlanQty" v-if="colVisible('purchasePlanQty')" width="105" sortable="custom" />
+      <el-table-column label="待出库" align="right" prop="lockedQty" v-if="colVisible('lockedQty')" width="95" sortable="custom" />
+      <el-table-column label="总库存" align="right" prop="totalInventory" v-if="colVisible('totalInventory')" width="105" sortable="custom" />
+      <el-table-column label="近7天销量" align="right" prop="sales7d" v-if="colVisible('sales7d')" width="110" sortable="custom" />
+      <el-table-column label="近30天销量" align="right" prop="sales30d" v-if="colVisible('sales30d')" width="120" sortable="custom" />
+      <el-table-column label="近90天销量" align="right" prop="sales90d" v-if="colVisible('sales90d')" width="120" sortable="custom" />
+      <el-table-column label="历史最大月销" align="right" prop="maxMonthlySales" v-if="colVisible('maxMonthlySales')" width="130" sortable="custom" />
+      <el-table-column label="海外在库库销比" align="right" prop="overseasSellableSalesRatio" v-if="colVisible('overseasSellableSalesRatio')" width="145" sortable="custom">
         <template #default="scope">{{ formatRatio(scope.row.overseasSellableSalesRatio) }}</template>
       </el-table-column>
-      <el-table-column label="海外总库销比" align="right" prop="overseasTotalSalesRatio" width="135" sortable="custom">
+      <el-table-column label="海外总库销比" align="right" prop="overseasTotalSalesRatio" v-if="colVisible('overseasTotalSalesRatio')" width="135" sortable="custom">
         <template #default="scope">{{ formatRatio(scope.row.overseasTotalSalesRatio) }}</template>
       </el-table-column>
-      <el-table-column label="总库存库销比" align="right" prop="totalInventorySalesRatio" width="135" sortable="custom">
+      <el-table-column label="总库存库销比" align="right" prop="totalInventorySalesRatio" v-if="colVisible('totalInventorySalesRatio')" width="135" sortable="custom">
         <template #default="scope">{{ formatRatio(scope.row.totalInventorySalesRatio) }}</template>
       </el-table-column>
-      <el-table-column label="最近本地出库" align="center" prop="lastLocalOutboundTime" width="140" :show-overflow-tooltip="true" />
-      <el-table-column label="出库天数" align="right" prop="outboundDays" width="105" sortable="custom" />
-      <el-table-column label="采购周期" align="right" prop="purchaseCycleDays" width="105" sortable="custom" />
-      <el-table-column label="采购数量" align="right" prop="suggestPurchaseQty" width="110" sortable="custom" />
-      <el-table-column label="最大月销补货量" align="right" prop="maxMonthlyReplenishQty" width="145" sortable="custom" />
-      <el-table-column label="负责人" align="center" prop="ownerName" width="110" :show-overflow-tooltip="true" />
-      <el-table-column label="计算时间" align="center" prop="calcTime" width="170">
+      <el-table-column label="最近本地出库" align="center" prop="lastLocalOutboundTime" v-if="colVisible('lastLocalOutboundTime')" width="140" :show-overflow-tooltip="true" />
+      <el-table-column label="出库天数" align="right" prop="outboundDays" v-if="colVisible('outboundDays')" width="105" sortable="custom" />
+      <el-table-column label="采购周期" align="right" prop="purchaseCycleDays" v-if="colVisible('purchaseCycleDays')" width="105" sortable="custom" />
+      <el-table-column label="采购数量" align="right" prop="suggestPurchaseQty" v-if="colVisible('suggestPurchaseQty')" width="110" sortable="custom" />
+      <el-table-column label="最大月销补货量" align="right" prop="maxMonthlyReplenishQty" v-if="colVisible('maxMonthlyReplenishQty')" width="145" sortable="custom" />
+      <el-table-column label="负责人" align="center" prop="ownerName" v-if="colVisible('ownerName')" width="110" :show-overflow-tooltip="true" />
+      <el-table-column label="计算时间" align="center" prop="calcTime" v-if="colVisible('calcTime')" width="170">
         <template #default="scope">
           <span>{{ parseTime(scope.row.calcTime) }}</span>
         </template>
@@ -148,9 +151,19 @@
       @pagination="getList"
     />
   </div>
+
+  <ColumnConfigDrawer
+    :showDrawer="showColDrawer" :leftCols="colLeftCols" :selectedColumns="colSelected"
+    :isAllChecked="colIsAllChecked" :fixedKeys="colFixedKeys"
+    :toggleAll="colToggleAll" :toggleColumn="colToggleColumn"
+    :onDragStart="colOnDragStart" :onDragOver="colOnDragOver"
+    :onDrop="colOnDrop" :onDragEnd="colOnDragEnd"
+    @close="showColDrawer = false" @save="colSave" />
 </template>
 
 <script setup name="EbayReplenishment">
+import { useColumnConfig } from '@/composables/useColumnConfig'
+import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { listEbayReplenishment } from '@/api/operations/ebay/replenishment'
 import request from '@/utils/request'
 
@@ -177,6 +190,15 @@ const data = reactive({
 })
 
 const { queryParams } = toRefs(data)
+
+// 列配置
+const showColDrawer = ref(false)
+const colFixedKeys = ['site', 'sku']
+const colKeyMap = { site:{label:'站点',prop:'site'}, sku:{label:'SKU',prop:'sku'}, productName:{label:'产品名称',prop:'productName'}, skuLevel:{label:'等级',prop:'skuLevel'}, profitRate30d:{label:'近30天利润',prop:'profitRate30d'}, returnRate:{label:'退货率',prop:'returnRate'}, overseasOnway:{label:'海外在途',prop:'overseasOnway'}, overseasSellable:{label:'海外可售',prop:'overseasSellable'}, overseasTotal:{label:'海外总库存',prop:'overseasTotal'}, purchasePendingDelivery:{label:'采购待交付',prop:'purchasePendingDelivery'}, localSellable:{label:'成都可售',prop:'localSellable'}, localOnway:{label:'成都在途',prop:'localOnway'}, purchasePlanQty:{label:'采购计划',prop:'purchasePlanQty'}, lockedQty:{label:'待出库',prop:'lockedQty'}, totalInventory:{label:'总库存',prop:'totalInventory'}, sales7d:{label:'近7天销量',prop:'sales7d'}, sales30d:{label:'近30天销量',prop:'sales30d'}, sales90d:{label:'近90天销量',prop:'sales90d'}, maxMonthlySales:{label:'历史最大月销',prop:'maxMonthlySales'}, overseasSellableSalesRatio:{label:'海外在库库销比',prop:'overseasSellableSalesRatio'}, overseasTotalSalesRatio:{label:'海外总库销比',prop:'overseasTotalSalesRatio'}, totalInventorySalesRatio:{label:'总库存库销比',prop:'totalInventorySalesRatio'}, lastLocalOutboundTime:{label:'最近本地出库',prop:'lastLocalOutboundTime'}, outboundDays:{label:'出库天数',prop:'outboundDays'}, purchaseCycleDays:{label:'采购周期',prop:'purchaseCycleDays'}, suggestPurchaseQty:{label:'采购数量',prop:'suggestPurchaseQty'}, maxMonthlyReplenishQty:{label:'最大月销补货量',prop:'maxMonthlyReplenishQty'}, ownerName:{label:'负责人',prop:'ownerName'}, calcTime:{label:'计算时间',prop:'calcTime'} }
+const colConfig = useColumnConfig('operations:ebay:replenishment', colFixedKeys, colKeyMap)
+const { visibleKeys: colVisibleKeys, leftCols: colLeftCols, selectedColumns: colSelected, isAllChecked: colIsAllChecked, toggleAll: colToggleAll, toggleColumn: colToggleColumn, onDragStart: colOnDragStart, onDragOver: colOnDragOver, onDrop: colOnDrop, onDragEnd: colOnDragEnd, init: colInit, save: colSave_ } = colConfig
+function colVisible(key) { return colVisibleKeys.value.includes(key) }
+function colSave() { colSave_(proxy); showColDrawer.value = false }
 
 function getList() {
   loading.value = true
@@ -274,7 +296,7 @@ function levelTagType(level) {
   return map[level] || 'info'
 }
 
-getList()
+getList(); colInit()
 </script>
 
 <style scoped>
