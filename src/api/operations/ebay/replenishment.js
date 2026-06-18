@@ -8,6 +8,10 @@ export function listEbayReplenishment(query) {
   })
 }
 
+export function refreshEbayReplenishment() {
+  return request({ url: '/operations/ebay/replenishment/refresh', method: 'post' })
+}
+
 export function exportEbayReplenishment(query) {
   return request({
     url: '/operations/ebay/replenishment/export',

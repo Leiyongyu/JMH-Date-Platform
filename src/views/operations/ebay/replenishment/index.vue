@@ -72,7 +72,7 @@
       <right-toolbar
         v-model:showSearch="showSearch"
         :show-column-config="true"
-        @queryTable="getList"
+        @queryTable="handleRefresh"
         @columnConfig="openColumnConfig"
       ></right-toolbar>
     </el-row>
@@ -175,7 +175,7 @@
 </template>
 
 <script setup name="EbayReplenishment">
-import { listEbayReplenishment } from '@/api/operations/ebay/replenishment'
+import { listEbayReplenishment, refreshEbayReplenishment } from '@/api/operations/ebay/replenishment'
 import request from '@/utils/request'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
@@ -255,6 +255,13 @@ function getList() {
   }).finally(() => {
     loading.value = false
   })
+}
+
+async function handleRefresh() {
+  if (loading.value) return
+  loading.value = true
+  try { await refreshEbayReplenishment(); await getList() }
+  finally { loading.value = false }
 }
 
 function handleQuery() {
