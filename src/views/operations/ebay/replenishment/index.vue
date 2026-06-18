@@ -52,9 +52,6 @@
 
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
-        <el-button type="primary" plain icon="Refresh" @click="getList">刷新列表</el-button>
-      </el-col>
-      <el-col :span="1.5">
         <el-dropdown @command="handleImport" v-hasPermi="['operations:ebayReplenishment:import']">
           <el-button type="info" plain icon="Upload">
             导入<el-icon class="el-icon--right"><arrow-down /></el-icon>
