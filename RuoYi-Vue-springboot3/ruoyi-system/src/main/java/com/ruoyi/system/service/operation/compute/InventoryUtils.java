@@ -106,16 +106,19 @@ public final class InventoryUtils
     }
 
     /**
-     * 去掉 PC 前缀 (2PC- 或 PC-)
+     * 去掉 PC 前缀 (2PC-, 4PC-, PC- 等，匹配 \d*PC- 模式)
      */
     public static String stripPcPrefix(String sku)
     {
         if (sku == null || sku.isEmpty()) return "";
         String s = sku.trim();
-        if (s.length() > 3 && s.substring(0, 3).equalsIgnoreCase("2PC") && s.length() > 4 && s.charAt(3) == '-')
-            return s.substring(4);
-        if (s.length() > 2 && s.substring(0, 2).equalsIgnoreCase("PC") && s.length() > 3 && s.charAt(2) == '-')
-            return s.substring(3);
+        // 匹配 数字+PC- 或 纯PC- 前缀: "2PC-DAS-10254" → "DAS-10254", "PC-xxx" → "xxx"
+        if (s.matches("^\\d*PC-.*"))
+        {
+            int idx = s.indexOf('-');
+            if (idx > 0 && idx < s.length() - 1)
+                return s.substring(idx + 1);
+        }
         return s;
     }
 
