@@ -1,5 +1,5 @@
 <template>
-  <el-drawer v-model="showDrawer" title="列设置" :size="480" direction="rtl" :before-close="onClose">
+  <el-drawer :model-value="showDrawer" title="列设置" :size="480" direction="rtl" :before-close="onClose">
     <div style="display:flex;gap:16px;min-height:300px">
       <div style="width:160px;flex-shrink:0;border-right:1px solid #eee;padding:8px;max-height:400px;overflow-y:auto">
         <div style="margin-bottom:8px"><el-checkbox :model-value="isAllChecked" @change="toggleAll">全选</el-checkbox></div>
