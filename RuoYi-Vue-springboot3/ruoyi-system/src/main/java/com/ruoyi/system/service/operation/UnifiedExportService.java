@@ -62,7 +62,12 @@ public class UnifiedExportService
         Map<String, Object> params = buildEbayReplenishmentParams(req, 1, 0);
         List<EbayReplenishmentSnapshot> list = ebayReplenishmentMapper.search(params);
         List<Map<String, Object>> all = new ArrayList<>();
-        for (EbayReplenishmentSnapshot s : list) all.add(toMap(s, keys));
+        Set<String> selected = "SELECTED".equals(req.getScope()) && req.getRowKeys() != null
+                ? new HashSet<>(req.getRowKeys()) : null;
+        for (EbayReplenishmentSnapshot s : list) {
+            if (selected != null && !selected.contains(s.getSite() + "|" + s.getSku())) continue;
+            all.add(toMap(s, keys));
+        }
         return all;
     }
 
@@ -71,7 +76,12 @@ public class UnifiedExportService
         Map<String, Object> params = buildEbayPriceTrackingParams(req, 1, 0);
         List<EbayPriceTrackingSnapshot> list = ebayPriceTrackingMapper.search(params);
         List<Map<String, Object>> all = new ArrayList<>();
-        for (EbayPriceTrackingSnapshot s : list) all.add(toMap(s, keys));
+        Set<String> selected = "SELECTED".equals(req.getScope()) && req.getRowKeys() != null
+                ? new HashSet<>(req.getRowKeys()) : null;
+        for (EbayPriceTrackingSnapshot s : list) {
+            if (selected != null && !selected.contains(s.getSite() + "|" + s.getSku())) continue;
+            all.add(toMap(s, keys));
+        }
         return all;
     }
 
@@ -80,7 +90,12 @@ public class UnifiedExportService
         Map<String, Object> params = buildAmzReplenishmentParams(req, 1, 0);
         List<AmzReplenishmentSnapshot> list = amzReplenishmentMapper.search(params);
         List<Map<String, Object>> all = new ArrayList<>();
-        for (AmzReplenishmentSnapshot s : list) all.add(toMap(s, keys));
+        Set<String> selected = "SELECTED".equals(req.getScope()) && req.getRowKeys() != null
+                ? new HashSet<>(req.getRowKeys()) : null;
+        for (AmzReplenishmentSnapshot s : list) {
+            if (selected != null && !selected.contains((s.getSid() != null ? s.getSid() : "") + "|" + (s.getSellerSku() != null ? s.getSellerSku() : "") + "|" + (s.getWarehouseSku() != null ? s.getWarehouseSku() : ""))) continue;
+            all.add(toMap(s, keys));
+        }
         return all;
     }
 
