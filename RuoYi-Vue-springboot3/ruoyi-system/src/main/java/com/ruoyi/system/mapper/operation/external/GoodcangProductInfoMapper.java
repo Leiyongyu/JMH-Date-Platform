@@ -1,5 +1,6 @@
 package com.ruoyi.system.mapper.operation.external;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 import org.apache.ibatis.annotations.Param;
@@ -10,4 +11,5 @@ public interface GoodcangProductInfoMapper
 {
     GoodcangProductInfo selectByMiddleCode(@Param("skuMiddle") String skuMiddle);
     List<GoodcangProductInfo> selectAll();
+    int updatePrice(@Param("middleCode") String middleCode, @Param("price") BigDecimal price);
 }

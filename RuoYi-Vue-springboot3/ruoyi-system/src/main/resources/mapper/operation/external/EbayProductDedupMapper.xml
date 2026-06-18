@@ -23,4 +23,14 @@
         FROM ebay_product_dedup
     </select>
 
+    <update id="updateProfitRate">
+        UPDATE ebay_product_dedup SET profit_rate = #{rate}
+        WHERE site = #{site} AND sku LIKE CONCAT('%', #{middleCode}, '%') LIMIT 1
+    </update>
+
+    <update id="updateReturnRate">
+        UPDATE ebay_product_dedup SET return_rate = #{rate}
+        WHERE site = #{site} AND sku LIKE CONCAT('%', #{middleCode}, '%') LIMIT 1
+    </update>
+
 </mapper>

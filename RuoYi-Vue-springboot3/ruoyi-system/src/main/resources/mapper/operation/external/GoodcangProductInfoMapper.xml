@@ -24,4 +24,8 @@
         FROM goodcang_product_info
     </select>
 
+    <update id="updatePrice">
+        UPDATE goodcang_product_info SET price = #{price} WHERE sku_middle = #{middleCode}
+    </update>
+
 </mapper>

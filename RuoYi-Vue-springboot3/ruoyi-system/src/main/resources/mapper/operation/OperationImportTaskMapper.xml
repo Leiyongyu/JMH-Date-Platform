@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.OperationImportTaskMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.OperationImportTask" id="Result">
+        <id property="id" column="id"/>
+        <result property="fileName" column="file_name"/>
+        <result property="taskType" column="task_type"/>
+        <result property="operator" column="operator"/>
+        <result property="status" column="status"/>
+        <result property="totalRows" column="total_rows"/>
+        <result property="successRows" column="success_rows"/>
+        <result property="failRows" column="fail_rows"/>
+        <result property="errorFilePath" column="error_file_path"/>
+        <result property="startTime" column="start_time"/>
+        <result property="endTime" column="end_time"/>
+        <result property="createTime" column="create_time"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.ruoyi.system.domain.operation.OperationImportTask" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO operation_import_task (file_name, task_type, operator, status, total_rows, success_rows, fail_rows, start_time)
+        VALUES (#{fileName}, #{taskType}, #{operator}, #{status}, #{totalRows}, #{successRows}, #{failRows}, NOW())
+    </insert>
+
+    <update id="update" parameterType="com.ruoyi.system.domain.operation.OperationImportTask">
+        UPDATE operation_import_task
+        <set>
+            <if test="status != null">status = #{status},</if>
+            <if test="totalRows != null">total_rows = #{totalRows},</if>
+            <if test="successRows != null">success_rows = #{successRows},</if>
+            <if test="failRows != null">fail_rows = #{failRows},</if>
+            <if test="errorFilePath != null">error_file_path = #{errorFilePath},</if>
+            <if test="endTime != null">end_time = #{endTime},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectById" resultMap="Result">
+        SELECT * FROM operation_import_task WHERE id = #{id}
+    </select>
+
+    <select id="selectRecent" resultMap="Result">
+        SELECT * FROM operation_import_task WHERE task_type = #{taskType} ORDER BY create_time DESC LIMIT #{limit}
+    </select>
+
+</mapper>

@@ -13,17 +13,20 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.system.domain.operation.EbayPriceTrackingSnapshot;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.domain.operation.external.EbayLinkTemplate;
 import com.ruoyi.system.service.operation.IEbayPriceTrackingService;
+import com.ruoyi.system.service.operation.OperationImportService;
 import com.github.pagehelper.PageHelper;
 
 @RestController
@@ -32,6 +35,8 @@ public class EbayPriceTrackingController extends BaseController
 {
     @Autowired
     private IEbayPriceTrackingService priceTrackingService;
+    @Autowired
+    private OperationImportService importService;
 
     // ====== 搜索 ======
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
@@ -125,5 +130,24 @@ public class EbayPriceTrackingController extends BaseController
         List<EbayPriceTrackingSnapshot> list = priceTrackingService.listAll(filter);
         ExcelUtil<EbayPriceTrackingSnapshot> util = new ExcelUtil<>(EbayPriceTrackingSnapshot.class);
         util.exportExcel(response, list, "eBay每日跟价数据");
+    }
+
+    // ====== 导入（最低价/商品单价） ======
+    @Log(title = "eBay跟价-导入最低价", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:import')")
+    @PostMapping("/import-lowest-price")
+    public AjaxResult importLowestPrice(@RequestParam("file") MultipartFile file)
+    {
+        try { return AjaxResult.success(importService.importLowestPrice(file, SecurityUtils.getUsername())); }
+        catch (Exception e) { return error(e.getMessage()); }
+    }
+
+    @Log(title = "eBay跟价-导入商品单价", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:import')")
+    @PostMapping("/import-product-price")
+    public AjaxResult importProductPrice(@RequestParam("file") MultipartFile file)
+    {
+        try { return AjaxResult.success(importService.importProductPrice(file, SecurityUtils.getUsername())); }
+        catch (Exception e) { return error(e.getMessage()); }
     }
 }

@@ -12,16 +12,19 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot;
 import com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService;
+import com.ruoyi.system.service.operation.OperationImportService;
 import com.github.pagehelper.PageHelper;
 
 @RestController
@@ -30,6 +33,8 @@ public class EbayReplenishmentController extends BaseController
 {
     @Autowired
     private IEbayReplenishmentSnapshotService snapshotService;
+    @Autowired
+    private OperationImportService importService;
 
     // ========================================================================
     // 基础列表（若依兼容，保留）
@@ -90,5 +95,33 @@ public class EbayReplenishmentController extends BaseController
     {
         snapshotService.refreshSnapshot();
         return success();
+    }
+
+    // ====== 导入 ======
+    @Log(title = "eBay补货-导入销量", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:import')")
+    @PostMapping("/import-sales")
+    public AjaxResult importSales(@RequestParam("file") MultipartFile file)
+    {
+        try { return AjaxResult.success(importService.importEbaySales(file, SecurityUtils.getUsername())); }
+        catch (Exception e) { return error(e.getMessage()); }
+    }
+
+    @Log(title = "eBay补货-导入利润率", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:import')")
+    @PostMapping("/import-profit-rate")
+    public AjaxResult importProfitRate(@RequestParam("file") MultipartFile file)
+    {
+        try { return AjaxResult.success(importService.importProfitRate(file, SecurityUtils.getUsername())); }
+        catch (Exception e) { return error(e.getMessage()); }
+    }
+
+    @Log(title = "eBay补货-导入退货率", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:import')")
+    @PostMapping("/import-return-rate")
+    public AjaxResult importReturnRate(@RequestParam("file") MultipartFile file)
+    {
+        try { return AjaxResult.success(importService.importReturnRate(file, SecurityUtils.getUsername())); }
+        catch (Exception e) { return error(e.getMessage()); }
     }
 }

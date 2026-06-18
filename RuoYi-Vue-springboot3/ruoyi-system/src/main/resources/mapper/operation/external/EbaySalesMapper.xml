@@ -14,4 +14,14 @@
         SELECT id, currency, sku, quantity, payment_time FROM ebay_sales
     </select>
 
+    <insert id="batchUpsert" parameterType="list">
+        INSERT INTO ebay_sales (platform_order_no, currency, sku, quantity, payment_time)
+        VALUES
+        <foreach collection="list" item="m" separator=",">
+        (#{m.platformOrderNo}, #{m.currency}, #{m.sku}, #{m.quantity}, #{m.paymentTime})
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+            quantity = VALUES(quantity), payment_time = VALUES(payment_time), upload_time = NOW()
+    </insert>
+
 </mapper>
