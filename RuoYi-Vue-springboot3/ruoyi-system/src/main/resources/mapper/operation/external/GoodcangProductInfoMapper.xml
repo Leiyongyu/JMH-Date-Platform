@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.GoodcangProductInfoMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.GoodcangProductInfo" id="Result">
+        <id property="id" column="id" />
+        <result property="skuMiddle" column="sku_middle" />
+        <result property="productNameCn" column="product_name_cn" />
+        <result property="realWeight" column="real_weight" />
+        <result property="realLength" column="real_length" />
+        <result property="realWidth" column="real_width" />
+        <result property="realHeight" column="real_height" />
+        <result property="volume" column="volume" />
+        <result property="price" column="price" />
+    </resultMap>
+
+    <select id="selectByMiddleCode" resultMap="Result">
+        SELECT id, sku_middle, product_name_cn, real_weight, real_length, real_width, real_height, volume, price
+        FROM goodcang_product_info WHERE sku_middle = #{skuMiddle}
+    </select>
+
+    <select id="selectAll" resultMap="Result">
+        SELECT id, sku_middle, product_name_cn, real_weight, real_length, real_width, real_height, volume, price
+        FROM goodcang_product_info
+    </select>
+
+</mapper>

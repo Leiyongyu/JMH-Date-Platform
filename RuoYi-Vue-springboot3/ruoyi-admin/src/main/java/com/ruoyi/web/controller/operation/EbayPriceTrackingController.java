@@ -1,0 +1,123 @@
+package com.ruoyi.web.controller.operation;
+
+import java.util.List;
+import java.util.Map;
+
+import jakarta.servlet.http.HttpServletResponse;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.ruoyi.common.annotation.Log;
+import com.ruoyi.common.core.controller.BaseController;
+import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.common.core.page.TableDataInfo;
+import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.utils.poi.ExcelUtil;
+import com.ruoyi.system.domain.operation.EbayPriceTrackingSnapshot;
+import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
+import com.ruoyi.system.domain.operation.external.EbayLinkTemplate;
+import com.ruoyi.system.service.operation.IEbayPriceTrackingService;
+
+@RestController
+@RequestMapping("/operations/ebay/price-tracking")
+public class EbayPriceTrackingController extends BaseController
+{
+    @Autowired
+    private IEbayPriceTrackingService priceTrackingService;
+
+    // ====== 搜索 ======
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
+    @PostMapping("/search")
+    public TableDataInfo search(@RequestBody EbayReplenishmentSearchRequest req)
+    {
+        startPage(req.getPageNum(), req.getPageSize());
+        List<EbayPriceTrackingSnapshot> list = priceTrackingService.search(req);
+        return getDataTable(list);
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
+    @GetMapping("/distinct-values")
+    public AjaxResult distinctValues(@RequestParam String field, @RequestParam(required = false) String keyword)
+    {
+        return AjaxResult.success(priceTrackingService.distinctValues(field, keyword));
+    }
+
+    // ====== 刷新 ======
+    @Log(title = "eBay跟价", businessType = BusinessType.OTHER)
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
+    @PostMapping("/refresh")
+    public AjaxResult refresh()
+    {
+        priceTrackingService.refreshSnapshot();
+        return success();
+    }
+
+    // ====== 跟卖利润率 & 底线价计算 ======
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
+    @PostMapping("/calc-tracking")
+    public AjaxResult calcTracking(@RequestBody Map<String, String> body)
+    {
+        Map<String, Object> result = priceTrackingService.calcTracking(
+                body.get("site"), body.get("sku"), body.get("trackingPrice"));
+        return AjaxResult.success(result);
+    }
+
+    // ====== 保存操作 ======
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
+    @PostMapping("/save-tracking-price")
+    public AjaxResult saveTrackingPrice(@RequestBody Map<String, String> body)
+    {
+        priceTrackingService.saveTrackingPrice(body.get("site"), body.get("sku"), body.get("trackingPrice"));
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
+    @PostMapping("/oe")
+    public AjaxResult saveOe(@RequestBody Map<String, String> body)
+    {
+        priceTrackingService.saveOeNumber(body.get("site"), body.get("sku"), body.get("oeNumber"));
+        return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
+    @PostMapping("/remark")
+    public AjaxResult saveRemark(@RequestBody Map<String, String> body)
+    {
+        priceTrackingService.saveRemark(body.get("site"), body.get("sku"), body.get("remark"));
+        return success();
+    }
+
+    // ====== 链接模板 ======
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
+    @GetMapping("/link-template")
+    public AjaxResult listLinkTemplates()
+    {
+        return AjaxResult.success(priceTrackingService.listLinkTemplates());
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
+    @PostMapping("/link-template")
+    public AjaxResult saveLinkTemplate(@RequestBody EbayLinkTemplate template)
+    {
+        priceTrackingService.saveLinkTemplate(template);
+        return success();
+    }
+
+    // ====== 导出 ======
+    @Log(title = "eBay跟价", businessType = BusinessType.EXPORT)
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:export')")
+    @PostMapping("/export")
+    public void export(HttpServletResponse response, EbayPriceTrackingSnapshot filter)
+    {
+        List<EbayPriceTrackingSnapshot> list = priceTrackingService.listAll(filter);
+        ExcelUtil<EbayPriceTrackingSnapshot> util = new ExcelUtil<>(EbayPriceTrackingSnapshot.class);
+        util.exportExcel(response, list, "eBay每日跟价数据");
+    }
+}

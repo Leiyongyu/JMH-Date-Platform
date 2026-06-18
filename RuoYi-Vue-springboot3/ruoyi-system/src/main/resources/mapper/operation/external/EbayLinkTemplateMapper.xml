@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.EbayLinkTemplateMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.EbayLinkTemplate" id="Result">
+        <id property="site" column="site" />
+        <result property="presaleUrl" column="presale_url" />
+        <result property="soldUrl" column="sold_url" />
+        <result property="profitRate" column="profit_rate" />
+        <result property="exchangeRate" column="exchange_rate" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="Result">
+        SELECT site, presale_url, sold_url, profit_rate, exchange_rate FROM ebay_link_template
+    </select>
+
+    <select id="selectBySite" resultMap="Result">
+        SELECT site, presale_url, sold_url, profit_rate, exchange_rate FROM ebay_link_template WHERE site = #{site}
+    </select>
+
+    <insert id="upsert" parameterType="com.ruoyi.system.domain.operation.external.EbayLinkTemplate">
+        INSERT INTO ebay_link_template (site, presale_url, sold_url, profit_rate, exchange_rate)
+        VALUES (#{site}, #{presaleUrl}, #{soldUrl}, #{profitRate}, #{exchangeRate})
+        ON DUPLICATE KEY UPDATE
+            presale_url = VALUES(presale_url),
+            sold_url = VALUES(sold_url),
+            profit_rate = VALUES(profit_rate),
+            exchange_rate = VALUES(exchange_rate)
+    </insert>
+
+</mapper>
