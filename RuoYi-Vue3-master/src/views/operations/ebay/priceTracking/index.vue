@@ -28,9 +28,6 @@
 
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
-        <el-button type="primary" plain icon="Refresh" :loading="loading" @click="handleRefresh">刷新快照</el-button>
-      </el-col>
-      <el-col :span="1.5">
         <el-dropdown @command="handleImport" v-hasPermi="['operations:ebayReplenishment:import']">
           <el-button type="info" plain icon="Upload">
             导入<el-icon class="el-icon--right"><arrow-down /></el-icon>
@@ -46,7 +43,7 @@
       <el-col :span="1.5">
         <el-button type="warning" plain icon="Download" @click="handleExport" v-hasPermi="['operations:ebayReplenishment:export']">导出</el-button>
       </el-col>
-      <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
+      <right-toolbar v-model:showSearch="showSearch" @queryTable="handleRefresh"></right-toolbar>
     </el-row>
 
     <el-table v-loading="loading" :data="records" border stripe height="640" @sort-change="handleSortChange">
