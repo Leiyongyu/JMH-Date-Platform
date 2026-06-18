@@ -23,8 +23,10 @@ import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot;
+import com.ruoyi.system.domain.operation.ExportRequest;
 import com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService;
 import com.ruoyi.system.service.operation.OperationImportService;
+import com.ruoyi.system.service.operation.UnifiedExportService;
 import com.github.pagehelper.PageHelper;
 
 @RestController
@@ -35,6 +37,8 @@ public class EbayReplenishmentController extends BaseController
     private IEbayReplenishmentSnapshotService snapshotService;
     @Autowired
     private OperationImportService importService;
+    @Autowired
+    private UnifiedExportService exportService;
 
     // ========================================================================
     // 基础列表（若依兼容，保留）
@@ -81,11 +85,9 @@ public class EbayReplenishmentController extends BaseController
     @Log(title = "eBay补货", businessType = BusinessType.EXPORT)
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:export')")
     @PostMapping("/export")
-    public void export(HttpServletResponse response, EbayReplenishmentSnapshot snapshot)
+    public void export(@RequestBody ExportRequest req, HttpServletResponse response) throws Exception
     {
-        List<EbayReplenishmentSnapshot> list = snapshotService.selectEbayReplenishmentSnapshotList(snapshot);
-        ExcelUtil<EbayReplenishmentSnapshot> util = new ExcelUtil<>(EbayReplenishmentSnapshot.class);
-        util.exportExcel(response, list, "eBay补货数据");
+        exportService.exportEbayReplenishment(req, response);
     }
 
     @Log(title = "eBay补货", businessType = BusinessType.OTHER)

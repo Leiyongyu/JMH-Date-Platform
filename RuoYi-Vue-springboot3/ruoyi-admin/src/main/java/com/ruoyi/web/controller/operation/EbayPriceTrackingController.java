@@ -24,9 +24,11 @@ import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.system.domain.operation.EbayPriceTrackingSnapshot;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
+import com.ruoyi.system.domain.operation.ExportRequest;
 import com.ruoyi.system.domain.operation.external.EbayLinkTemplate;
 import com.ruoyi.system.service.operation.IEbayPriceTrackingService;
 import com.ruoyi.system.service.operation.OperationImportService;
+import com.ruoyi.system.service.operation.UnifiedExportService;
 import com.github.pagehelper.PageHelper;
 
 @RestController
@@ -37,6 +39,8 @@ public class EbayPriceTrackingController extends BaseController
     private IEbayPriceTrackingService priceTrackingService;
     @Autowired
     private OperationImportService importService;
+    @Autowired
+    private UnifiedExportService exportService;
 
     // ====== 搜索 ======
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
@@ -125,11 +129,9 @@ public class EbayPriceTrackingController extends BaseController
     @Log(title = "eBay跟价", businessType = BusinessType.EXPORT)
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:export')")
     @PostMapping("/export")
-    public void export(HttpServletResponse response, EbayPriceTrackingSnapshot filter)
+    public void export(@RequestBody ExportRequest req, HttpServletResponse response) throws Exception
     {
-        List<EbayPriceTrackingSnapshot> list = priceTrackingService.listAll(filter);
-        ExcelUtil<EbayPriceTrackingSnapshot> util = new ExcelUtil<>(EbayPriceTrackingSnapshot.class);
-        util.exportExcel(response, list, "eBay每日跟价数据");
+        exportService.exportEbayPriceTracking(req, response);
     }
 
     // ====== 导入（最低价/商品单价） ======

@@ -41,12 +41,22 @@
         </el-dropdown>
       </el-col>
       <el-col :span="1.5">
-        <el-button type="warning" plain icon="Download" @click="handleExport" v-hasPermi="['operations:ebayReplenishment:export']">导出</el-button>
+        <el-dropdown @command="handleExport" v-hasPermi="['operations:ebayReplenishment:export']">
+          <el-button type="warning" plain icon="Download">导出<el-icon class="el-icon--right"><arrow-down /></el-icon></el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="filtered">导出筛选结果</el-dropdown-item>
+              <el-dropdown-item command="selected">导出选中数据</el-dropdown-item>
+              <el-dropdown-item command="all">导出全部数据</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="handleRefresh"></right-toolbar>
     </el-row>
 
-    <el-table v-loading="loading" :data="records" border stripe height="640" @sort-change="handleSortChange">
+    <el-table v-loading="loading" :data="records" border stripe height="640" :row-key="(row) => row.site + '|' + row.sku" @selection-change="handleSelectionChange" @sort-change="handleSortChange">
+      <el-table-column type="selection" width="45" fixed />
       <el-table-column label="站点" align="center" prop="site" width="90" fixed sortable="custom" />
       <el-table-column label="SKU" align="left" prop="sku" width="170" fixed sortable="custom" :show-overflow-tooltip="true" />
       <el-table-column label="产品名称" align="left" prop="productName" width="260" :show-overflow-tooltip="true" />
@@ -113,6 +123,7 @@ const loading = ref(false)
 const showSearch = ref(true)
 const total = ref(0)
 const records = ref([])
+const checkedRows = ref([])
 const data = reactive({
   queryParams: {
     pageNum: 1,
@@ -198,10 +209,30 @@ function handleImport(command) {
   input.click()
 }
 
-function handleExport() {
-  proxy.download('operations/ebay/price-tracking/export', {
-    ...queryParams.value
-  }, `ebay_price_tracking_${new Date().getTime()}.xlsx`)
+function handleSelectionChange(rows) { checkedRows.value = rows }
+
+function handleExport(command) {
+  if (command === 'selected' && checkedRows.value.length === 0) {
+    proxy.$modal.msgWarning('请先选择要导出的数据'); return
+  }
+  const body = {
+    scope: command === 'selected' ? 'SELECTED' : (command === 'all' ? 'ALL' : 'FILTERED'),
+    rowKeys: command === 'selected' ? checkedRows.value.map(r => r.site + '|' + r.sku) : undefined
+  }
+  if (command !== 'all') {
+    body.filters = []
+    const p = queryParams.value
+    if (p.site) body.filters.push({ field: 'site', value: p.site })
+    if (p.sku) body.filters.push({ field: 'sku', value: p.sku })
+    if (p.productName) body.filters.push({ field: 'productName', value: p.productName })
+    if (p.brandCode) body.filters.push({ field: 'brandCode', value: p.brandCode })
+    if (p.operatorName) body.filters.push({ field: 'operatorName', value: p.operatorName })
+    if (p.sortField) { body.sortField = p.sortField; body.sortOrder = p.sortOrder || 'descending' }
+  }
+  request({ url: 'operations/ebay/price-tracking/export', method: 'post', data: body, responseType: 'blob' }).then(res => {
+    const blob = new Blob([res]); const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+    a.download = `ebay_price_tracking_${new Date().getTime()}.xlsx`; a.click()
+  })
 }
 
 function formatPercent(value) {

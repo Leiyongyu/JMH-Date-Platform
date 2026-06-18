@@ -21,7 +21,9 @@ import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
+import com.ruoyi.system.domain.operation.ExportRequest;
 import com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService;
+import com.ruoyi.system.service.operation.UnifiedExportService;
 import com.github.pagehelper.PageHelper;
 
 @RestController
@@ -30,6 +32,8 @@ public class AmzReplenishmentController extends BaseController
 {
     @Autowired
     private IAmzReplenishmentSnapshotService snapshotService;
+    @Autowired
+    private UnifiedExportService exportService;
 
     // ====== 基础列表 ======
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
@@ -71,10 +75,8 @@ public class AmzReplenishmentController extends BaseController
     @Log(title = "Amazon补货", businessType = BusinessType.EXPORT)
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:export')")
     @PostMapping("/export")
-    public void export(HttpServletResponse response, AmzReplenishmentSnapshot snapshot)
+    public void export(@RequestBody ExportRequest req, HttpServletResponse response) throws Exception
     {
-        List<AmzReplenishmentSnapshot> list = snapshotService.selectAmzReplenishmentSnapshotList(snapshot);
-        ExcelUtil<AmzReplenishmentSnapshot> util = new ExcelUtil<>(AmzReplenishmentSnapshot.class);
-        util.exportExcel(response, list, "Amazon补货数据");
+        exportService.exportAmzReplenishment(req, response);
     }
 }
