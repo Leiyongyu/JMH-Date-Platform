@@ -24,8 +24,8 @@ public interface IEbayPriceTrackingService
     /** 保存跟卖价到 ebay_product_dedup */
     void saveTrackingPrice(String site, String sku, String trackingPrice);
 
-    /** 保存 OE 号 */
-    void saveOeNumber(String site, String sku, String oeNumber);
+    /** 保存 OE 号，返回 oeNumber + presaleUrl + soldUrl */
+    Map<String, Object> saveOeNumber(String site, String sku, String oeNumber);
 
     /** 保存备注 */
     void saveRemark(String site, String sku, String remark);

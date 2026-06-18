@@ -141,6 +141,7 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
         // 保存到 config 表（source of truth）
         saveOrUpdateConfig(site, sku, M, cr.trackingProfitMargin, cr.floorPrice);
 
+        resp.put("trackingPrice", M);
         return resp;
     }
 
@@ -155,11 +156,19 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
     }
 
     @Override
-    public void saveOeNumber(String site, String sku, String oeNumber)
+    public Map<String, Object> saveOeNumber(String site, String sku, String oeNumber)
     {
         EbayPriceTrackingConfig cfg = getOrCreateConfig(site, sku);
         cfg.setOeNumber(oeNumber);
         saveConfigWithLock(cfg);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("oeNumber", oeNumber);
+        EbayLinkTemplate lt = linkTemplateMapper.selectBySite(site);
+        if (lt != null) {
+            result.put("presaleUrl", (lt.getPresaleUrl() != null ? lt.getPresaleUrl() : "").replace("{oe}", oeNumber != null ? oeNumber : ""));
+            result.put("soldUrl", (lt.getSoldUrl() != null ? lt.getSoldUrl() : "").replace("{oe}", oeNumber != null ? oeNumber : ""));
+        }
+        return result;
     }
 
     @Override

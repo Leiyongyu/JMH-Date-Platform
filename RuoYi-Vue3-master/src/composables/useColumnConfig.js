@@ -7,6 +7,7 @@ export function useColumnConfig(pageKey, columns, fixedKeys = []) {
   const columnMap = new Map(columns.map((item) => [item.key, item]))
   const visibleKeys = ref([...allKeys])
   const columnConfigLoaded = ref(false)
+  const cacheKey = `user-column-config:${pageKey}`
 
   function normalizeKeys(keys, appendMissing = true) {
     const valid = Array.isArray(keys) ? keys.filter((key) => columnMap.has(key)) : []
@@ -26,12 +27,23 @@ export function useColumnConfig(pageKey, columns, fixedKeys = []) {
   }
 
   function parseSavedConfig(raw) {
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    let parsed = raw
+    for (let i = 0; i < 3 && typeof parsed === 'string'; i++) {
+      if (!parsed.trim()) break
+      parsed = JSON.parse(parsed)
+    }
     if (Array.isArray(parsed)) {
       return {
         visibleKeys: parsed,
         knownKeys: parsed,
         appendMissing: false
+      }
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      return {
+        visibleKeys: [],
+        knownKeys: [],
+        appendMissing: true
       }
     }
     return {
@@ -59,9 +71,16 @@ export function useColumnConfig(pageKey, columns, fixedKeys = []) {
       const res = await getUserColumnConfig(pageKey)
       if (res.data) {
         visibleKeys.value = restoreKeys(parseSavedConfig(res.data))
+        localStorage.setItem(cacheKey, JSON.stringify({
+          version: 1,
+          visibleKeys: visibleKeys.value,
+          allKeys
+        }))
+      } else {
+        restoreLocalConfig()
       }
     } catch (e) {
-      visibleKeys.value = normalizeKeys([], true)
+      restoreLocalConfig()
     } finally {
       columnConfigLoaded.value = true
     }
@@ -69,11 +88,24 @@ export function useColumnConfig(pageKey, columns, fixedKeys = []) {
 
   async function applyColumnConfig(keys) {
     visibleKeys.value = normalizeKeys(keys, false)
-    await saveUserColumnConfig(pageKey, JSON.stringify({
+    const payload = JSON.stringify({
       version: 1,
       visibleKeys: visibleKeys.value,
       allKeys
-    }))
+    })
+    localStorage.setItem(cacheKey, payload)
+    await saveUserColumnConfig(pageKey, payload)
+  }
+
+  function restoreLocalConfig() {
+    const local = localStorage.getItem(cacheKey)
+    if (local) {
+      try {
+        visibleKeys.value = restoreKeys(parseSavedConfig(local))
+        return
+      } catch (e) {}
+    }
+    visibleKeys.value = normalizeKeys([], true)
   }
 
   function isColumnVisible(key) {

@@ -95,8 +95,8 @@ public class EbayPriceTrackingController extends BaseController
     @PostMapping("/oe")
     public AjaxResult saveOe(@RequestBody Map<String, String> body)
     {
-        priceTrackingService.saveOeNumber(body.get("site"), body.get("sku"), body.get("oeNumber"));
-        return success();
+        return AjaxResult.success(priceTrackingService.saveOeNumber(
+                body.get("site"), body.get("sku"), body.get("oeNumber")));
     }
 
     @Log(title = "eBay跟价-保存备注", businessType = BusinessType.UPDATE)
