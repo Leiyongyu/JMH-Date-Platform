@@ -8,6 +8,10 @@ export function listAmzReplenishment(query) {
   })
 }
 
+export function refreshAmzReplenishment() {
+  return request({ url: '/operations/amz/replenishment/refresh', method: 'post' })
+}
+
 export function exportAmzReplenishment(query) {
   return request({
     url: '/operations/amz/replenishment/export',
