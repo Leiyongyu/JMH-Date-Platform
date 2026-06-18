@@ -65,13 +65,22 @@
         <el-button type="primary" plain icon="Refresh" @click="getList">刷新列表</el-button>
       </el-col>
       <el-col :span="1.5">
-        <el-button
-          type="warning"
-          plain
-          icon="Download"
-          @click="handleExport"
-          v-hasPermi="['operations:ebayReplenishment:export']"
-        >导出</el-button>
+        <el-dropdown @command="handleImport" v-hasPermi="['operations:ebayReplenishment:import']">
+          <el-button type="info" plain icon="Upload">
+            导入<el-icon class="el-icon--right"><arrow-down /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="sales">导入销量</el-dropdown-item>
+              <el-dropdown-item command="profitRate">导入利润率</el-dropdown-item>
+              <el-dropdown-item command="returnRate">导入退货率</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button type="warning" plain icon="Download" @click="handleExport"
+          v-hasPermi="['operations:ebayReplenishment:export']">导出</el-button>
       </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
@@ -145,6 +154,7 @@
 
 <script setup name="EbayReplenishment">
 import { listEbayReplenishment } from '@/api/operations/ebay/replenishment'
+import request from '@/utils/request'
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
@@ -216,6 +226,24 @@ function handleFeatureChange(name) {
   if (name === 'priceTracking') {
     router.push('/operations/price-tracking/ebay-price-tracking')
   }
+}
+
+function handleImport(command) {
+  const input = document.createElement('input')
+  input.type = 'file'; input.accept = '.xlsx,.xls'
+  input.onchange = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    const form = new FormData(); form.append('file', file)
+    const urlMap = { sales: 'import-sales', profitRate: 'import-profit-rate', returnRate: 'import-return-rate' }
+    const labelMap = { sales: '销量', profitRate: '利润率', returnRate: '退货率' }
+    try {
+      const res = await request({ url: `/operations/ebay/replenishment/${urlMap[command]}`, method: 'post', data: form, headers: { 'Content-Type': 'multipart/form-data' } })
+      proxy.$modal.msgSuccess(`导入${labelMap[command]}完成：成功${res.data?.successRows || 0}条`)
+      getList()
+    } catch (e) { proxy.$modal.msgError(`导入失败: ${e.message || e}`) }
+  }
+  input.click()
 }
 
 function handleExport() {

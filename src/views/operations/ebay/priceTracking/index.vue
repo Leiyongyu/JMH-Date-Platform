@@ -40,6 +40,19 @@
         <el-button type="primary" plain icon="Refresh" :loading="loading" @click="handleRefresh">刷新快照</el-button>
       </el-col>
       <el-col :span="1.5">
+        <el-dropdown @command="handleImport" v-hasPermi="['operations:ebayReplenishment:import']">
+          <el-button type="info" plain icon="Upload">
+            导入<el-icon class="el-icon--right"><arrow-down /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="lowestPrice">导入最低价</el-dropdown-item>
+              <el-dropdown-item command="productPrice">导入商品单价</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </el-col>
+      <el-col :span="1.5">
         <el-button type="warning" plain icon="Download" @click="handleExport" v-hasPermi="['operations:ebayReplenishment:export']">导出</el-button>
       </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
@@ -103,6 +116,7 @@
 
 <script setup name="EbayPriceTracking">
 import { searchPriceTracking, refreshPriceTracking } from '@/api/operations/ebay/priceTracking'
+import request from '@/utils/request'
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
@@ -190,6 +204,24 @@ async function handleRefresh() {
   try { await refreshPriceTracking(); await getList(); proxy.$modal.msgSuccess('刷新完成') }
   catch { proxy.$modal.msgError('刷新失败') }
   finally { loading.value = false }
+}
+
+function handleImport(command) {
+  const input = document.createElement('input')
+  input.type = 'file'; input.accept = '.xlsx,.xls'
+  input.onchange = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    const form = new FormData(); form.append('file', file)
+    const urlMap = { lowestPrice: 'import-lowest-price', productPrice: 'import-product-price' }
+    const labelMap = { lowestPrice: '最低价', productPrice: '商品单价' }
+    try {
+      const res = await request({ url: `/operations/ebay/price-tracking/${urlMap[command]}`, method: 'post', data: form, headers: { 'Content-Type': 'multipart/form-data' } })
+      proxy.$modal.msgSuccess(`导入${labelMap[command]}完成：成功${res.data?.successRows || 0}条`)
+      getList()
+    } catch (e) { proxy.$modal.msgError(`导入失败: ${e.message || e}`) }
+  }
+  input.click()
 }
 
 function handleExport() {
