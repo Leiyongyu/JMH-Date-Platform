@@ -21,6 +21,7 @@
         <result property="requestParams" column="request_params" />
         <result property="detailJson" column="detail_json" />
         <result property="failedJson" column="failed_json" />
+        <result property="parentId" column="parent_id" />
         <result property="createTime" column="create_time" />
     </resultMap>
 
@@ -30,12 +31,12 @@
             sync_type, sync_name, api_path, status, trigger_type, operator,
             job_id, job_log_id, start_time, end_time,
             total_count, success_count, fail_count,
-            error_message, request_params, detail_json, failed_json
+            error_message, request_params, detail_json, failed_json, parent_id
         ) VALUES (
             #{syncType}, #{syncName}, #{apiPath}, #{status}, #{triggerType}, #{operator},
             #{jobId}, #{jobLogId}, #{startTime}, #{endTime},
             #{totalCount}, #{successCount}, #{failCount},
-            #{errorMessage}, #{requestParams}, #{detailJson}, #{failedJson}
+            #{errorMessage}, #{requestParams}, #{detailJson}, #{failedJson}, #{parentId}
         )
     </insert>
 

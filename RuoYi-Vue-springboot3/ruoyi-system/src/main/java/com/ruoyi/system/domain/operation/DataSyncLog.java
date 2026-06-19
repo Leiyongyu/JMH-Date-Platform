@@ -30,6 +30,7 @@ public class DataSyncLog implements Serializable
     private String requestParams;
     private String detailJson;      // ★ 新增：完整执行详情 JSON
     private String failedJson;      // ★ 新增：失败明细 JSON
+    private Long parentId;           // ★ 新增：父日志ID，用于父子步骤关联
     private LocalDateTime createTime;
 
     public Long getId() { return id; }
@@ -85,6 +86,9 @@ public class DataSyncLog implements Serializable
 
     public String getFailedJson() { return failedJson; }
     public void setFailedJson(String failedJson) { this.failedJson = failedJson; }
+
+    public Long getParentId() { return parentId; }
+    public void setParentId(Long parentId) { this.parentId = parentId; }
 
     public LocalDateTime getCreateTime() { return createTime; }
     public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }

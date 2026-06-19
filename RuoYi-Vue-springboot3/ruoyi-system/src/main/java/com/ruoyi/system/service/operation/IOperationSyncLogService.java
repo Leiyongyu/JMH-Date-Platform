@@ -11,18 +11,16 @@ public interface IOperationSyncLogService
 {
     /**
      * 开始一次同步：写入 RUNNING 状态记录，返回日志 ID 供后续更新。
-     *
-     * @param syncType    同步类型标识
-     * @param syncName    同步名称（中文）
-     * @param apiPath     API 路径
-     * @param triggerType 触发方式 MANUAL / JOB
-     * @param operator    操作人
-     * @param jobId       若依任务 ID（可为 null）
-     * @param jobLogId    若依任务日志 ID（可为 null）
-     * @return 日志记录 ID
      */
     Long start(String syncType, String syncName, String apiPath,
                String triggerType, String operator, Long jobId, Long jobLogId);
+
+    /**
+     * 开始一次同步（支持父子日志关联）。
+     * @param parentId 父日志 ID（子步骤用），顶级调用传 null
+     */
+    Long start(String syncType, String syncName, String apiPath,
+               String triggerType, String operator, Long jobId, Long jobLogId, Long parentId);
 
     /**
      * 完成一次同步：根据结果更新日志状态和统计信息。

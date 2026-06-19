@@ -35,6 +35,13 @@ public class OperationSyncLogServiceImpl implements IOperationSyncLogService
     public Long start(String syncType, String syncName, String apiPath,
                       String triggerType, String operator, Long jobId, Long jobLogId)
     {
+        return start(syncType, syncName, apiPath, triggerType, operator, jobId, jobLogId, null);
+    }
+
+    @Override
+    public Long start(String syncType, String syncName, String apiPath,
+                      String triggerType, String operator, Long jobId, Long jobLogId, Long parentId)
+    {
         DataSyncLog log = new DataSyncLog();
         log.setSyncType(syncType);
         log.setSyncName(syncName);
@@ -44,6 +51,7 @@ public class OperationSyncLogServiceImpl implements IOperationSyncLogService
         log.setOperator(operator != null ? operator : "SYSTEM");
         log.setJobId(jobId);
         log.setJobLogId(jobLogId);
+        log.setParentId(parentId);
         log.setStartTime(LocalDateTime.now());
         log.setTotalCount(0);
         log.setSuccessCount(0);
