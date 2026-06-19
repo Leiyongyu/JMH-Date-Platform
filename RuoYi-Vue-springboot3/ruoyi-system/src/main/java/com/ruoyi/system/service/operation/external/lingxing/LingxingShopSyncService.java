@@ -199,6 +199,7 @@ public class LingxingShopSyncService
         return new int[]{inserted, updated};
     }
 
+    /** v2 接口返回结构: {code, data: {total, list: [...]}} */
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> getDataList(Map<String, Object> resp)
     {
@@ -206,17 +207,21 @@ public class LingxingShopSyncService
         Object data = resp.get("data");
         if (data == null) return new ArrayList<>();
         if (data instanceof List) return (List<Map<String, Object>>) data;
-        try
+        if (data instanceof Map)
         {
-            List<Map<String, Object>> converted = objectMapper.convertValue(data,
-                    new TypeReference<List<Map<String, Object>>>() {});
-            return converted != null ? converted : new ArrayList<>();
-        }
-        catch (Exception e)
-        {
-            LOG.warn("解析店铺 data 字段失败: {}", e.getMessage());
+            // {total: N, list: [...]}
+            Object list = ((Map<String, Object>) data).get("list");
+            if (list instanceof List) return (List<Map<String, Object>>) list;
+            if (list != null)
+            {
+                try {
+                    List<Map<String, Object>> c = objectMapper.convertValue(list, new TypeReference<List<Map<String, Object>>>() {});
+                    return c != null ? c : new ArrayList<>();
+                } catch (Exception e) { LOG.warn("解析list失败: {}", e.getMessage()); }
+            }
             return new ArrayList<>();
         }
+        return new ArrayList<>();
     }
 
     private String getString(Map<String, Object> map, String... keys)

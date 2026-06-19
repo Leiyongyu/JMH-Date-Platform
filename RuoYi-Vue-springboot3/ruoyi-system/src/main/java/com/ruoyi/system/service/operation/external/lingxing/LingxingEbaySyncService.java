@@ -111,9 +111,9 @@ public class LingxingEbaySyncService
 
             e.setItemUrl(getString(item, "item_url", "itemUrl"));
             e.setPictureUrl(getString(item, "picture_url", "pictureUrl"));
-            String msku = getString(item, "msku"); e.setMsku(msku);
-            e.setSku(extractBaseSku(msku != null ? msku : ""));
-            e.setLocalSku(getString(item, "local_sku", "localSku"));
+            String msku = getStringOrDefault(item, "", "msku"); e.setMsku(msku);
+            e.setSku(extractBaseSku(msku));
+            e.setLocalSku(getStringOrDefault(item, "", "local_sku", "localSku"));
             e.setTitle(getString(item, "title"));
             e.setLocalName(getString(item, "local_name", "localName"));
             e.setAttribute(getString(item, "attribute"));
@@ -168,6 +168,12 @@ public class LingxingEbaySyncService
     {
         for (String k : keys) { Object v = m.get(k); if (v != null && StringUtils.hasText(v.toString())) return v.toString(); }
         return null;
+    }
+
+    private String getStringOrDefault(Map<String, Object> m, String def, String... keys)
+    {
+        String v = getString(m, keys);
+        return v != null ? v : def;
     }
 
     private Integer getIntObj(Map<String, Object> m, String... keys)
