@@ -12,12 +12,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-/** 领星 Amazon 仓库库存明细同步 → amz_warehouse_inventory_detail (wid=18680)，length=800，按total结束，去重 */
+/** 领星 Amazon 仓库库存明细同步 → amz_warehouse_inventory_detail，对每个 wid 分页拉取，length=800，去重 */
 @Service
 public class AmzWarehouseInventorySyncService
 {
     private static final Logger LOG = LoggerFactory.getLogger(AmzWarehouseInventorySyncService.class);
     private static final String API = "erp/sc/routing/data/local_inventory/inventoryDetails";
+    private static final String[] AMZ_WIDS = {"18677","19561","18678","18679","18680"};
     private final LingxingGatewayService gw;
     private final AmzWarehouseInventoryDetailMapper mapper;
     private final ObjectMapper om;
@@ -30,26 +31,29 @@ public class AmzWarehouseInventorySyncService
         long start = System.currentTimeMillis();
         mapper.deleteAll();
         Set<String> seen = new HashSet<>();
-        int total = 0, offset = 0, length = 800;
+        int total = 0;
 
-        while (true)
+        for (String wid : AMZ_WIDS)
         {
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("wid", "18680"); body.put("offset", offset); body.put("length", length);
-            Map<String, Object> resp = gw.post(API, body);
-            List<Map<String, Object>> list = getList(resp, "data");
-            if (list.isEmpty()) break;
-            int remoteTotal = getInt(resp, "total");
-
-            List<AmzWarehouseInventoryDetail> batch = new ArrayList<>();
-            for (Map<String, Object> row : list)
+            int offset = 0, length = 800;
+            while (true)
             {
-                String sku = str(row, "sku");
-                String sellerId = str(row, "seller_id", "sellerId");
-                String key = "18680|" + sku;
-                if (!seen.add(key)) continue; // 去重
-                AmzWarehouseInventoryDetail e = new AmzWarehouseInventoryDetail();
-                e.setWid(18680);
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("wid", wid); body.put("offset", offset); body.put("length", length);
+                Map<String, Object> resp = gw.post(API, body);
+                List<Map<String, Object>> list = getList(resp, "data");
+                if (list.isEmpty()) break;
+                int remoteTotal = getInt(resp, "total");
+
+                List<AmzWarehouseInventoryDetail> batch = new ArrayList<>();
+                for (Map<String, Object> row : list)
+                {
+                    String sku = str(row, "sku");
+                    String sellerId = str(row, "seller_id", "sellerId");
+                    String key = wid + "|" + sku;
+                    if (!seen.add(key)) continue;
+                    AmzWarehouseInventoryDetail e = new AmzWarehouseInventoryDetail();
+                    e.setWid(Integer.parseInt(wid));
                 e.setSellerId(sellerId);
                 e.setSku(sku);
                 e.setQuantityReceive(bd(row, "quantity_receive", "quantityReceive"));
@@ -57,10 +61,11 @@ public class AmzWarehouseInventorySyncService
                 e.setProductLockNum(intVal(row, "product_lock_num", "productLockNum"));
                 batch.add(e);
             }
-            if (!batch.isEmpty()) { mapper.batchInsert(batch); total += batch.size(); }
-            if (remoteTotal > 0 && offset + length >= remoteTotal) break;
-            if (list.size() < length) break;
-            offset += length;
+                if (!batch.isEmpty()) { mapper.batchInsert(batch); total += batch.size(); }
+                if (remoteTotal > 0 && offset + length >= remoteTotal) break;
+                if (list.size() < length) break;
+                offset += length;
+            }
         }
         return OperationSyncResult.success("amz_wh_inv", "领星-Amazon库存明细", API, total, total, System.currentTimeMillis() - start);
     }
