@@ -17,6 +17,7 @@ import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
+import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import java.math.BigDecimal;
@@ -41,6 +42,8 @@ public class AmzReplenishmentController extends BaseController
     private UnifiedExportService exportService;
     @Autowired
     private AmzReplenishmentOverrideMapper overrideMapper;
+    @Autowired
+    private RedisCache redisCache;
 
     // ====== 基础列表 ======
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
@@ -74,8 +77,10 @@ public class AmzReplenishmentController extends BaseController
     @PostMapping("/refresh")
     public AjaxResult refresh()
     {
-        snapshotService.refreshSnapshot();
-        return success();
+        return withLock("lock:refresh:amz:replenishment", 300, "AMZ补货刷新正在执行中，请稍后再试", () -> {
+            snapshotService.refreshSnapshot();
+            return success();
+        });
     }
 
     // ====== 导出 ======
@@ -84,7 +89,10 @@ public class AmzReplenishmentController extends BaseController
     @PostMapping("/export")
     public void export(@RequestBody ExportRequest req, HttpServletResponse response) throws Exception
     {
-        exportService.exportAmzReplenishment(req, response);
+        withLock("lock:export:amz:replenishment", 300, "AMZ补货导出正在执行中，请稍后再试", () -> {
+            exportService.exportAmzReplenishment(req, response);
+            return null;
+        });
     }
 
     /** 保存人工覆盖：产品分类/已采购数量 */
@@ -110,5 +118,17 @@ public class AmzReplenishmentController extends BaseController
         if (hasProductCategory) overrideMapper.upsertProductCategory(ov);
         if (hasManualPurchasedQty) overrideMapper.upsertManualPurchasedQty(ov);
         return success();
+    }
+
+    // ==================== 锁工具 ====================
+    @FunctionalInterface
+    private interface LockedAction { AjaxResult run() throws Exception; }
+
+    private AjaxResult withLock(String key, long timeoutSec, String busyMsg, LockedAction action)
+    {
+        if (!redisCache.tryLock(key, timeoutSec)) return error(busyMsg);
+        try { return action.run(); }
+        catch (Exception e) { return error(e.getMessage()); }
+        finally { redisCache.unlock(key); }
     }
 }

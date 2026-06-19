@@ -21,6 +21,7 @@ import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
+import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.poi.ExcelUtil;
@@ -43,6 +44,8 @@ public class EbayPriceTrackingController extends BaseController
     private OperationImportService importService;
     @Autowired
     private UnifiedExportService exportService;
+    @Autowired
+    private RedisCache redisCache;
 
     // ====== 搜索 ======
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
@@ -68,8 +71,10 @@ public class EbayPriceTrackingController extends BaseController
     @PostMapping("/refresh")
     public AjaxResult refresh()
     {
-        priceTrackingService.refreshSnapshot();
-        return success();
+        return withLock("lock:refresh:ebay:priceTracking", 300, "eBay跟价刷新正在执行中，请稍后再试", () -> {
+            priceTrackingService.refreshSnapshot();
+            return success();
+        });
     }
 
     // ====== 跟卖利润率 & 底线价计算 ======
@@ -142,7 +147,10 @@ public class EbayPriceTrackingController extends BaseController
     @PostMapping("/export")
     public void export(@RequestBody ExportRequest req, HttpServletResponse response) throws Exception
     {
-        exportService.exportEbayPriceTracking(req, response);
+        withLock("lock:export:ebay:priceTracking", 300, "eBay跟价导出正在执行中，请稍后再试", () -> {
+            exportService.exportEbayPriceTracking(req, response);
+            return null;
+        });
     }
 
     // ====== 导入（最低价/商品单价） ======
@@ -151,8 +159,10 @@ public class EbayPriceTrackingController extends BaseController
     @PostMapping("/import-lowest-price")
     public AjaxResult importLowestPrice(@RequestParam("file") MultipartFile file)
     {
-        try { return AjaxResult.success(importService.importLowestPrice(file, SecurityUtils.getUsername())); }
-        catch (Exception e) { return error(e.getMessage()); }
+        return withLock("lock:import:ebay:lowestPrice", 120, "eBay最低价导入正在执行中，请稍后再试", () -> {
+            try { return AjaxResult.success(importService.importLowestPrice(file, SecurityUtils.getUsername())); }
+            catch (Exception e) { return error(e.getMessage()); }
+        });
     }
 
     @Log(title = "eBay跟价-导入商品单价", businessType = BusinessType.IMPORT)
@@ -160,7 +170,21 @@ public class EbayPriceTrackingController extends BaseController
     @PostMapping("/import-product-price")
     public AjaxResult importProductPrice(@RequestParam("file") MultipartFile file)
     {
-        try { return AjaxResult.success(importService.importProductPrice(file, SecurityUtils.getUsername())); }
+        return withLock("lock:import:ebay:productPrice", 120, "eBay商品单价导入正在执行中，请稍后再试", () -> {
+            try { return AjaxResult.success(importService.importProductPrice(file, SecurityUtils.getUsername())); }
+            catch (Exception e) { return error(e.getMessage()); }
+        });
+    }
+
+    // ==================== 锁工具 ====================
+    @FunctionalInterface
+    private interface LockedAction { AjaxResult run() throws Exception; }
+
+    private AjaxResult withLock(String key, long timeoutSec, String busyMsg, LockedAction action)
+    {
+        if (!redisCache.tryLock(key, timeoutSec)) return error(busyMsg);
+        try { return action.run(); }
         catch (Exception e) { return error(e.getMessage()); }
+        finally { redisCache.unlock(key); }
     }
 }

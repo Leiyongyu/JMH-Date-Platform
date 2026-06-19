@@ -52,17 +52,8 @@
 
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
-        <el-dropdown @command="handleSyncCommand" v-hasPermi="['operations:ebayReplenishment:sync']">
-          <el-button type="primary" plain icon="RefreshRight">
-            拉取eBay最新数据<el-icon class="el-icon--right"><arrow-down /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="full">拉取eBay最新数据</el-dropdown-item>
-              <el-dropdown-item command="refreshOnly">仅刷新当前页面</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <el-button type="primary" plain icon="RefreshRight" @click="handleSyncAll"
+          :loading="syncing" v-hasPermi="['operations:ebayReplenishment:sync']">拉取eBay最新数据</el-button>
       </el-col>
       <el-col :span="1.5">
         <el-dropdown @command="handleImport" v-hasPermi="['operations:ebayReplenishment:import']">
@@ -189,7 +180,7 @@
 
 <script setup name="EbayReplenishment">
 import { listEbayReplenishment, refreshEbayReplenishment } from '@/api/operations/ebay/replenishment'
-import { syncEbayAll, refreshEbayOnly } from '@/api/operations/sync'
+import { syncEbayAll } from '@/api/operations/sync'
 import request from '@/utils/request'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
@@ -278,29 +269,20 @@ async function handleRefresh() {
   finally { loading.value = false }
 }
 
-/** 统一同步下拉：拉取eBay最新数据 / 仅刷新当前页面 */
-async function handleSyncCommand(command) {
-  if (loading.value) return
-  loading.value = true
+const syncing = ref(false)
+
+async function handleSyncAll() {
+  if (syncing.value) { proxy.$modal.msgWarning('eBay数据同步正在执行中，请稍后再试'); return }
+  syncing.value = true
   try {
-    let res
-    if (command === 'full') {
-      res = await syncEbayAll()
-    } else {
-      res = await refreshEbayOnly()
-    }
-    if (res.code === 200) {
-      proxy.$modal.msgSuccess(
-        typeof res.msg === 'string' ? res.msg : '同步完成'
-      )
-    } else {
-      proxy.$modal.msgError(res.msg || '同步失败')
-    }
+    const res = await syncEbayAll()
+    if (res.code === 200) proxy.$modal.msgSuccess('拉取完成')
+    else proxy.$modal.msgError(res.msg || '拉取失败')
     await getList()
   } catch (e) {
-    proxy.$modal.msgError('同步失败: ' + (e.message || e))
+    proxy.$modal.msgError('拉取失败: ' + (e.message || e))
   } finally {
-    loading.value = false
+    syncing.value = false
   }
 }
 

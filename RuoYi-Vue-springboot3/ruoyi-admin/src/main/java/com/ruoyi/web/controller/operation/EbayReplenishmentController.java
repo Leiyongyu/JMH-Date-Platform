@@ -19,6 +19,7 @@ import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
@@ -39,6 +40,8 @@ public class EbayReplenishmentController extends BaseController
     private OperationImportService importService;
     @Autowired
     private UnifiedExportService exportService;
+    @Autowired
+    private RedisCache redisCache;
 
     // ========================================================================
     // 基础列表（若依兼容，保留）
@@ -87,7 +90,10 @@ public class EbayReplenishmentController extends BaseController
     @PostMapping("/export")
     public void export(@RequestBody ExportRequest req, HttpServletResponse response) throws Exception
     {
-        exportService.exportEbayReplenishment(req, response);
+        withLock("lock:export:ebay:replenishment", 300, "eBay补货导出正在执行中，请稍后再试", () -> {
+            exportService.exportEbayReplenishment(req, response);
+            return null;
+        });
     }
 
     @Log(title = "eBay补货", businessType = BusinessType.OTHER)
@@ -95,8 +101,10 @@ public class EbayReplenishmentController extends BaseController
     @PostMapping("/refresh")
     public AjaxResult refresh()
     {
-        snapshotService.refreshSnapshot();
-        return success();
+        return withLock("lock:refresh:ebay:replenishment", 300, "eBay补货刷新正在执行中，请稍后再试", () -> {
+            snapshotService.refreshSnapshot();
+            return success();
+        });
     }
 
     // ====== 导入 ======
@@ -105,8 +113,10 @@ public class EbayReplenishmentController extends BaseController
     @PostMapping("/import-sales")
     public AjaxResult importSales(@RequestParam("file") MultipartFile file)
     {
-        try { return AjaxResult.success(importService.importEbaySales(file, SecurityUtils.getUsername())); }
-        catch (Exception e) { return error(e.getMessage()); }
+        return withLock("lock:import:ebay:sales", 120, "eBay销量导入正在执行中，请稍后再试", () -> {
+            try { return AjaxResult.success(importService.importEbaySales(file, SecurityUtils.getUsername())); }
+            catch (Exception e) { return error(e.getMessage()); }
+        });
     }
 
     @Log(title = "eBay补货-导入利润率", businessType = BusinessType.IMPORT)
@@ -114,8 +124,10 @@ public class EbayReplenishmentController extends BaseController
     @PostMapping("/import-profit-rate")
     public AjaxResult importProfitRate(@RequestParam("file") MultipartFile file)
     {
-        try { return AjaxResult.success(importService.importProfitRate(file, SecurityUtils.getUsername())); }
-        catch (Exception e) { return error(e.getMessage()); }
+        return withLock("lock:import:ebay:profitRate", 120, "eBay利润率导入正在执行中，请稍后再试", () -> {
+            try { return AjaxResult.success(importService.importProfitRate(file, SecurityUtils.getUsername())); }
+            catch (Exception e) { return error(e.getMessage()); }
+        });
     }
 
     @Log(title = "eBay补货-导入退货率", businessType = BusinessType.IMPORT)
@@ -123,7 +135,21 @@ public class EbayReplenishmentController extends BaseController
     @PostMapping("/import-return-rate")
     public AjaxResult importReturnRate(@RequestParam("file") MultipartFile file)
     {
-        try { return AjaxResult.success(importService.importReturnRate(file, SecurityUtils.getUsername())); }
+        return withLock("lock:import:ebay:returnRate", 120, "eBay退货率导入正在执行中，请稍后再试", () -> {
+            try { return AjaxResult.success(importService.importReturnRate(file, SecurityUtils.getUsername())); }
+            catch (Exception e) { return error(e.getMessage()); }
+        });
+    }
+
+    // ==================== 锁工具 ====================
+    @FunctionalInterface
+    private interface LockedAction { AjaxResult run() throws Exception; }
+
+    private AjaxResult withLock(String key, long timeoutSec, String busyMsg, LockedAction action)
+    {
+        if (!redisCache.tryLock(key, timeoutSec)) return error(busyMsg);
+        try { return action.run(); }
         catch (Exception e) { return error(e.getMessage()); }
+        finally { redisCache.unlock(key); }
     }
 }

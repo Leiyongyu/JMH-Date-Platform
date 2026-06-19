@@ -265,4 +265,25 @@ public class RedisCache
     {
         return redisTemplate.keys(pattern);
     }
+
+    /**
+     * 分布式锁：尝试获取锁（SET NX EX），成功返回 true。
+     * @param key     锁键
+     * @param timeoutSeconds 锁自动过期时间（秒），防止死锁
+     * @return true=获取成功 false=锁已被占用
+     */
+    public boolean tryLock(final String key, final long timeoutSeconds)
+    {
+        Boolean ok = redisTemplate.opsForValue()
+                .setIfAbsent(key, "1", timeoutSeconds, TimeUnit.SECONDS);
+        return Boolean.TRUE.equals(ok);
+    }
+
+    /**
+     * 分布式锁：释放锁。
+     */
+    public void unlock(final String key)
+    {
+        redisTemplate.delete(key);
+    }
 }
