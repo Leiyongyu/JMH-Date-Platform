@@ -63,6 +63,19 @@
 
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
+        <el-dropdown @command="handleSyncCommand" v-hasPermi="['operations:amzReplenishment:sync']">
+          <el-button type="primary" plain icon="RefreshRight">
+            拉取AMZ最新数据<el-icon class="el-icon--right"><arrow-down /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="full">拉取AMZ最新数据</el-dropdown-item>
+              <el-dropdown-item command="refreshOnly">仅刷新当前页面</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </el-col>
+      <el-col :span="1.5">
         <el-button type="warning" plain icon="Download" @click="handleExport"
           v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
       </el-col>
@@ -172,6 +185,7 @@
 
 <script setup name="AmzReplenishment">
 import { listAmzReplenishment, refreshAmzReplenishment } from '@/api/operations/amz/replenishment'
+import { syncAmzAll, refreshAmzOnly } from '@/api/operations/sync'
 import request from '@/utils/request'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
@@ -285,6 +299,29 @@ async function handleRefresh() {
   loading.value = true
   try { await refreshAmzReplenishment(); await getList() }
   finally { loading.value = false }
+}
+
+async function handleSyncCommand(command) {
+  if (loading.value) return
+  loading.value = true
+  try {
+    let res
+    if (command === 'full') {
+      res = await syncAmzAll()
+    } else {
+      res = await refreshAmzOnly()
+    }
+    if (res.code === 200) {
+      proxy.$modal.msgSuccess(typeof res.msg === 'string' ? res.msg : '同步完成')
+    } else {
+      proxy.$modal.msgError(res.msg || '同步失败')
+    }
+    await getList()
+  } catch (e) {
+    proxy.$modal.msgError('同步失败: ' + (e.message || e))
+  } finally {
+    loading.value = false
+  }
 }
 
 function handleQuery() {
