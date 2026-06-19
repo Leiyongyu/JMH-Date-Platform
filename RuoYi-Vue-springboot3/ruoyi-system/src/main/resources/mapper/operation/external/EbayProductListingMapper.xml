@@ -42,7 +42,7 @@
     </select>
 
     <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO ebay_product_listing (platform,item_id,item_url,picture_url,msku,sku,local_sku,
+        INSERT IGNORE INTO ebay_product_listing (platform,item_id,item_url,picture_url,msku,sku,local_sku,
         title,local_name,attribute,listing_type,listing_type_name,listing_status,listing_status_name,
         price,start_price,accept_price,quantity,auto_restock,product_auto_restock_response,
         location,dispatch_time_max,listing_start_time,listing_end_time,store_id,store_name,site_code,site_name)

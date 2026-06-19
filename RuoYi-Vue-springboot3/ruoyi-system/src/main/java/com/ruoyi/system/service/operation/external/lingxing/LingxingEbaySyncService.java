@@ -135,7 +135,7 @@ public class LingxingEbaySyncService
             e.setSiteCode(getString(item, "site_code", "siteCode"));
             e.setSiteName(getString(item, "site_name", "siteName"));
 
-            if (isNew) { toInsert.add(e); inserted++; }
+            if (isNew) { toInsert.add(e); existing.put(itemId, e); inserted++; }
             else { toUpdate.add(e); updated++; }
         }
 
