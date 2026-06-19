@@ -42,6 +42,7 @@ public class LingxingAmzListingSyncService
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("sid", String.join(",", batch));
                 body.put("is_pair", 1); body.put("is_delete", 0);
+                body.put("status", 1);  // ★ 只拉取在售Listing
                 body.put("offset", offset); body.put("length", pageSize);
                 Map<String, Object> resp = gw.post(API, body);
                 List<Map<String, Object>> list = getList(resp, "data");
@@ -51,9 +52,12 @@ public class LingxingAmzListingSyncService
                     Integer sid = intVal(row, "sid");
                     String sellerSku = str(row, "seller_sku", "sellerSku");
                     if (sid == null || !StringUtils.hasText(sellerSku)) continue;
+                    Integer status = intVal(row, "status");  // ★ 入库前兜底过滤
+                    if (status != null && status != 1) continue;
                     List<AmzProductListing> ex = mapper.selectBySidSellerSku(sid, sellerSku);
                     AmzProductListing e = ex.isEmpty() ? new AmzProductListing() : ex.get(0);
                     e.setSid(sid); e.setSellerSku(sellerSku);
+                    e.setStatus(status != null ? status : 1);
                     e.setMarketplace(str(row, "marketplace"));
                     e.setAsin(str(row, "asin"));
                     e.setLocalSku(str(row, "local_sku", "localSku"));

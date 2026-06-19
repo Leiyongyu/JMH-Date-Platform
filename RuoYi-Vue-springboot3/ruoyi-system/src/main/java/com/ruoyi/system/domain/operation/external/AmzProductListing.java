@@ -12,6 +12,7 @@ public class AmzProductListing implements Serializable
     private String asin;
     private String localSku;
     private String localName;
+    private Integer status;
     private Integer reviewNum;
     private String lastStar;
     private String principalName;
@@ -30,6 +31,8 @@ public class AmzProductListing implements Serializable
     public void setLocalSku(String localSku) { this.localSku = localSku; }
     public String getLocalName() { return localName; }
     public void setLocalName(String localName) { this.localName = localName; }
+    public Integer getStatus() { return status; }
+    public void setStatus(Integer status) { this.status = status; }
     public Integer getReviewNum() { return reviewNum; }
     public void setReviewNum(Integer reviewNum) { this.reviewNum = reviewNum; }
     public String getLastStar() { return lastStar; }
