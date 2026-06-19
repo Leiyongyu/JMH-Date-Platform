@@ -20,7 +20,7 @@
     </select>
     <delete id="deleteAll">DELETE FROM warehouse_inventory_detail</delete>
     <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO warehouse_inventory_detail (wid,sku,product_id,seller_id,fnsku,product_valid_num,product_lock_num,product_onway,quantity_receive) VALUES
+        INSERT IGNORE INTO warehouse_inventory_detail (wid,sku,product_id,seller_id,fnsku,product_valid_num,product_lock_num,product_onway,quantity_receive) VALUES
         <foreach collection="list" item="e" separator=",">
         (#{e.wid},#{e.sku},#{e.productId},#{e.sellerId},#{e.fnsku},#{e.productValidNum},#{e.productLockNum},#{e.productOnway},#{e.quantityReceive})
         </foreach>

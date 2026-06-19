@@ -134,11 +134,13 @@ public class OperationImportService
             Sheet sheet = wb.getSheetAt(0);
             Row headerRow = sheet.getRow(0);
             int colSku = findColumnIndex(headerRow, 0, "SKU", "产品SKU");
+            int colSource = findColumnIndex(headerRow, -1, "数据来源");
             int colRate = findColumnIndex(headerRow, 4, "各平台售后率");
             int total = Math.min(sheet.getLastRowNum(), MAX_ROWS);
             task.setTotalRows(total);
             int success = 0;
             Map<String, BigDecimal> updates = new LinkedHashMap<>();
+            String lastSku = null;
             for (int i = 1; i <= total; i++)
             {
                 Row row = sheet.getRow(i);
@@ -146,6 +148,13 @@ public class OperationImportService
                 try
                 {
                     String sku = getCellStr(row, colSku);
+                    if (sku != null && !sku.trim().isEmpty()) lastSku = sku;
+                    else sku = lastSku;
+                    if (colSource >= 0)
+                    {
+                        String source = getCellStr(row, colSource);
+                        if (source == null || !source.equalsIgnoreCase("eBay")) continue;
+                    }
                     BigDecimal rate = getCellDecimal(row, colRate);
                     if (sku == null || rate == null) continue;
                     String mid = InventoryUtils.extractMiddleCodeForInventory(sku);
