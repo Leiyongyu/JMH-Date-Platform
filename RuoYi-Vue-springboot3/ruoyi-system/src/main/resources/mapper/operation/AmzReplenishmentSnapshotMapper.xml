@@ -51,8 +51,9 @@
             avg_monthly_sales, safety_stock, ship_qty, replenish_qty, restock_days, calc_time
         )
         SELECT
-            pl.sid, pl.seller_sku,
-            ANY_VALUE(wd.sku) AS warehouse_sku,
+            COALESCE(pl.sid, 0) AS sid,
+            pl.seller_sku AS seller_sku,
+            wd.sku AS warehouse_sku,
             ANY_VALUE(wh.name) AS warehouse_name,
             ANY_VALUE(pl.asin) AS asin,
             ANY_VALUE(pl.principal_name) AS principal_name,
@@ -83,14 +84,13 @@
             ROUND(((COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - ((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 120 - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0))) / NULLIF((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1), 0), 2) AS restock_days,
             NOW() AS calc_time
         FROM amz_warehouse_inventory_detail wd
-        LEFT JOIN amz_product_listing pl ON pl.local_sku = wd.sku AND pl.sid = wd.seller_id
+        LEFT JOIN amz_product_listing pl ON pl.local_sku = wd.sku
         LEFT JOIN shop_list sl ON sl.sid = pl.sid AND sl.platform_code = '10001'
         LEFT JOIN amz_product_category pc ON pc.sid = pl.sid AND pc.seller_sku = pl.seller_sku
         LEFT JOIN amz_order_profit op ON op.sid = pl.sid AND op.seller_sku = pl.seller_sku
         LEFT JOIN amz_restock_summary rs ON rs.sid = pl.sid AND rs.msku = pl.seller_sku
         LEFT JOIN warehouse wh ON wh.wid = wd.wid
-        WHERE pl.sid IS NOT NULL AND pl.seller_sku IS NOT NULL
-        GROUP BY pl.sid, pl.seller_sku
+        GROUP BY COALESCE(pl.sid, 0), pl.seller_sku, wd.sku
     </insert>
 
     <!-- ==================================================================== -->
