@@ -178,34 +178,6 @@ export const dynamicRoutes = [
       }
     ]
   },
-  {
-    path: '/operations/brand-owner',
-    component: Layout,
-    name: 'BrandOwner',
-    meta: { title: '品牌负责人', icon: 'user' },
-    children: [
-      {
-        path: '',
-        component: () => import('@/views/operations/brandOwner/index'),
-        name: 'BrandOwnerIndex',
-        meta: { title: '品牌负责人' }
-      }
-    ]
-  },
-  {
-    path: '/operations/link-template',
-    component: Layout,
-    name: 'LinkTemplate',
-    meta: { title: 'eBay链接模版', icon: 'link' },
-    children: [
-      {
-        path: '',
-        component: () => import('@/views/operations/linkTemplate/index'),
-        name: 'LinkTemplateIndex',
-        meta: { title: 'eBay链接模版' }
-      }
-    ]
-  }
 ]
 
 const router = createRouter({
