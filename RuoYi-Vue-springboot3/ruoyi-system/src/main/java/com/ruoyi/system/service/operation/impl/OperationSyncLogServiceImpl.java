@@ -3,6 +3,7 @@ package com.ruoyi.system.service.operation.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.system.domain.operation.DataSyncLog;
+import java.util.List;
 import com.ruoyi.system.mapper.operation.DataSyncLogMapper;
 import com.ruoyi.system.service.operation.IOperationSyncLogService;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
@@ -101,10 +102,14 @@ public class OperationSyncLogServiceImpl implements IOperationSyncLogService
     }
 
     @Override
-    public int cleanOldLogs(int days)
-    {
-        return mapper.deleteOlderThan(days);
-    }
+    public int cleanOldLogs(int days) { return mapper.deleteOlderThan(days); }
+
+    @Override
+    public List<DataSyncLog> getChildren(Long parentId) { return mapper.selectByParentId(parentId); }
+
+    @Override
+    public List<DataSyncLog> search(String syncType, String status, String triggerType)
+    { return mapper.search(syncType, status, triggerType); }
 
     private String truncate(String text, int maxLen)
     {

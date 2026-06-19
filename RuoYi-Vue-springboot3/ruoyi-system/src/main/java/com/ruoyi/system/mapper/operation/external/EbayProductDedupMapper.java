@@ -19,4 +19,7 @@ public interface EbayProductDedupMapper
             @Param("floorPrice") BigDecimal floorPrice);
     int updateOeNumber(@Param("site") String site, @Param("sku") String sku, @Param("oeNumber") String oeNumber);
     int updateRemark(@Param("site") String site, @Param("sku") String sku, @Param("remark") String remark);
+
+    /** 从 ebay_product_listing 重建去重表 */
+    int rebuildFromListing();
 }

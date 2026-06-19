@@ -56,4 +56,13 @@
         WHERE site = #{site} AND sku = #{sku}
     </update>
 
+    <insert id="rebuildFromListing">
+        INSERT INTO ebay_product_dedup (site, sku, product_name)
+        SELECT l.site_code, l.sku, MAX(l.title)
+        FROM ebay_product_listing l
+        WHERE l.site_code IS NOT NULL AND l.sku IS NOT NULL AND l.sku != ''
+        GROUP BY l.site_code, l.sku
+        ON DUPLICATE KEY UPDATE product_name = VALUES(product_name)
+    </insert>
+
 </mapper>

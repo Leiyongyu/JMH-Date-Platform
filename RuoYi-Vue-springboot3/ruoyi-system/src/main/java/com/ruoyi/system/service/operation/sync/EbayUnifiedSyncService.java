@@ -2,6 +2,11 @@ package com.ruoyi.system.service.operation.sync;
 
 import com.ruoyi.common.utils.spring.SpringUtils;
 import com.ruoyi.system.service.operation.IOperationSyncLogService;
+import com.ruoyi.system.service.operation.external.goodcang.GoodcangGrnSyncService;
+import com.ruoyi.system.service.operation.external.goodcang.GoodcangProductSyncService;
+import com.ruoyi.system.service.operation.external.goodcang.GoodcangWarehouseSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingEbaySyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingInventorySyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingShopSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingWarehouseSyncService;
 import java.util.ArrayList;
@@ -158,8 +163,19 @@ public class EbayUnifiedSyncService
                 return SpringUtils.getBean(LingxingShopSyncService.class).syncShops();
             case "warehouse":
                 return SpringUtils.getBean(LingxingWarehouseSyncService.class).syncWarehouses();
+            case "ebay_listing":
+                return SpringUtils.getBean(LingxingEbaySyncService.class).syncAll();
+            case "lingxing_inv":
+                return SpringUtils.getBean(LingxingInventorySyncService.class).syncAll();
+            case "gc_warehouse":
+                return SpringUtils.getBean(GoodcangWarehouseSyncService.class).syncWarehouses();
+            case "gc_product":
+                return SpringUtils.getBean(GoodcangProductSyncService.class).syncFromApi();
+            case "gc_grn_list":
+                return SpringUtils.getBean(GoodcangGrnSyncService.class).syncGrnList(2);
+            case "gc_grn_detail":
+                return SpringUtils.getBean(GoodcangGrnSyncService.class).syncAllGrnDetails();
             default:
-                // 尚未实现的步骤：返回空成功（后续逐个迁移）
                 LOG.info("eBay步骤 [{}] - 待实现", step.name);
                 return OperationSyncResult.success(step.key, step.name, step.apiPath, 0, 0, 0);
         }

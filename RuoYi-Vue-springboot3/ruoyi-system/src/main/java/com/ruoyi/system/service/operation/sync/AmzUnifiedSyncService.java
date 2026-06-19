@@ -2,6 +2,11 @@ package com.ruoyi.system.service.operation.sync;
 
 import com.ruoyi.common.utils.spring.SpringUtils;
 import com.ruoyi.system.service.operation.IOperationSyncLogService;
+import com.ruoyi.system.service.operation.external.lingxing.AmzOrderProfitSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.AmzRestockSummarySyncService;
+import com.ruoyi.system.service.operation.external.lingxing.AmzWarehouseInventorySyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingAmzListingSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingShopSyncService;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -131,8 +136,22 @@ public class AmzUnifiedSyncService
 
     private OperationSyncResult executeStep(StepDef step) throws Exception
     {
-        LOG.info("AMZ步骤 [{}] - 待实现", step.name);
-        return OperationSyncResult.success(step.key, step.name, step.apiPath, 0, 0, 0);
+        switch (step.key)
+        {
+            case "shop_list":
+                return SpringUtils.getBean(LingxingShopSyncService.class).syncShops();
+            case "amz_listing":
+                return SpringUtils.getBean(LingxingAmzListingSyncService.class).syncAll();
+            case "amz_profit":
+                return SpringUtils.getBean(AmzOrderProfitSyncService.class).syncAll();
+            case "amz_restock":
+                return SpringUtils.getBean(AmzRestockSummarySyncService.class).syncAll();
+            case "amz_inv":
+                return SpringUtils.getBean(AmzWarehouseInventorySyncService.class).syncAll();
+            default:
+                LOG.info("AMZ步骤 [{}] - 待实现", step.name);
+                return OperationSyncResult.success(step.key, step.name, step.apiPath, 0, 0, 0);
+        }
     }
 
     private Map<String, Object> stepMap(String key, String name, String status, String message)

@@ -102,6 +102,7 @@
          </el-table-column>
          <el-table-column label="调用目标字符串" align="center" prop="invokeTarget" :show-overflow-tooltip="true" />
          <el-table-column label="cron执行表达式" align="center" prop="cronExpression" :show-overflow-tooltip="true" />
+         <el-table-column label="备注" align="center" prop="remark" :show-overflow-tooltip="true" />
          <el-table-column label="状态" align="center">
             <template #default="scope">
                <el-switch
@@ -189,6 +190,11 @@
                            </el-button>
                         </template>
                      </el-input>
+                  </el-form-item>
+               </el-col>
+               <el-col :span="24">
+                  <el-form-item label="备注">
+                     <el-input v-model="form.remark" placeholder="执行时间说明" />
                   </el-form-item>
                </el-col>
                <el-col :span="24" v-if="form.jobId !== undefined">
@@ -304,6 +310,7 @@ function reset() {
     cronExpression: undefined,
     misfirePolicy: '1',
     concurrent: '1',
+    remark: '',
     status: "0"
   }
   proxy.resetForm("jobRef")

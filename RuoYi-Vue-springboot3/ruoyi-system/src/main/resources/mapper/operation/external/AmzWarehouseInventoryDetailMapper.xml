@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.AmzWarehouseInventoryDetailMapper">
+    <resultMap type="com.ruoyi.system.domain.operation.external.AmzWarehouseInventoryDetail" id="Result">
+        <id property="id" column="id"/>
+        <result property="wid" column="wid"/>
+        <result property="sellerId" column="seller_id"/>
+        <result property="sku" column="sku"/>
+        <result property="quantityReceive" column="quantity_receive"/>
+        <result property="productValidNum" column="product_valid_num"/>
+        <result property="productLockNum" column="product_lock_num"/>
+    </resultMap>
+    <select id="selectByWidSku" resultMap="Result">
+        SELECT * FROM amz_warehouse_inventory_detail WHERE wid=#{wid} AND sku=#{sku}
+    </select>
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO amz_warehouse_inventory_detail (wid,seller_id,sku,quantity_receive,product_valid_num,product_lock_num)
+        VALUES (#{wid},#{sellerId},#{sku},#{quantityReceive},#{productValidNum},#{productLockNum})
+    </insert>
+    <update id="updateById">
+        UPDATE amz_warehouse_inventory_detail SET quantity_receive=#{quantityReceive},product_valid_num=#{productValidNum},product_lock_num=#{productLockNum}
+        WHERE id=#{id}
+    </update>
+    <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO amz_warehouse_inventory_detail (wid,seller_id,sku,quantity_receive,product_valid_num,product_lock_num) VALUES
+        <foreach collection="list" item="e" separator=",">
+        (#{e.wid},#{e.sellerId},#{e.sku},#{e.quantityReceive},#{e.productValidNum},#{e.productLockNum})
+        </foreach>
+    </insert>
+    <delete id="deleteAll">DELETE FROM amz_warehouse_inventory_detail</delete>
+</mapper>

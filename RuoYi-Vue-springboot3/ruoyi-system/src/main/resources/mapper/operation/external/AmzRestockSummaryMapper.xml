@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.AmzRestockSummaryMapper">
+    <resultMap type="com.ruoyi.system.domain.operation.external.AmzRestockSummary" id="Result">
+        <id property="id" column="id"/>
+        <result property="hashId" column="hash_id"/>
+        <result property="sid" column="sid"/>
+        <result property="msku" column="msku"/>
+        <result property="fbaSellable" column="fba_sellable"/>
+        <result property="fbaInbound" column="fba_inbound"/>
+        <result property="sales7d" column="sales_7d"/>
+        <result property="sales14d" column="sales_14d"/>
+        <result property="sales30d" column="sales_30d"/>
+        <result property="sales60d" column="sales_60d"/>
+        <result property="avgSales14d" column="avg_sales_14d"/>
+        <result property="avgSales30d" column="avg_sales_30d"/>
+        <result property="avgSales60d" column="avg_sales_60d"/>
+    </resultMap>
+    <select id="selectByHashId" resultMap="Result">
+        SELECT * FROM amz_restock_summary WHERE hash_id=#{hashId}
+    </select>
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO amz_restock_summary (hash_id,sid,msku,fba_sellable,fba_inbound,sales_7d,sales_14d,sales_30d,sales_60d,avg_sales_14d,avg_sales_30d,avg_sales_60d)
+        VALUES (#{hashId},#{sid},#{msku},#{fbaSellable},#{fbaInbound},#{sales7d},#{sales14d},#{sales30d},#{sales60d},#{avgSales14d},#{avgSales30d},#{avgSales60d})
+    </insert>
+    <update id="updateById">
+        UPDATE amz_restock_summary SET fba_sellable=#{fbaSellable},fba_inbound=#{fbaInbound},
+        sales_7d=#{sales7d},sales_14d=#{sales14d},sales_30d=#{sales30d},sales_60d=#{sales60d},
+        avg_sales_14d=#{avgSales14d},avg_sales_30d=#{avgSales30d},avg_sales_60d=#{avgSales60d}
+        WHERE id=#{id}
+    </update>
+    <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO amz_restock_summary (hash_id,sid,msku,fba_sellable,fba_inbound,sales_7d,sales_14d,sales_30d,sales_60d,avg_sales_14d,avg_sales_30d,avg_sales_60d) VALUES
+        <foreach collection="list" item="e" separator=",">
+        (#{e.hashId},#{e.sid},#{e.msku},#{e.fbaSellable},#{e.fbaInbound},#{e.sales7d},#{e.sales14d},#{e.sales30d},#{e.sales60d},#{e.avgSales14d},#{e.avgSales30d},#{e.avgSales60d})
+        </foreach>
+    </insert>
+    <delete id="deleteAll">DELETE FROM amz_restock_summary</delete>
+</mapper>

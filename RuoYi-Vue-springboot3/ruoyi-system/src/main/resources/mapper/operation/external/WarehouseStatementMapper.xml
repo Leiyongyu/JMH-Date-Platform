@@ -19,5 +19,15 @@
         SELECT id, wid, ware_house_name, sku, opt_time, type FROM warehouse_statement
         WHERE type = #{type}
     </select>
-
+    <select id="selectByUniqueKey" resultMap="Result">
+        SELECT * FROM warehouse_statement WHERE wid=#{wid} AND sku=#{sku} AND opt_time=#{optTime}
+    </select>
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO warehouse_statement (wid,ware_house_name,sku,opt_time,type)
+        VALUES (#{wid},#{wareHouseName},#{sku},#{optTime},#{type})
+    </insert>
+    <update id="updateById">
+        UPDATE warehouse_statement SET wid=#{wid},ware_house_name=#{wareHouseName},sku=#{sku},opt_time=#{optTime},type=#{type}
+        WHERE id=#{id}
+    </update>
 </mapper>

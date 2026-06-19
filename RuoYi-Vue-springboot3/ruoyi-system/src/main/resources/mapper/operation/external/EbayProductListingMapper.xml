@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.EbayProductListingMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.EbayProductListing" id="Result">
+        <id property="id" column="id"/>
+        <result property="platform" column="platform"/>
+        <result property="itemId" column="item_id"/>
+        <result property="itemUrl" column="item_url"/>
+        <result property="pictureUrl" column="picture_url"/>
+        <result property="msku" column="msku"/>
+        <result property="sku" column="sku"/>
+        <result property="localSku" column="local_sku"/>
+        <result property="title" column="title"/>
+        <result property="localName" column="local_name"/>
+        <result property="attribute" column="attribute"/>
+        <result property="listingType" column="listing_type"/>
+        <result property="listingTypeName" column="listing_type_name"/>
+        <result property="listingStatus" column="listing_status"/>
+        <result property="listingStatusName" column="listing_status_name"/>
+        <result property="price" column="price"/>
+        <result property="startPrice" column="start_price"/>
+        <result property="acceptPrice" column="accept_price"/>
+        <result property="quantity" column="quantity"/>
+        <result property="autoRestock" column="auto_restock"/>
+        <result property="productAutoRestockResponse" column="product_auto_restock_response"/>
+        <result property="location" column="location"/>
+        <result property="dispatchTimeMax" column="dispatch_time_max"/>
+        <result property="listingStartTime" column="listing_start_time"/>
+        <result property="listingEndTime" column="listing_end_time"/>
+        <result property="storeId" column="store_id"/>
+        <result property="storeName" column="store_name"/>
+        <result property="siteCode" column="site_code"/>
+        <result property="siteName" column="site_name"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="selectByItemIds" resultMap="Result">
+        SELECT * FROM ebay_product_listing WHERE item_id IN
+        <foreach collection="itemIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
+    <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ebay_product_listing (platform,item_id,item_url,picture_url,msku,sku,local_sku,
+        title,local_name,attribute,listing_type,listing_type_name,listing_status,listing_status_name,
+        price,start_price,accept_price,quantity,auto_restock,product_auto_restock_response,
+        location,dispatch_time_max,listing_start_time,listing_end_time,store_id,store_name,site_code,site_name)
+        VALUES
+        <foreach collection="list" item="e" separator=",">
+        (#{e.platform},#{e.itemId},#{e.itemUrl},#{e.pictureUrl},#{e.msku},#{e.sku},#{e.localSku},
+        #{e.title},#{e.localName},#{e.attribute},#{e.listingType},#{e.listingTypeName},
+        #{e.listingStatus},#{e.listingStatusName},#{e.price},#{e.startPrice},#{e.acceptPrice},
+        #{e.quantity},#{e.autoRestock},#{e.productAutoRestockResponse},
+        #{e.location},#{e.dispatchTimeMax},#{e.listingStartTime},#{e.listingEndTime},
+        #{e.storeId},#{e.storeName},#{e.siteCode},#{e.siteName})
+        </foreach>
+    </insert>
+
+    <update id="updateByItemId" parameterType="com.ruoyi.system.domain.operation.external.EbayProductListing">
+        UPDATE ebay_product_listing SET
+        item_url=#{itemUrl},picture_url=#{pictureUrl},msku=#{msku},sku=#{sku},local_sku=#{localSku},
+        title=#{title},local_name=#{localName},attribute=#{attribute},
+        listing_type=#{listingType},listing_type_name=#{listingTypeName},
+        listing_status=#{listingStatus},listing_status_name=#{listingStatusName},
+        price=#{price},start_price=#{startPrice},accept_price=#{acceptPrice},
+        quantity=#{quantity},auto_restock=#{autoRestock},
+        product_auto_restock_response=#{productAutoRestockResponse},
+        location=#{location},dispatch_time_max=#{dispatchTimeMax},
+        listing_start_time=#{listingStartTime},listing_end_time=#{listingEndTime},
+        store_id=#{storeId},store_name=#{storeName},site_code=#{siteCode},site_name=#{siteName}
+        WHERE item_id=#{itemId}
+    </update>
+</mapper>

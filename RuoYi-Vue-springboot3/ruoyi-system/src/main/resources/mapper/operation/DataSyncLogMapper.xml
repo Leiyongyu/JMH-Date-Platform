@@ -61,4 +61,16 @@
         DELETE FROM data_sync_log WHERE create_time &lt; DATE_SUB(NOW(), INTERVAL #{days} DAY)
     </delete>
 
+    <select id="selectByParentId" resultMap="DataSyncLogResult">
+        SELECT * FROM data_sync_log WHERE parent_id=#{parentId} ORDER BY id
+    </select>
+
+    <select id="search" resultMap="DataSyncLogResult">
+        SELECT * FROM data_sync_log WHERE 1=1
+        <if test="syncType != null and syncType != ''">AND sync_type LIKE CONCAT('%',#{syncType},'%')</if>
+        <if test="status != null and status != ''">AND status=#{status}</if>
+        <if test="triggerType != null and triggerType != ''">AND trigger_type=#{triggerType}</if>
+        ORDER BY id DESC
+    </select>
+
 </mapper>

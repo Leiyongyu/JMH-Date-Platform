@@ -7,4 +7,6 @@ public interface PurchasePlanMapper
 {
     List<PurchasePlan> selectAll();
     List<PurchasePlan> selectByStatusText(String statusText);
+    int insert(PurchasePlan entity);
+    int updateById(PurchasePlan entity);
 }

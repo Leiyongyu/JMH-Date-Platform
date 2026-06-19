@@ -11,5 +11,13 @@
     <select id="selectAll" resultMap="Result">
         SELECT id, receiving_code, product_sku FROM goodcang_grn_detail
     </select>
-
+    <delete id="deleteByReceivingCode">
+        DELETE FROM goodcang_grn_detail WHERE receiving_code=#{receivingCode}
+    </delete>
+    <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO goodcang_grn_detail (receiving_code,product_sku,box_no,transit_pre_count,transit_receiving_count) VALUES
+        <foreach collection="list" item="e" separator=",">
+        (#{e.receivingCode},#{e.productSku},#{e.boxNo},#{e.transitPreCount},#{e.transitReceivingCount})
+        </foreach>
+    </insert>
 </mapper>
