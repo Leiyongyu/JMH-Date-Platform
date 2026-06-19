@@ -11,4 +11,5 @@ public interface EbayLinkTemplateMapper
     List<EbayLinkTemplate> selectAll();
     EbayLinkTemplate selectBySite(@Param("site") String site);
     int upsert(EbayLinkTemplate entity);
+    int deleteBySite(@Param("site") String site);
 }

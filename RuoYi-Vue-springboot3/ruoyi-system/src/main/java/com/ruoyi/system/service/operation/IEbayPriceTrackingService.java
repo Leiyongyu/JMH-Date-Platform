@@ -33,6 +33,7 @@ public interface IEbayPriceTrackingService
     /** 链接模板管理 */
     List<EbayLinkTemplate> listLinkTemplates();
     void saveLinkTemplate(EbayLinkTemplate template);
+    void deleteLinkTemplate(String site);
 
     /** 列表查询（导出用） */
     List<EbayPriceTrackingSnapshot> listAll(EbayPriceTrackingSnapshot filter);

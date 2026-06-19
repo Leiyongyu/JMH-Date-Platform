@@ -125,6 +125,15 @@ public class EbayPriceTrackingController extends BaseController
         return success();
     }
 
+    @Log(title = "eBay跟价-删除链接模板", businessType = BusinessType.DELETE)
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
+    @DeleteMapping("/link-template/{site}")
+    public AjaxResult deleteLinkTemplate(@PathVariable String site)
+    {
+        priceTrackingService.deleteLinkTemplate(site);
+        return success();
+    }
+
     // ====== 导出 ======
     @Log(title = "eBay跟价", businessType = BusinessType.EXPORT)
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:export')")

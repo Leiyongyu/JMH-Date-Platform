@@ -28,4 +28,8 @@
             exchange_rate = VALUES(exchange_rate)
     </insert>
 
+    <delete id="deleteBySite">
+        DELETE FROM ebay_link_template WHERE site = #{site}
+    </delete>
+
 </mapper>

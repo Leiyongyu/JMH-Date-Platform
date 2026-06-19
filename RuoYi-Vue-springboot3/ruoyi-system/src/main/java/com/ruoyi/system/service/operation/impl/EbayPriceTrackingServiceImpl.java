@@ -213,6 +213,9 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
     @Override
     public void saveLinkTemplate(EbayLinkTemplate template) { linkTemplateMapper.upsert(template); }
 
+    @Override
+    public void deleteLinkTemplate(String site) { linkTemplateMapper.deleteBySite(site); }
+
     // ========== 瀵煎嚭 ==========
     @Override
     public List<EbayPriceTrackingSnapshot> listAll(EbayPriceTrackingSnapshot filter)

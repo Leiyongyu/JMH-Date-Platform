@@ -13,4 +13,16 @@
         SELECT id, brand_code, owner_name, user_id FROM brand_owner
     </select>
 
+    <insert id="insert" parameterType="com.ruoyi.system.domain.operation.external.BrandOwner" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO brand_owner (brand_code, owner_name, user_id) VALUES (#{brandCode}, #{ownerName}, #{userId})
+    </insert>
+
+    <update id="update" parameterType="com.ruoyi.system.domain.operation.external.BrandOwner">
+        UPDATE brand_owner SET brand_code = #{brandCode}, owner_name = #{ownerName}, user_id = #{userId} WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM brand_owner WHERE id = #{id}
+    </delete>
+
 </mapper>
