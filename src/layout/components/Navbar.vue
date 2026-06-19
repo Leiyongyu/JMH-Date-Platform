@@ -10,6 +10,12 @@
 
     <div class="right-menu">
       <template v-if="appStore.device !== 'mobile'">
+        <el-tooltip content="数据校准" effect="dark" placement="bottom" v-hasPermi="['operations:ebayReplenishment:sync']">
+          <div class="right-menu-item hover-effect" @click="openCalibration" style="font-size:16px;padding:0 8px;cursor:pointer">
+            <svg-icon icon-class="tool" />
+          </div>
+        </el-tooltip>
+
         <header-search id="header-search" class="right-menu-item" />
 
         <el-tooltip content="源码地址" effect="dark" placement="bottom">
@@ -81,7 +87,10 @@ import useUserStore from '@/store/modules/user'
 import useLockStore from '@/store/modules/lock'
 import useSettingsStore from '@/store/modules/settings'
 import HeaderNotice from './HeaderNotice'
+import { runDataCalibration } from '@/api/operations/sync'
+import { getCurrentInstance } from 'vue'
 
+const { proxy } = getCurrentInstance()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
@@ -119,6 +128,30 @@ function logout() {
       location.href = '/index'
     })
   }).catch(() => { })
+}
+
+/** 数据校准弹窗 */
+function openCalibration() {
+  ElMessageBox.confirm(
+    '<div><p>将拉取全量历史数据并刷新快照，耗时较长。</p>' +
+    '<p>默认勾选eBay+AMZ，可选库存采购/谷仓。</p>' +
+    '<p>结果可到同步日志查看。</p></div>',
+    '数据校准全量拉取',
+    { confirmButtonText: '开始校准', cancelButtonText: '取消', type: 'warning',
+      dangerouslyUseHTMLString: true }
+  ).then(() => {
+    const start = prompt('开始日期 (yyyy-MM-dd)', '2024-01-01')
+    const end = prompt('结束日期 (yyyy-MM-dd)', new Date().toISOString().slice(0,10))
+    if (!start || !end) return
+    proxy.$modal.loading('数据校准执行中，请勿关闭页面...')
+    runDataCalibration({ start, end, ebay: true, amz: true, inventoryPurchase: true, goodcang: true })
+      .then(r => {
+        proxy.$modal.closeLoading()
+        if (r.code === 200) proxy.$modal.msgSuccess(r.msg || '校准完成')
+        else proxy.$modal.msgError(r.msg || '校准失败')
+      })
+      .catch(e => { proxy.$modal.closeLoading(); proxy.$modal.msgError('校准失败: ' + (e.message||e)) })
+  }).catch(() => {})
 }
 
 const emits = defineEmits(['setLayout'])
