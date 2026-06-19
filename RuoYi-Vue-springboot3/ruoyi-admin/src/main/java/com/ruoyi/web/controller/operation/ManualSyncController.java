@@ -5,16 +5,14 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.system.service.operation.sync.AmzUnifiedSyncService;
 import com.ruoyi.system.service.operation.sync.EbayUnifiedSyncService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Map;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 手动同步控制器 —— 运营页面点击"拉取最新数据"按钮触发。
- *
- * @author JMH
- */
+@Tag(name = "手动同步")
 @RestController
 @RequestMapping("/operations/sync/manual")
 public class ManualSyncController extends BaseController

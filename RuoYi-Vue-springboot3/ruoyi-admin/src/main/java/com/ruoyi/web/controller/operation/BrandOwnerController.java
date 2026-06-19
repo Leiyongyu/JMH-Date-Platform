@@ -10,7 +10,9 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.system.domain.operation.external.BrandOwner;
 import com.ruoyi.system.mapper.operation.external.BrandOwnerMapper;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
+@Tag(name = "品牌负责人")
 @RestController
 @RequestMapping("/operations/brand-owner")
 public class BrandOwnerController extends BaseController

@@ -6,13 +6,12 @@ import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.system.domain.operation.DataSyncLog;
 import com.ruoyi.system.service.operation.IOperationSyncLogService;
 import com.github.pagehelper.PageHelper;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-/**
- * 同步日志查看接口。
- */
+@Tag(name = "同步日志")
 @RestController
 @RequestMapping("/operations/sync/log")
 public class SyncLogController extends BaseController

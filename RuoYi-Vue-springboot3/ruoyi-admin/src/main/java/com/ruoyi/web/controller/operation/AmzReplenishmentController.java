@@ -31,7 +31,9 @@ import com.ruoyi.system.mapper.operation.external.AmzReplenishmentOverrideMapper
 import com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService;
 import com.ruoyi.system.service.operation.UnifiedExportService;
 import com.github.pagehelper.PageHelper;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
+@Tag(name = "Amazon补货")
 @RestController
 @RequestMapping("/operations/amz/replenishment")
 public class AmzReplenishmentController extends BaseController

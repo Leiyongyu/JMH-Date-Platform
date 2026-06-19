@@ -7,11 +7,13 @@ import com.ruoyi.system.service.operation.external.lingxing.LingxingGatewayServi
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.security.access.prepost.PreAuthorize;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@Tag(name = "领星API")
 @RestController
 @RequestMapping("/operations/lingxing")
 public class LingxingOpenApiController extends BaseController

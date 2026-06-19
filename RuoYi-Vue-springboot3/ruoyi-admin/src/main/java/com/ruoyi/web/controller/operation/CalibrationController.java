@@ -3,15 +3,15 @@ package com.ruoyi.web.controller.operation;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.system.service.operation.sync.OperationCalibrationSyncService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.LocalDate;
 import java.util.Map;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-/**
- * 数据校准接口 —— 开发期全量拉取，仅 admin 可调用。
- */
+@Tag(name = "数据校准")
 @RestController
 @RequestMapping("/operations/sync/calibration")
 public class CalibrationController extends BaseController

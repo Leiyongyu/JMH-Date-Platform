@@ -29,7 +29,9 @@ import com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService;
 import com.ruoyi.system.service.operation.OperationImportService;
 import com.ruoyi.system.service.operation.UnifiedExportService;
 import com.github.pagehelper.PageHelper;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
+@Tag(name = "eBay补货")
 @RestController
 @RequestMapping("/operations/ebay/replenishment")
 public class EbayReplenishmentController extends BaseController

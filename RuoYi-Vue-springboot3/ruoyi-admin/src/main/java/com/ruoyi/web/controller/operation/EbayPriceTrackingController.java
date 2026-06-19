@@ -33,7 +33,9 @@ import com.ruoyi.system.service.operation.IEbayPriceTrackingService;
 import com.ruoyi.system.service.operation.OperationImportService;
 import com.ruoyi.system.service.operation.UnifiedExportService;
 import com.github.pagehelper.PageHelper;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
+@Tag(name = "eBay跟价")
 @RestController
 @RequestMapping("/operations/ebay/price-tracking")
 public class EbayPriceTrackingController extends BaseController
