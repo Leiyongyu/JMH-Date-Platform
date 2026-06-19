@@ -1,33 +1,38 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ruoyi.system.mapper.operation.external.WarehouseStatementMapper">
-
     <resultMap type="com.ruoyi.system.domain.operation.external.WarehouseStatement" id="Result">
-        <id property="id" column="id" />
-        <result property="wid" column="wid" />
-        <result property="wareHouseName" column="ware_house_name" />
-        <result property="sku" column="sku" />
-        <result property="optTime" column="opt_time" />
-        <result property="type" column="type" />
+        <id property="id" column="id"/>
+        <result property="statementId" column="statement_id"/>
+        <result property="wid" column="wid"/>
+        <result property="wareHouseName" column="ware_house_name"/>
+        <result property="orderSn" column="order_sn"/>
+        <result property="refOrderSn" column="ref_order_sn"/>
+        <result property="sku" column="sku"/>
+        <result property="optTime" column="opt_time"/>
+        <result property="type" column="type"/>
+        <result property="typeText" column="type_text"/>
+        <result property="subType" column="sub_type"/>
+        <result property="subTypeText" column="sub_type_text"/>
+        <result property="sellerId" column="seller_id"/>
+        <result property="fnsku" column="fnsku"/>
+        <result property="productName" column="product_name"/>
+        <result property="productGoodNum" column="product_good_num"/>
+        <result property="productBadNum" column="product_bad_num"/>
     </resultMap>
-
-    <select id="selectAll" resultMap="Result">
-        SELECT id, wid, ware_house_name, sku, opt_time, type FROM warehouse_statement
-    </select>
-
-    <select id="selectByType" resultMap="Result" parameterType="Integer">
-        SELECT id, wid, ware_house_name, sku, opt_time, type FROM warehouse_statement
-        WHERE type = #{type}
-    </select>
+    <select id="selectAll" resultMap="Result">SELECT * FROM warehouse_statement</select>
+    <select id="selectByType" resultMap="Result">SELECT * FROM warehouse_statement WHERE type=#{type}</select>
     <select id="selectByUniqueKey" resultMap="Result">
         SELECT * FROM warehouse_statement WHERE wid=#{wid} AND sku=#{sku} AND opt_time=#{optTime}
     </select>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO warehouse_statement (wid,ware_house_name,sku,opt_time,type)
-        VALUES (#{wid},#{wareHouseName},#{sku},#{optTime},#{type})
+        INSERT INTO warehouse_statement (statement_id,wid,ware_house_name,order_sn,ref_order_sn,sku,opt_time,type,type_text,sub_type,sub_type_text,seller_id,fnsku,product_name,product_good_num,product_bad_num)
+        VALUES (#{statementId},#{wid},#{wareHouseName},#{orderSn},#{refOrderSn},#{sku},#{optTime},#{type},#{typeText},#{subType},#{subTypeText},#{sellerId},#{fnsku},#{productName},#{productGoodNum},#{productBadNum})
     </insert>
     <update id="updateById">
-        UPDATE warehouse_statement SET wid=#{wid},ware_house_name=#{wareHouseName},sku=#{sku},opt_time=#{optTime},type=#{type}
+        UPDATE warehouse_statement SET wid=#{wid},ware_house_name=#{wareHouseName},order_sn=#{orderSn},ref_order_sn=#{refOrderSn},
+        sku=#{sku},opt_time=#{optTime},type=#{type},type_text=#{typeText},sub_type=#{subType},sub_type_text=#{subTypeText},
+        seller_id=#{sellerId},fnsku=#{fnsku},product_name=#{productName},product_good_num=#{productGoodNum},product_bad_num=#{productBadNum}
         WHERE id=#{id}
     </update>
 </mapper>

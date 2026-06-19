@@ -81,29 +81,36 @@ public class OperationSyncTask
 
     /** 10. 领星-库存流水 */
     public void syncLingxingStatement() {
-        stub("warehouse_statement", "领星-库存流水", "erp/sc/routing/inventoryLog/WareHouseInventory/wareHouseCenterStatement");
+        executeWithLog("warehouse_statement", "领星-库存流水", "erp/sc/routing/inventoryLog/WareHouseInventory/wareHouseCenterStatement",
+                () -> SpringUtils.getBean(LingxingStatementSyncService.class).sync());
     }
 
     /** 11. 领星-采购单 */
     public void syncLingxingPurchaseOrder() {
-        stub("purchase_order", "领星-采购单", "erp/sc/routing/data/local_inventory/purchaseOrderList");
+        executeWithLog("purchase_order", "领星-采购单", "erp/sc/routing/data/local_inventory/purchaseOrderList",
+                () -> SpringUtils.getBean(LingxingPurchaseOrderSyncService.class).sync());
     }
 
     /** 12. 领星-采购计划 */
     public void syncLingxingPurchasePlan() {
-        stub("purchase_plan", "领星-采购计划", "erp/sc/routing/data/local_inventory/getPurchasePlans");
+        executeWithLog("purchase_plan", "领星-采购计划", "erp/sc/routing/data/local_inventory/getPurchasePlans",
+                () -> SpringUtils.getBean(LingxingPurchasePlanSyncService.class).sync());
     }
 
-    // ==================== 快照刷新（依赖现有 compute 服务） ====================
+    // ==================== 快照刷新 ====================
 
     /** 13. 刷新eBay补货快照 */
     public void refreshEbayReplenishmentSnapshot() {
-        stub("ebay_replenish_snapshot", "刷新eBay补货快照", "compute/ebayReplenishment");
+        executeWithLog("ebay_replenish_snapshot", "刷新eBay补货快照", "compute/ebayReplenishment",
+                () -> { SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService.class).refreshSnapshot();
+                        return OperationSyncResult.success("ebay_replenish_snapshot", "刷新eBay补货快照", "compute/ebayReplenishment", 1, 1, 0); });
     }
 
     /** 14. 刷新eBay跟价表 */
     public void refreshEbayPriceTrackingSnapshot() {
-        stub("ebay_price_tracking_snapshot", "刷新eBay跟价表", "compute/ebayPriceTracking");
+        executeWithLog("ebay_price_tracking_snapshot", "刷新eBay跟价表", "compute/ebayPriceTracking",
+                () -> { SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayPriceTrackingService.class).refreshSnapshot();
+                        return OperationSyncResult.success("ebay_price_tracking_snapshot", "刷新eBay跟价表", "compute/ebayPriceTracking", 1, 1, 0); });
     }
 
     // ==================== Amazon 同步 ====================
@@ -128,17 +135,12 @@ public class OperationSyncTask
 
     /** 18. 刷新Amazon补货快照 */
     public void refreshAmzReplenishmentSnapshot() {
-        stub("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment");
+        executeWithLog("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment",
+                () -> { SpringUtils.getBean(com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService.class).refreshSnapshot();
+                        return OperationSyncResult.success("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment", 1, 1, 0); });
     }
 
     // ==================== 内部方法 ====================
-
-    private void stub(String type, String name, String api) {
-        executeWithLog(type, name, api, () -> {
-            LOG.info("{} - 待实现", name);
-            return OperationSyncResult.success(type, name, api, 0, 0, 0);
-        });
-    }
 
     @FunctionalInterface
     private interface SyncRunner { OperationSyncResult run() throws Exception; }
