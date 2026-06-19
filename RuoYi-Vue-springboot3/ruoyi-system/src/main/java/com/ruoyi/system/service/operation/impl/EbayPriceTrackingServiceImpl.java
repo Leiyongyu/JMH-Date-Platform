@@ -13,12 +13,10 @@ import org.springframework.util.StringUtils;
 import com.ruoyi.system.domain.operation.EbayPriceTrackingSnapshot;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.domain.operation.external.EbayLinkTemplate;
-import com.ruoyi.system.domain.operation.external.EbayPriceTrackingConfig;
 import com.ruoyi.system.domain.operation.external.EbayProductDedup;
 import com.ruoyi.system.domain.operation.external.GoodcangProductInfo;
 import com.ruoyi.system.mapper.operation.EbayPriceTrackingSnapshotMapper;
 import com.ruoyi.system.mapper.operation.external.EbayLinkTemplateMapper;
-import com.ruoyi.system.mapper.operation.external.EbayPriceTrackingConfigMapper;
 import com.ruoyi.system.mapper.operation.external.EbayProductDedupMapper;
 import com.ruoyi.system.mapper.operation.external.GoodcangProductInfoMapper;
 import com.ruoyi.system.service.operation.IEbayPriceTrackingService;
@@ -63,9 +61,8 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
     @Autowired private EbayProductDedupMapper dedupMapper;
     @Autowired private EbayLinkTemplateMapper linkTemplateMapper;
     @Autowired private GoodcangProductInfoMapper productInfoMapper;
-    @Autowired private EbayPriceTrackingConfigMapper configMapper;
 
-    // ========== 搜索 ==========
+    // ========== 鎼滅储 ==========
     @Override
     public List<EbayPriceTrackingSnapshot> search(EbayReplenishmentSearchRequest req)
     {
@@ -79,12 +76,12 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
         return mapper.selectDistinctValues(field, keyword != null ? keyword.trim() : null);
     }
 
-    // ========== 刷新 ==========
+    // ========== 鍒锋柊 ==========
     @Override
     @Transactional
     public void refreshSnapshot()
     {
-        log.info("==== eBay每日跟价快照刷新 开始 ====");
+        log.info("==== eBay姣忔棩璺熶环蹇収鍒锋柊 寮€濮?====");
         long t = System.currentTimeMillis();
         List<EbayPriceTrackingSnapshot> computed = computeService.compute();
         mapper.deleteAll();
@@ -94,10 +91,10 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
             for (int i = 0; i < computed.size(); i += batch)
                 mapper.batchInsert(computed.subList(i, Math.min(i + batch, computed.size())));
         }
-        log.info("==== eBay每日跟价快照刷新 完成: {} 条 耗时{}ms ====", computed.size(), System.currentTimeMillis() - t);
+        log.info("==== eBay姣忔棩璺熶环蹇収鍒锋柊 瀹屾垚: {} 鏉?鑰楁椂{}ms ====", computed.size(), System.currentTimeMillis() - t);
     }
 
-    // ========== 跟卖计算 ==========
+    // ========== 璺熷崠璁＄畻 ==========
     @Override
     public Map<String, Object> calcTracking(String site, String sku, String trackingPrice)
     {
@@ -105,62 +102,82 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
         resp.put("success", true);
 
         BigDecimal M = null;
-        if (trackingPrice != null && !trackingPrice.isEmpty())
+        if (StringUtils.hasText(trackingPrice))
         {
-            try { M = new BigDecimal(trackingPrice); } catch (Exception e) {}
+            try
+            {
+                M = new BigDecimal(trackingPrice.trim());
+            }
+            catch (Exception e)
+            {
+                resp.put("success", false);
+                resp.put("message", "跟卖价格式不正确");
+                resp.put("trackingPrice", trackingPrice);
+                resp.put("trackingProfitMargin", null);
+                resp.put("floorPrice", null);
+                return resp;
+            }
         }
         if (M == null || M.compareTo(BigDecimal.ZERO) <= 0)
         {
+            resp.put("trackingPrice", null);
             resp.put("trackingProfitMargin", null);
             resp.put("floorPrice", null);
+            saveTrackingCalcDedup(site, sku, null, null, null);
             return resp;
         }
+        resp.put("trackingPrice", M);
 
         String mid = InventoryUtils.extractMiddleCodeForInventory(sku);
         if (mid.isEmpty() && sku != null && !sku.isEmpty()) mid = sku;
         GoodcangProductInfo gp = productInfoMapper.selectByMiddleCode(mid);
+        if (gp == null && mid.contains("-"))
+        {
+            String pureMiddleCode = mid.substring(mid.lastIndexOf('-') + 1);
+            gp = productInfoMapper.selectByMiddleCode(pureMiddleCode);
+            if (gp != null) mid = pureMiddleCode;
+        }
         if (gp == null || gp.getPrice() == null)
         {
+            resp.put("message", "未找到谷仓商品单价，SKU中间码：" + mid);
             resp.put("trackingProfitMargin", null);
             resp.put("floorPrice", null);
+            saveTrackingCalcDedup(site, sku, M, null, null);
             return resp;
         }
 
         EbayLinkTemplate lt = linkTemplateMapper.selectBySite(site);
         if (lt == null || lt.getExchangeRate() == null || lt.getExchangeRate().compareTo(BigDecimal.ZERO) == 0)
         {
+            resp.put("message", "未配置站点汇率：" + site);
             resp.put("trackingProfitMargin", null);
             resp.put("floorPrice", null);
+            saveTrackingCalcDedup(site, sku, M, null, null);
             return resp;
         }
 
         TrackingProfitCalcService.CalcResult cr = profitCalcService.calc(site, M, gp, lt);
         resp.put("trackingProfitMargin", cr.trackingProfitMargin);
         resp.put("floorPrice", cr.floorPrice);
+        saveTrackingCalcDedup(site, sku, M, cr.trackingProfitMargin, cr.floorPrice);
 
-        // 保存到 config 表（source of truth）
-        saveOrUpdateConfig(site, sku, M, cr.trackingProfitMargin, cr.floorPrice);
-
-        resp.put("trackingPrice", M);
         return resp;
     }
 
-    // ========== 保存操作（写 config 表，乐观锁） ==========
+    // ========== 保存操作（写 ebay_product_dedup） ==========
 
     @Override
     public void saveTrackingPrice(String site, String sku, String trackingPrice)
     {
         BigDecimal price = (trackingPrice != null && !trackingPrice.isEmpty())
                 ? new BigDecimal(trackingPrice) : null;
-        saveOrUpdateConfig(site, sku, price, null, null);
+        saveTrackingCalcDedup(site, sku, price, null, null);
     }
 
     @Override
     public Map<String, Object> saveOeNumber(String site, String sku, String oeNumber)
     {
-        EbayPriceTrackingConfig cfg = getOrCreateConfig(site, sku);
-        cfg.setOeNumber(oeNumber);
-        saveConfigWithLock(cfg);
+        ensureDedupUpdated(dedupMapper.updateOeNumber(site, sku, oeNumber), site, sku);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("oeNumber", oeNumber);
         EbayLinkTemplate lt = linkTemplateMapper.selectBySite(site);
@@ -174,58 +191,29 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
     @Override
     public void saveRemark(String site, String sku, String remark)
     {
-        EbayPriceTrackingConfig cfg = getOrCreateConfig(site, sku);
-        cfg.setRemark(remark);
-        saveConfigWithLock(cfg);
+        ensureDedupUpdated(dedupMapper.updateRemark(site, sku, remark), site, sku);
     }
 
-    // ========== config 表工具 ==========
-
-    private EbayPriceTrackingConfig getOrCreateConfig(String site, String sku)
-    {
-        EbayPriceTrackingConfig cfg = configMapper.selectBySiteSku(site, sku);
-        if (cfg == null)
-        {
-            cfg = new EbayPriceTrackingConfig();
-            cfg.setSite(site);
-            cfg.setSku(sku);
-        }
-        return cfg;
-    }
-
-    private void saveOrUpdateConfig(String site, String sku,
+    private void saveTrackingCalcDedup(String site, String sku,
             BigDecimal trackingPrice, BigDecimal margin, BigDecimal floor)
     {
-        EbayPriceTrackingConfig cfg = getOrCreateConfig(site, sku);
-        if (trackingPrice != null) cfg.setTrackingPrice(trackingPrice);
-        if (margin != null) cfg.setTrackingProfitMargin(margin);
-        if (floor != null) cfg.setFloorPrice(floor);
-        saveConfigWithLock(cfg);
+        ensureDedupUpdated(dedupMapper.updateTrackingCalc(site, sku, trackingPrice, margin, floor), site, sku);
     }
 
-    /** 乐观锁保存：已存在则 updateWithVersion，不存在则 insert */
-    private void saveConfigWithLock(EbayPriceTrackingConfig cfg)
+    private void ensureDedupUpdated(int rows, String site, String sku)
     {
-        if (cfg.getId() != null)
-        {
-            int rows = configMapper.updateWithVersion(cfg);
-            if (rows == 0)
-                throw new RuntimeException("编辑冲突：该记录已被他人修改，请刷新后重试");
-        }
-        else
-        {
-            configMapper.insert(cfg);
-        }
+        if (rows == 0)
+            throw new RuntimeException("未找到 eBay 商品记录，无法保存：" + site + " / " + sku);
     }
 
-    // ========== 链接模板 ==========
+    // ========== 閾炬帴妯℃澘 ==========
     @Override
     public List<EbayLinkTemplate> listLinkTemplates() { return linkTemplateMapper.selectAll(); }
 
     @Override
     public void saveLinkTemplate(EbayLinkTemplate template) { linkTemplateMapper.upsert(template); }
 
-    // ========== 导出 ==========
+    // ========== 瀵煎嚭 ==========
     @Override
     public List<EbayPriceTrackingSnapshot> listAll(EbayPriceTrackingSnapshot filter)
     {
@@ -236,7 +224,7 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
         return mapper.search(buildParams(req));
     }
 
-    // ========== 参数构建 ==========
+    // ========== 鍙傛暟鏋勫缓 ==========
     private Map<String, Object> buildParams(EbayReplenishmentSearchRequest req)
     {
         Map<String, Object> p = new HashMap<>();

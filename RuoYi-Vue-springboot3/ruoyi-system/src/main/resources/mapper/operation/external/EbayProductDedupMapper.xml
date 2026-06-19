@@ -33,4 +33,27 @@
         WHERE site = #{site} AND sku LIKE CONCAT('%', #{middleCode}, '%') LIMIT 1
     </update>
 
+    <update id="updateLowestPrice">
+        UPDATE ebay_product_dedup SET lowest_price = #{price}
+        WHERE site = #{site} AND sku = #{sku}
+    </update>
+
+    <update id="updateTrackingCalc">
+        UPDATE ebay_product_dedup
+        SET tracking_price = #{trackingPrice},
+            tracking_profit_margin = #{trackingProfitMargin},
+            floor_price = #{floorPrice}
+        WHERE site = #{site} AND sku = #{sku}
+    </update>
+
+    <update id="updateOeNumber">
+        UPDATE ebay_product_dedup SET oe_number = #{oeNumber}
+        WHERE site = #{site} AND sku = #{sku}
+    </update>
+
+    <update id="updateRemark">
+        UPDATE ebay_product_dedup SET remark = #{remark}
+        WHERE site = #{site} AND sku = #{sku}
+    </update>
+
 </mapper>

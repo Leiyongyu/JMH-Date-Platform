@@ -30,7 +30,6 @@ public class OperationImportService
     @Autowired private OperationImportTaskMapper taskMapper;
     @Autowired private EbaySalesMapper ebaySalesMapper;
     @Autowired private EbayProductDedupMapper dedupMapper;
-    @Autowired private EbayPriceTrackingConfigMapper trackingConfigMapper;
     @Autowired private GoodcangProductInfoMapper productInfoMapper;
 
     // ========== 导入销量 ==========
@@ -151,7 +150,7 @@ public class OperationImportService
         return task;
     }
 
-    // ========== 导入最低价 → ebay_price_tracking_config ==========
+    // ========== 导入最低价 → ebay_product_dedup ==========
     public OperationImportTask importLowestPrice(MultipartFile file, String operator) throws Exception
     {
         OperationImportTask task = createTask(file.getOriginalFilename(), "LOWEST_PRICE", operator);
@@ -184,10 +183,8 @@ public class OperationImportService
                 String[] parts = e.getKey().split("\\|");
                 if (parts.length == 2)
                 {
-                    EbayPriceTrackingConfig cfg = getOrCreateConfig(parts[0], parts[1]);
-                    cfg.setOurLowestPrice(e.getValue().price);
-                    saveConfig(cfg);
-                    success++;
+                    int rows = dedupMapper.updateLowestPrice(parts[0], parts[1], e.getValue().price);
+                    if (rows > 0) success++;
                 }
             }
             task.setSuccessRows(success);
@@ -243,19 +240,6 @@ public class OperationImportService
         if (!"PARTIAL".equals(t.getStatus()) && !"FAILED".equals(t.getStatus())) t.setStatus("SUCCESS");
         taskMapper.update(t);
         log.info("导入完成: type={}, success={}, fail={}", t.getTaskType(), t.getSuccessRows(), t.getFailRows());
-    }
-
-    private EbayPriceTrackingConfig getOrCreateConfig(String site, String sku)
-    {
-        EbayPriceTrackingConfig c = trackingConfigMapper.selectBySiteSku(site, sku);
-        if (c == null) { c = new EbayPriceTrackingConfig(); c.setSite(site); c.setSku(sku); }
-        return c;
-    }
-
-    private void saveConfig(EbayPriceTrackingConfig c)
-    {
-        if (c.getId() != null) trackingConfigMapper.updateWithVersion(c);
-        else trackingConfigMapper.insert(c);
     }
 
     private String mapSite(String name)

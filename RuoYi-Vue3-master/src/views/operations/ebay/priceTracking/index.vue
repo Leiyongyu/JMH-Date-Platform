@@ -210,11 +210,20 @@ watch(records, initEditCache, { flush: 'post' })
 
 async function onTrackingBlur(row) {
   const k = key(row, 'tp')
-  const v = editCache[k]; if (v === (row.trackingPrice != null ? String(row.trackingPrice) : '')) return
+  const v = editCache[k]
+  const oldValue = row.trackingPrice != null ? String(row.trackingPrice) : ''
+  const needRecalculate = row.trackingProfitMargin == null || row.floorPrice == null
+  if (v === oldValue && !needRecalculate) return
   if (row._saving) return; row._saving = true
   try {
     const r = await calcTracking(row.site, row.sku, v || '')
-    const d = r.data; row.trackingPrice = d.trackingPrice; row.trackingProfitMargin = d.trackingProfitMargin; row.floorPrice = d.floorPrice
+    const d = r.data || {}
+    if (d.success === false) throw new Error('invalid tracking price')
+    row.trackingPrice = d.trackingPrice ?? v ?? ''
+    row.trackingProfitMargin = d.trackingProfitMargin ?? null
+    row.floorPrice = d.floorPrice ?? null
+    editCache[k] = row.trackingPrice ?? ''
+    if (d.message) proxy.$modal.msgWarning(d.message)
   } catch { editCache[k] = row.trackingPrice ?? '' }
   finally { row._saving = false }
 }
@@ -224,7 +233,11 @@ async function onOeBlur(row) {
   if (row._saving) return; row._saving = true
   try {
     const r = await saveOe(row.site, row.sku, v)
-    const d = r.data; row.oeNumber = d.oeNumber; row.presaleUrl = d.presaleUrl; row.soldUrl = d.soldUrl
+    const d = r.data || {}
+    row.oeNumber = d.oeNumber ?? v
+    row.presaleUrl = d.presaleUrl ?? row.presaleUrl
+    row.soldUrl = d.soldUrl ?? row.soldUrl
+    editCache[k] = row.oeNumber ?? ''
   } catch { editCache[k] = row.oeNumber || '' }
   finally { row._saving = false }
 }
@@ -233,7 +246,7 @@ async function onRemarkBlur(row) {
   const k = key(row, 'rk')
   const v = editCache[k] || ''; if (v === (row.remark || '')) return
   if (row._saving) return; row._saving = true
-  try { await saveRemark(row.site, row.sku, v); row.remark = v }
+  try { await saveRemark(row.site, row.sku, v); row.remark = v; editCache[k] = v }
   catch { editCache[k] = row.remark || '' }
   finally { row._saving = false }
 }

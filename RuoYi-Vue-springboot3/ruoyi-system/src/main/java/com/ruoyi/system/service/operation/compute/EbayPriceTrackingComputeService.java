@@ -20,21 +20,14 @@ import com.ruoyi.system.mapper.operation.external.*;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingProperties;
 
 /**
- * eBay每日跟价计算引擎。
- * 从旧项目 DailyPriceTrackingServiceImpl.computeDailyPriceTracking() 移植。
- *
- * 流程：
- *   1. ebay_product_dedup → 基准行 (site + sku)
- *   2. warehouse_inventory_detail → 海外可售库存(type=3)
- *   3. ebay_sales → 3/7/30/90天销量 + 历史最大月销
- *   4. 谷仓 GRN → 海外仓库龄
- *   5. ebay_replenishment_snapshot → 预估补货量(匹配 site + stripPcPrefix(sku))
- *   6. brand_owner → 品牌 & 操作员
- *   7. ebay_link_template → 售前/售后链接(OE号替换)
- *   7. ebay_link_template → 售前/售后链接(OE号替换)
- *   8. ebay_price_tracking_config → 跟卖价/利润率/底线价/最低价/备注/OE号（用户可编辑字段，独立配置表）
- *   9. ebay_product_dedup → 退货率（Excel导入，非编辑字段）
- */
+ * eBay濮ｅ繑妫╃捄鐔剁幆鐠侊紕鐣诲鏇熸惛閵? * 娴犲孩妫い鍦窗 DailyPriceTrackingServiceImpl.computeDailyPriceTracking() 缁夌粯顦查妴? *
+ * 濞翠胶鈻奸敍? *   1. ebay_product_dedup 閳?閸╁搫鍣悰?(site + sku)
+ *   2. warehouse_inventory_detail 閳?濞村嘲顦婚崣顖氭暛鎼存挸鐡?type=3)
+ *   3. ebay_sales 閳?3/7/30/90婢垛晠鏀㈤柌?+ 閸樺棗褰堕張鈧径褎婀€闁库偓
+ *   4. 鐠嬭渹绮?GRN 閳?濞村嘲顦绘禒鎾崇氨姒? *   5. ebay_replenishment_snapshot 閳?妫板嫪鍙婄悰銉ㄦ彛闁?閸栧綊鍘?site + stripPcPrefix(sku))
+ *   6. brand_owner 閳?閸濅胶澧?& 閹垮秳缍旈崨? *   7. ebay_link_template 閳?閸烆喖澧?閸烆喖鎮楅柧鐐复(OE閸欓攱娴涢幑?
+ *   7. ebay_link_template 閳?閸烆喖澧?閸烆喖鎮楅柧鐐复(OE閸欓攱娴涢幑?
+ *   8. ebay_product_dedup 閳?鐠虹喎宕犳禒?閸掆晜榧庨悳?鎼存洜鍤庢禒?閺堚偓娴ｅ簼鐜?婢跺洦鏁?OE閸? *   9. ebay_product_dedup 閳?闁偓鐠愌呭芳閿涘湕xcel鐎电厧鍙嗛敍宀勬姜缂傛牞绶€涙顔岄敍? */
 @Service
 public class EbayPriceTrackingComputeService
 {
@@ -51,7 +44,6 @@ public class EbayPriceTrackingComputeService
     private final BrandOwnerMapper brandOwnerMapper;
     private final EbayLinkTemplateMapper linkTemplateMapper;
     private final EbayReplenishmentSnapshotMapper replenishmentMapper;
-    private final EbayPriceTrackingConfigMapper configMapper;
 
     public EbayPriceTrackingComputeService(
             LingxingProperties lingxingProperties,
@@ -64,8 +56,7 @@ public class EbayPriceTrackingComputeService
             GoodcangWarehouseMapper gcWarehouseMapper,
             BrandOwnerMapper brandOwnerMapper,
             EbayLinkTemplateMapper linkTemplateMapper,
-            EbayReplenishmentSnapshotMapper replenishmentMapper,
-            EbayPriceTrackingConfigMapper configMapper)
+            EbayReplenishmentSnapshotMapper replenishmentMapper)
     {
         this.lingxingProperties = lingxingProperties;
         this.warehouseMapper = warehouseMapper;
@@ -78,19 +69,18 @@ public class EbayPriceTrackingComputeService
         this.brandOwnerMapper = brandOwnerMapper;
         this.linkTemplateMapper = linkTemplateMapper;
         this.replenishmentMapper = replenishmentMapper;
-        this.configMapper = configMapper;
     }
 
     public List<EbayPriceTrackingSnapshot> compute()
     {
-        log.info("==== eBay每日跟价重算 开始 ====");
+        log.info("==== eBay濮ｅ繑妫╃捄鐔剁幆闁插秶鐣?瀵偓婵?====");
         long start = System.currentTimeMillis();
 
         List<Integer> inventoryWids = parseInventoryWids();
         Map<Integer, Warehouse> warehouseByWid = loadWarehouseMap(inventoryWids);
         Map<Integer, String> widToSite = buildWidToSite(warehouseByWid);
 
-        // ---- 1. 基准行 & dedup数据 ----
+        // ---- 1. 閸╁搫鍣悰?& dedup閺佺増宓?----
         Map<String, EbayProductDedup> dedupByKey = new LinkedHashMap<>();
         Map<String, String> skuProductName = new LinkedHashMap<>();
         Map<String, Set<String>> skuSites = new LinkedHashMap<>();
@@ -105,7 +95,7 @@ public class EbayPriceTrackingComputeService
             skuSites.computeIfAbsent(sku, k -> new LinkedHashSet<>()).add(site);
         }
 
-        // ---- 2. 海外可售库存(type=3) ----
+        // ---- 2. 濞村嘲顦婚崣顖氭暛鎼存挸鐡?type=3) ----
         Map<String, Integer> overseasStockMap = new LinkedHashMap<>();
         for (WarehouseInventoryDetail d : inventoryMapper.selectAll())
         {
@@ -118,20 +108,20 @@ public class EbayPriceTrackingComputeService
             overseasStockMap.merge(baseSku + "|" + site, d.getProductValidNum(), Integer::sum);
         }
 
-        // ---- 3. 销量(含3天) ----
+        // ---- 3. 闁库偓闁?閸?婢? ----
         SalesAgg sa = aggregateSales();
 
-        // ---- 4. 谷仓出库时间（海外仓库龄） ----
+        // ---- 4. 鐠嬭渹绮ㄩ崙鍝勭氨閺冨爼妫块敍鍫熸崳婢舵牔绮ㄦ惔鎾荤窞閿?----
         Map<String, String> outboundMap = computeOutboundTimes();
 
-        // ---- 5. 品牌负责人 ----
+        // ---- 5. 閸濅胶澧濈拹鐔荤煑娴?----
         Map<String, String> ownerByBrand = loadBrandOwners();
 
-        // ---- 6. eBay链接模板 ----
+        // ---- 6. eBay闁剧偓甯村Ο鈩冩緲 ----
         Map<String, EbayLinkTemplate> linkBySite = linkTemplateMapper.selectAll().stream()
                 .collect(Collectors.toMap(EbayLinkTemplate::getSite, t -> t, (a, b) -> a));
 
-        // ---- 7. 预估补货量（从补货快照匹配） ----
+        // ---- 7. 妫板嫪鍙婄悰銉ㄦ彛闁插骏绱欐禒搴に夌拹褍鎻╅悡褍灏柊宥忕礆 ----
         Map<String, Integer> purchaseQtyMap = new LinkedHashMap<>();
         for (var snap : replenishmentMapper.selectEbayReplenishmentSnapshotList(
                 new com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot()))
@@ -140,13 +130,7 @@ public class EbayPriceTrackingComputeService
                 purchaseQtyMap.put(snap.getSite() + "|" + snap.getSku(), snap.getSuggestPurchaseQty().intValue());
         }
 
-        // ---- 7b. 可编辑配置表 (site|sku → config) ----
-        Map<String, EbayPriceTrackingConfig> configByKey = new LinkedHashMap<>();
-        for (EbayPriceTrackingConfig cfg : configMapper.selectAll())
-            if (cfg.getSite() != null && cfg.getSku() != null)
-                configByKey.put(cfg.getSite() + "|" + cfg.getSku(), cfg);
-
-        // ---- 8. 组装 ----
+        // ---- 8. 缂佸嫯顥?----
         LocalDate today = LocalDate.now();
         List<EbayPriceTrackingSnapshot> result = new ArrayList<>();
 
@@ -160,7 +144,6 @@ public class EbayPriceTrackingComputeService
                 s.setSku(baseSku);
                 s.setProductName(skuProductName.getOrDefault(baseSku, ""));
 
-                // 销量
                 String mid = InventoryUtils.extractMiddleCode(baseSku);
                 String salesKey = site + "|" + mid;
                 s.setSales3d(sa.sales3d.getOrDefault(salesKey, 0));
@@ -169,12 +152,10 @@ public class EbayPriceTrackingComputeService
                 s.setSales90d(sa.sales90d.getOrDefault(salesKey, 0));
                 s.setMaxMonthlySales(sa.monthlyMax.getOrDefault(salesKey, null));
 
-                // 海外库存 & 库销比
                 int stock = overseasStockMap.getOrDefault(baseSku + "|" + site, 0);
                 s.setOverseasStock(stock);
                 s.setStockSalesRatio(safeDivide(stock, s.getSales30d()).multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP));
 
-                // 海外仓库龄
                 if (!mid.isEmpty())
                 {
                     String latestTime = null;
@@ -193,49 +174,34 @@ public class EbayPriceTrackingComputeService
                     }
                 }
 
-                // 预估补货量
                 String replenishKey = site + "|" + InventoryUtils.stripPcPrefix(baseSku);
                 s.setEstimatedReplenishQty(purchaseQtyMap.get(replenishKey));
 
-                // SKU等级（从补货快照取利润率）
-                // 利润率从 ebay_product_dedup 取
                 EbayProductDedup dedup = dedupByKey.get(site + "|" + baseSku);
                 double profitRate = dedup != null && dedup.getProfitRate() != null ? dedup.getProfitRate().doubleValue() : 0;
                 s.setSkuLevel(InventoryUtils.calcProductLevel(s.getSales30d(), profitRate));
 
-                // 品牌 & 操作员
                 s.setBrandCode(InventoryUtils.extractBrandPrefix(baseSku));
                 s.setOperatorName(InventoryUtils.matchOwner(baseSku, ownerByBrand));
 
-                // 链接模板
+                // 闁剧偓甯村Ο鈩冩緲
                 EbayLinkTemplate lt = linkBySite.get(site);
 
-                // 用户可编辑字段：优先从 config 表取（source of truth），回退到 dedup
-                EbayPriceTrackingConfig cfg = configByKey.get(site + "|" + baseSku);
-                if (cfg != null)
+                // Editable fields come from ebay_product_dedup.
+                if (dedup != null)
                 {
-                    s.setOeNumber(cfg.getOeNumber());
-                    s.setTrackingPrice(cfg.getTrackingPrice());
-                    s.setTrackingProfitMargin(cfg.getTrackingProfitMargin());
-                    s.setFloorPrice(cfg.getFloorPrice());
-                    s.setOurLowestPrice(cfg.getOurLowestPrice());
-                    s.setRemark(cfg.getRemark());
-                }
-                else if (dedup != null)
-                {
-                    // 回退：config 表中无记录时从 dedup 取
                     s.setOeNumber(dedup.getOeNumber());
                     s.setTrackingPrice(dedup.getTrackingPrice());
                     s.setTrackingProfitMargin(dedup.getTrackingProfitMargin());
                     s.setFloorPrice(dedup.getFloorPrice());
-                    s.setOurLowestPrice(dedup.getLowestPrice());
                     s.setRemark(dedup.getRemark());
                 }
 
-                // 退货率始终从 dedup 取（Excel 导入，非用户手动编辑）
+                if (dedup != null) s.setOurLowestPrice(dedup.getLowestPrice());
+
                 if (dedup != null) s.setReturnRate(dedup.getReturnRate());
 
-                // 链接：用 config 的 OE 或 dedup 回退
+                // Links use the OE number from ebay_product_dedup.
                 String oe = s.getOeNumber() != null ? s.getOeNumber()
                         : (dedup != null ? dedup.getOeNumber() : "");
                 if (oe == null) oe = "";
@@ -250,11 +216,11 @@ public class EbayPriceTrackingComputeService
             }
         }
 
-        log.info("==== eBay每日跟价重算 完成: {} 条 耗时{}ms ====", result.size(), System.currentTimeMillis() - start);
+        log.info("==== eBay濮ｅ繑妫╃捄鐔剁幆闁插秶鐣?鐎瑰本鍨? {} 閺?閼版妞倇}ms ====", result.size(), System.currentTimeMillis() - start);
         return result;
     }
 
-    // ---- 仓库 ----
+    // ---- 娴犳挸绨?----
     private List<Integer> parseInventoryWids()
     {
         List<Integer> list = new ArrayList<>();
@@ -279,7 +245,7 @@ public class EbayPriceTrackingComputeService
         return m;
     }
 
-    // ---- 销量 ----
+    // ---- 闁库偓闁?----
     private SalesAgg aggregateSales()
     {
         SalesAgg agg = new SalesAgg();
@@ -323,7 +289,7 @@ public class EbayPriceTrackingComputeService
         Map<String, Integer> monthlyMax = new LinkedHashMap<>();
     }
 
-    // ---- 出库时间（同补货） ----
+    // ---- 閸戝搫绨遍弮鍫曟？閿涘牆鎮撶悰銉ㄦ彛閿?----
     private Map<String, String> computeOutboundTimes()
     {
         List<GoodcangGrnDetail> all = grnDetailMapper.selectAll();

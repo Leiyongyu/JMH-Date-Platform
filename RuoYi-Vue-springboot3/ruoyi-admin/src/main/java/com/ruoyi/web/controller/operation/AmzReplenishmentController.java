@@ -99,13 +99,16 @@ public class AmzReplenishmentController extends BaseController
         AmzReplenishmentOverride ov = new AmzReplenishmentOverride();
         ov.setSid(sid);
         ov.setSellerSku(sellerSku);
-        if (body.containsKey("productCategory"))
+        boolean hasProductCategory = body.containsKey("productCategory");
+        boolean hasManualPurchasedQty = body.containsKey("manualPurchasedQty");
+        if (hasProductCategory)
             ov.setProductCategory((String) body.get("productCategory"));
-        if (body.containsKey("manualPurchasedQty")) {
+        if (hasManualPurchasedQty) {
             Object v = body.get("manualPurchasedQty");
             ov.setManualPurchasedQty(v != null && !"".equals(v) ? new BigDecimal(String.valueOf(v)) : null);
         }
-        overrideMapper.upsert(ov);
+        if (hasProductCategory) overrideMapper.upsertProductCategory(ov);
+        if (hasManualPurchasedQty) overrideMapper.upsertManualPurchasedQty(ov);
         return success();
     }
 }

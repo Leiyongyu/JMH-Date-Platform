@@ -8,4 +8,6 @@ public interface AmzReplenishmentOverrideMapper
 {
     AmzReplenishmentOverride selectBySidSku(@Param("sid") String sid, @Param("sellerSku") String sellerSku);
     int upsert(AmzReplenishmentOverride entity);
+    int upsertProductCategory(AmzReplenishmentOverride entity);
+    int upsertManualPurchasedQty(AmzReplenishmentOverride entity);
 }

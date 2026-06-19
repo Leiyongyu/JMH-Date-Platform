@@ -31,20 +31,20 @@
         <result property="calcTime" column="calc_time" />
     </resultMap>
 
-    <!-- 查询列：可编辑字段优先从 config 表取（COALESCE），computed 字段从 snapshot -->
+    <!-- 查询列：跟价可编辑字段以 ebay_product_dedup 为准，其他计算字段从 snapshot 取 -->
     <sql id="searchColumns">
         s.id, s.site, s.sku, s.product_name, s.sku_level,
-        COALESCE(c.our_lowest_price, s.our_lowest_price) AS our_lowest_price,
-        COALESCE(c.tracking_price, s.tracking_price) AS tracking_price,
-        COALESCE(c.tracking_profit_margin, s.tracking_profit_margin) AS tracking_profit_margin,
-        COALESCE(c.floor_price, s.floor_price) AS floor_price,
+        CASE WHEN d.id IS NOT NULL THEN d.lowest_price ELSE s.our_lowest_price END AS our_lowest_price,
+        CASE WHEN d.id IS NOT NULL THEN d.tracking_price ELSE s.tracking_price END AS tracking_price,
+        CASE WHEN d.id IS NOT NULL THEN d.tracking_profit_margin ELSE s.tracking_profit_margin END AS tracking_profit_margin,
+        CASE WHEN d.id IS NOT NULL THEN d.floor_price ELSE s.floor_price END AS floor_price,
         s.return_rate,
         s.sales_3d, s.sales_7d, s.sales_30d, s.sales_90d, s.max_monthly_sales,
         s.overseas_stock, s.overseas_stock_age_days, s.stock_sales_ratio,
         s.estimated_replenish_qty, s.brand_code, s.operator_name,
-        COALESCE(c.oe_number, s.oe_number) AS oe_number,
+        CASE WHEN d.id IS NOT NULL THEN d.oe_number ELSE s.oe_number END AS oe_number,
         s.presale_url, s.sold_url,
-        COALESCE(c.remark, s.remark) AS remark,
+        CASE WHEN d.id IS NOT NULL THEN d.remark ELSE s.remark END AS remark,
         s.calc_time
     </sql>
 
@@ -61,7 +61,7 @@
     <select id="search" parameterType="map" resultMap="Result">
         select <include refid="searchColumns"/>
         from ebay_price_tracking_snapshot s
-        left join ebay_price_tracking_config c on s.site = c.site and s.sku = c.sku
+        left join ebay_product_dedup d on s.site = d.site and s.sku = d.sku
         <where>
             <!-- 文本 -->
             <if test="site != null and site != ''">

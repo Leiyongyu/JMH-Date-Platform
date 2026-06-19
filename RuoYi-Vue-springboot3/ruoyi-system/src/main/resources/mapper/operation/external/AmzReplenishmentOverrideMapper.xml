@@ -25,4 +25,20 @@
             update_time = NOW()
     </insert>
 
+    <insert id="upsertProductCategory" parameterType="com.ruoyi.system.domain.operation.external.AmzReplenishmentOverride">
+        INSERT INTO amz_replenishment_override (sid, seller_sku, product_category, create_time, update_time)
+        VALUES (#{sid}, #{sellerSku}, #{productCategory}, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+            product_category = VALUES(product_category),
+            update_time = NOW()
+    </insert>
+
+    <insert id="upsertManualPurchasedQty" parameterType="com.ruoyi.system.domain.operation.external.AmzReplenishmentOverride">
+        INSERT INTO amz_replenishment_override (sid, seller_sku, manual_purchased_qty, create_time, update_time)
+        VALUES (#{sid}, #{sellerSku}, #{manualPurchasedQty}, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+            manual_purchased_qty = VALUES(manual_purchased_qty),
+            update_time = NOW()
+    </insert>
+
 </mapper>
