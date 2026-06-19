@@ -48,12 +48,12 @@ public class LingxingStatementSyncService
 
         int totalInserted = 0, totalUpdated = 0;
         LocalDate segStart = startDate;
-        while (segStart.isBefore(endDate)) {
+        while (!segStart.isAfter(endDate)) {
             LocalDate segEnd = segStart.plusDays(windowDays);
             if (segEnd.isAfter(endDate)) segEnd = endDate;
             int[] r = syncSegment(segStart.toString(), segEnd.toString(), existing);
             totalInserted += r[0]; totalUpdated += r[1];
-            segStart = segEnd;
+            segStart = segEnd.plusDays(1);
         }
         return OperationSyncResult.success("statement", "领星-库存流水", API, totalInserted+totalUpdated, totalInserted+totalUpdated, System.currentTimeMillis()-start);
     }

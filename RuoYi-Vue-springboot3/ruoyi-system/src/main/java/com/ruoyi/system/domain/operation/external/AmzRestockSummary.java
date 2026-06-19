@@ -12,6 +12,7 @@ public class AmzRestockSummary implements Serializable
     private String msku;
     private Integer fbaSellable;
     private Integer fbaInbound;
+    private Integer fbaReserved;
     private Integer sales7d, sales14d, sales30d, sales60d;
     private BigDecimal avgSales14d, avgSales30d, avgSales60d;
 
@@ -27,6 +28,8 @@ public class AmzRestockSummary implements Serializable
     public void setFbaSellable(Integer fbaSellable) { this.fbaSellable = fbaSellable; }
     public Integer getFbaInbound() { return fbaInbound; }
     public void setFbaInbound(Integer fbaInbound) { this.fbaInbound = fbaInbound; }
+    public Integer getFbaReserved() { return fbaReserved; }
+    public void setFbaReserved(Integer fbaReserved) { this.fbaReserved = fbaReserved; }
     public Integer getSales7d() { return sales7d; }
     public void setSales7d(Integer sales7d) { this.sales7d = sales7d; }
     public Integer getSales14d() { return sales14d; }

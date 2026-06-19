@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-/** 领星 Amazon 仓库库存明细同步 → amz_warehouse_inventory_detail (wid=18680) */
+/** 领星 Amazon 仓库库存明细同步 → amz_warehouse_inventory_detail (wid=18680)，length=800，按total结束，去重 */
 @Service
 public class AmzWarehouseInventorySyncService
 {
@@ -29,7 +29,9 @@ public class AmzWarehouseInventorySyncService
     {
         long start = System.currentTimeMillis();
         mapper.deleteAll();
-        int total = 0, offset = 0, length = 200;
+        Set<String> seen = new HashSet<>();
+        int total = 0, offset = 0, length = 800;
+
         while (true)
         {
             Map<String, Object> body = new LinkedHashMap<>();
@@ -37,19 +39,26 @@ public class AmzWarehouseInventorySyncService
             Map<String, Object> resp = gw.post(API, body);
             List<Map<String, Object>> list = getList(resp, "data");
             if (list.isEmpty()) break;
+            int remoteTotal = getInt(resp, "total");
+
             List<AmzWarehouseInventoryDetail> batch = new ArrayList<>();
             for (Map<String, Object> row : list)
             {
+                String sku = str(row, "sku");
+                String sellerId = str(row, "seller_id", "sellerId");
+                String key = "18680|" + sku;
+                if (!seen.add(key)) continue; // 去重
                 AmzWarehouseInventoryDetail e = new AmzWarehouseInventoryDetail();
                 e.setWid(18680);
-                e.setSellerId(str(row, "seller_id", "sellerId"));
-                e.setSku(str(row, "sku"));
+                e.setSellerId(sellerId);
+                e.setSku(sku);
                 e.setQuantityReceive(bd(row, "quantity_receive", "quantityReceive"));
                 e.setProductValidNum(intVal(row, "product_valid_num", "productValidNum"));
                 e.setProductLockNum(intVal(row, "product_lock_num", "productLockNum"));
                 batch.add(e);
             }
-            mapper.batchInsert(batch); total += batch.size();
+            if (!batch.isEmpty()) { mapper.batchInsert(batch); total += batch.size(); }
+            if (remoteTotal > 0 && offset + length >= remoteTotal) break;
             if (list.size() < length) break;
             offset += length;
         }
@@ -59,6 +68,7 @@ public class AmzWarehouseInventorySyncService
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> getList(Map<String, Object> r, String k)
     { Object o = r.get(k); if (o instanceof List) return (List<Map<String, Object>>) o; try { return om.convertValue(o, new TypeReference<List<Map<String, Object>>>() {}); } catch (Exception e) { return new ArrayList<>(); } }
+    private int getInt(Map<String, Object> m, String k) { Object v = m.get(k); if (v instanceof Number) return ((Number)v).intValue(); if (v != null) try { return Integer.parseInt(v.toString()); } catch (Exception e) {} return 0; }
     private String str(Map<String, Object> m, String... ks) { for (String k : ks) { Object v = m.get(k); if (v != null && StringUtils.hasText(v.toString())) return v.toString(); } return null; }
     private Integer intVal(Map<String, Object> m, String... ks) { String s = str(m, ks); return s != null ? Integer.valueOf(s) : null; }
     private BigDecimal bd(Map<String, Object> m, String... ks) { String s = str(m, ks); return s != null ? new BigDecimal(s) : null; }

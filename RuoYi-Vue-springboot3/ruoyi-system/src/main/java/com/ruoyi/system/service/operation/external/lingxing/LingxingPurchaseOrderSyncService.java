@@ -47,12 +47,12 @@ public class LingxingPurchaseOrderSyncService
 
         int totalInserted = 0, totalUpdated = 0;
         LocalDate seg = startDate;
-        while (seg.isBefore(endDate)) {
+        while (!seg.isAfter(endDate)) {
             LocalDate segEnd = seg.plusDays(windowDays);
             if (segEnd.isAfter(endDate)) segEnd = endDate;
             int[] r = syncSegment(seg.toString(), segEnd.toString(), existing);
             totalInserted += r[0]; totalUpdated += r[1];
-            seg = segEnd;
+            seg = segEnd.plusDays(1);
         }
         return OperationSyncResult.success("purchase_order", "领星-采购单", API, totalInserted+totalUpdated, totalInserted+totalUpdated, System.currentTimeMillis()-start);
     }
