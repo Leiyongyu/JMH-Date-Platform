@@ -28,19 +28,6 @@
 
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
-        <el-dropdown @command="handleSyncCommand" v-hasPermi="['operations:ebayReplenishment:sync']">
-          <el-button type="primary" plain icon="RefreshRight">
-            拉取eBay最新数据<el-icon class="el-icon--right"><arrow-down /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="full">拉取eBay最新数据</el-dropdown-item>
-              <el-dropdown-item command="refreshOnly">仅刷新当前页面</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </el-col>
-      <el-col :span="1.5">
         <el-dropdown @command="handleImport" v-hasPermi="['operations:ebayReplenishment:import']">
           <el-button type="info" plain icon="Upload">
             导入<el-icon class="el-icon--right"><arrow-down /></el-icon>
@@ -197,7 +184,6 @@
 
 <script setup name="EbayPriceTracking">
 import { searchPriceTracking, refreshPriceTracking, calcTracking, saveOe, saveRemark } from '@/api/operations/ebay/priceTracking'
-import { syncEbayAll, refreshEbayOnly } from '@/api/operations/sync'
 import request from '@/utils/request'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
@@ -370,29 +356,6 @@ async function handleRefresh() {
   try { await refreshPriceTracking(); await getList(); proxy.$modal.msgSuccess('刷新完成') }
   catch { proxy.$modal.msgError('刷新失败') }
   finally { loading.value = false }
-}
-
-async function handleSyncCommand(command) {
-  if (loading.value) return
-  loading.value = true
-  try {
-    let res
-    if (command === 'full') {
-      res = await syncEbayAll()
-    } else {
-      res = await refreshEbayOnly()
-    }
-    if (res.code === 200) {
-      proxy.$modal.msgSuccess(typeof res.msg === 'string' ? res.msg : '同步完成')
-    } else {
-      proxy.$modal.msgError(res.msg || '同步失败')
-    }
-    await getList()
-  } catch (e) {
-    proxy.$modal.msgError('同步失败: ' + (e.message || e))
-  } finally {
-    loading.value = false
-  }
 }
 
 function handleImport(command) {
