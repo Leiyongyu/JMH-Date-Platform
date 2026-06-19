@@ -172,7 +172,7 @@ public class EbayUnifiedSyncService
             case "gc_product":
                 return SpringUtils.getBean(GoodcangProductSyncService.class).syncFromApi();
             case "gc_grn_list":
-                return SpringUtils.getBean(GoodcangGrnSyncService.class).syncGrnList(2);
+                return SpringUtils.getBean(GoodcangGrnSyncService.class).syncGrnList(3);
             case "gc_grn_detail":
                 return SpringUtils.getBean(GoodcangGrnSyncService.class).syncAllGrnDetails();
             case "statement":

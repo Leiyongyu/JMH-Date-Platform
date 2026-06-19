@@ -6,6 +6,10 @@ import com.ruoyi.system.service.operation.external.goodcang.*;
 import com.ruoyi.system.service.operation.external.lingxing.*;
 import com.ruoyi.system.service.operation.sync.OperationSyncContext;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -68,7 +72,7 @@ public class OperationSyncTask
     /** 8. 谷仓-入库单 */
     public void syncGoodcangGrnList() {
         executeWithLog("goodcang_grn_list", "谷仓-入库单", "/inbound_order/get_grn_list",
-                () -> SpringUtils.getBean(GoodcangGrnSyncService.class).syncGrnList(2));
+                () -> SpringUtils.getBean(GoodcangGrnSyncService.class).syncGrnList(3));
     }
 
     /** 9. 谷仓-入库单详情 */
@@ -142,6 +146,11 @@ public class OperationSyncTask
 
     // ==================== 内部方法 ====================
 
+    private static final int TASK_TIMEOUT_MINUTES = 30;
+    private static final java.util.concurrent.ExecutorService TIMEOUT_POOL = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "sync-task"); t.setDaemon(true); return t;
+    });
+
     @FunctionalInterface
     private interface SyncRunner { OperationSyncResult run() throws Exception; }
 
@@ -152,9 +161,19 @@ public class OperationSyncTask
         OperationSyncResult result;
         try {
             logId = logService.start(syncType, syncName, apiPath, "JOB", "SYSTEM", null, null);
-            result = runner.run();
-            result.setElapsedMs(System.currentTimeMillis() - start);
+            Future<OperationSyncResult> future = TIMEOUT_POOL.submit(() -> {
+                OperationSyncResult r = runner.run();
+                r.setElapsedMs(System.currentTimeMillis() - start);
+                return r;
+            });
+            result = future.get(TASK_TIMEOUT_MINUTES, TimeUnit.MINUTES);
             logService.finish(logId, result);
+        } catch (TimeoutException e) {
+            long elapsed = System.currentTimeMillis() - start;
+            result = OperationSyncResult.failed(syncType, syncName, apiPath,
+                    "任务执行超时(" + TASK_TIMEOUT_MINUTES + "分钟)", elapsed);
+            LOG.error("同步任务超时 [{}] {}: 超过{}分钟", syncType, syncName, TASK_TIMEOUT_MINUTES);
+            if (logId != null) logService.finish(logId, result);
         } catch (Exception e) {
             LOG.error("同步任务异常 [{}] {}: {}", syncType, syncName, e.getMessage(), e);
             result = OperationSyncResult.failed(syncType, syncName, apiPath, e.getMessage(), System.currentTimeMillis() - start);

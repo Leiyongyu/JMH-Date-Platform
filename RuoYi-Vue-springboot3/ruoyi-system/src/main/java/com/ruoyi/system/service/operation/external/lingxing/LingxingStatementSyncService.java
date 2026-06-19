@@ -85,19 +85,8 @@ public class LingxingStatementSyncService
                 boolean isNew = (e == null);
                 if (isNew) { e = new WarehouseStatement(); e.setWid(wid); e.setSku(sku); e.setOptTime(optTime); }
 
-                e.setStatementId(str(row, "statement_id"));
                 e.setWareHouseName(str(row, "ware_house_name"));
-                e.setOrderSn(str(row, "order_sn"));
-                e.setRefOrderSn(str(row, "ref_order_sn"));
-                e.setSellerId(str(row, "seller_id"));
-                e.setFnsku(str(row, "fnsku"));
                 e.setType(intVal(row, "type"));
-                e.setTypeText(str(row, "type_text"));
-                e.setSubType(str(row, "sub_type"));
-                e.setSubTypeText(str(row, "sub_type_text"));
-                e.setProductName(str(row, "product_name"));
-                e.setProductGoodNum(intVal(row, "product_good_num"));
-                e.setProductBadNum(intVal(row, "product_bad_num"));
 
                 if (isNew) { mapper.insert(e); existing.put(key, e); inserted++; }
                 else { mapper.updateById(e); updated++; }

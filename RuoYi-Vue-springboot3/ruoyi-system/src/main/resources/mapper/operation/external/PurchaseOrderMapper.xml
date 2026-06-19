@@ -1,20 +1,44 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ruoyi.system.mapper.operation.external.PurchaseOrderMapper">
-
     <resultMap type="com.ruoyi.system.domain.operation.external.PurchaseOrder" id="Result">
-        <id property="id" column="id" />
-        <result property="orderSn" column="order_sn" />
-        <result property="statusText" column="status_text" />
-        <result property="wid" column="wid" />
-        <result property="wareHouseName" column="ware_house_name" />
-        <result property="itemSku" column="item_sku" />
-        <result property="orderTime" column="order_time" />
+        <id property="id" column="id"/>
+        <result property="orderSn" column="order_sn"/>
+        <result property="customOrderSn" column="custom_order_sn"/>
+        <result property="supplierId" column="supplier_id"/>
+        <result property="supplierName" column="supplier_name"/>
+        <result property="optUid" column="opt_uid"/>
+        <result property="optRealname" column="opt_realname"/>
+        <result property="auditorRealname" column="auditor_realname"/>
+        <result property="lastRealname" column="last_realname"/>
+        <result property="status" column="status"/>
+        <result property="statusText" column="status_text"/>
+        <result property="wid" column="wid"/>
+        <result property="wareHouseName" column="ware_house_name"/>
+        <result property="itemSku" column="item_sku"/>
+        <result property="itemProductName" column="item_product_name"/>
+        <result property="itemProductId" column="item_product_id"/>
+        <result property="itemQuantityReal" column="item_quantity_real"/>
+        <result property="itemQuantityEntry" column="item_quantity_entry"/>
+        <result property="itemQuantityReceive" column="item_quantity_receive"/>
+        <result property="itemPrice" column="item_price"/>
+        <result property="itemAmount" column="item_amount"/>
+        <result property="orderTime" column="order_time"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="createTime" column="create_time"/>
     </resultMap>
-
-    <select id="selectAll" resultMap="Result">
-        SELECT id, order_sn, status_text, wid, ware_house_name, item_sku, order_time
-        FROM purchase_order
-    </select>
-
+    <select id="selectAll" resultMap="Result">SELECT * FROM purchase_order</select>
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO purchase_order (order_sn,custom_order_sn,supplier_id,supplier_name,opt_uid,opt_realname,auditor_realname,last_realname,status,status_text,wid,ware_house_name,item_sku,item_product_name,item_product_id,item_quantity_real,item_quantity_entry,item_quantity_receive,item_price,item_amount,order_time,update_time,create_time)
+        VALUES (#{orderSn},#{customOrderSn},#{supplierId},#{supplierName},#{optUid},#{optRealname},#{auditorRealname},#{lastRealname},#{status},#{statusText},#{wid},#{wareHouseName},#{itemSku},#{itemProductName},#{itemProductId},#{itemQuantityReal},#{itemQuantityEntry},#{itemQuantityReceive},#{itemPrice},#{itemAmount},#{orderTime},#{updateTime},#{createTime})
+    </insert>
+    <update id="updateById">
+        UPDATE purchase_order SET custom_order_sn=#{customOrderSn},supplier_id=#{supplierId},supplier_name=#{supplierName},
+        opt_uid=#{optUid},opt_realname=#{optRealname},auditor_realname=#{auditorRealname},last_realname=#{lastRealname},
+        status=#{status},status_text=#{statusText},wid=#{wid},ware_house_name=#{wareHouseName},
+        item_sku=#{itemSku},item_product_name=#{itemProductName},item_product_id=#{itemProductId},
+        item_quantity_real=#{itemQuantityReal},item_quantity_entry=#{itemQuantityEntry},item_quantity_receive=#{itemQuantityReceive},
+        item_price=#{itemPrice},item_amount=#{itemAmount},order_time=#{orderTime},update_time=#{updateTime},create_time=#{createTime}
+        WHERE id=#{id}
+    </update>
 </mapper>

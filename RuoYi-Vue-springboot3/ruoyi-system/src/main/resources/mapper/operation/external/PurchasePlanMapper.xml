@@ -1,22 +1,63 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ruoyi.system.mapper.operation.external.PurchasePlanMapper">
-
     <resultMap type="com.ruoyi.system.domain.operation.external.PurchasePlan" id="Result">
-        <id property="id" column="id" />
-        <result property="sku" column="sku" />
-        <result property="statusText" column="status_text" />
-        <result property="wid" column="wid" />
-        <result property="warehouseName" column="warehouse_name" />
+        <id property="id" column="id"/>
+        <result property="planSn" column="plan_sn"/>
+        <result property="ppgSn" column="ppg_sn"/>
+        <result property="productName" column="product_name"/>
+        <result property="sku" column="sku"/>
+        <result property="fnsku" column="fnsku"/>
+        <result property="picUrl" column="pic_url"/>
+        <result property="supplierId" column="supplier_id"/>
+        <result property="supplierName" column="supplier_name"/>
+        <result property="statusText" column="status_text"/>
+        <result property="status" column="status"/>
+        <result property="sid" column="sid"/>
+        <result property="sellerName" column="seller_name"/>
+        <result property="marketplace" column="marketplace"/>
+        <result property="expectArriveTime" column="expect_arrive_time"/>
+        <result property="remark" column="remark"/>
+        <result property="quantityPlan" column="quantity_plan"/>
+        <result property="productId" column="product_id"/>
+        <result property="cgUid" column="cg_uid"/>
+        <result property="cgOptUsername" column="cg_opt_username"/>
+        <result property="cgBoxPcs" column="cg_box_pcs"/>
+        <result property="isCombo" column="is_combo"/>
+        <result property="isAux" column="is_aux"/>
+        <result property="isRelatedProcessPlan" column="is_related_process_plan"/>
+        <result property="spu" column="spu"/>
+        <result property="spuName" column="spu_name"/>
+        <result property="creatorUid" column="creator_uid"/>
+        <result property="creatorRealName" column="creator_real_name"/>
+        <result property="wid" column="wid"/>
+        <result property="warehouseName" column="warehouse_name"/>
+        <result property="purchaserId" column="purchaser_id"/>
+        <result property="purchaserName" column="purchaser_name"/>
+        <result property="createTime" column="create_time"/>
+        <result property="planRemark" column="plan_remark"/>
+        <result property="attributeJson" column="attribute_json"/>
+        <result property="fileJson" column="file_json"/>
+        <result property="mskuJson" column="msku_json"/>
+        <result property="permUidJson" column="perm_uid_json"/>
+        <result property="permUsernameJson" column="perm_username_json"/>
     </resultMap>
-
-    <select id="selectAll" resultMap="Result">
-        SELECT id, sku, status_text, wid, warehouse_name FROM purchase_plan
-    </select>
-
-    <select id="selectByStatusText" resultMap="Result" parameterType="String">
-        SELECT id, sku, status_text, wid, warehouse_name FROM purchase_plan
-        WHERE status_text = #{statusText}
-    </select>
-
+    <select id="selectAll" resultMap="Result">SELECT * FROM purchase_plan</select>
+    <select id="selectByStatusText" resultMap="Result">SELECT * FROM purchase_plan WHERE status_text=#{statusText}</select>
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO purchase_plan (plan_sn,ppg_sn,product_name,sku,fnsku,pic_url,supplier_id,supplier_name,status_text,status,sid,seller_name,marketplace,expect_arrive_time,remark,quantity_plan,product_id,cg_uid,cg_opt_username,cg_box_pcs,is_combo,is_aux,is_related_process_plan,spu,spu_name,creator_uid,creator_real_name,wid,warehouse_name,purchaser_id,purchaser_name,create_time,plan_remark,attribute_json,file_json,msku_json,perm_uid_json,perm_username_json)
+        VALUES (#{planSn},#{ppgSn},#{productName},#{sku},#{fnsku},#{picUrl},#{supplierId},#{supplierName},#{statusText},#{status},#{sid},#{sellerName},#{marketplace},#{expectArriveTime},#{remark},#{quantityPlan},#{productId},#{cgUid},#{cgOptUsername},#{cgBoxPcs},#{isCombo},#{isAux},#{isRelatedProcessPlan},#{spu},#{spuName},#{creatorUid},#{creatorRealName},#{wid},#{warehouseName},#{purchaserId},#{purchaserName},#{createTime},#{planRemark},#{attributeJson},#{fileJson},#{mskuJson},#{permUidJson},#{permUsernameJson})
+    </insert>
+    <update id="updateById">
+        UPDATE purchase_plan SET plan_sn=#{planSn},ppg_sn=#{ppgSn},product_name=#{productName},sku=#{sku},fnsku=#{fnsku},
+        pic_url=#{picUrl},supplier_id=#{supplierId},supplier_name=#{supplierName},status_text=#{statusText},status=#{status},
+        sid=#{sid},seller_name=#{sellerName},marketplace=#{marketplace},expect_arrive_time=#{expectArriveTime},
+        remark=#{remark},quantity_plan=#{quantityPlan},product_id=#{productId},cg_uid=#{cgUid},cg_opt_username=#{cgOptUsername},
+        cg_box_pcs=#{cgBoxPcs},is_combo=#{isCombo},is_aux=#{isAux},is_related_process_plan=#{isRelatedProcessPlan},
+        spu=#{spu},spu_name=#{spuName},creator_uid=#{creatorUid},creator_real_name=#{creatorRealName},wid=#{wid},
+        warehouse_name=#{warehouseName},purchaser_id=#{purchaserId},purchaser_name=#{purchaserName},create_time=#{createTime},
+        plan_remark=#{planRemark},attribute_json=#{attributeJson},file_json=#{fileJson},msku_json=#{mskuJson},
+        perm_uid_json=#{permUidJson},perm_username_json=#{permUsernameJson}
+        WHERE id=#{id}
+    </update>
 </mapper>
