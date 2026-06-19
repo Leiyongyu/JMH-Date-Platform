@@ -145,10 +145,18 @@ xss:
 
 # Lingxing OpenAPI configuration
 lingxing:
-  endpoint: ${LINGXING_ENDPOINT:}
-  app-id: ${LINGXING_APP_ID:}
-  app-secret: ${LINGXING_APP_SECRET:}
+  endpoint: ${LINGXING_ENDPOINT:http://8.137.177.25/lingxing-proxy}
+  app-id: ${LINGXING_APP_ID:ak_DBmvLSyHfhc5H}
+  app-secret: ${LINGXING_APP_SECRET:8VSwwqXgu/RtUvslYIacHQ==}
   connect-timeout: 60000
   read-timeout: 120000
   token-refresh-skew-seconds: 300
   inventory-wids: "18676,18701,18675,18674,18702,18700,18699"
+
+# Goodcang WMS API configuration
+goodcang:
+  endpoint: ${GOODCANG_ENDPOINT:https://oms.goodcang.net/public_open}
+  app-token: ${GOODCANG_APP_TOKEN:a1bc2f4455c6ccb0e9a67b2ce984a3c5}
+  app-key: ${GOODCANG_APP_KEY:b99a3ce835ef9711ad3c3d451b6f9815}
+  connect-timeout: 30000
+  read-timeout: 30000

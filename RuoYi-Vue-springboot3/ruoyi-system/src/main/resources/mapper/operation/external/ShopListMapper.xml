@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.ShopListMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.ShopList" id="ShopListResult">
+        <id property="id" column="id" />
+        <result property="storeId" column="store_id" />
+        <result property="sid" column="sid" />
+        <result property="storeName" column="store_name" />
+        <result property="platformCode" column="platform_code" />
+        <result property="platformName" column="platform_name" />
+        <result property="currency" column="currency" />
+        <result property="isSync" column="is_sync" />
+        <result property="status" column="status" />
+        <result property="countryCode" column="country_code" />
+        <result property="createdAt" column="created_at" />
+        <result property="updatedAt" column="updated_at" />
+    </resultMap>
+
+    <select id="selectByPlatformAndStore" resultMap="ShopListResult">
+        SELECT * FROM shop_list
+        WHERE platform_code = #{platformCode} AND store_id = #{storeId}
+    </select>
+
+    <select id="selectByKeys" resultMap="ShopListResult">
+        SELECT * FROM shop_list WHERE (platform_code, store_id) IN
+        <foreach collection="keys" item="k" open="(" separator="," close=")">
+            (#{k.platformCode}, #{k.storeId})
+        </foreach>
+    </select>
+
+    <insert id="batchInsert" parameterType="java.util.List" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO shop_list (
+            store_id, sid, store_name, platform_code, platform_name,
+            currency, is_sync, status, country_code
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+        (
+            #{item.storeId}, #{item.sid}, #{item.storeName},
+            #{item.platformCode}, #{item.platformName},
+            #{item.currency}, #{item.isSync}, #{item.status}, #{item.countryCode}
+        )
+        </foreach>
+    </insert>
+
+    <update id="updateById" parameterType="com.ruoyi.system.domain.operation.external.ShopList">
+        UPDATE shop_list SET
+            store_id = #{storeId},
+            sid = #{sid},
+            store_name = #{storeName},
+            platform_code = #{platformCode},
+            platform_name = #{platformName},
+            currency = #{currency},
+            is_sync = #{isSync},
+            status = #{status},
+            country_code = #{countryCode}
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectSidsByPlatform" resultType="String">
+        SELECT DISTINCT sid FROM shop_list
+        WHERE platform_code = #{platformCode}
+        <if test="status != null">AND status = #{status}</if>
+        AND sid IS NOT NULL AND sid != ''
+    </select>
+
+</mapper>

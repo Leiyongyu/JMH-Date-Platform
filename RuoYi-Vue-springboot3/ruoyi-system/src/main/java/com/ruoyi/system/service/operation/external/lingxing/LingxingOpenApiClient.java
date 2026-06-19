@@ -44,6 +44,46 @@ public class LingxingOpenApiClient
         return postJson(path, params);
     }
 
+    /**
+     * 鉴权参数放 query string、业务参数放 JSON body 的签名请求。
+     * 对齐旧项目 {@code callWarehouseApi()} 的调用方式：
+     * query string: timestamp, access_token, app_key, sign
+     * body: 业务参数（type, is_delete, offset, length 等）
+     * sign 基于 query + body 全部参数的并集计算。
+     */
+    public Map<String, Object> postSignedQueryAuth(String path, Map<String, Object> body, String accessToken) throws Exception
+    {
+        // 1. 构建 query 参数
+        Map<String, String> queryParams = new LinkedHashMap<>();
+        String timestamp = String.valueOf(System.currentTimeMillis() / 1000);
+        queryParams.put("timestamp", timestamp);
+        queryParams.put("access_token", accessToken);
+        queryParams.put("app_key", properties.getAppId());
+
+        // 2. 构建签名参数集 = query 参数 + body 参数
+        Map<String, Object> signParams = new LinkedHashMap<>();
+        signParams.put("timestamp", timestamp);
+        signParams.put("access_token", accessToken);
+        signParams.put("app_key", properties.getAppId());
+        if (body != null)
+        {
+            signParams.putAll(body);
+        }
+        String sign = LingxingSignUtils.sign(signParams, properties.getAppId());
+        queryParams.put("sign", sign);
+
+        // 3. 发送请求：query 参数拼接到 URL，body 作为 JSON
+        String jsonBody = body != null ? objectMapper.writeValueAsString(body) : "{}";
+        URI uri = buildUri(path, queryParams);
+
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .timeout(Duration.ofMillis(properties.getReadTimeout()))
+                .header("Content-Type", "application/json;charset=UTF-8")
+                .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                .build();
+        return execute(request);
+    }
+
     public Map<String, Object> postForm(String path, Map<String, String> query) throws Exception
     {
         URI uri = buildUri(path, query);

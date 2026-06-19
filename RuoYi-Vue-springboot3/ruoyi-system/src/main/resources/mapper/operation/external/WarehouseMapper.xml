@@ -26,4 +26,55 @@
         SELECT * FROM warehouse WHERE wid = #{wid}
     </select>
 
+    <select id="selectByWids" resultMap="WarehouseResult">
+        SELECT * FROM warehouse WHERE wid IN
+        <foreach collection="wids" item="wid" open="(" separator="," close=")">
+            #{wid}
+        </foreach>
+    </select>
+
+    <insert id="insertWarehouse" parameterType="com.ruoyi.system.domain.operation.external.Warehouse"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO warehouse (
+            wid, name, type, sub_type, is_delete, country_code,
+            wp_id, wp_name, t_warehouse_name, t_warehouse_code,
+            t_country_area_name, t_status
+        ) VALUES (
+            #{wid}, #{name}, #{type}, #{subType}, #{isDelete}, #{countryCode},
+            #{wpId}, #{wpName}, #{tWarehouseName}, #{tWarehouseCode},
+            #{tCountryAreaName}, #{tStatus}
+        )
+    </insert>
+
+    <insert id="batchInsert" parameterType="java.util.List" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO warehouse (
+            wid, name, type, sub_type, is_delete, country_code,
+            wp_id, wp_name, t_warehouse_name, t_warehouse_code,
+            t_country_area_name, t_status
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+        (
+            #{item.wid}, #{item.name}, #{item.type}, #{item.subType}, #{item.isDelete}, #{item.countryCode},
+            #{item.wpId}, #{item.wpName}, #{item.tWarehouseName}, #{item.tWarehouseCode},
+            #{item.tCountryAreaName}, #{item.tStatus}
+        )
+        </foreach>
+    </insert>
+
+    <update id="updateWarehouse" parameterType="com.ruoyi.system.domain.operation.external.Warehouse">
+        UPDATE warehouse SET
+            name = #{name},
+            type = #{type},
+            sub_type = #{subType},
+            is_delete = #{isDelete},
+            country_code = #{countryCode},
+            wp_id = #{wpId},
+            wp_name = #{wpName},
+            t_warehouse_name = #{tWarehouseName},
+            t_warehouse_code = #{tWarehouseCode},
+            t_country_area_name = #{tCountryAreaName},
+            t_status = #{tStatus}
+        WHERE wid = #{wid}
+    </update>
+
 </mapper>

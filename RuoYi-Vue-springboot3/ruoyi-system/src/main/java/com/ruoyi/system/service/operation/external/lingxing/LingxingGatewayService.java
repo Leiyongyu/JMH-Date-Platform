@@ -17,6 +17,6 @@ public class LingxingGatewayService
 
     public Map<String, Object> post(String path, Map<String, Object> body) throws Exception
     {
-        return client.postSigned(path, body, authService.getAccessToken());
+        return client.postSignedQueryAuth(path, body, authService.getAccessToken());
     }
 }
