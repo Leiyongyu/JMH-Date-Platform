@@ -148,6 +148,9 @@ public class AmzUnifiedSyncService
                 return SpringUtils.getBean(AmzRestockSummarySyncService.class).syncAll();
             case "amz_inv":
                 return SpringUtils.getBean(AmzWarehouseInventorySyncService.class).syncAll();
+            case "amz_replenish":
+                SpringUtils.getBean(com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService.class).refreshSnapshot();
+                return OperationSyncResult.success("amz_replenish", "刷新Amazon补货快照", "compute/amzReplenishment", 1, 1, 0);
             default:
                 LOG.info("AMZ步骤 [{}] - 待实现", step.name);
                 return OperationSyncResult.success(step.key, step.name, step.apiPath, 0, 0, 0);

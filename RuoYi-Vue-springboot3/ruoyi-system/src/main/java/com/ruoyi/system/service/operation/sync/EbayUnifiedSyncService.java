@@ -175,6 +175,14 @@ public class EbayUnifiedSyncService
                 return SpringUtils.getBean(GoodcangGrnSyncService.class).syncGrnList(2);
             case "gc_grn_detail":
                 return SpringUtils.getBean(GoodcangGrnSyncService.class).syncAllGrnDetails();
+            case "statement":
+                return SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.LingxingStatementSyncService.class).sync();
+            case "ebay_replenish":
+                SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService.class).refreshSnapshot();
+                return OperationSyncResult.success("ebay_replenish", "刷新eBay补货快照", "compute/ebayReplenishment", 1, 1, 0);
+            case "ebay_tracking":
+                SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayPriceTrackingService.class).refreshSnapshot();
+                return OperationSyncResult.success("ebay_tracking", "刷新eBay跟价快照", "compute/ebayPriceTracking", 1, 1, 0);
             default:
                 LOG.info("eBay步骤 [{}] - 待实现", step.name);
                 return OperationSyncResult.success(step.key, step.name, step.apiPath, 0, 0, 0);
