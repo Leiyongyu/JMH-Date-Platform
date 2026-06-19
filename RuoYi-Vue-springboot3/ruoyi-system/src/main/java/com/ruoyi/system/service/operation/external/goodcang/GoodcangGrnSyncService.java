@@ -25,6 +25,39 @@ public class GoodcangGrnSyncService
     public GoodcangGrnSyncService(GoodcangClient c, GoodcangGrnListMapper l, GoodcangGrnDetailMapper d)
     { this.client = c; this.listMapper = l; this.detailMapper = d; }
 
+    /** 校准模式：不传时间拉全量入库单 */
+    public OperationSyncResult syncGrnListAll() throws Exception
+    {
+        long start = System.currentTimeMillis();
+        int total = 0, page = 1;
+        while (true)
+        {
+            Map<String, Object> resp = client.getGrnListAll(page, 200);
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> data = (List<Map<String, Object>>) resp.get("data");
+            if (data == null || data.isEmpty()) break;
+            for (Map<String, Object> item : data)
+            {
+                String code = str(item, "receiving_code");
+                if (code == null || code.isEmpty()) continue;
+                List<GoodcangGrnList> existing = listMapper.selectByReceivingCodes(Collections.singletonList(code));
+                GoodcangGrnList e = existing.isEmpty() ? new GoodcangGrnList() : existing.get(0);
+                e.setReceivingCode(code);
+                e.setWarehouseCode(str(item, "warehouse_code"));
+                e.setReferenceNo(str(item, "reference_no"));
+                e.setReceivingStatus(intVal(item, "receiving_status"));
+                e.setCreateAt(parseDt(str(item, "create_at")));
+                if (existing.isEmpty()) listMapper.insert(e); else listMapper.updateById(e);
+                total++;
+            }
+            Object cnt = resp.get("count");
+            if (cnt instanceof Number && ((Number) cnt).intValue() <= page * 200) break;
+            if (data.size() < 200) break;
+            page++;
+        }
+        return OperationSyncResult.success("gc_grn_list", "谷仓-入库单(全量)", "/inbound_order/get_grn_list", total, total, System.currentTimeMillis() - start);
+    }
+
     /** 同步入库单列表(最近N天) */
     public OperationSyncResult syncGrnList(int daysBack) throws Exception
     {

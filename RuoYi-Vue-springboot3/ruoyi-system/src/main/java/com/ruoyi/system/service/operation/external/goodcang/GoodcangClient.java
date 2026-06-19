@@ -52,6 +52,15 @@ public class GoodcangClient
         return post("/inbound_order/get_grn_list", body);
     }
 
+    /** 获取入库单列表（全量，不传时间参数） */
+    public Map<String, Object> getGrnListAll(int page, int pageSize) throws Exception
+    {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("page", page);
+        body.put("pageSize", pageSize);
+        return post("/inbound_order/get_grn_list", body);
+    }
+
     /** 获取入库单详情 */
     public Map<String, Object> getGrnDetail(String receivingCode) throws Exception
     {

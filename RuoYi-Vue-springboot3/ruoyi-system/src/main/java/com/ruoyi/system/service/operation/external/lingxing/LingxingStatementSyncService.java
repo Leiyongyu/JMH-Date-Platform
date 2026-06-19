@@ -31,20 +31,35 @@ public class LingxingStatementSyncService
     public LingxingStatementSyncService(LingxingGatewayService gw, WarehouseStatementMapper mapper, ObjectMapper om)
     { this.gw = gw; this.mapper = mapper; this.om = om; }
 
-    public OperationSyncResult sync() throws Exception
+    /** 日常增量：拉最近2天 */
+    public OperationSyncResult sync() throws Exception {
+        return sync(LocalDate.now().minusDays(2), LocalDate.now(), 30);
+    }
+
+    /** 校准模式：按 windowDays 分段拉取，upsert 不清空 */
+    public OperationSyncResult sync(LocalDate startDate, LocalDate endDate, int windowDays) throws Exception
     {
         long start = System.currentTimeMillis();
-        // Load existing for upsert matching
         Map<String, WarehouseStatement> existing = new HashMap<>();
-        for (WarehouseStatement e : mapper.selectAll())
-        {
+        for (WarehouseStatement e : mapper.selectAll()) {
             String key = e.getWid() + "|" + e.getSku() + "|" + (e.getOptTime() != null ? SDF.format(e.getOptTime()) : "");
             existing.put(key, e);
         }
 
+        int totalInserted = 0, totalUpdated = 0;
+        LocalDate segStart = startDate;
+        while (segStart.isBefore(endDate)) {
+            LocalDate segEnd = segStart.plusDays(windowDays);
+            if (segEnd.isAfter(endDate)) segEnd = endDate;
+            int[] r = syncSegment(segStart.toString(), segEnd.toString(), existing);
+            totalInserted += r[0]; totalUpdated += r[1];
+            segStart = segEnd;
+        }
+        return OperationSyncResult.success("statement", "领星-库存流水", API, totalInserted+totalUpdated, totalInserted+totalUpdated, System.currentTimeMillis()-start);
+    }
+
+    private int[] syncSegment(String dateFrom, String dateTo, Map<String, WarehouseStatement> existing) throws Exception {
         int inserted = 0, updated = 0, offset = 0, length = 200;
-        String dateFrom = LocalDate.now().minusDays(2).toString();
-        String dateTo = LocalDate.now().toString();
 
         while (true)
         {
@@ -90,7 +105,7 @@ public class LingxingStatementSyncService
             offset += length;
             if (total <= 0 || offset >= total) break;
         }
-        return OperationSyncResult.success("statement", "领星-库存流水", API, inserted+updated, inserted+updated, System.currentTimeMillis()-start);
+        return new int[]{inserted, updated};
     }
 
     @SuppressWarnings("unchecked")

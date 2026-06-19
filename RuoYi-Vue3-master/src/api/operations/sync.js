@@ -22,3 +22,8 @@ export function syncAmzAll() {
 export function refreshAmzOnly() {
   return request({ url: '/operations/sync/manual/amz/refresh-only', method: 'post', timeout: SYNC_TIMEOUT })
 }
+
+/** 数据校准全量拉取 */
+export function runDataCalibration(data) {
+  return request({ url: '/operations/sync/calibration/full', method: 'post', params: data, timeout: 1800000 })
+}

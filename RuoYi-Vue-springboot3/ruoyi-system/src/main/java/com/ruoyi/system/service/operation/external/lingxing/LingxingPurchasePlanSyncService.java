@@ -29,16 +29,33 @@ public class LingxingPurchasePlanSyncService
     public LingxingPurchasePlanSyncService(LingxingGatewayService gw, PurchasePlanMapper mapper, ObjectMapper om)
     { this.gw = gw; this.mapper = mapper; this.om = om; }
 
-    public OperationSyncResult sync() throws Exception
+    /** 日常增量 */
+    public OperationSyncResult sync() throws Exception {
+        return sync(LocalDate.now().minusDays(1), LocalDate.now().minusDays(1), 90);
+    }
+
+    /** 校准模式：按 windowDays 分段拉取 */
+    public OperationSyncResult sync(LocalDate startDate, LocalDate endDate, int windowDays) throws Exception
     {
         long start = System.currentTimeMillis();
         Map<String, PurchasePlan> existing = new HashMap<>();
         for (PurchasePlan e : mapper.selectAll())
             existing.put(e.getPlanSn() + "|" + e.getSku(), e);
 
+        int totalInserted = 0, totalUpdated = 0;
+        LocalDate seg = startDate;
+        while (seg.isBefore(endDate)) {
+            LocalDate segEnd = seg.plusDays(windowDays);
+            if (segEnd.isAfter(endDate)) segEnd = endDate;
+            int[] r = syncSegment(seg.toString(), segEnd.toString(), existing);
+            totalInserted += r[0]; totalUpdated += r[1];
+            seg = segEnd;
+        }
+        return OperationSyncResult.success("purchase_plan", "领星-采购计划", API, totalInserted+totalUpdated, totalInserted+totalUpdated, System.currentTimeMillis()-start);
+    }
+
+    private int[] syncSegment(String dateFrom, String dateTo, Map<String, PurchasePlan> existing) throws Exception {
         int inserted = 0, updated = 0, offset = 0, length = 500;
-        String dateFrom = LocalDate.now().minusDays(1).toString();
-        String dateTo = LocalDate.now().minusDays(1).toString();
 
         while (true)
         {
@@ -104,7 +121,7 @@ public class LingxingPurchasePlanSyncService
             offset += length;
             if (total <= 0 || offset >= total) break;
         }
-        return OperationSyncResult.success("purchase_plan", "领星-采购计划", API, inserted+updated, inserted+updated, System.currentTimeMillis()-start);
+        return new int[]{inserted, updated};
     }
 
     @SuppressWarnings("unchecked")
