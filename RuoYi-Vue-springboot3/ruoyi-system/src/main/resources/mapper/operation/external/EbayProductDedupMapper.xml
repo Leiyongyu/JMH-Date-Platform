@@ -10,6 +10,8 @@
         <result property="profitRate" column="profit_rate" />
         <result property="returnRate" column="return_rate" />
         <result property="lowestPrice" column="lowest_price" />
+        <result property="lowestItemNumber" column="lowest_item_number" />
+        <result property="lowestUploadTime" column="lowest_upload_time" />
         <result property="oeNumber" column="oe_number" />
         <result property="trackingPrice" column="tracking_price" />
         <result property="trackingProfitMargin" column="tracking_profit_margin" />
@@ -19,6 +21,7 @@
 
     <select id="selectAll" resultMap="Result">
         SELECT id, site, sku, product_name, profit_rate, return_rate, lowest_price,
+               lowest_item_number, lowest_upload_time,
                oe_number, tracking_price, tracking_profit_margin, floor_price, remark
         FROM ebay_product_dedup
     </select>
@@ -33,8 +36,16 @@
         WHERE site = #{site} AND sku LIKE CONCAT('%', #{middleCode}, '%') LIMIT 1
     </update>
 
+    <update id="updateReturnRateByMiddleCode">
+        UPDATE ebay_product_dedup SET return_rate = #{rate}
+        WHERE sku LIKE CONCAT('%', #{middleCode}, '%')
+    </update>
+
     <update id="updateLowestPrice">
-        UPDATE ebay_product_dedup SET lowest_price = #{price}
+        UPDATE ebay_product_dedup
+        SET lowest_price = #{price},
+            lowest_item_number = #{itemNumber},
+            lowest_upload_time = NOW()
         WHERE site = #{site} AND sku = #{sku}
     </update>
 

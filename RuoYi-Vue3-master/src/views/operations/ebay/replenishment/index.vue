@@ -56,8 +56,8 @@
           :loading="syncing" v-hasPermi="['operations:ebayReplenishment:sync']">拉取eBay最新数据</el-button>
       </el-col>
       <el-col :span="1.5">
-        <el-dropdown @command="handleImport" v-hasPermi="['operations:ebayReplenishment:import']">
-          <el-button type="info" plain icon="Upload">
+        <el-dropdown @command="handleImport" :disabled="importing" v-hasPermi="['operations:ebayReplenishment:import']">
+          <el-button type="info" plain icon="Upload" :loading="importing">
             导入<el-icon class="el-icon--right"><arrow-down /></el-icon>
           </el-button>
           <template #dropdown>
@@ -182,6 +182,8 @@
 import { listEbayReplenishment, refreshEbayReplenishment } from '@/api/operations/ebay/replenishment'
 import { syncEbayAll } from '@/api/operations/sync'
 import request from '@/utils/request'
+import { parseTime } from '@/utils/ruoyi'
+import { ElMessageBox } from 'element-plus'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
 
@@ -189,6 +191,8 @@ const router = useRouter()
 const { proxy } = getCurrentInstance()
 
 const loading = ref(false)
+const importing = ref(false)
+const IMPORT_TIMEOUT = 10 * 60 * 1000
 const showSearch = ref(true)
 const total = ref(0)
 const replenishmentList = ref([])
@@ -306,6 +310,7 @@ function handleSortChange({ prop, order }) {
 }
 
 function handleImport(command) {
+  if (importing.value) return
   const input = document.createElement('input')
   input.type = 'file'; input.accept = '.xlsx,.xls'
   input.onchange = async (e) => {
@@ -314,13 +319,43 @@ function handleImport(command) {
     const form = new FormData(); form.append('file', file)
     const urlMap = { sales: 'import-sales', profitRate: 'import-profit-rate', returnRate: 'import-return-rate' }
     const labelMap = { sales: '销量', profitRate: '利润率', returnRate: '退货率' }
+    importing.value = true
     try {
-      const res = await request({ url: `/operations/ebay/replenishment/${urlMap[command]}`, method: 'post', data: form, headers: { 'Content-Type': 'multipart/form-data' } })
-      proxy.$modal.msgSuccess(`导入${labelMap[command]}完成：成功${res.data?.successRows || 0}条`)
-      getList()
+      const res = await request({ url: `/operations/ebay/replenishment/${urlMap[command]}`, method: 'post', data: form, headers: { 'Content-Type': 'multipart/form-data' }, timeout: IMPORT_TIMEOUT })
+      showImportResult(labelMap[command], res.data)
+      await getList()
     } catch (e) { proxy.$modal.msgError(`导入失败: ${e.message || e}`) }
+    finally { importing.value = false }
   }
   input.click()
+}
+
+function showImportResult(label, task = {}) {
+  const status = task.status || 'SUCCESS'
+  const statusText = status === 'SUCCESS' ? '成功' : (status === 'PARTIAL' ? '部分成功' : status)
+  const failRows = task.failRows ?? 0
+  const html = `
+    <div style="padding:4px 2px 0;">
+      <div style="font-size:15px;font-weight:600;margin-bottom:12px;">导入${escapeHtml(label)}完成</div>
+      <div style="display:grid;grid-template-columns:88px 1fr;gap:8px 12px;line-height:22px;">
+        <span style="color:#606266;">文件名称</span><strong>${escapeHtml(task.fileName || '-')}</strong>
+        <span style="color:#606266;">任务状态</span><strong>${escapeHtml(statusText)}</strong>
+        <span style="color:#606266;">总行数</span><strong>${task.totalRows ?? 0}</strong>
+        <span style="color:#606266;">成功行数</span><strong style="color:#67c23a;">${task.successRows ?? 0}</strong>
+        <span style="color:#606266;">失败行数</span><strong style="color:${failRows > 0 ? '#f56c6c' : '#303133'};">${failRows}</strong>
+        <span style="color:#606266;">操作人</span><strong>${escapeHtml(task.operator || '-')}</strong>
+        <span style="color:#606266;">完成时间</span><strong>${parseTime(task.endTime) || '-'}</strong>
+      </div>
+    </div>`
+  ElMessageBox.alert(html, '导入结果', {
+    dangerouslyUseHTMLString: true,
+    confirmButtonText: '确定',
+    type: status === 'SUCCESS' ? 'success' : 'warning'
+  })
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))
 }
 
 function handleSelectionChange(rows) { checkedRows.value = rows }

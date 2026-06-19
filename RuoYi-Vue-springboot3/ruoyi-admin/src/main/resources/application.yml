@@ -35,6 +35,7 @@ server:
 logging:
   level:
     com.ruoyi: debug
+    com.ruoyi.system.mapper.operation: info
     org.springframework: warn
 
 # 用户配置

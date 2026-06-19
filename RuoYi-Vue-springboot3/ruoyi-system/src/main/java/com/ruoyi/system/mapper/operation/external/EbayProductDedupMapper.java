@@ -12,7 +12,9 @@ public interface EbayProductDedupMapper
     List<EbayProductDedup> selectAll();
     int updateProfitRate(@Param("site") String site, @Param("middleCode") String middleCode, @Param("rate") BigDecimal rate);
     int updateReturnRate(@Param("site") String site, @Param("middleCode") String middleCode, @Param("rate") BigDecimal rate);
-    int updateLowestPrice(@Param("site") String site, @Param("sku") String sku, @Param("price") BigDecimal price);
+    int updateReturnRateByMiddleCode(@Param("middleCode") String middleCode, @Param("rate") BigDecimal rate);
+    int updateLowestPrice(@Param("site") String site, @Param("sku") String sku, @Param("price") BigDecimal price,
+            @Param("itemNumber") String itemNumber);
     int updateTrackingCalc(@Param("site") String site, @Param("sku") String sku,
             @Param("trackingPrice") BigDecimal trackingPrice,
             @Param("trackingProfitMargin") BigDecimal trackingProfitMargin,
