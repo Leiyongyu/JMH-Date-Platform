@@ -33,6 +33,7 @@ public class CalibrationController extends BaseController
     {
         Map<String, Object> result = calibrationService.runFullCalibration(start, end, ebay, amz, inventoryPurchase, goodcang);
         String status = (String) result.get("status");
+        if ("BUSY".equals(status)) return error((String) result.get("message"));
         if ("FAILED".equals(status)) return error("数据校准全部失败");
         if ("PARTIAL_SUCCESS".equals(status))
             return AjaxResult.success("部分完成(" + result.get("successSteps") + "/" + result.get("totalSteps") + ")", result);

@@ -5,7 +5,14 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -14,20 +21,40 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import com.ruoyi.system.domain.operation.EbayPriceTrackingSnapshot;
-import com.ruoyi.system.domain.operation.external.*;
+import com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot;
+import com.ruoyi.system.domain.operation.external.BrandOwner;
+import com.ruoyi.system.domain.operation.external.EbayLinkTemplate;
+import com.ruoyi.system.domain.operation.external.EbayProductDedup;
+import com.ruoyi.system.domain.operation.external.EbaySales;
+import com.ruoyi.system.domain.operation.external.GoodcangGrnDetail;
+import com.ruoyi.system.domain.operation.external.GoodcangGrnList;
+import com.ruoyi.system.domain.operation.external.GoodcangWarehouse;
+import com.ruoyi.system.domain.operation.external.Warehouse;
+import com.ruoyi.system.domain.operation.external.WarehouseInventoryDetail;
 import com.ruoyi.system.mapper.operation.EbayReplenishmentSnapshotMapper;
-import com.ruoyi.system.mapper.operation.external.*;
+import com.ruoyi.system.mapper.operation.external.BrandOwnerMapper;
+import com.ruoyi.system.mapper.operation.external.EbayLinkTemplateMapper;
+import com.ruoyi.system.mapper.operation.external.EbayProductDedupMapper;
+import com.ruoyi.system.mapper.operation.external.EbaySalesMapper;
+import com.ruoyi.system.mapper.operation.external.GoodcangGrnDetailMapper;
+import com.ruoyi.system.mapper.operation.external.GoodcangGrnListMapper;
+import com.ruoyi.system.mapper.operation.external.GoodcangWarehouseMapper;
+import com.ruoyi.system.mapper.operation.external.WarehouseInventoryDetailMapper;
+import com.ruoyi.system.mapper.operation.external.WarehouseMapper;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingProperties;
 
 /**
- * eBay濮ｅ繑妫╃捄鐔剁幆鐠侊紕鐣诲鏇熸惛閵? * 娴犲孩妫い鍦窗 DailyPriceTrackingServiceImpl.computeDailyPriceTracking() 缁夌粯顦查妴? *
- * 濞翠胶鈻奸敍? *   1. ebay_product_dedup 閳?閸╁搫鍣悰?(site + sku)
- *   2. warehouse_inventory_detail 閳?濞村嘲顦婚崣顖氭暛鎼存挸鐡?type=3)
- *   3. ebay_sales 閳?3/7/30/90婢垛晠鏀㈤柌?+ 閸樺棗褰堕張鈧径褎婀€闁库偓
- *   4. 鐠嬭渹绮?GRN 閳?濞村嘲顦绘禒鎾崇氨姒? *   5. ebay_replenishment_snapshot 閳?妫板嫪鍙婄悰銉ㄦ彛闁?閸栧綊鍘?site + stripPcPrefix(sku))
- *   6. brand_owner 閳?閸濅胶澧?& 閹垮秳缍旈崨? *   7. ebay_link_template 閳?閸烆喖澧?閸烆喖鎮楅柧鐐复(OE閸欓攱娴涢幑?
- *   7. ebay_link_template 閳?閸烆喖澧?閸烆喖鎮楅柧鐐复(OE閸欓攱娴涢幑?
- *   8. ebay_product_dedup 閳?鐠虹喎宕犳禒?閸掆晜榧庨悳?鎼存洜鍤庢禒?閺堚偓娴ｅ簼鐜?婢跺洦鏁?OE閸? *   9. ebay_product_dedup 閳?闁偓鐠愌呭芳閿涘湕xcel鐎电厧鍙嗛敍宀勬姜缂傛牞绶€涙顔岄敍? */
+ * eBay 跟价快照计算服务。
+ *
+ * 主要数据来源：
+ * 1. ebay_product_dedup：eBay商品去重数据，按 site + sku 取可编辑字段和最低价。
+ * 2. warehouse_inventory_detail：领星海外仓库存，按配置的库存仓库和 type=3 过滤。
+ * 3. ebay_sales：eBay销量，汇总 3/7/30/90 天销量和月最大销量。
+ * 4. goodcang_grn_list / goodcang_grn_detail：谷仓入库单，用于计算海外库龄。
+ * 5. ebay_replenishment_snapshot：补货快照，用于带出预计补货数量。
+ * 6. brand_owner：品牌负责人匹配。
+ * 7. ebay_link_template：站点链接模板，根据 OE 号生成售前/已售链接。
+ */
 @Service
 public class EbayPriceTrackingComputeService
 {
@@ -73,14 +100,14 @@ public class EbayPriceTrackingComputeService
 
     public List<EbayPriceTrackingSnapshot> compute()
     {
-        log.info("==== eBay濮ｅ繑妫╃捄鐔剁幆闁插秶鐣?瀵偓婵?====");
+        log.info("==== eBay跟价快照计算 开始 ====");
         long start = System.currentTimeMillis();
 
         List<Integer> inventoryWids = parseInventoryWids();
         Map<Integer, Warehouse> warehouseByWid = loadWarehouseMap(inventoryWids);
         Map<Integer, String> widToSite = buildWidToSite(warehouseByWid);
 
-        // ---- 1. 閸╁搫鍣悰?& dedup閺佺増宓?----
+        // ---- 1. 加载 eBay 商品去重数据 ----
         Map<String, EbayProductDedup> dedupByKey = new LinkedHashMap<>();
         Map<String, String> skuProductName = new LinkedHashMap<>();
         Map<String, Set<String>> skuSites = new LinkedHashMap<>();
@@ -95,7 +122,7 @@ public class EbayPriceTrackingComputeService
             skuSites.computeIfAbsent(sku, k -> new LinkedHashSet<>()).add(site);
         }
 
-        // ---- 2. 濞村嘲顦婚崣顖氭暛鎼存挸鐡?type=3) ----
+        // ---- 2. 汇总海外仓可用库存 ----
         Map<String, Integer> overseasStockMap = new LinkedHashMap<>();
         for (WarehouseInventoryDetail d : inventoryMapper.selectAll())
         {
@@ -108,29 +135,28 @@ public class EbayPriceTrackingComputeService
             overseasStockMap.merge(baseSku + "|" + site, d.getProductValidNum(), Integer::sum);
         }
 
-        // ---- 3. 闁库偓闁?閸?婢? ----
+        // ---- 3. 汇总销量 ----
         SalesAgg sa = aggregateSales();
 
-        // ---- 4. 鐠嬭渹绮ㄩ崙鍝勭氨閺冨爼妫块敍鍫熸崳婢舵牔绮ㄦ惔鎾荤窞閿?----
+        // ---- 4. 计算海外库龄 ----
         Map<String, String> outboundMap = computeOutboundTimes();
 
-        // ---- 5. 閸濅胶澧濈拹鐔荤煑娴?----
+        // ---- 5. 加载品牌负责人 ----
         Map<String, String> ownerByBrand = loadBrandOwners();
 
-        // ---- 6. eBay闁剧偓甯村Ο鈩冩緲 ----
+        // ---- 6. 加载 eBay 链接模板 ----
         Map<String, EbayLinkTemplate> linkBySite = linkTemplateMapper.selectAll().stream()
                 .collect(Collectors.toMap(EbayLinkTemplate::getSite, t -> t, (a, b) -> a));
 
-        // ---- 7. 妫板嫪鍙婄悰銉ㄦ彛闁插骏绱欐禒搴に夌拹褍鎻╅悡褍灏柊宥忕礆 ----
+        // ---- 7. 从补货快照带出预计补货数量 ----
         Map<String, Integer> purchaseQtyMap = new LinkedHashMap<>();
-        for (var snap : replenishmentMapper.selectEbayReplenishmentSnapshotList(
-                new com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot()))
+        for (var snap : replenishmentMapper.selectEbayReplenishmentSnapshotList(new EbayReplenishmentSnapshot()))
         {
             if (snap.getSuggestPurchaseQty() != null)
                 purchaseQtyMap.put(snap.getSite() + "|" + snap.getSku(), snap.getSuggestPurchaseQty().intValue());
         }
 
-        // ---- 8. 缂佸嫯顥?----
+        // ---- 8. 组装跟价快照 ----
         LocalDate today = LocalDate.now();
         List<EbayPriceTrackingSnapshot> result = new ArrayList<>();
 
@@ -184,10 +210,9 @@ public class EbayPriceTrackingComputeService
                 s.setBrandCode(InventoryUtils.extractBrandPrefix(baseSku));
                 s.setOperatorName(InventoryUtils.matchOwner(baseSku, ownerByBrand));
 
-                // 闁剧偓甯村Ο鈩冩緲
                 EbayLinkTemplate lt = linkBySite.get(site);
 
-                // Editable fields come from ebay_product_dedup.
+                // 可编辑字段来自 ebay_product_dedup。
                 if (dedup != null)
                 {
                     s.setOeNumber(dedup.getOeNumber());
@@ -201,7 +226,7 @@ public class EbayPriceTrackingComputeService
 
                 if (dedup != null) s.setReturnRate(dedup.getReturnRate());
 
-                // Links use the OE number from ebay_product_dedup.
+                // 链接使用 ebay_product_dedup 中的 OE 号。
                 String oe = s.getOeNumber() != null ? s.getOeNumber()
                         : (dedup != null ? dedup.getOeNumber() : "");
                 if (oe == null) oe = "";
@@ -216,11 +241,11 @@ public class EbayPriceTrackingComputeService
             }
         }
 
-        log.info("==== eBay濮ｅ繑妫╃捄鐔剁幆闁插秶鐣?鐎瑰本鍨? {} 閺?閼版妞倇}ms ====", result.size(), System.currentTimeMillis() - start);
+        log.info("==== eBay跟价快照计算 完成: {}条, 耗时{}ms ====", result.size(), System.currentTimeMillis() - start);
         return result;
     }
 
-    // ---- 娴犳挸绨?----
+    // ---- 解析库存仓库配置 ----
     private List<Integer> parseInventoryWids()
     {
         List<Integer> list = new ArrayList<>();
@@ -245,7 +270,7 @@ public class EbayPriceTrackingComputeService
         return m;
     }
 
-    // ---- 闁库偓闁?----
+    // ---- 销量汇总 ----
     private SalesAgg aggregateSales()
     {
         SalesAgg agg = new SalesAgg();
@@ -289,7 +314,7 @@ public class EbayPriceTrackingComputeService
         Map<String, Integer> monthlyMax = new LinkedHashMap<>();
     }
 
-    // ---- 閸戝搫绨遍弮鍫曟？閿涘牆鎮撶悰銉ㄦ彛閿?----
+    // ---- 计算每个中间码在各仓库的最近入库日期 ----
     private Map<String, String> computeOutboundTimes()
     {
         List<GoodcangGrnDetail> all = grnDetailMapper.selectAll();

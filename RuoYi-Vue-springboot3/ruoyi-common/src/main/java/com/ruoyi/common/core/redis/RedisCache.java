@@ -1,10 +1,12 @@
 package com.ruoyi.common.core.redis;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.BoundSetOperations;
@@ -24,6 +26,9 @@ public class RedisCache
 {
     @Autowired
     public RedisTemplate redisTemplate;
+
+    private static final ThreadLocal<Map<String, String>> LOCK_TOKENS =
+            ThreadLocal.withInitial(HashMap::new);
 
     /**
      * 缓存基本的对象，Integer、String、实体类等
@@ -274,9 +279,15 @@ public class RedisCache
      */
     public boolean tryLock(final String key, final long timeoutSeconds)
     {
+        String token = UUID.randomUUID().toString();
         Boolean ok = redisTemplate.opsForValue()
-                .setIfAbsent(key, "1", timeoutSeconds, TimeUnit.SECONDS);
-        return Boolean.TRUE.equals(ok);
+                .setIfAbsent(key, token, timeoutSeconds, TimeUnit.SECONDS);
+        if (Boolean.TRUE.equals(ok))
+        {
+            LOCK_TOKENS.get().put(key, token);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -284,6 +295,19 @@ public class RedisCache
      */
     public void unlock(final String key)
     {
-        redisTemplate.delete(key);
+        String token = LOCK_TOKENS.get().remove(key);
+        if (token == null)
+        {
+            return;
+        }
+        Object value = redisTemplate.opsForValue().get(key);
+        if (token.equals(value))
+        {
+            redisTemplate.delete(key);
+        }
+        if (LOCK_TOKENS.get().isEmpty())
+        {
+            LOCK_TOKENS.remove();
+        }
     }
 }

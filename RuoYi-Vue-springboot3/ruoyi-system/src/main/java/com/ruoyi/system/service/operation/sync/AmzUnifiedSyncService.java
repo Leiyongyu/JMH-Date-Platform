@@ -16,68 +16,79 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/**
- * Amazon 统一同步服务 —— 按固定顺序拉取源数据并刷新 AMZ 补货快照。
- * <p>
- * 流程：店铺 → AMZ Listing → 订单利润 → 补货建议 → 库存明细 → AMZ补货快照
- *
- * @author JMH
- */
 @Service
 public class AmzUnifiedSyncService
 {
     private static final Logger LOG = LoggerFactory.getLogger(AmzUnifiedSyncService.class);
+    private static final String LOCK_GLOBAL = "lock:sync:operation";
+    private static final String LOCK_AMZ = "lock:sync:amz";
+    private static final int LOCK_TIMEOUT_SECONDS = 1800;
 
     private static final StepDef[] STEPS = {
-        new StepDef("shop_list",          "领星-店铺列表",           "pb/mp/shop/v2/getSellerList"),
-        new StepDef("amz_listing",        "领星-Amazon商品刊登",     "erp/sc/data/mws/listing", true),
-        new StepDef("amz_profit",         "领星-Amazon订单利润",     "basicOpen/finance/mreport/OrderProfit"),
-        new StepDef("amz_restock",        "领星-Amazon补货建议",     "erp/sc/routing/restocking/analysis/getSummaryList"),
-        new StepDef("amz_inv",            "领星-Amazon库存明细",     "erp/sc/routing/data/local_inventory/inventoryDetails"),
-        new StepDef("amz_replenish",      "刷新Amazon补货快照",      "compute/amzReplenishment"),
+        new StepDef("shop_list", "领星-店铺列表", "pb/mp/shop/v2/getSellerList"),
+        new StepDef("amz_listing", "领星-Amazon商品刊登", "erp/sc/data/mws/listing", true),
+        new StepDef("amz_profit", "领星-Amazon订单利润", "basicOpen/finance/mreport/OrderProfit"),
+        new StepDef("amz_restock", "领星-Amazon补货建议", "erp/sc/routing/restocking/analysis/getSummaryList"),
+        new StepDef("amz_inv", "领星-Amazon库存明细", "erp/sc/routing/data/local_inventory/inventoryDetails"),
+        new StepDef("amz_replenish", "刷新Amazon补货快照", "compute/amzReplenishment")
     };
 
     private static final StepDef[] REFRESH_ONLY_STEPS = {
-        new StepDef("amz_replenish", "刷新Amazon补货快照", "compute/amzReplenishment"),
+        new StepDef("amz_replenish", "刷新Amazon补货快照", "compute/amzReplenishment")
     };
 
     public Map<String, Object> syncAll(String triggerType, String operator)
     {
-        RedisCache redis = SpringUtils.getBean(RedisCache.class);
-        if (!redis.tryLock("lock:sync:amz", 600))
-        {
-            Map<String, Object> busy = new LinkedHashMap<>();
-            busy.put("parentStatus", "BUSY"); busy.put("msg", "AMZ数据同步正在执行中，请稍后再试");
-            return busy;
-        }
-        try { return executeSteps(STEPS, "AMZ-手动拉取最新数据", triggerType, operator); }
-        finally { redis.unlock("lock:sync:amz"); }
+        return withLock(STEPS, "AMZ-手动拉取最新数据", triggerType, operator,
+                "AMZ数据同步正在执行中，请稍后再试");
     }
 
     public Map<String, Object> refreshOnly(String triggerType, String operator)
     {
+        return withLock(REFRESH_ONLY_STEPS, "AMZ-仅刷新快照", triggerType, operator,
+                "AMZ快照刷新正在执行中，请稍后再试");
+    }
+
+    private Map<String, Object> withLock(StepDef[] steps, String parentName, String triggerType,
+                                         String operator, String busyMessage)
+    {
         RedisCache redis = SpringUtils.getBean(RedisCache.class);
-        if (!redis.tryLock("lock:sync:amz", 300))
+        if (!redis.tryLock(LOCK_GLOBAL, LOCK_TIMEOUT_SECONDS))
         {
             Map<String, Object> busy = new LinkedHashMap<>();
-            busy.put("parentStatus", "BUSY"); busy.put("msg", "AMZ快照刷新正在执行中，请稍后再试");
+            busy.put("parentStatus", "BUSY");
+            busy.put("msg", "运营数据同步正在执行中，请稍后再试");
             return busy;
         }
-        try { return executeSteps(REFRESH_ONLY_STEPS, "AMZ-仅刷新快照", triggerType, operator); }
-        finally { redis.unlock("lock:sync:amz"); }
-
-    // ==================== 内部执行引擎 ====================
+        if (!redis.tryLock(LOCK_AMZ, LOCK_TIMEOUT_SECONDS))
+        {
+            redis.unlock(LOCK_GLOBAL);
+            Map<String, Object> busy = new LinkedHashMap<>();
+            busy.put("parentStatus", "BUSY");
+            busy.put("msg", busyMessage);
+            return busy;
+        }
+        try
+        {
+            return executeSteps(steps, parentName, triggerType, operator);
+        }
+        finally
+        {
+            redis.unlock(LOCK_AMZ);
+            redis.unlock(LOCK_GLOBAL);
+        }
+    }
 
     private Map<String, Object> executeSteps(StepDef[] steps, String parentName,
-                                              String triggerType, String operator)
+                                             String triggerType, String operator)
     {
         long totalStart = System.currentTimeMillis();
         IOperationSyncLogService logSvc = SpringUtils.getBean(IOperationSyncLogService.class);
-
         Long parentId = logSvc.start("amz_manual_sync", parentName, "", triggerType, operator, null, null);
 
         List<Map<String, Object>> stepResults = new ArrayList<>();
-        int successSteps = 0, failedSteps = 0;
+        int successSteps = 0;
+        int failedSteps = 0;
         boolean criticalFailed = false;
 
         for (StepDef step : steps)
@@ -92,10 +103,9 @@ public class AmzUnifiedSyncService
             Long childId = logSvc.start("amz_manual_sync." + step.key, step.name, step.apiPath,
                     triggerType, operator, null, null, parentId);
 
-            OperationSyncResult result;
             try
             {
-                result = executeStep(step);
+                OperationSyncResult result = executeStep(step);
                 result.setElapsedMs(System.currentTimeMillis() - stepStart);
                 logSvc.finish(childId, result);
 
@@ -110,7 +120,7 @@ public class AmzUnifiedSyncService
                     successSteps++;
                     stepResults.add(stepMap(step.key, step.name, "SUCCESS",
                             "总数" + result.getTotalCount() + " 成功" + result.getSuccessCount()
-                            + " 失败" + result.getFailCount()));
+                                    + " 失败" + result.getFailCount()));
                 }
             }
             catch (Exception e)
@@ -165,10 +175,12 @@ public class AmzUnifiedSyncService
             case "amz_inv":
                 return SpringUtils.getBean(AmzWarehouseInventorySyncService.class).syncAll();
             case "amz_replenish":
-                SpringUtils.getBean(com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService.class).refreshSnapshot();
-                return OperationSyncResult.success("amz_replenish", "刷新Amazon补货快照", "compute/amzReplenishment", 1, 1, 0);
+                int rows = SpringUtils.getBean(com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService.class)
+                        .refreshSnapshot();
+                return OperationSyncResult.success("amz_replenish", "刷新Amazon补货快照",
+                        "compute/amzReplenishment", rows, rows, 0);
             default:
-                LOG.info("AMZ步骤 [{}] - 待实现", step.name);
+                LOG.info("AMZ步骤 [{}] 未实现", step.name);
                 return OperationSyncResult.success(step.key, step.name, step.apiPath, 0, 0, 0);
         }
     }
@@ -185,9 +197,22 @@ public class AmzUnifiedSyncService
 
     private static class StepDef
     {
-        final String key; final String name; final String apiPath; final boolean critical;
-        StepDef(String key, String name, String apiPath) { this(key, name, apiPath, false); }
+        final String key;
+        final String name;
+        final String apiPath;
+        final boolean critical;
+
+        StepDef(String key, String name, String apiPath)
+        {
+            this(key, name, apiPath, false);
+        }
+
         StepDef(String key, String name, String apiPath, boolean critical)
-        { this.key = key; this.name = name; this.apiPath = apiPath; this.critical = critical; }
+        {
+            this.key = key;
+            this.name = name;
+            this.apiPath = apiPath;
+            this.critical = critical;
+        }
     }
 }

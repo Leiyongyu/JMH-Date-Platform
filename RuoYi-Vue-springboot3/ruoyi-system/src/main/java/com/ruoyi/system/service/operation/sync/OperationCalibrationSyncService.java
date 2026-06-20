@@ -1,5 +1,6 @@
 package com.ruoyi.system.service.operation.sync;
 
+import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.common.utils.spring.SpringUtils;
 import com.ruoyi.system.service.operation.IOperationSyncLogService;
 import com.ruoyi.system.service.operation.external.goodcang.*;
@@ -18,9 +19,42 @@ public class OperationCalibrationSyncService
 {
     private static final Logger LOG = LoggerFactory.getLogger(OperationCalibrationSyncService.class);
     private static final String API = "/operations/sync/calibration/full";
+    private static final String LOCK_GLOBAL = "lock:sync:operation";
+    private static final String LOCK_EBAY = "lock:sync:ebay";
+    private static final String LOCK_AMZ = "lock:sync:amz";
+    private static final int LOCK_TIMEOUT_SECONDS = 3600;
 
     public Map<String, Object> runFullCalibration(LocalDate startDate, LocalDate endDate,
                                                    boolean ebay, boolean amz, boolean inventoryPurchase, boolean goodcang)
+    {
+        RedisCache redis = SpringUtils.getBean(RedisCache.class);
+        if (!redis.tryLock(LOCK_GLOBAL, LOCK_TIMEOUT_SECONDS))
+            return busy("运营数据同步正在执行中，请稍后再试");
+        if (!redis.tryLock(LOCK_EBAY, LOCK_TIMEOUT_SECONDS))
+        {
+            redis.unlock(LOCK_GLOBAL);
+            return busy("eBay数据同步正在执行中，请稍后再试");
+        }
+        if (!redis.tryLock(LOCK_AMZ, LOCK_TIMEOUT_SECONDS))
+        {
+            redis.unlock(LOCK_EBAY);
+            redis.unlock(LOCK_GLOBAL);
+            return busy("AMZ数据同步正在执行中，请稍后再试");
+        }
+        try
+        {
+            return doRunFullCalibration(startDate, endDate, ebay, amz, inventoryPurchase, goodcang);
+        }
+        finally
+        {
+            redis.unlock(LOCK_AMZ);
+            redis.unlock(LOCK_EBAY);
+            redis.unlock(LOCK_GLOBAL);
+        }
+    }
+
+    private Map<String, Object> doRunFullCalibration(LocalDate startDate, LocalDate endDate,
+                                                     boolean ebay, boolean amz, boolean inventoryPurchase, boolean goodcang)
     {
         long totalStart = System.currentTimeMillis();
         IOperationSyncLogService logSvc = SpringUtils.getBean(IOperationSyncLogService.class);
@@ -110,6 +144,14 @@ public class OperationCalibrationSyncService
         resp.put("totalSteps", results.size()); resp.put("successSteps", ok);
         resp.put("failedSteps", fail); resp.put("elapsed", elapsed / 1000.0 + "s");
         resp.put("steps", results);
+        return resp;
+    }
+
+    private Map<String, Object> busy(String message)
+    {
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("status", "BUSY");
+        resp.put("message", message);
         return resp;
     }
 

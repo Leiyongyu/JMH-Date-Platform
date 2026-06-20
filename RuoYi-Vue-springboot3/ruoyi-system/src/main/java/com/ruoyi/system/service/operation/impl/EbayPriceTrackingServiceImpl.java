@@ -1,7 +1,12 @@
 package com.ruoyi.system.service.operation.impl;
 
 import java.math.BigDecimal;
-import java.util.*;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,7 +18,6 @@ import org.springframework.util.StringUtils;
 import com.ruoyi.system.domain.operation.EbayPriceTrackingSnapshot;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.domain.operation.external.EbayLinkTemplate;
-import com.ruoyi.system.domain.operation.external.EbayProductDedup;
 import com.ruoyi.system.domain.operation.external.GoodcangProductInfo;
 import com.ruoyi.system.mapper.operation.EbayPriceTrackingSnapshotMapper;
 import com.ruoyi.system.mapper.operation.external.EbayLinkTemplateMapper;
@@ -62,7 +66,7 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
     @Autowired private EbayLinkTemplateMapper linkTemplateMapper;
     @Autowired private GoodcangProductInfoMapper productInfoMapper;
 
-    // ========== 鎼滅储 ==========
+    // ========== 查询 ==========
     @Override
     public List<EbayPriceTrackingSnapshot> search(EbayReplenishmentSearchRequest req)
     {
@@ -76,12 +80,12 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
         return mapper.selectDistinctValues(field, keyword != null ? keyword.trim() : null);
     }
 
-    // ========== 鍒锋柊 ==========
+    // ========== 刷新 ==========
     @Override
     @Transactional
     public int refreshSnapshot()
     {
-        log.info("==== eBay姣忔棩璺熶环蹇収鍒锋柊 寮€濮?====");
+        log.info("==== eBay每日跟价快照刷新 开始 ====");
         long t = System.currentTimeMillis();
         List<EbayPriceTrackingSnapshot> computed = computeService.compute();
         mapper.deleteAll();
@@ -92,11 +96,11 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
                 mapper.batchInsert(computed.subList(i, Math.min(i + batch, computed.size())));
         }
         int filled = mapper.fillReplenishQtyFromSnapshot();
-        log.info("==== eBay每日跟价快照刷新 完成: {} 条 补货量填充{}条 耗时{}ms ====", computed.size(), filled, System.currentTimeMillis() - t);
+        log.info("==== eBay每日跟价快照刷新 完成: {}条, 补货数量填充{}条, 耗时{}ms ====", computed.size(), filled, System.currentTimeMillis() - t);
         return computed.size();
     }
 
-    // ========== 璺熷崠璁＄畻 ==========
+    // ========== 跟卖价格计算 ==========
     @Override
     public Map<String, Object> calcTracking(String site, String sku, String trackingPrice)
     {
@@ -113,7 +117,7 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
             catch (Exception e)
             {
                 resp.put("success", false);
-                resp.put("message", "跟卖价格式不正确");
+                resp.put("message", "跟卖价格格式不正确");
                 resp.put("trackingPrice", trackingPrice);
                 resp.put("trackingProfitMargin", null);
                 resp.put("floorPrice", null);
@@ -208,7 +212,7 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
             throw new RuntimeException("未找到 eBay 商品记录，无法保存：" + site + " / " + sku);
     }
 
-    // ========== 閾炬帴妯℃澘 ==========
+    // ========== 链接模板 ==========
     @Override
     public List<EbayLinkTemplate> listLinkTemplates() { return linkTemplateMapper.selectAll(); }
 
@@ -218,7 +222,7 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
     @Override
     public void deleteLinkTemplate(String site) { linkTemplateMapper.deleteBySite(site); }
 
-    // ========== 瀵煎嚭 ==========
+    // ========== 导出 ==========
     @Override
     public List<EbayPriceTrackingSnapshot> listAll(EbayPriceTrackingSnapshot filter)
     {
@@ -229,7 +233,7 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
         return mapper.search(buildParams(req));
     }
 
-    // ========== 鍙傛暟鏋勫缓 ==========
+    // ========== 查询参数 ==========
     private Map<String, Object> buildParams(EbayReplenishmentSearchRequest req)
     {
         Map<String, Object> p = new HashMap<>();

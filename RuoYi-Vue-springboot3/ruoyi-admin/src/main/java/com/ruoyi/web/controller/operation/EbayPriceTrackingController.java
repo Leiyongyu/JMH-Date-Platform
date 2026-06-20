@@ -73,7 +73,7 @@ public class EbayPriceTrackingController extends BaseController
     @PostMapping("/refresh")
     public AjaxResult refresh()
     {
-        return withLock("lock:refresh:ebay:priceTracking", 300, "eBay跟价刷新正在执行中，请稍后再试", () -> {
+        return withLock("lock:sync:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
             priceTrackingService.refreshSnapshot();
             return success();
         });
@@ -161,7 +161,7 @@ public class EbayPriceTrackingController extends BaseController
     @PostMapping("/import-lowest-price")
     public AjaxResult importLowestPrice(@RequestParam("file") MultipartFile file)
     {
-        return withLock("lock:import:ebay:lowestPrice", 120, "eBay最低价导入正在执行中，请稍后再试", () -> {
+        return withLock("lock:sync:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
             try { return AjaxResult.success(importService.importLowestPrice(file, SecurityUtils.getUsername())); }
             catch (Exception e) { return error(e.getMessage()); }
         });
@@ -172,7 +172,7 @@ public class EbayPriceTrackingController extends BaseController
     @PostMapping("/import-product-price")
     public AjaxResult importProductPrice(@RequestParam("file") MultipartFile file)
     {
-        return withLock("lock:import:ebay:productPrice", 120, "eBay商品单价导入正在执行中，请稍后再试", () -> {
+        return withLock("lock:sync:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
             try { return AjaxResult.success(importService.importProductPrice(file, SecurityUtils.getUsername())); }
             catch (Exception e) { return error(e.getMessage()); }
         });
