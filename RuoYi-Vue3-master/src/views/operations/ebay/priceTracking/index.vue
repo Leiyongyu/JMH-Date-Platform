@@ -262,7 +262,7 @@ const columnDefs = [
   { key: 'sku', label: 'SKU', align: 'left', width: 170, fixed: true, sortable: true, tooltip: true },
   { key: 'productName', label: '产品名称', align: 'left', width: 260, tooltip: true },
   { key: 'skuLevel', label: '等级', align: 'center', width: 80 },
-  { key: 'ourLowestPrice', label: '我方最低价', align: 'right', width: 110, sortable: true },
+  { key: 'ourLowestPrice', label: '最低价', align: 'right', width: 110, sortable: true },
   { key: 'trackingPrice', label: '跟卖价', align: 'right', width: 120, format: 'trackingPrice', sortable: true },
   { key: 'trackingProfitMargin', label: '跟卖利润率', align: 'right', width: 130, sortable: true, format: 'percent' },
   { key: 'floorPrice', label: '底线价', align: 'right', width: 100, sortable: true },
