@@ -91,7 +91,8 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
             for (int i = 0; i < computed.size(); i += batch)
                 mapper.batchInsert(computed.subList(i, Math.min(i + batch, computed.size())));
         }
-        log.info("==== eBay每日跟价快照刷新 完成: {} 条 耗时{}ms ====", computed.size(), System.currentTimeMillis() - t);
+        int filled = mapper.fillReplenishQtyFromSnapshot();
+        log.info("==== eBay每日跟价快照刷新 完成: {} 条 补货量填充{}条 耗时{}ms ====", computed.size(), filled, System.currentTimeMillis() - t);
         return computed.size();
     }
 

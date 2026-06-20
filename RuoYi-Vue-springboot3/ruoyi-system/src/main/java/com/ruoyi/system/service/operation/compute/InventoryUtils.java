@@ -105,6 +105,19 @@ public final class InventoryUtils
     }
 
     /**
+     * 提取数字键（去品牌前缀，只保留数字部分）。用于 GRN 和 eBay SKU 跨品牌匹配。
+     * 例: "BMW-30023" → "30023", "JMH-30023" → "30023", "JMH-30023-0027" → "30023"
+     */
+    public static String extractNumericKey(String sku)
+    {
+        if (sku == null || sku.isEmpty()) return "";
+        String s = stripPcPrefix(sku.trim());
+        String[] parts = s.split("-");
+        if (parts.length >= 2) return parts[1];  // 跳过品牌前缀
+        return s;
+    }
+
+    /**
      * 提取基础 SKU（取前两段，2PC-xxx-yyy 保留前三段）
      */
     public static String extractBaseSku(String sku)

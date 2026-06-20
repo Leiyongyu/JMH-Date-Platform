@@ -20,4 +20,7 @@ public interface EbayPriceTrackingSnapshotMapper
 
     /** 清空表 */
     int deleteAll();
+
+    /** 从补货快照同步补货量 */
+    int fillReplenishQtyFromSnapshot();
 }

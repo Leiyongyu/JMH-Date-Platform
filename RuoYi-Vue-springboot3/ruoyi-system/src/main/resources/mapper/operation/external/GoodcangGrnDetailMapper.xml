@@ -20,4 +20,13 @@
         (#{e.receivingCode},#{e.productSku},#{e.boxNo},#{e.transitPreCount},#{e.transitReceivingCount})
         </foreach>
     </insert>
+    <select id="selectOutboundTimes" resultType="java.util.HashMap">
+        SELECT SUBSTRING_INDEX(d.product_sku, '-', 2) AS mid,
+               gw.wid AS wid,
+               MAX(DATE_FORMAT(l.create_at, '%Y-%m-%d')) AS latest_date
+        FROM goodcang_grn_detail d
+        JOIN goodcang_grn_list l ON l.receiving_code = d.receiving_code
+        JOIN goodcang_warehouse gw ON gw.warehouse_code = l.warehouse_code AND gw.wid IS NOT NULL
+        GROUP BY mid, gw.wid
+    </select>
 </mapper>

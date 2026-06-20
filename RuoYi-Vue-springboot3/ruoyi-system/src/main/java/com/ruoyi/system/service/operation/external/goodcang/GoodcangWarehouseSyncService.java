@@ -44,6 +44,8 @@ public class GoodcangWarehouseSyncService
             }
         }
         if (!list.isEmpty()) mapper.batchInsert(list);
+        int matched = mapper.fillWidByFuzzyMatch();
+        LOG.info("谷仓仓库同步: {}条, wid模糊匹配{}条", list.size(), matched);
         return OperationSyncResult.success("gc_wh", "谷仓-仓库信息", "/base_data/get_warehouse", list.size(), list.size(), System.currentTimeMillis() - start);
     }
     private String str(Map<String, Object> m, String k) { Object v = m.get(k); return v != null ? v.toString() : null; }

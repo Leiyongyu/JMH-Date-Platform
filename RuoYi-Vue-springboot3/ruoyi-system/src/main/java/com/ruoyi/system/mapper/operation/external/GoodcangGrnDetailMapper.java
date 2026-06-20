@@ -9,4 +9,7 @@ public interface GoodcangGrnDetailMapper
     List<GoodcangGrnDetail> selectAll();
     int deleteByReceivingCode(@Param("receivingCode") String receivingCode);
     int batchInsert(@Param("list") List<GoodcangGrnDetail> list);
+
+    /** 一条 SQL 聚合出库时间: 返回 mid, wid, latest_date */
+    List<java.util.Map<String, Object>> selectOutboundTimes();
 }

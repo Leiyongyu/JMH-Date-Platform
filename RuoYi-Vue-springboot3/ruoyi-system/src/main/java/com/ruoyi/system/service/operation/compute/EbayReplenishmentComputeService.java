@@ -116,18 +116,12 @@ public class EbayReplenishmentComputeService
             siteRowsBySku.computeIfAbsent(groupKey, k -> new LinkedHashMap<>())
                     .put(site, new SkuSiteRow(groupKey, site));
 
-            // 利润率
-            if (dedup.getProfitRate() != null)
-            {
-                String mid = InventoryUtils.extractMiddleCodeForInventory(rawSku);
-                if (!mid.isEmpty()) profitRateMap.put(site + "|" + mid, dedup.getProfitRate());
-            }
-            // 退货率
-            if (dedup.getReturnRate() != null)
-            {
-                String mid = InventoryUtils.extractMiddleCodeForInventory(rawSku);
-                if (!mid.isEmpty()) returnRateMap.put(site + "|" + mid, dedup.getReturnRate());
-            }
+            // 利润率 & 退货率 — 用数字键匹配，跨品牌
+            String numKey = InventoryUtils.extractNumericKey(rawSku);
+            if (dedup.getProfitRate() != null && !numKey.isEmpty())
+                profitRateMap.put(site + "|" + numKey, dedup.getProfitRate());
+            if (dedup.getReturnRate() != null && !numKey.isEmpty())
+                returnRateMap.put(site + "|" + numKey, dedup.getReturnRate());
         }
 
         // ---- 2. 库存汇总 (按 groupKey 归并 PC/非PC) ----
@@ -208,14 +202,14 @@ public class EbayReplenishmentComputeService
                 snap.setTotalInventory(totalInv);
 
                 // ---- 销量 ----
-                String salesKey = row.site + "|" + InventoryUtils.extractMiddleCode(baseSku);
+                String salesKey = row.site + "|" + InventoryUtils.extractNumericKey(baseSku);
                 snap.setSales7d(sa.sales7d.getOrDefault(salesKey, 0));
                 snap.setSales30d(sa.sales30d.getOrDefault(salesKey, 0));
                 snap.setSales90d(sa.sales90d.getOrDefault(salesKey, 0));
                 snap.setMaxMonthlySales(sa.monthlyMax.getOrDefault(salesKey, null));
 
                 // ---- 出库天数 ----
-                String mid = InventoryUtils.extractMiddleCode(baseSku);
+                String mid = InventoryUtils.extractNumericKey(baseSku);
                 if (!mid.isEmpty())
                 {
                     String latestTime = null;
@@ -350,47 +344,17 @@ public class EbayReplenishmentComputeService
     /**
      * 返回 "middleCode|wid" → 最新出库日期 (yyyy-MM-dd)
      */
+    /** 一条 SQL 聚合：mid|wid → 最新出库日期 */
     private Map<String, String> computeOutboundTimes()
     {
-        List<GoodcangGrnDetail> allDetails = grnDetailMapper.selectAll();
-        Set<String> allCodes = allDetails.stream()
-                .map(GoodcangGrnDetail::getReceivingCode)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-
-        Map<String, GoodcangGrnList> grnByCode = new HashMap<>();
-        if (!allCodes.isEmpty())
-        {
-            grnListMapper.selectByReceivingCodes(new ArrayList<>(allCodes))
-                    .forEach(g -> grnByCode.put(g.getReceivingCode(), g));
-        }
-
-        Set<String> allWhCodes = grnByCode.values().stream()
-                .map(GoodcangGrnList::getWarehouseCode)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-
-        Map<String, GoodcangWarehouse> gcWhByCode = new HashMap<>();
-        if (!allWhCodes.isEmpty())
-        {
-            gcWarehouseMapper.selectByWarehouseCodes(new ArrayList<>(allWhCodes))
-                    .forEach(g -> gcWhByCode.put(g.getWarehouseCode(), g));
-        }
-
         Map<String, String> result = new LinkedHashMap<>();
-        for (GoodcangGrnDetail d : allDetails)
+        for (Map<String, Object> row : grnDetailMapper.selectOutboundTimes())
         {
-            String mid = InventoryUtils.extractMiddleCodeForInventory(d.getProductSku());
-            if (mid.isEmpty() || d.getReceivingCode() == null) continue;
-            GoodcangGrnList gl = grnByCode.get(d.getReceivingCode());
-            if (gl == null || gl.getWarehouseCode() == null || gl.getCreateAt() == null) continue;
-            GoodcangWarehouse gw = gcWhByCode.get(gl.getWarehouseCode());
-            if (gw == null || gw.getWid() == null || gw.getWid() == 0) continue;
-
-            String key = mid + "|" + gw.getWid();
-            String dt = gl.getCreateAt().toInstant().atZone(ZoneId.systemDefault()).toLocalDate().toString();
-            String existing = result.get(key);
-            if (existing == null || dt.compareTo(existing) > 0) result.put(key, dt);
+            String mid = InventoryUtils.extractNumericKey(String.valueOf(row.get("mid")));
+            Object widObj = row.get("wid");
+            Object dateObj = row.get("latest_date");
+            if (mid.isEmpty() || widObj == null || dateObj == null) continue;
+            result.put(mid + "|" + widObj, String.valueOf(dateObj));
         }
         return result;
     }

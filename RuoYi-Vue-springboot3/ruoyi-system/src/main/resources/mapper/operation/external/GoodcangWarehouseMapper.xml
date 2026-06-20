@@ -22,4 +22,10 @@
         (#{e.warehouseCode},#{e.warehouseName},#{e.countryCode},#{e.wpCode},#{e.wpName},#{e.wid})
         </foreach>
     </insert>
+    <update id="fillWidByFuzzyMatch">
+        UPDATE goodcang_warehouse gw
+        JOIN warehouse w ON w.name LIKE CONCAT('%', gw.warehouse_name, '%')
+        SET gw.wid = w.wid
+        WHERE gw.wid IS NULL
+    </update>
 </mapper>

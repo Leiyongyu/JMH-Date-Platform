@@ -156,4 +156,11 @@
         DELETE FROM ebay_price_tracking_snapshot
     </delete>
 
+    <update id="fillReplenishQtyFromSnapshot">
+        UPDATE ebay_price_tracking_snapshot t
+        JOIN ebay_replenishment_snapshot r ON r.site = t.site AND r.sku = t.sku
+        SET t.estimated_replenish_qty = r.max_monthly_replenish_qty
+        WHERE r.max_monthly_replenish_qty IS NOT NULL
+    </update>
+
 </mapper>
