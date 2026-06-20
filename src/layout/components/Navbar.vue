@@ -10,21 +10,17 @@
 
     <div class="right-menu">
       <template v-if="appStore.device !== 'mobile'">
+        <!-- 数据校准按钮隐藏
         <el-tooltip content="数据校准" effect="dark" placement="bottom" v-hasPermi="['operations:ebayReplenishment:sync']">
           <div class="right-menu-item hover-effect" @click="openCalibration" style="font-size:16px;padding:0 8px;cursor:pointer">
             <svg-icon icon-class="tool" />
           </div>
         </el-tooltip>
+        -->
 
         <header-search id="header-search" class="right-menu-item" />
 
-        <el-tooltip content="源码地址" effect="dark" placement="bottom">
-          <ruo-yi-git id="ruoyi-git" class="right-menu-item hover-effect" />
-        </el-tooltip>
-
-        <el-tooltip content="文档地址" effect="dark" placement="bottom">
-          <ruo-yi-doc id="ruoyi-doc" class="right-menu-item hover-effect" />
-        </el-tooltip>
+        <!-- 源码地址、文档地址隐藏 -->
 
         <screenfull id="screenfull" class="right-menu-item hover-effect" />
 
