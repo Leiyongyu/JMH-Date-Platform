@@ -64,7 +64,7 @@ public class LingxingAmzListingSyncService
                     e.setLocalName(str(row, "local_name", "localName"));
                     e.setReviewNum(intVal(row, "review_num", "reviewNum"));
                     e.setLastStar(str(row, "last_star", "lastStar"));
-                    e.setPrincipalName(str(row, "principal_name", "principalName"));
+                    e.setPrincipalName(extractPrincipalName(row));
                     if (ex.isEmpty()) mapper.insert(e); else mapper.updateById(e);
                     total++;
                 }
@@ -79,6 +79,18 @@ public class LingxingAmzListingSyncService
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> getList(Map<String, Object> r, String k)
     { Object o = r.get(k); if (o instanceof List) return (List<Map<String, Object>>) o; try { return om.convertValue(o, new TypeReference<List<Map<String, Object>>>() {}); } catch (Exception e) { return new ArrayList<>(); } }
+    @SuppressWarnings("unchecked")
+    private String extractPrincipalName(Map<String, Object> row) {
+        Object info = row.get("principal_info");
+        if (info instanceof List) {
+            List<Map<String, Object>> list = (List<Map<String, Object>>) info;
+            if (!list.isEmpty()) {
+                Object name = list.get(0).get("principal_name");
+                return name != null ? String.valueOf(name) : null;
+            }
+        }
+        return null;
+    }
     private String str(Map<String, Object> m, String... ks) { for (String k : ks) { Object v = m.get(k); if (v != null && StringUtils.hasText(v.toString())) return v.toString(); } return null; }
     private Integer intVal(Map<String, Object> m, String... ks) { String s = str(m, ks); if (s == null) return null; try { return Integer.valueOf(s); } catch (Exception e) { return null; } }
 }

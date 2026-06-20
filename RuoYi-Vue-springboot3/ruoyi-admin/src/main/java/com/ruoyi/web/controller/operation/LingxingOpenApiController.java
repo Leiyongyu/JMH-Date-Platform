@@ -38,6 +38,24 @@ public class LingxingOpenApiController extends BaseController
         return success(data);
     }
 
+    /** 测试拉取指定 seller_sku 的 AMZ listing */
+    @PreAuthorize("@ss.hasPermi('operations:lingxing:test')")
+    @PostMapping("/test-amz-sku")
+    public AjaxResult testAmzSku(@RequestBody Map<String, String> req) throws Exception
+    {
+        String sku = req.getOrDefault("sellerSku", "LZY-US-STAR-BLACK-1");
+        String sid = req.getOrDefault("sid", "");
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (!sid.isEmpty()) body.put("sid", sid);
+        else body.put("sid", "12531");
+        body.put("is_pair", 1); body.put("is_delete", 0);
+        body.put("search_field", "seller_sku");
+        body.put("search_value", java.util.Collections.singletonList(sku));
+        body.put("exact_search", 1);
+        body.put("offset", 0); body.put("length", 10);
+        return success(gatewayService.post("erp/sc/data/mws/listing", body));
+    }
+
     @PreAuthorize("@ss.hasPermi('operations:lingxing:call')")
     @PostMapping("/call")
     public AjaxResult call(@RequestBody LingxingCallRequest request) throws Exception
@@ -49,25 +67,9 @@ public class LingxingOpenApiController extends BaseController
     {
         private String path;
         private Map<String, Object> body = new LinkedHashMap<>();
-
-        public String getPath()
-        {
-            return path;
-        }
-
-        public void setPath(String path)
-        {
-            this.path = path;
-        }
-
-        public Map<String, Object> getBody()
-        {
-            return body;
-        }
-
-        public void setBody(Map<String, Object> body)
-        {
-            this.body = body;
-        }
+        public String getPath() { return path; }
+        public void setPath(String path) { this.path = path; }
+        public Map<String, Object> getBody() { return body; }
+        public void setBody(Map<String, Object> body) { this.body = body; }
     }
 }

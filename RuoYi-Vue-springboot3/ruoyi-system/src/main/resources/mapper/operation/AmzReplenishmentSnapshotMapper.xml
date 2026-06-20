@@ -189,8 +189,8 @@
 
     <sql id="sortClause">
         <choose>
-            <when test="sortField == 'storeName'">order by store_name</when>
-            <when test="sortField == 'sellerSku'">order by seller_sku</when>
+            <when test="sortField == 'storeName'">order by s.store_name</when>
+            <when test="sortField == 'sellerSku'">order by s.seller_sku</when>
             <when test="sortField == 'warehouseSku'">order by warehouse_sku</when>
             <when test="sortField == 'asin'">order by asin</when>
             <when test="sortField == 'rating'">order by rating</when>
@@ -212,7 +212,7 @@
             <when test="sortField == 'shipQty'">order by ship_qty</when>
             <when test="sortField == 'replenishQty'">order by replenish_qty</when>
             <when test="sortField == 'restockDays'">order by restock_days</when>
-            <otherwise>order by store_name asc, seller_sku asc</otherwise>
+            <otherwise>order by CASE WHEN s.seller_sku IS NULL OR s.seller_sku = '' THEN 1 ELSE 0 END, s.store_name asc, s.seller_sku asc</otherwise>
         </choose>
         <if test="sortField != null and sortField != ''">
             <choose><when test="sortOrder == 'ascending'">asc</when><otherwise>desc</otherwise></choose>
