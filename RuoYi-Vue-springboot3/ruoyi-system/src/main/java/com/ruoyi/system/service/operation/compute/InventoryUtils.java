@@ -44,6 +44,21 @@ public final class InventoryUtils
     /**
      * 货币代码 → 站点标签
      */
+    /** 领星 eBay site_code(已去前缀) → 中文站点：MOTO/US→美国, DE→德国, UK→英国 */
+    public static String siteCodeToSite(String code)
+    {
+        if (code == null) return "";
+        switch (code.toUpperCase())
+        {
+            case "US":
+            case "MOTO": return "美国";
+            case "DE": return "德国";
+            case "UK": return "英国";
+            case "FR": return "法国";
+            default: return code;
+        }
+    }
+
     public static String currencyToSite(String currency)
     {
         if (currency == null) return "";

@@ -3,6 +3,7 @@ package com.ruoyi.system.service.operation.external.lingxing;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.utils.spring.SpringUtils;
+import com.ruoyi.system.service.operation.compute.InventoryUtils;
 import com.ruoyi.system.domain.operation.external.EbayProductListing;
 import com.ruoyi.system.mapper.operation.external.EbayProductDedupMapper;
 import com.ruoyi.system.mapper.operation.external.EbayProductListingMapper;
@@ -132,7 +133,9 @@ public class LingxingEbaySyncService
             e.setListingEndTime(parseDt(getString(item, "listing_end_time", "listingEndTime")));
             e.setStoreId(getString(item, "store_id", "storeId"));
             e.setStoreName(getString(item, "store_name", "storeName"));
-            e.setSiteCode(getString(item, "site_code", "siteCode"));
+            String rawSite = stripPlatformPrefix(getString(item, "site_code", "siteCode"));
+            e.setSiteCode(rawSite);
+            e.setSiteName(InventoryUtils.siteCodeToSite(rawSite));
             e.setSiteName(getString(item, "site_name", "siteName"));
 
             if (isNew) { toInsert.add(e); existing.put(itemId, e); inserted++; }
@@ -145,6 +148,13 @@ public class LingxingEbaySyncService
     }
 
     // ---- helpers ----
+    /** 去掉领星 API 返回的 10003- 前缀，只保留 DE/UK/US */
+    private String stripPlatformPrefix(String siteCode) {
+        if (siteCode == null) return null;
+        int idx = siteCode.indexOf('-');
+        return idx >= 0 ? siteCode.substring(idx + 1) : siteCode;
+    }
+
     private String extractBaseSku(String msku)
     {
         if (msku == null || msku.isEmpty()) return "";
