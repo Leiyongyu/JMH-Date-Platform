@@ -79,7 +79,7 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
     // ========== 鍒锋柊 ==========
     @Override
     @Transactional
-    public void refreshSnapshot()
+    public int refreshSnapshot()
     {
         log.info("==== eBay姣忔棩璺熶环蹇収鍒锋柊 寮€濮?====");
         long t = System.currentTimeMillis();
@@ -91,7 +91,8 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
             for (int i = 0; i < computed.size(); i += batch)
                 mapper.batchInsert(computed.subList(i, Math.min(i + batch, computed.size())));
         }
-        log.info("==== eBay姣忔棩璺熶环蹇収鍒锋柊 瀹屾垚: {} 鏉?鑰楁椂{}ms ====", computed.size(), System.currentTimeMillis() - t);
+        log.info("==== eBay每日跟价快照刷新 完成: {} 条 耗时{}ms ====", computed.size(), System.currentTimeMillis() - t);
+        return computed.size();
     }
 
     // ========== 璺熷崠璁＄畻 ==========

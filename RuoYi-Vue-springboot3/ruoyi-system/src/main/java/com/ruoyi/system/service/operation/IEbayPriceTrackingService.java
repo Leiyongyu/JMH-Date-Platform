@@ -16,7 +16,7 @@ public interface IEbayPriceTrackingService
     List<String> distinctValues(String field, String keyword);
 
     /** 全量重算并批量写入 */
-    void refreshSnapshot();
+    int refreshSnapshot();
 
     /** 跟卖利润率 & 底线价计算 */
     Map<String, Object> calcTracking(String site, String sku, String trackingPrice);

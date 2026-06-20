@@ -11,8 +11,10 @@ export function fetchDistinctValues(field, keyword) {
 }
 
 /** 全量刷新 */
+const LONG_TIMEOUT = 600000
+
 export function refreshPriceTracking() {
-  return request({ url: '/operations/ebay/price-tracking/refresh', method: 'post' })
+  return request({ url: '/operations/ebay/price-tracking/refresh', method: 'post', timeout: LONG_TIMEOUT })
 }
 
 /** 跟卖利润率+底线价计算 */

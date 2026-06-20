@@ -73,13 +73,14 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
 
     @Override
     @Transactional
-    public void refreshSnapshot()
+    public int refreshSnapshot()
     {
         log.info("==== AMZ补货快照刷新 开始 ====");
         long t = System.currentTimeMillis();
         mapper.deleteAll();
         int rows = mapper.insertByListing();
         log.info("==== AMZ补货快照刷新 完成: {} 条 耗时{}ms ====", rows, System.currentTimeMillis() - t);
+        return rows;
     }
 
     private Map<String, Object> buildParams(EbayReplenishmentSearchRequest req)

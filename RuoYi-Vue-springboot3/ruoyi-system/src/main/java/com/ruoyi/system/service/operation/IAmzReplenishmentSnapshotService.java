@@ -10,5 +10,5 @@ public interface IAmzReplenishmentSnapshotService
     List<AmzReplenishmentSnapshot> selectAmzReplenishmentSnapshotList(AmzReplenishmentSnapshot snapshot);
     List<AmzReplenishmentSnapshot> search(EbayReplenishmentSearchRequest req);
     List<String> distinctValues(String field, String keyword);
-    void refreshSnapshot();
+    int refreshSnapshot();
 }

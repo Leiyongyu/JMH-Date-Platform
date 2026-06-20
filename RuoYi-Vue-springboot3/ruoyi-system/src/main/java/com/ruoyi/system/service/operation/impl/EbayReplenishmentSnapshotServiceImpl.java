@@ -117,7 +117,7 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
 
     @Override
     @Transactional
-    public void refreshSnapshot()
+    public int refreshSnapshot()
     {
         log.info("==== eBay补货快照刷新 开始 ====");
         long start = System.currentTimeMillis();
@@ -138,6 +138,7 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
         }
 
         log.info("==== eBay补货快照刷新 完成: {} 条 耗时{}ms ====", computed.size(), System.currentTimeMillis() - start);
+        return computed.size();
     }
 
     // ========================================================================

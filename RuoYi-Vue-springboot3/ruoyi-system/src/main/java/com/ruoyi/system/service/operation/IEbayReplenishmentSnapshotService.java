@@ -20,5 +20,5 @@ public interface IEbayReplenishmentSnapshotService
     List<String> distinctValues(String field, String keyword);
 
     /** 全量重算并批量写入快照表 */
-    void refreshSnapshot();
+    int refreshSnapshot();
 }

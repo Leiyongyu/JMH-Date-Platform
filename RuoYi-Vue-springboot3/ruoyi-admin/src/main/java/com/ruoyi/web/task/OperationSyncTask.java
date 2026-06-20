@@ -106,15 +106,15 @@ public class OperationSyncTask
     /** 13. 刷新eBay补货快照 */
     public void refreshEbayReplenishmentSnapshot() {
         executeWithLog("ebay_replenish_snapshot", "刷新eBay补货快照", "compute/ebayReplenishment",
-                () -> { SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService.class).refreshSnapshot();
-                        return OperationSyncResult.success("ebay_replenish_snapshot", "刷新eBay补货快照", "compute/ebayReplenishment", 1, 1, 0); });
+                () -> { int rows = SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService.class).refreshSnapshot();
+                        return OperationSyncResult.success("ebay_replenish_snapshot", "刷新eBay补货快照", "compute/ebayReplenishment", rows, rows, 0); });
     }
 
     /** 14. 刷新eBay跟价表 */
     public void refreshEbayPriceTrackingSnapshot() {
         executeWithLog("ebay_price_tracking_snapshot", "刷新eBay跟价表", "compute/ebayPriceTracking",
-                () -> { SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayPriceTrackingService.class).refreshSnapshot();
-                        return OperationSyncResult.success("ebay_price_tracking_snapshot", "刷新eBay跟价表", "compute/ebayPriceTracking", 1, 1, 0); });
+                () -> { int rows = SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayPriceTrackingService.class).refreshSnapshot();
+                        return OperationSyncResult.success("ebay_price_tracking_snapshot", "刷新eBay跟价表", "compute/ebayPriceTracking", rows, rows, 0); });
     }
 
     // ==================== Amazon 同步 ====================
@@ -140,8 +140,8 @@ public class OperationSyncTask
     /** 18. 刷新Amazon补货快照 */
     public void refreshAmzReplenishmentSnapshot() {
         executeWithLog("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment",
-                () -> { SpringUtils.getBean(com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService.class).refreshSnapshot();
-                        return OperationSyncResult.success("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment", 1, 1, 0); });
+                () -> { int rows = SpringUtils.getBean(com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService.class).refreshSnapshot();
+                        return OperationSyncResult.success("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment", rows, rows, 0); });
     }
 
     // ==================== 内部方法 ====================
