@@ -1,15 +1,13 @@
 import request from '@/utils/request'
 
+const LONG_TIMEOUT = 600000
+
 export function listEbayReplenishment(query) {
-  return request({
-    url: '/operations/ebay/replenishment/list',
-    method: 'get',
-    params: query
-  })
+  return request({ url: '/operations/ebay/replenishment/list', method: 'get', params: query })
 }
 
 export function refreshEbayReplenishment() {
-  return request({ url: '/operations/ebay/replenishment/refresh', method: 'post' })
+  return request({ url: '/operations/ebay/replenishment/refresh', method: 'post', timeout: LONG_TIMEOUT })
 }
 
 export function exportEbayReplenishment(query) {
