@@ -1,5 +1,6 @@
 package com.ruoyi.system.service.operation.sync;
 
+import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.common.utils.spring.SpringUtils;
 import com.ruoyi.system.service.operation.IOperationSyncLogService;
 import com.ruoyi.system.service.operation.external.lingxing.AmzOrderProfitSyncService;
@@ -42,13 +43,28 @@ public class AmzUnifiedSyncService
 
     public Map<String, Object> syncAll(String triggerType, String operator)
     {
-        return executeSteps(STEPS, "AMZ-手动拉取最新数据", triggerType, operator);
+        RedisCache redis = SpringUtils.getBean(RedisCache.class);
+        if (!redis.tryLock("lock:sync:amz", 600))
+        {
+            Map<String, Object> busy = new LinkedHashMap<>();
+            busy.put("parentStatus", "BUSY"); busy.put("msg", "AMZ数据同步正在执行中，请稍后再试");
+            return busy;
+        }
+        try { return executeSteps(STEPS, "AMZ-手动拉取最新数据", triggerType, operator); }
+        finally { redis.unlock("lock:sync:amz"); }
     }
 
     public Map<String, Object> refreshOnly(String triggerType, String operator)
     {
-        return executeSteps(REFRESH_ONLY_STEPS, "AMZ-仅刷新快照", triggerType, operator);
-    }
+        RedisCache redis = SpringUtils.getBean(RedisCache.class);
+        if (!redis.tryLock("lock:sync:amz", 300))
+        {
+            Map<String, Object> busy = new LinkedHashMap<>();
+            busy.put("parentStatus", "BUSY"); busy.put("msg", "AMZ快照刷新正在执行中，请稍后再试");
+            return busy;
+        }
+        try { return executeSteps(REFRESH_ONLY_STEPS, "AMZ-仅刷新快照", triggerType, operator); }
+        finally { redis.unlock("lock:sync:amz"); }
 
     // ==================== 内部执行引擎 ====================
 

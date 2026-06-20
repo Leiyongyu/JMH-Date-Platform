@@ -1,5 +1,6 @@
 package com.ruoyi.system.service.operation.sync;
 
+import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.common.utils.spring.SpringUtils;
 import com.ruoyi.system.service.operation.IOperationSyncLogService;
 import com.ruoyi.system.service.operation.external.goodcang.GoodcangGrnSyncService;
@@ -57,15 +58,28 @@ public class EbayUnifiedSyncService
      */
     public Map<String, Object> syncAll(String triggerType, String operator)
     {
-        return executeSteps(STEPS, "eBay-手动拉取最新数据", triggerType, operator);
+        RedisCache redis = SpringUtils.getBean(RedisCache.class);
+        if (!redis.tryLock("lock:sync:ebay", 600))
+        {
+            Map<String, Object> busy = new LinkedHashMap<>();
+            busy.put("parentStatus", "BUSY"); busy.put("msg", "eBay数据同步正在执行中，请稍后再试");
+            return busy;
+        }
+        try { return executeSteps(STEPS, "eBay-手动拉取最新数据", triggerType, operator); }
+        finally { redis.unlock("lock:sync:ebay"); }
     }
 
-    /**
-     * 仅刷新快照（不改源数据），适用于手动改了本地字段后快速重算。
-     */
     public Map<String, Object> refreshOnly(String triggerType, String operator)
     {
-        return executeSteps(REFRESH_ONLY_STEPS, "eBay-仅刷新快照", triggerType, operator);
+        RedisCache redis = SpringUtils.getBean(RedisCache.class);
+        if (!redis.tryLock("lock:sync:ebay", 300))
+        {
+            Map<String, Object> busy = new LinkedHashMap<>();
+            busy.put("parentStatus", "BUSY"); busy.put("msg", "eBay快照刷新正在执行中，请稍后再试");
+            return busy;
+        }
+        try { return executeSteps(REFRESH_ONLY_STEPS, "eBay-仅刷新快照", triggerType, operator); }
+        finally { redis.unlock("lock:sync:ebay"); }
     }
 
     // ==================== 内部执行引擎 ====================
