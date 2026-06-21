@@ -126,10 +126,11 @@ public class OperationSyncTask
         long start = System.currentTimeMillis();
         IOperationSyncLogService logService = SpringUtils.getBean(IOperationSyncLogService.class);
         Long logId = null;
+        Future<OperationSyncResult> future = null;
         OperationSyncResult result;
         try {
             logId = logService.start(syncType, syncName, apiPath, "JOB", "SYSTEM", null, null);
-            Future<OperationSyncResult> future = TIMEOUT_POOL.submit(() -> {
+            future = TIMEOUT_POOL.submit(() -> {
                 OperationSyncResult r = runner.run();
                 r.setElapsedMs(System.currentTimeMillis() - start);
                 return r;
@@ -137,9 +138,10 @@ public class OperationSyncTask
             result = future.get(TASK_TIMEOUT_MINUTES, TimeUnit.MINUTES);
             logService.finish(logId, result);
         } catch (TimeoutException e) {
+            if (future != null) future.cancel(true);
             result = OperationSyncResult.failed(syncType, syncName, apiPath,
-                    "任务执行超时(" + TASK_TIMEOUT_MINUTES + "分钟)", System.currentTimeMillis() - start);
-            LOG.error("同步任务超时 [{}] {}: 超过{}分钟", syncType, syncName, TASK_TIMEOUT_MINUTES);
+                    "任务执行超时(" + TASK_TIMEOUT_MINUTES + "分钟)，已请求取消后台任务", System.currentTimeMillis() - start);
+            LOG.error("同步任务超时 [{}] {}: 超过{}分钟，已请求取消后台任务", syncType, syncName, TASK_TIMEOUT_MINUTES);
             if (logId != null) logService.finish(logId, result);
         } catch (Exception e) {
             LOG.error("同步任务异常 [{}] {}: {}", syncType, syncName, e.getMessage(), e);

@@ -1,0 +1,17 @@
+ruoyi:
+  security:
+    public-monitor-enabled: false
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+spring:
+  datasource:
+    druid:
+      webStatFilter:
+        enabled: false
+      statViewServlet:
+        enabled: false

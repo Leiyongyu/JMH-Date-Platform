@@ -3,7 +3,15 @@ package com.ruoyi.web.controller.operation;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
@@ -20,6 +28,7 @@ public class BrandOwnerController extends BaseController
     @Autowired
     private BrandOwnerMapper brandOwnerMapper;
 
+    @PreAuthorize("@ss.hasPermi('operations:brandOwner:list')")
     @GetMapping("/list")
     public TableDataInfo list()
     {
@@ -28,15 +37,17 @@ public class BrandOwnerController extends BaseController
         return getDataTable(list);
     }
 
+    @PreAuthorize("@ss.hasPermi('operations:brandOwner:add')")
     @PostMapping
     public AjaxResult save(@RequestBody BrandOwner entity)
     {
         if (entity.getId() != null)
-            return success();
+            return error("新增品牌负责人时 ID 必须为空");
         brandOwnerMapper.insert(entity);
         return success();
     }
 
+    @PreAuthorize("@ss.hasPermi('operations:brandOwner:edit')")
     @PutMapping
     public AjaxResult update(@RequestBody BrandOwner entity)
     {
@@ -46,6 +57,7 @@ public class BrandOwnerController extends BaseController
         return success();
     }
 
+    @PreAuthorize("@ss.hasPermi('operations:brandOwner:remove')")
     @DeleteMapping("/{id}")
     public AjaxResult delete(@PathVariable Integer id)
     {
