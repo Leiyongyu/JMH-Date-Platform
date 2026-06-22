@@ -35,6 +35,7 @@
         <result property="shipQty" column="ship_qty" />
         <result property="replenishQty" column="replenish_qty" />
         <result property="restockDays" column="restock_days" />
+        <result property="regionGroup" column="region_group" />
         <result property="calcTime" column="calc_time" />
     </resultMap>
 
@@ -49,7 +50,7 @@
             sales_7d, sales_14d, sales_30d, sales_60d,
             sales_speed_14d, sales_speed_30d, sales_speed_60d,
             avg_monthly_sales, safety_stock, ship_qty, replenish_qty, restock_days,
-            calc_time, batch_no, current_flag
+            region_group, calc_time, batch_no, current_flag
         )
         SELECT
             COALESCE(pl.sid, 0) AS sid,
@@ -78,11 +79,12 @@
             MAX(rs.avg_sales_14d) AS sales_speed_14d,
             MAX(rs.avg_sales_30d) AS sales_speed_30d,
             MAX(rs.avg_sales_60d) AS sales_speed_60d,
-            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 30, 2) AS avg_monthly_sales,
-            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 90, 2) AS safety_stock,
-            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 90, 2) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) AS ship_qty,
-            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 120, 2) - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0) AS replenish_qty,
-            ROUND(((COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - ((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 120 - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0))) / NULLIF((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1), 0), 2) AS restock_days,
+            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(fc.sales_weight_14d,0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(fc.sales_weight_30d,0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(fc.sales_weight_60d,0.1)) * COALESCE(fc.month_multiplier,30), 2) AS avg_monthly_sales,
+            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(fc.sales_weight_14d,0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(fc.sales_weight_30d,0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(fc.sales_weight_60d,0.1)) * COALESCE(fc.safety_days,90), 2) AS safety_stock,
+            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(fc.sales_weight_14d,0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(fc.sales_weight_30d,0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(fc.sales_weight_60d,0.1)) * COALESCE(fc.ship_days,90), 2) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) AS ship_qty,
+            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(fc.sales_weight_14d,0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(fc.sales_weight_30d,0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(fc.sales_weight_60d,0.1)) * COALESCE(fc.replenish_days,120), 2) - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0) AS replenish_qty,
+            ROUND(((COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - ((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(fc.sales_weight_14d,0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(fc.sales_weight_30d,0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(fc.sales_weight_60d,0.1)) * COALESCE(fc.replenish_days,120) - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0))) / NULLIF((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(fc.sales_weight_14d,0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(fc.sales_weight_30d,0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(fc.sales_weight_60d,0.1)), 0), 2) AS restock_days,
+            COALESCE(fc.region_group, 'US') AS region_group,
             NOW() AS calc_time,
             #{batchNo} AS batch_no,
             0 AS current_flag
@@ -93,6 +95,7 @@
         LEFT JOIN amz_order_profit op ON op.sid = pl.sid AND op.seller_sku = pl.seller_sku
         LEFT JOIN amz_restock_summary rs ON rs.sid = pl.sid AND rs.msku = pl.seller_sku
         LEFT JOIN warehouse wh ON wh.wid = wd.wid
+        LEFT JOIN amz_replenishment_formula_config fc ON FIND_IN_SET(pl.marketplace, fc.marketplaces) > 0 AND fc.enabled = 1
         GROUP BY COALESCE(pl.sid, 0), pl.seller_sku, wd.sku
     </insert>
 
@@ -110,11 +113,14 @@
                s.fba_inbound, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,
                s.sales_speed_14d, s.sales_speed_30d, s.sales_speed_60d, s.avg_monthly_sales,
                s.safety_stock, s.ship_qty, s.replenish_qty, s.restock_days,
-               s.calc_time
+               s.region_group, s.calc_time
         FROM amz_replenishment_snapshot s
         LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = o.sid AND s.seller_sku = o.seller_sku
         <where>
             and s.current_flag = 1
+            <if test="regionGroup != null and regionGroup != ''">
+                and s.region_group = #{regionGroup}
+            </if>
             <!-- 文本字段 -->
             <if test="storeName != null and storeName != ''">
                 <choose>

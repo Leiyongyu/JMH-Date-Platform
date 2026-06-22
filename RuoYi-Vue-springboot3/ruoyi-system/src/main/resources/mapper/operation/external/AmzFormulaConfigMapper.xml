@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.AmzFormulaConfigMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.AmzFormulaConfig" id="Result">
+        <id property="id" column="id" />
+        <result property="regionGroup" column="region_group" />
+        <result property="regionName" column="region_name" />
+        <result property="marketplaces" column="marketplaces" />
+        <result property="salesWeight14d" column="sales_weight_14d" />
+        <result property="salesWeight30d" column="sales_weight_30d" />
+        <result property="salesWeight60d" column="sales_weight_60d" />
+        <result property="monthMultiplier" column="month_multiplier" />
+        <result property="safetyDays" column="safety_days" />
+        <result property="shipDays" column="ship_days" />
+        <result property="replenishDays" column="replenish_days" />
+        <result property="enabled" column="enabled" />
+        <result property="remark" column="remark" />
+        <result property="updateTime" column="update_time" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="Result">
+        SELECT * FROM amz_replenishment_formula_config ORDER BY id
+    </select>
+
+    <select id="selectById" resultMap="Result">
+        SELECT * FROM amz_replenishment_formula_config WHERE id = #{id}
+    </select>
+
+    <update id="updateById">
+        UPDATE amz_replenishment_formula_config SET
+            region_name = #{regionName},
+            marketplaces = #{marketplaces},
+            sales_weight_14d = #{salesWeight14d},
+            sales_weight_30d = #{salesWeight30d},
+            sales_weight_60d = #{salesWeight60d},
+            month_multiplier = #{monthMultiplier},
+            safety_days = #{safetyDays},
+            ship_days = #{shipDays},
+            replenish_days = #{replenishDays},
+            enabled = #{enabled},
+            remark = #{remark}
+        WHERE id = #{id}
+    </update>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO amz_replenishment_formula_config (
+            region_group, region_name, marketplaces,
+            sales_weight_14d, sales_weight_30d, sales_weight_60d,
+            month_multiplier, safety_days, ship_days, replenish_days,
+            enabled, remark
+        ) VALUES (
+            #{regionGroup}, #{regionName}, #{marketplaces},
+            #{salesWeight14d}, #{salesWeight30d}, #{salesWeight60d},
+            #{monthMultiplier}, #{safetyDays}, #{shipDays}, #{replenishDays},
+            #{enabled}, #{remark}
+        )
+    </insert>
+
+</mapper>

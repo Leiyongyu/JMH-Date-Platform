@@ -61,6 +61,19 @@
       </el-form-item>
     </el-form>
 
+    <el-row :gutter="10" class="mb8" style="display:flex;align-items:center">
+      <el-col :span="1.5">
+        <span style="font-size:13px;color:#606266;margin-right:8px">区域组：</span>
+      </el-col>
+      <el-col :span="1.5">
+        <el-radio-group v-model="regionGroup" size="small" @change="handleRegionChange">
+          <el-radio-button value="">全部</el-radio-button>
+          <el-radio-button value="US">美国组</el-radio-button>
+          <el-radio-button value="EU">欧洲组</el-radio-button>
+        </el-radio-group>
+      </el-col>
+    </el-row>
+
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
         <el-button type="primary" plain icon="RefreshRight" @click="handleSyncAll"
@@ -244,6 +257,7 @@ const columnDefs = [
   { key: 'warehouseSku', label: '仓库SKU', align: 'left', width: 170, sortable: true, tooltip: true },
   { key: 'warehouseName', label: '仓库', align: 'left', width: 170, tooltip: true },
   { key: 'asin', label: 'ASIN', align: 'center', width: 130, sortable: true, tooltip: true },
+  { key: 'regionGroup', label: '区域组', align: 'center', width: 80 },
   { key: 'principalName', label: '负责人', align: 'center', width: 120, tooltip: true },
   { key: 'productCategory', label: '产品分类', align: 'center', width: 130, format: 'productCategory' },
   { key: 'rating', label: '评分', align: 'right', width: 80, sortable: true, filterType: 'number' },
@@ -298,6 +312,9 @@ const data = reactive({
 })
 
 const { queryParams } = toRefs(data)
+const regionGroup = ref('')
+
+function handleRegionChange() { queryParams.value.pageNum = 1; getList() }
 
 // ---- 数值列头筛选 ----
 const OPERATOR_OPTIONS = [
@@ -345,6 +362,7 @@ const activeFilterTags = computed(() => {
 })
 function buildFilters() {
   const filters = []; const p = queryParams.value
+  if (regionGroup.value) filters.push({ field: 'regionGroup', value: regionGroup.value })
   if (p.storeName) filters.push({ field: 'storeName', value: p.storeName })
   if (p.sellerSku) filters.push({ field: 'sellerSku', value: p.sellerSku })
   if (p.warehouseSku) filters.push({ field: 'warehouseSku', value: p.warehouseSku })

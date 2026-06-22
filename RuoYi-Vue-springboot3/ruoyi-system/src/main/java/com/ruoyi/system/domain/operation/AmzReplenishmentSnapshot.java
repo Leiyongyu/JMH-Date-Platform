@@ -103,6 +103,8 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     @Excel(name = "补货时间")
     private BigDecimal restockDays;
 
+	private String regionGroup;
+
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date calcTime;
 
@@ -173,6 +175,8 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     public void setReplenishQty(BigDecimal replenishQty) { this.replenishQty = replenishQty; }
     public BigDecimal getRestockDays() { return restockDays; }
     public void setRestockDays(BigDecimal restockDays) { this.restockDays = restockDays; }
+	public String getRegionGroup() { return regionGroup; }
+	public void setRegionGroup(String regionGroup) { this.regionGroup = regionGroup; }
     public Date getCalcTime() { return calcTime; }
     public void setCalcTime(Date calcTime) { this.calcTime = calcTime; }
     public String getSortField() { return sortField; }

@@ -1,0 +1,54 @@
+package com.ruoyi.system.domain.operation.external;
+
+import java.io.Serializable;
+import java.math.BigDecimal;
+import java.util.Date;
+
+public class AmzFormulaConfig implements Serializable
+{
+    private static final long serialVersionUID = 1L;
+
+    private Long id;
+    private String regionGroup;
+    private String regionName;
+    private String marketplaces;
+    private BigDecimal salesWeight14d;
+    private BigDecimal salesWeight30d;
+    private BigDecimal salesWeight60d;
+    private Integer monthMultiplier;
+    private Integer safetyDays;
+    private Integer shipDays;
+    private Integer replenishDays;
+    private Integer enabled;
+    private String remark;
+    private Date updateTime;
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getRegionGroup() { return regionGroup; }
+    public void setRegionGroup(String regionGroup) { this.regionGroup = regionGroup; }
+    public String getRegionName() { return regionName; }
+    public void setRegionName(String regionName) { this.regionName = regionName; }
+    public String getMarketplaces() { return marketplaces; }
+    public void setMarketplaces(String marketplaces) { this.marketplaces = marketplaces; }
+    public BigDecimal getSalesWeight14d() { return salesWeight14d; }
+    public void setSalesWeight14d(BigDecimal v) { this.salesWeight14d = v; }
+    public BigDecimal getSalesWeight30d() { return salesWeight30d; }
+    public void setSalesWeight30d(BigDecimal v) { this.salesWeight30d = v; }
+    public BigDecimal getSalesWeight60d() { return salesWeight60d; }
+    public void setSalesWeight60d(BigDecimal v) { this.salesWeight60d = v; }
+    public Integer getMonthMultiplier() { return monthMultiplier; }
+    public void setMonthMultiplier(Integer v) { this.monthMultiplier = v; }
+    public Integer getSafetyDays() { return safetyDays; }
+    public void setSafetyDays(Integer v) { this.safetyDays = v; }
+    public Integer getShipDays() { return shipDays; }
+    public void setShipDays(Integer v) { this.shipDays = v; }
+    public Integer getReplenishDays() { return replenishDays; }
+    public void setReplenishDays(Integer v) { this.replenishDays = v; }
+    public Integer getEnabled() { return enabled; }
+    public void setEnabled(Integer enabled) { this.enabled = enabled; }
+    public String getRemark() { return remark; }
+    public void setRemark(String remark) { this.remark = remark; }
+    public Date getUpdateTime() { return updateTime; }
+    public void setUpdateTime(Date updateTime) { this.updateTime = updateTime; }
+}
