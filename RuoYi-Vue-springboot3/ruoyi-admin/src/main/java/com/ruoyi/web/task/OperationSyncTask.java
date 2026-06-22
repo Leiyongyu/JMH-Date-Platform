@@ -16,6 +16,7 @@ import com.ruoyi.system.service.operation.external.lingxing.LingxingPurchaseOrde
 import com.ruoyi.system.service.operation.external.lingxing.LingxingPurchasePlanSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingShopSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingStatementSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.AmzFbaShipmentSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingWarehouseSyncService;
 import com.ruoyi.system.service.operation.sync.OperationSyncContext;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
@@ -87,6 +88,10 @@ public class OperationSyncTask
     public void refreshAmzReplenishmentSnapshot() { exec("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment", LOCK_AMZ,
             () -> { int rows = SpringUtils.getBean(com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService.class).refreshSnapshot();
                     return OperationSyncResult.success("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment", rows, rows, 0); }); }
+
+    // ==================== FBA 货件 ====================
+    public void syncAmzFbaShipment() { exec("amz_fba_shipment", "领星-FBA货件", "erp/sc/data/fba_report/shipmentList", LOCK_AMZ,
+            () -> SpringUtils.getBean(AmzFbaShipmentSyncService.class).sync()); }
 
     // ==================== 内部方法 ====================
     private static final int TASK_TIMEOUT_MINUTES = 30;

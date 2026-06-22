@@ -71,3 +71,8 @@ VALUES (216, '领星-Amazon库存明细', 'OPERATION', 'operationSyncTask.syncAm
 
 INSERT IGNORE INTO sys_job (job_id, job_name, job_group, invoke_target, cron_expression, misfire_policy, concurrent, status, create_by, create_time, remark)
 VALUES (217, '刷新Amazon补货快照', 'OPERATION', 'operationSyncTask.refreshAmzReplenishmentSnapshot', '0 57 3 * * ?', '3', '1', '0', 'admin', NOW(), '每天03:57');
+
+-- ==================== FBA 货件 ====================
+
+INSERT IGNORE INTO sys_job (job_id, job_name, job_group, invoke_target, cron_expression, misfire_policy, concurrent, status, create_by, create_time, remark)
+VALUES (218, '领星-FBA货件', 'OPERATION', 'operationSyncTask.syncAmzFbaShipment', '0 10 4 * * ?', '3', '1', '0', 'admin', NOW(), '每天04:10');
