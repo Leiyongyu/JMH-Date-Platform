@@ -164,20 +164,6 @@ export const dynamicRoutes = [
       }
     ]
   },
-  {
-    path: '/operations/price-tracking',
-    component: Layout,
-    hidden: true,
-    permissions: ['operations:ebayReplenishment:list'],
-    children: [
-      {
-        path: 'ebay-price-tracking',
-        component: () => import('@/views/operations/ebay/priceTracking/index'),
-        name: 'EbayPriceTracking',
-        meta: { title: 'eBay每日跟价', activeMenu: '/operations/replenishment/ebay-replenishment' }
-      }
-    ]
-  },
 ]
 
 const router = createRouter({

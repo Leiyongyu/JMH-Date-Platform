@@ -103,21 +103,6 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     @Excel(name = "补货时间")
     private BigDecimal restockDays;
 
-    @Excel(name = "FBA货件单号")
-    private String fbaShipmentId;
-
-    @Excel(name = "FBA申报量")
-    private Integer fbaQuantityShipped;
-
-    @Excel(name = "FBA签收量")
-    private Integer fbaQuantityReceived;
-
-    @Excel(name = "FBA申报差异")
-    private Integer fbaDeclaredDiff;
-
-    @Excel(name = "FBA货件创建时间")
-    private Date fbaShipmentCreateTime;
-
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date calcTime;
 
@@ -188,16 +173,6 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     public void setReplenishQty(BigDecimal replenishQty) { this.replenishQty = replenishQty; }
     public BigDecimal getRestockDays() { return restockDays; }
     public void setRestockDays(BigDecimal restockDays) { this.restockDays = restockDays; }
-    public String getFbaShipmentId() { return fbaShipmentId; }
-    public void setFbaShipmentId(String fbaShipmentId) { this.fbaShipmentId = fbaShipmentId; }
-    public Integer getFbaQuantityShipped() { return fbaQuantityShipped; }
-    public void setFbaQuantityShipped(Integer fbaQuantityShipped) { this.fbaQuantityShipped = fbaQuantityShipped; }
-    public Integer getFbaQuantityReceived() { return fbaQuantityReceived; }
-    public void setFbaQuantityReceived(Integer fbaQuantityReceived) { this.fbaQuantityReceived = fbaQuantityReceived; }
-    public Integer getFbaDeclaredDiff() { return fbaDeclaredDiff; }
-    public void setFbaDeclaredDiff(Integer fbaDeclaredDiff) { this.fbaDeclaredDiff = fbaDeclaredDiff; }
-    public Date getFbaShipmentCreateTime() { return fbaShipmentCreateTime; }
-    public void setFbaShipmentCreateTime(Date fbaShipmentCreateTime) { this.fbaShipmentCreateTime = fbaShipmentCreateTime; }
     public Date getCalcTime() { return calcTime; }
     public void setCalcTime(Date calcTime) { this.calcTime = calcTime; }
     public String getSortField() { return sortField; }
