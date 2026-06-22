@@ -5,6 +5,7 @@
     <resultMap type="com.ruoyi.system.domain.operation.external.AmzFbaShipment" id="Result">
         <id property="id" column="id" />
         <result property="sid" column="sid" />
+        <result property="storeName" column="store_name" />
         <result property="username" column="username" />
         <result property="shipmentId" column="shipment_id" />
         <result property="shipmentName" column="shipment_name" />
@@ -83,13 +84,20 @@
     </insert>
 
     <select id="search" resultMap="Result">
-        SELECT * FROM amz_fba_shipment
+        SELECT s.*, sl.store_name
+        FROM amz_fba_shipment s
+        LEFT JOIN shop_list sl ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = sl.sid AND sl.platform_code = '10001'
         <where>
-            <if test="params.sid != null and params.sid != ''"> and sid = #{params.sid} </if>
-            <if test="params.shipmentId != null and params.shipmentId != ''"> and shipment_id like concat('%', #{params.shipmentId}, '%') </if>
-            <if test="params.sku != null and params.sku != ''"> and sku like concat('%', #{params.sku}, '%') </if>
-            <if test="params.msku != null and params.msku != ''"> and msku like concat('%', #{params.msku}, '%') </if>
-            <if test="params.username != null and params.username != ''"> and username like concat('%', #{params.username}, '%') </if>
+            and s.username IS NOT NULL and s.username != ''
+            <if test="params.storeName != null and params.storeName != ''"> and sl.store_name like concat('%', #{params.storeName}, '%') </if>
+            <if test="params.shipmentId != null and params.shipmentId != ''"> and s.shipment_id like concat('%', #{params.shipmentId}, '%') </if>
+            <if test="params.sku != null and params.sku != ''"> and s.sku like concat('%', #{params.sku}, '%') </if>
+            <if test="params.msku != null and params.msku != ''"> and s.msku like concat('%', #{params.msku}, '%') </if>
+            <if test="params.username != null and params.username != ''"> and s.username like concat('%', #{params.username}, '%') </if>
+            <if test="params.gmtCreateStart != null"> and s.gmt_create &gt;= #{params.gmtCreateStart} </if>
+            <if test="params.gmtCreateEnd != null"> and s.gmt_create &lt;= #{params.gmtCreateEnd} </if>
+            <if test="params.gmtModifiedStart != null"> and s.gmt_modified &gt;= #{params.gmtModifiedStart} </if>
+            <if test="params.gmtModifiedEnd != null"> and s.gmt_modified &lt;= #{params.gmtModifiedEnd} </if>
             <!-- 数值 -->
             <if test="params.sid_op != null"><choose>
                 <when test="params.sid_op == 'between' and params.sid_val != null and params.sid_val2 != null"> and sid between #{params.sid_val} and #{params.sid_val2} </when>
@@ -129,14 +137,13 @@
             </choose></if>
         </where>
         <choose>
-            <when test="params.sortField == 'sid'">order by sid</when>
-            <when test="params.sortField == 'shipmentId'">order by shipment_id</when>
-            <when test="params.sortField == 'sku'">order by sku</when>
-            <when test="params.sortField == 'quantityShipped'">order by quantity_shipped</when>
-            <when test="params.sortField == 'quantityReceived'">order by quantity_received</when>
-            <when test="params.sortField == 'declaredDiff'">order by declared_diff</when>
-            <when test="params.sortField == 'gmtCreate'">order by gmt_create</when>
-            <otherwise>order by gmt_create desc, shipment_id, sku</otherwise>
+            <when test="params.sortField == 'shipmentId'">order by s.shipment_id</when>
+            <when test="params.sortField == 'sku'">order by s.sku</when>
+            <when test="params.sortField == 'quantityShipped'">order by s.quantity_shipped</when>
+            <when test="params.sortField == 'quantityReceived'">order by s.quantity_received</when>
+            <when test="params.sortField == 'declaredDiff'">order by s.declared_diff</when>
+            <when test="params.sortField == 'gmtCreate'">order by s.gmt_create</when>
+            <otherwise>order by s.gmt_create desc, s.shipment_id, s.sku</otherwise>
         </choose>
         <choose>
             <when test="params.sortOrder == 'ascending'">asc</when>

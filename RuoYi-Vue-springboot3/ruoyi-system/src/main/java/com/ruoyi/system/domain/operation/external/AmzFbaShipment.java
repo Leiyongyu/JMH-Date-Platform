@@ -12,6 +12,7 @@ public class AmzFbaShipment implements Serializable
 
     private Long id;
     private Integer sid;
+    private String storeName;
     private String username;
     private String shipmentId;
     private String shipmentName;
@@ -30,6 +31,8 @@ public class AmzFbaShipment implements Serializable
     public void setId(Long id) { this.id = id; }
     public Integer getSid() { return sid; }
     public void setSid(Integer sid) { this.sid = sid; }
+    public String getStoreName() { return storeName; }
+    public void setStoreName(String storeName) { this.storeName = storeName; }
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }
     public String getShipmentId() { return shipmentId; }

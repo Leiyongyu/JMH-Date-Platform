@@ -17,11 +17,13 @@ public class AmzFbaShipmentServiceImpl implements IAmzFbaShipmentService
         "declaredDiff", "gmtCreate"
     );
     private static final Set<String> TEXT_FIELDS = Set.of(
-        "shipmentId", "sku", "msku", "username"
+        "shipmentId", "sku", "msku", "storeName", "username"
+    );
+    private static final Set<String> DATE_FIELDS = Set.of(
+        "gmtCreateStart", "gmtCreateEnd", "gmtModifiedStart", "gmtModifiedEnd"
     );
     private static final Map<String, String> NUM_MAP = new LinkedHashMap<>();
     static {
-        NUM_MAP.put("sid", "sid");
         NUM_MAP.put("quantityShipped", "quantity_shipped");
         NUM_MAP.put("quantityReceived", "quantity_received");
         NUM_MAP.put("quantityShippedLocal", "quantity_shipped_local");
@@ -56,6 +58,11 @@ public class AmzFbaShipmentServiceImpl implements IAmzFbaShipmentService
             {
                 if (!StringUtils.hasText(f.getValue())) continue;
                 p.put(field, f.getValue().trim());
+                continue;
+            }
+            if (DATE_FIELDS.contains(field))
+            {
+                if (StringUtils.hasText(f.getValue())) p.put(field, f.getValue().trim() + " 00:00:00");
                 continue;
             }
             if (NUM_MAP.containsKey(field)) parseNum(p, field, f);

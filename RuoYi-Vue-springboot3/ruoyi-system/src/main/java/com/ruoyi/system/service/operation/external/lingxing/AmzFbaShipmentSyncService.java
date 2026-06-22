@@ -83,11 +83,11 @@ public class AmzFbaShipmentSyncService
                 {
                     Integer sid = intVal(shipment, "sid");
                     String username = str(shipment, "username");
+                    if (sid == null) continue;
                     String shipmentId = str(shipment, "shipment_id");
                     String shipmentName = str(shipment, "shipment_name");
                     Date gmtCreate = parseDt(str(shipment, "gmt_create"));
                     Date gmtModified = parseDt(str(shipment, "gmt_modified"));
-                    if (sid == null) continue;
 
                     @SuppressWarnings("unchecked")
                     List<Map<String, Object>> items = (List<Map<String, Object>>) shipment.get("item_list");
