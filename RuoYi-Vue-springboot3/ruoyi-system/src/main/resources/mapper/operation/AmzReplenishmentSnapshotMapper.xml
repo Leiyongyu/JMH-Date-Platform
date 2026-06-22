@@ -35,6 +35,11 @@
         <result property="shipQty" column="ship_qty" />
         <result property="replenishQty" column="replenish_qty" />
         <result property="restockDays" column="restock_days" />
+        <result property="fbaShipmentId" column="fba_shipment_id" />
+        <result property="fbaQuantityShipped" column="fba_quantity_shipped" />
+        <result property="fbaQuantityReceived" column="fba_quantity_received" />
+        <result property="fbaDeclaredDiff" column="fba_declared_diff" />
+        <result property="fbaShipmentCreateTime" column="fba_shipment_create_time" />
         <result property="calcTime" column="calc_time" />
     </resultMap>
 
@@ -48,8 +53,9 @@
             purchased_qty, domestic_stock, pending_ship_qty, fba_stock, fba_inbound, total_inventory,
             sales_7d, sales_14d, sales_30d, sales_60d,
             sales_speed_14d, sales_speed_30d, sales_speed_60d,
-            avg_monthly_sales, safety_stock, ship_qty, replenish_qty, restock_days, calc_time,
-            batch_no, current_flag
+            avg_monthly_sales, safety_stock, ship_qty, replenish_qty, restock_days,
+            fba_shipment_id, fba_quantity_shipped, fba_quantity_received, fba_declared_diff, fba_shipment_create_time,
+            calc_time, batch_no, current_flag
         )
         SELECT
             COALESCE(pl.sid, 0) AS sid,
@@ -83,6 +89,11 @@
             ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 90, 2) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) AS ship_qty,
             ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 120, 2) - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0) AS replenish_qty,
             ROUND(((COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - ((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 120 - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0))) / NULLIF((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1), 0), 2) AS restock_days,
+            ANY_VALUE(COALESCE(fba.fba_shipment_id, ''))          AS fba_shipment_id,
+            ANY_VALUE(COALESCE(fba.fba_quantity_shipped, 0))       AS fba_quantity_shipped,
+            ANY_VALUE(COALESCE(fba.fba_quantity_received, 0))      AS fba_quantity_received,
+            ANY_VALUE(COALESCE(fba.fba_declared_diff, 0))          AS fba_declared_diff,
+            ANY_VALUE(fba.fba_shipment_create_time)                AS fba_shipment_create_time,
             NOW() AS calc_time,
             #{batchNo} AS batch_no,
             0 AS current_flag
@@ -93,6 +104,21 @@
         LEFT JOIN amz_order_profit op ON op.sid = pl.sid AND op.seller_sku = pl.seller_sku
         LEFT JOIN amz_restock_summary rs ON rs.sid = pl.sid AND rs.msku = pl.seller_sku
         LEFT JOIN warehouse wh ON wh.wid = wd.wid
+        LEFT JOIN (
+            SELECT t.sid, t.msku COLLATE utf8mb4_unicode_ci AS msku,
+                   ANY_VALUE(t.shipment_id)      AS fba_shipment_id,
+                   ANY_VALUE(t.quantity_shipped)  AS fba_quantity_shipped,
+                   ANY_VALUE(t.quantity_received) AS fba_quantity_received,
+                   ANY_VALUE(t.declared_diff)     AS fba_declared_diff,
+                   ANY_VALUE(t.gmt_create)        AS fba_shipment_create_time
+            FROM amz_fba_shipment t
+            INNER JOIN (
+                SELECT sid, msku, MAX(gmt_create) AS max_gmt
+                FROM amz_fba_shipment
+                GROUP BY sid, msku
+            ) latest ON t.sid = latest.sid AND t.msku = latest.msku AND t.gmt_create = latest.max_gmt
+            GROUP BY t.sid, t.msku
+        ) fba ON fba.sid = pl.sid AND fba.msku = pl.seller_sku
         GROUP BY COALESCE(pl.sid, 0), pl.seller_sku, wd.sku
     </insert>
 
@@ -109,7 +135,9 @@
                s.domestic_stock, s.pending_ship_qty, s.fba_stock,
                s.fba_inbound, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,
                s.sales_speed_14d, s.sales_speed_30d, s.sales_speed_60d, s.avg_monthly_sales,
-               s.safety_stock, s.ship_qty, s.replenish_qty, s.restock_days, s.calc_time
+               s.safety_stock, s.ship_qty, s.replenish_qty, s.restock_days,
+               s.fba_shipment_id, s.fba_quantity_shipped, s.fba_quantity_received, s.fba_declared_diff, s.fba_shipment_create_time,
+               s.calc_time
         FROM amz_replenishment_snapshot s
         LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = o.sid AND s.seller_sku = o.seller_sku
         <where>

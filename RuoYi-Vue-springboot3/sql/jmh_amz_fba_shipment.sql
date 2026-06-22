@@ -28,4 +28,4 @@ CREATE TABLE `amz_fba_shipment` (
     KEY `idx_sid` (`sid`),
     KEY `idx_shipment_id` (`shipment_id`),
     KEY `idx_msku` (`msku`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Amazon FBA货件明细表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Amazon FBA货件明细表';
