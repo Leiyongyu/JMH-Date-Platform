@@ -117,7 +117,7 @@
             <!-- 文本字段 -->
             <if test="storeName != null and storeName != ''">
                 <choose>
-                    <when test="storeName.contains(',')">and s.store_name in <foreach collection="storeName.split(',')" item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <when test='storeName.contains(",")'>and s.store_name in <foreach collection='storeName.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
                     <otherwise>and s.store_name like concat('%', #{storeName}, '%')</otherwise>
                 </choose>
             </if>
@@ -128,32 +128,222 @@
             <if test="productCategory != null and productCategory != ''">and COALESCE(o.product_category, s.product_category) like concat('%', #{productCategory}, '%')</if>
             <if test="warehouseName != null and warehouseName != ''">and s.warehouse_name like concat('%', #{warehouseName}, '%')</if>
             <!-- 数值字段 -->
-            <include refid="num"><property name="col" value="rating"/><property name="op" value="rating_op"/><property name="val" value="rating_val"/></include>
-            <include refid="num"><property name="col" value="review_count"/><property name="op" value="review_count_op"/><property name="val" value="review_count_val"/></include>
-            <include refid="num"><property name="col" value="ad_rate"/><property name="op" value="ad_rate_op"/><property name="val" value="ad_rate_val"/></include>
-            <include refid="num"><property name="col" value="profit_rate_30d"/><property name="op" value="profit_rate_30d_op"/><property name="val" value="profit_rate_30d_val"/></include>
-            <include refid="num"><property name="col" value="refund_rate_90d"/><property name="op" value="refund_rate_90d_op"/><property name="val" value="refund_rate_90d_val"/></include>
-            <include refid="num"><property name="col" value="purchased_qty"/><property name="op" value="purchased_qty_op"/><property name="val" value="purchased_qty_val"/></include>
-            <include refid="num"><property name="col" value="domestic_stock"/><property name="op" value="domestic_stock_op"/><property name="val" value="domestic_stock_val"/></include>
-            <include refid="num"><property name="col" value="pending_ship_qty"/><property name="op" value="pending_ship_qty_op"/><property name="val" value="pending_ship_qty_val"/></include>
-            <include refid="num"><property name="col" value="fba_stock"/><property name="op" value="fba_stock_op"/><property name="val" value="fba_stock_val"/></include>
-            <include refid="num"><property name="col" value="fba_inbound"/><property name="op" value="fba_inbound_op"/><property name="val" value="fba_inbound_val"/></include>
-            <include refid="num"><property name="col" value="total_inventory"/><property name="op" value="total_inventory_op"/><property name="val" value="total_inventory_val"/></include>
-            <include refid="num"><property name="col" value="sales_7d"/><property name="op" value="sales_7d_op"/><property name="val" value="sales_7d_val"/></include>
-            <include refid="num"><property name="col" value="sales_14d"/><property name="op" value="sales_14d_op"/><property name="val" value="sales_14d_val"/></include>
-            <include refid="num"><property name="col" value="sales_30d"/><property name="op" value="sales_30d_op"/><property name="val" value="sales_30d_val"/></include>
-            <include refid="num"><property name="col" value="sales_60d"/><property name="op" value="sales_60d_op"/><property name="val" value="sales_60d_val"/></include>
-            <include refid="num"><property name="col" value="avg_monthly_sales"/><property name="op" value="avg_monthly_sales_op"/><property name="val" value="avg_monthly_sales_val"/></include>
-            <include refid="num"><property name="col" value="safety_stock"/><property name="op" value="safety_stock_op"/><property name="val" value="safety_stock_val"/></include>
-            <include refid="num"><property name="col" value="ship_qty"/><property name="op" value="ship_qty_op"/><property name="val" value="ship_qty_val"/></include>
-            <include refid="num"><property name="col" value="replenish_qty"/><property name="op" value="replenish_qty_op"/><property name="val" value="replenish_qty_val"/></include>
-            <include refid="num"><property name="col" value="restock_days"/><property name="op" value="restock_days_op"/><property name="val" value="restock_days_val"/></include>
+            <if test="rating_op != null">
+                <choose>
+                    <when test="rating_op == 'between' and rating_val != null and rating_val2 != null">
+                        and rating between #{rating_val} and #{rating_val2}
+                    </when>
+                    <when test="rating_op == 'isNull'"> and rating is null </when>
+                    <when test="rating_op == 'isNotNull'"> and rating is not null </when>
+                    <when test="rating_val != null"> and rating ${rating_op} #{rating_val} </when>
+                </choose>
+            </if>
+            <if test="review_count_op != null">
+                <choose>
+                    <when test="review_count_op == 'between' and review_count_val != null and review_count_val2 != null">
+                        and review_count between #{review_count_val} and #{review_count_val2}
+                    </when>
+                    <when test="review_count_op == 'isNull'"> and review_count is null </when>
+                    <when test="review_count_op == 'isNotNull'"> and review_count is not null </when>
+                    <when test="review_count_val != null"> and review_count ${review_count_op} #{review_count_val} </when>
+                </choose>
+            </if>
+            <if test="ad_rate_op != null">
+                <choose>
+                    <when test="ad_rate_op == 'between' and ad_rate_val != null and ad_rate_val2 != null">
+                        and ad_rate between #{ad_rate_val} and #{ad_rate_val2}
+                    </when>
+                    <when test="ad_rate_op == 'isNull'"> and ad_rate is null </when>
+                    <when test="ad_rate_op == 'isNotNull'"> and ad_rate is not null </when>
+                    <when test="ad_rate_val != null"> and ad_rate ${ad_rate_op} #{ad_rate_val} </when>
+                </choose>
+            </if>
+            <if test="profit_rate_30d_op != null">
+                <choose>
+                    <when test="profit_rate_30d_op == 'between' and profit_rate_30d_val != null and profit_rate_30d_val2 != null">
+                        and profit_rate_30d between #{profit_rate_30d_val} and #{profit_rate_30d_val2}
+                    </when>
+                    <when test="profit_rate_30d_op == 'isNull'"> and profit_rate_30d is null </when>
+                    <when test="profit_rate_30d_op == 'isNotNull'"> and profit_rate_30d is not null </when>
+                    <when test="profit_rate_30d_val != null"> and profit_rate_30d ${profit_rate_30d_op} #{profit_rate_30d_val} </when>
+                </choose>
+            </if>
+            <if test="refund_rate_90d_op != null">
+                <choose>
+                    <when test="refund_rate_90d_op == 'between' and refund_rate_90d_val != null and refund_rate_90d_val2 != null">
+                        and refund_rate_90d between #{refund_rate_90d_val} and #{refund_rate_90d_val2}
+                    </when>
+                    <when test="refund_rate_90d_op == 'isNull'"> and refund_rate_90d is null </when>
+                    <when test="refund_rate_90d_op == 'isNotNull'"> and refund_rate_90d is not null </when>
+                    <when test="refund_rate_90d_val != null"> and refund_rate_90d ${refund_rate_90d_op} #{refund_rate_90d_val} </when>
+                </choose>
+            </if>
+            <if test="purchased_qty_op != null">
+                <choose>
+                    <when test="purchased_qty_op == 'between' and purchased_qty_val != null and purchased_qty_val2 != null">
+                        and purchased_qty between #{purchased_qty_val} and #{purchased_qty_val2}
+                    </when>
+                    <when test="purchased_qty_op == 'isNull'"> and purchased_qty is null </when>
+                    <when test="purchased_qty_op == 'isNotNull'"> and purchased_qty is not null </when>
+                    <when test="purchased_qty_val != null"> and purchased_qty ${purchased_qty_op} #{purchased_qty_val} </when>
+                </choose>
+            </if>
+            <if test="domestic_stock_op != null">
+                <choose>
+                    <when test="domestic_stock_op == 'between' and domestic_stock_val != null and domestic_stock_val2 != null">
+                        and domestic_stock between #{domestic_stock_val} and #{domestic_stock_val2}
+                    </when>
+                    <when test="domestic_stock_op == 'isNull'"> and domestic_stock is null </when>
+                    <when test="domestic_stock_op == 'isNotNull'"> and domestic_stock is not null </when>
+                    <when test="domestic_stock_val != null"> and domestic_stock ${domestic_stock_op} #{domestic_stock_val} </when>
+                </choose>
+            </if>
+            <if test="pending_ship_qty_op != null">
+                <choose>
+                    <when test="pending_ship_qty_op == 'between' and pending_ship_qty_val != null and pending_ship_qty_val2 != null">
+                        and pending_ship_qty between #{pending_ship_qty_val} and #{pending_ship_qty_val2}
+                    </when>
+                    <when test="pending_ship_qty_op == 'isNull'"> and pending_ship_qty is null </when>
+                    <when test="pending_ship_qty_op == 'isNotNull'"> and pending_ship_qty is not null </when>
+                    <when test="pending_ship_qty_val != null"> and pending_ship_qty ${pending_ship_qty_op} #{pending_ship_qty_val} </when>
+                </choose>
+            </if>
+            <if test="fba_stock_op != null">
+                <choose>
+                    <when test="fba_stock_op == 'between' and fba_stock_val != null and fba_stock_val2 != null">
+                        and fba_stock between #{fba_stock_val} and #{fba_stock_val2}
+                    </when>
+                    <when test="fba_stock_op == 'isNull'"> and fba_stock is null </when>
+                    <when test="fba_stock_op == 'isNotNull'"> and fba_stock is not null </when>
+                    <when test="fba_stock_val != null"> and fba_stock ${fba_stock_op} #{fba_stock_val} </when>
+                </choose>
+            </if>
+            <if test="fba_inbound_op != null">
+                <choose>
+                    <when test="fba_inbound_op == 'between' and fba_inbound_val != null and fba_inbound_val2 != null">
+                        and fba_inbound between #{fba_inbound_val} and #{fba_inbound_val2}
+                    </when>
+                    <when test="fba_inbound_op == 'isNull'"> and fba_inbound is null </when>
+                    <when test="fba_inbound_op == 'isNotNull'"> and fba_inbound is not null </when>
+                    <when test="fba_inbound_val != null"> and fba_inbound ${fba_inbound_op} #{fba_inbound_val} </when>
+                </choose>
+            </if>
+            <if test="total_inventory_op != null">
+                <choose>
+                    <when test="total_inventory_op == 'between' and total_inventory_val != null and total_inventory_val2 != null">
+                        and total_inventory between #{total_inventory_val} and #{total_inventory_val2}
+                    </when>
+                    <when test="total_inventory_op == 'isNull'"> and total_inventory is null </when>
+                    <when test="total_inventory_op == 'isNotNull'"> and total_inventory is not null </when>
+                    <when test="total_inventory_val != null"> and total_inventory ${total_inventory_op} #{total_inventory_val} </when>
+                </choose>
+            </if>
+            <if test="sales_7d_op != null">
+                <choose>
+                    <when test="sales_7d_op == 'between' and sales_7d_val != null and sales_7d_val2 != null">
+                        and sales_7d between #{sales_7d_val} and #{sales_7d_val2}
+                    </when>
+                    <when test="sales_7d_op == 'isNull'"> and sales_7d is null </when>
+                    <when test="sales_7d_op == 'isNotNull'"> and sales_7d is not null </when>
+                    <when test="sales_7d_val != null"> and sales_7d ${sales_7d_op} #{sales_7d_val} </when>
+                </choose>
+            </if>
+            <if test="sales_14d_op != null">
+                <choose>
+                    <when test="sales_14d_op == 'between' and sales_14d_val != null and sales_14d_val2 != null">
+                        and sales_14d between #{sales_14d_val} and #{sales_14d_val2}
+                    </when>
+                    <when test="sales_14d_op == 'isNull'"> and sales_14d is null </when>
+                    <when test="sales_14d_op == 'isNotNull'"> and sales_14d is not null </when>
+                    <when test="sales_14d_val != null"> and sales_14d ${sales_14d_op} #{sales_14d_val} </when>
+                </choose>
+            </if>
+            <if test="sales_30d_op != null">
+                <choose>
+                    <when test="sales_30d_op == 'between' and sales_30d_val != null and sales_30d_val2 != null">
+                        and sales_30d between #{sales_30d_val} and #{sales_30d_val2}
+                    </when>
+                    <when test="sales_30d_op == 'isNull'"> and sales_30d is null </when>
+                    <when test="sales_30d_op == 'isNotNull'"> and sales_30d is not null </when>
+                    <when test="sales_30d_val != null"> and sales_30d ${sales_30d_op} #{sales_30d_val} </when>
+                </choose>
+            </if>
+            <if test="sales_60d_op != null">
+                <choose>
+                    <when test="sales_60d_op == 'between' and sales_60d_val != null and sales_60d_val2 != null">
+                        and sales_60d between #{sales_60d_val} and #{sales_60d_val2}
+                    </when>
+                    <when test="sales_60d_op == 'isNull'"> and sales_60d is null </when>
+                    <when test="sales_60d_op == 'isNotNull'"> and sales_60d is not null </when>
+                    <when test="sales_60d_val != null"> and sales_60d ${sales_60d_op} #{sales_60d_val} </when>
+                </choose>
+            </if>
+            <if test="avg_monthly_sales_op != null">
+                <choose>
+                    <when test="avg_monthly_sales_op == 'between' and avg_monthly_sales_val != null and avg_monthly_sales_val2 != null">
+                        and avg_monthly_sales between #{avg_monthly_sales_val} and #{avg_monthly_sales_val2}
+                    </when>
+                    <when test="avg_monthly_sales_op == 'isNull'"> and avg_monthly_sales is null </when>
+                    <when test="avg_monthly_sales_op == 'isNotNull'"> and avg_monthly_sales is not null </when>
+                    <when test="avg_monthly_sales_val != null"> and avg_monthly_sales ${avg_monthly_sales_op} #{avg_monthly_sales_val} </when>
+                </choose>
+            </if>
+            <if test="safety_stock_op != null">
+                <choose>
+                    <when test="safety_stock_op == 'between' and safety_stock_val != null and safety_stock_val2 != null">
+                        and safety_stock between #{safety_stock_val} and #{safety_stock_val2}
+                    </when>
+                    <when test="safety_stock_op == 'isNull'"> and safety_stock is null </when>
+                    <when test="safety_stock_op == 'isNotNull'"> and safety_stock is not null </when>
+                    <when test="safety_stock_val != null"> and safety_stock ${safety_stock_op} #{safety_stock_val} </when>
+                </choose>
+            </if>
+            <if test="ship_qty_op != null">
+                <choose>
+                    <when test="ship_qty_op == 'between' and ship_qty_val != null and ship_qty_val2 != null">
+                        and ship_qty between #{ship_qty_val} and #{ship_qty_val2}
+                    </when>
+                    <when test="ship_qty_op == 'isNull'"> and ship_qty is null </when>
+                    <when test="ship_qty_op == 'isNotNull'"> and ship_qty is not null </when>
+                    <when test="ship_qty_val != null"> and ship_qty ${ship_qty_op} #{ship_qty_val} </when>
+                </choose>
+            </if>
+            <if test="replenish_qty_op != null">
+                <choose>
+                    <when test="replenish_qty_op == 'between' and replenish_qty_val != null and replenish_qty_val2 != null">
+                        and replenish_qty between #{replenish_qty_val} and #{replenish_qty_val2}
+                    </when>
+                    <when test="replenish_qty_op == 'isNull'"> and replenish_qty is null </when>
+                    <when test="replenish_qty_op == 'isNotNull'"> and replenish_qty is not null </when>
+                    <when test="replenish_qty_val != null"> and replenish_qty ${replenish_qty_op} #{replenish_qty_val} </when>
+                </choose>
+            </if>
+            <if test="restock_days_op != null">
+                <choose>
+                    <when test="restock_days_op == 'between' and restock_days_val != null and restock_days_val2 != null">
+                        and restock_days between #{restock_days_val} and #{restock_days_val2}
+                    </when>
+                    <when test="restock_days_op == 'isNull'"> and restock_days is null </when>
+                    <when test="restock_days_op == 'isNotNull'"> and restock_days is not null </when>
+                    <when test="restock_days_val != null"> and restock_days ${restock_days_op} #{restock_days_val} </when>
+                </choose>
+            </if>
         </where>
         <include refid="sortClause"/>
     </select>
 
     <sql id="num">
-        <if test="${op} != null and ${val} != null">and ${col} ${op} #{${val}}</if>
+        
+        <if test="${op} != null">
+            <choose>
+                <when test="${op} == 'between' and ${val} != null and ${val2} != null">
+                    and ${col} between #{${val}} and #{${val2}}
+                </when>
+                <when test="${op} == 'isNull'"> and ${col} is null </when>
+                <when test="${op} == 'isNotNull'"> and ${col} is not null </when>
+                <when test="${val} != null"> and ${col} ${${op}} #{${val}} </when>
+            </choose>
+        </if>
     </sql>
 
     <!-- distinct 候选值 -->

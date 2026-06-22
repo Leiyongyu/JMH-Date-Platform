@@ -58,16 +58,16 @@
             <!-- ====== 文本字段 ====== -->
             <if test="site != null and site != ''">
                 <choose>
-                    <when test="site.contains(',')">
+                    <when test='site.contains(",")'>
                         and site in
-                        <foreach collection="site.split(',')" item="it" open="(" separator="," close=")">#{it}</foreach>
+                        <foreach collection='site.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach>
                     </when>
                     <otherwise>and site like concat('%', #{site}, '%')</otherwise>
                 </choose>
             </if>
             <if test="sku != null and sku != ''">
                 <choose>
-                    <when test="sku.contains(',')">and sku in <foreach collection="sku.split(',')" item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <when test='sku.contains(",")'>and sku in <foreach collection='sku.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
                     <otherwise>and sku like concat('%', #{sku}, '%')</otherwise>
                 </choose>
             </if>
@@ -76,7 +76,7 @@
             </if>
             <if test="skuLevel != null and skuLevel != ''">
                 <choose>
-                    <when test="skuLevel.contains(',')">and sku_level in <foreach collection="skuLevel.split(',')" item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <when test='skuLevel.contains(",")'>and sku_level in <foreach collection='skuLevel.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
                     <otherwise>and sku_level = #{skuLevel}</otherwise>
                 </choose>
             </if>
@@ -84,72 +84,226 @@
                 and owner_name like concat('%', #{ownerName}, '%')
             </if>
 
-            <!-- ====== 数值字段：每个字段有 {col}_op 和 {col}_val ====== -->
-            <if test="overseasOnway_op != null and overseasOnway_val != null">
-                and overseas_onway ${overseasOnway_op} #{overseasOnway_val}
+            <!-- ====== 数值字段：支持 between / isNull / isNotNull / 常规比较 ====== -->
+            <if test="overseasOnway_op != null">
+                <choose>
+                    <when test="overseasOnway_op == 'between' and overseasOnway_val != null and overseasOnway_val2 != null">
+                        and overseas_onway between #{overseasOnway_val} and #{overseasOnway_val2}
+                    </when>
+                    <when test="overseasOnway_op == 'isNull'"> and overseas_onway is null </when>
+                    <when test="overseasOnway_op == 'isNotNull'"> and overseas_onway is not null </when>
+                    <when test="overseasOnway_val != null"> and overseas_onway ${overseasOnway_op} #{overseasOnway_val} </when>
+                </choose>
             </if>
-            <if test="overseasSellable_op != null and overseasSellable_val != null">
-                and overseas_sellable ${overseasSellable_op} #{overseasSellable_val}
+            <if test="overseasSellable_op != null">
+                <choose>
+                    <when test="overseasSellable_op == 'between' and overseasSellable_val != null and overseasSellable_val2 != null">
+                        and overseas_sellable between #{overseasSellable_val} and #{overseasSellable_val2}
+                    </when>
+                    <when test="overseasSellable_op == 'isNull'"> and overseas_sellable is null </when>
+                    <when test="overseasSellable_op == 'isNotNull'"> and overseas_sellable is not null </when>
+                    <when test="overseasSellable_val != null"> and overseas_sellable ${overseasSellable_op} #{overseasSellable_val} </when>
+                </choose>
             </if>
-            <if test="overseasTotal_op != null and overseasTotal_val != null">
-                and overseas_total ${overseasTotal_op} #{overseasTotal_val}
+            <if test="overseasTotal_op != null">
+                <choose>
+                    <when test="overseasTotal_op == 'between' and overseasTotal_val != null and overseasTotal_val2 != null">
+                        and overseas_total between #{overseasTotal_val} and #{overseasTotal_val2}
+                    </when>
+                    <when test="overseasTotal_op == 'isNull'"> and overseas_total is null </when>
+                    <when test="overseasTotal_op == 'isNotNull'"> and overseas_total is not null </when>
+                    <when test="overseasTotal_val != null"> and overseas_total ${overseasTotal_op} #{overseasTotal_val} </when>
+                </choose>
             </if>
-            <if test="totalInventory_op != null and totalInventory_val != null">
-                and total_inventory ${totalInventory_op} #{totalInventory_val}
+            <if test="totalInventory_op != null">
+                <choose>
+                    <when test="totalInventory_op == 'between' and totalInventory_val != null and totalInventory_val2 != null">
+                        and total_inventory between #{totalInventory_val} and #{totalInventory_val2}
+                    </when>
+                    <when test="totalInventory_op == 'isNull'"> and total_inventory is null </when>
+                    <when test="totalInventory_op == 'isNotNull'"> and total_inventory is not null </when>
+                    <when test="totalInventory_val != null"> and total_inventory ${totalInventory_op} #{totalInventory_val} </when>
+                </choose>
             </if>
-            <if test="sales7d_op != null and sales7d_val != null">
-                and sales_7d ${sales7d_op} #{sales7d_val}
+            <if test="sales7d_op != null">
+                <choose>
+                    <when test="sales7d_op == 'between' and sales7d_val != null and sales7d_val2 != null">
+                        and sales_7d between #{sales7d_val} and #{sales7d_val2}
+                    </when>
+                    <when test="sales7d_op == 'isNull'"> and sales_7d is null </when>
+                    <when test="sales7d_op == 'isNotNull'"> and sales_7d is not null </when>
+                    <when test="sales7d_val != null"> and sales_7d ${sales7d_op} #{sales7d_val} </when>
+                </choose>
             </if>
-            <if test="sales30d_op != null and sales30d_val != null">
-                and sales_30d ${sales30d_op} #{sales30d_val}
+            <if test="sales30d_op != null">
+                <choose>
+                    <when test="sales30d_op == 'between' and sales30d_val != null and sales30d_val2 != null">
+                        and sales_30d between #{sales30d_val} and #{sales30d_val2}
+                    </when>
+                    <when test="sales30d_op == 'isNull'"> and sales_30d is null </when>
+                    <when test="sales30d_op == 'isNotNull'"> and sales_30d is not null </when>
+                    <when test="sales30d_val != null"> and sales_30d ${sales30d_op} #{sales30d_val} </when>
+                </choose>
             </if>
-            <if test="sales90d_op != null and sales90d_val != null">
-                and sales_90d ${sales90d_op} #{sales90d_val}
+            <if test="sales90d_op != null">
+                <choose>
+                    <when test="sales90d_op == 'between' and sales90d_val != null and sales90d_val2 != null">
+                        and sales_90d between #{sales90d_val} and #{sales90d_val2}
+                    </when>
+                    <when test="sales90d_op == 'isNull'"> and sales_90d is null </when>
+                    <when test="sales90d_op == 'isNotNull'"> and sales_90d is not null </when>
+                    <when test="sales90d_val != null"> and sales_90d ${sales90d_op} #{sales90d_val} </when>
+                </choose>
             </if>
-            <if test="maxMonthlySales_op != null and maxMonthlySales_val != null">
-                and max_monthly_sales ${maxMonthlySales_op} #{maxMonthlySales_val}
+            <if test="maxMonthlySales_op != null">
+                <choose>
+                    <when test="maxMonthlySales_op == 'between' and maxMonthlySales_val != null and maxMonthlySales_val2 != null">
+                        and max_monthly_sales between #{maxMonthlySales_val} and #{maxMonthlySales_val2}
+                    </when>
+                    <when test="maxMonthlySales_op == 'isNull'"> and max_monthly_sales is null </when>
+                    <when test="maxMonthlySales_op == 'isNotNull'"> and max_monthly_sales is not null </when>
+                    <when test="maxMonthlySales_val != null"> and max_monthly_sales ${maxMonthlySales_op} #{maxMonthlySales_val} </when>
+                </choose>
             </if>
-            <if test="localSellable_op != null and localSellable_val != null">
-                and local_sellable ${localSellable_op} #{localSellable_val}
+            <if test="localSellable_op != null">
+                <choose>
+                    <when test="localSellable_op == 'between' and localSellable_val != null and localSellable_val2 != null">
+                        and local_sellable between #{localSellable_val} and #{localSellable_val2}
+                    </when>
+                    <when test="localSellable_op == 'isNull'"> and local_sellable is null </when>
+                    <when test="localSellable_op == 'isNotNull'"> and local_sellable is not null </when>
+                    <when test="localSellable_val != null"> and local_sellable ${localSellable_op} #{localSellable_val} </when>
+                </choose>
             </if>
-            <if test="localOnway_op != null and localOnway_val != null">
-                and local_onway ${localOnway_op} #{localOnway_val}
+            <if test="localOnway_op != null">
+                <choose>
+                    <when test="localOnway_op == 'between' and localOnway_val != null and localOnway_val2 != null">
+                        and local_onway between #{localOnway_val} and #{localOnway_val2}
+                    </when>
+                    <when test="localOnway_op == 'isNull'"> and local_onway is null </when>
+                    <when test="localOnway_op == 'isNotNull'"> and local_onway is not null </when>
+                    <when test="localOnway_val != null"> and local_onway ${localOnway_op} #{localOnway_val} </when>
+                </choose>
             </if>
-            <if test="lockedQty_op != null and lockedQty_val != null">
-                and locked_qty ${lockedQty_op} #{lockedQty_val}
+            <if test="lockedQty_op != null">
+                <choose>
+                    <when test="lockedQty_op == 'between' and lockedQty_val != null and lockedQty_val2 != null">
+                        and locked_qty between #{lockedQty_val} and #{lockedQty_val2}
+                    </when>
+                    <when test="lockedQty_op == 'isNull'"> and locked_qty is null </when>
+                    <when test="lockedQty_op == 'isNotNull'"> and locked_qty is not null </when>
+                    <when test="lockedQty_val != null"> and locked_qty ${lockedQty_op} #{lockedQty_val} </when>
+                </choose>
             </if>
-            <if test="purchasePendingDelivery_op != null and purchasePendingDelivery_val != null">
-                and purchase_pending_delivery ${purchasePendingDelivery_op} #{purchasePendingDelivery_val}
+            <if test="purchasePendingDelivery_op != null">
+                <choose>
+                    <when test="purchasePendingDelivery_op == 'between' and purchasePendingDelivery_val != null and purchasePendingDelivery_val2 != null">
+                        and purchase_pending_delivery between #{purchasePendingDelivery_val} and #{purchasePendingDelivery_val2}
+                    </when>
+                    <when test="purchasePendingDelivery_op == 'isNull'"> and purchase_pending_delivery is null </when>
+                    <when test="purchasePendingDelivery_op == 'isNotNull'"> and purchase_pending_delivery is not null </when>
+                    <when test="purchasePendingDelivery_val != null"> and purchase_pending_delivery ${purchasePendingDelivery_op} #{purchasePendingDelivery_val} </when>
+                </choose>
             </if>
-            <if test="purchasePlanQty_op != null and purchasePlanQty_val != null">
-                and purchase_plan_qty ${purchasePlanQty_op} #{purchasePlanQty_val}
+            <if test="purchasePlanQty_op != null">
+                <choose>
+                    <when test="purchasePlanQty_op == 'between' and purchasePlanQty_val != null and purchasePlanQty_val2 != null">
+                        and purchase_plan_qty between #{purchasePlanQty_val} and #{purchasePlanQty_val2}
+                    </when>
+                    <when test="purchasePlanQty_op == 'isNull'"> and purchase_plan_qty is null </when>
+                    <when test="purchasePlanQty_op == 'isNotNull'"> and purchase_plan_qty is not null </when>
+                    <when test="purchasePlanQty_val != null"> and purchase_plan_qty ${purchasePlanQty_op} #{purchasePlanQty_val} </when>
+                </choose>
             </if>
-            <if test="outboundDays_op != null and outboundDays_val != null">
-                and outbound_days ${outboundDays_op} #{outboundDays_val}
+            <if test="outboundDays_op != null">
+                <choose>
+                    <when test="outboundDays_op == 'between' and outboundDays_val != null and outboundDays_val2 != null">
+                        and outbound_days between #{outboundDays_val} and #{outboundDays_val2}
+                    </when>
+                    <when test="outboundDays_op == 'isNull'"> and outbound_days is null </when>
+                    <when test="outboundDays_op == 'isNotNull'"> and outbound_days is not null </when>
+                    <when test="outboundDays_val != null"> and outbound_days ${outboundDays_op} #{outboundDays_val} </when>
+                </choose>
             </if>
-            <if test="purchaseCycleDays_op != null and purchaseCycleDays_val != null">
-                and purchase_cycle_days ${purchaseCycleDays_op} #{purchaseCycleDays_val}
+            <if test="purchaseCycleDays_op != null">
+                <choose>
+                    <when test="purchaseCycleDays_op == 'between' and purchaseCycleDays_val != null and purchaseCycleDays_val2 != null">
+                        and purchase_cycle_days between #{purchaseCycleDays_val} and #{purchaseCycleDays_val2}
+                    </when>
+                    <when test="purchaseCycleDays_op == 'isNull'"> and purchase_cycle_days is null </when>
+                    <when test="purchaseCycleDays_op == 'isNotNull'"> and purchase_cycle_days is not null </when>
+                    <when test="purchaseCycleDays_val != null"> and purchase_cycle_days ${purchaseCycleDays_op} #{purchaseCycleDays_val} </when>
+                </choose>
             </if>
-            <if test="suggestPurchaseQty_op != null and suggestPurchaseQty_val != null">
-                and suggest_purchase_qty ${suggestPurchaseQty_op} #{suggestPurchaseQty_val}
+            <if test="suggestPurchaseQty_op != null">
+                <choose>
+                    <when test="suggestPurchaseQty_op == 'between' and suggestPurchaseQty_val != null and suggestPurchaseQty_val2 != null">
+                        and suggest_purchase_qty between #{suggestPurchaseQty_val} and #{suggestPurchaseQty_val2}
+                    </when>
+                    <when test="suggestPurchaseQty_op == 'isNull'"> and suggest_purchase_qty is null </when>
+                    <when test="suggestPurchaseQty_op == 'isNotNull'"> and suggest_purchase_qty is not null </when>
+                    <when test="suggestPurchaseQty_val != null"> and suggest_purchase_qty ${suggestPurchaseQty_op} #{suggestPurchaseQty_val} </when>
+                </choose>
             </if>
-            <if test="maxMonthlyReplenishQty_op != null and maxMonthlyReplenishQty_val != null">
-                and max_monthly_replenish_qty ${maxMonthlyReplenishQty_op} #{maxMonthlyReplenishQty_val}
+            <if test="maxMonthlyReplenishQty_op != null">
+                <choose>
+                    <when test="maxMonthlyReplenishQty_op == 'between' and maxMonthlyReplenishQty_val != null and maxMonthlyReplenishQty_val2 != null">
+                        and max_monthly_replenish_qty between #{maxMonthlyReplenishQty_val} and #{maxMonthlyReplenishQty_val2}
+                    </when>
+                    <when test="maxMonthlyReplenishQty_op == 'isNull'"> and max_monthly_replenish_qty is null </when>
+                    <when test="maxMonthlyReplenishQty_op == 'isNotNull'"> and max_monthly_replenish_qty is not null </when>
+                    <when test="maxMonthlyReplenishQty_val != null"> and max_monthly_replenish_qty ${maxMonthlyReplenishQty_op} #{maxMonthlyReplenishQty_val} </when>
+                </choose>
             </if>
-            <if test="profitRate30d_op != null and profitRate30d_val != null">
-                and profit_rate_30d ${profitRate30d_op} #{profitRate30d_val}
+            <if test="profitRate30d_op != null">
+                <choose>
+                    <when test="profitRate30d_op == 'between' and profitRate30d_val != null and profitRate30d_val2 != null">
+                        and profit_rate_30d between #{profitRate30d_val} and #{profitRate30d_val2}
+                    </when>
+                    <when test="profitRate30d_op == 'isNull'"> and profit_rate_30d is null </when>
+                    <when test="profitRate30d_op == 'isNotNull'"> and profit_rate_30d is not null </when>
+                    <when test="profitRate30d_val != null"> and profit_rate_30d ${profitRate30d_op} #{profitRate30d_val} </when>
+                </choose>
             </if>
-            <if test="returnRate_op != null and returnRate_val != null">
-                and return_rate ${returnRate_op} #{returnRate_val}
+            <if test="returnRate_op != null">
+                <choose>
+                    <when test="returnRate_op == 'between' and returnRate_val != null and returnRate_val2 != null">
+                        and return_rate between #{returnRate_val} and #{returnRate_val2}
+                    </when>
+                    <when test="returnRate_op == 'isNull'"> and return_rate is null </when>
+                    <when test="returnRate_op == 'isNotNull'"> and return_rate is not null </when>
+                    <when test="returnRate_val != null"> and return_rate ${returnRate_op} #{returnRate_val} </when>
+                </choose>
             </if>
-            <if test="overseasSellableSalesRatio_op != null and overseasSellableSalesRatio_val != null">
-                and overseas_sellable_sales_ratio ${overseasSellableSalesRatio_op} #{overseasSellableSalesRatio_val}
+            <if test="overseasSellableSalesRatio_op != null">
+                <choose>
+                    <when test="overseasSellableSalesRatio_op == 'between' and overseasSellableSalesRatio_val != null and overseasSellableSalesRatio_val2 != null">
+                        and overseas_sellable_sales_ratio between #{overseasSellableSalesRatio_val} and #{overseasSellableSalesRatio_val2}
+                    </when>
+                    <when test="overseasSellableSalesRatio_op == 'isNull'"> and overseas_sellable_sales_ratio is null </when>
+                    <when test="overseasSellableSalesRatio_op == 'isNotNull'"> and overseas_sellable_sales_ratio is not null </when>
+                    <when test="overseasSellableSalesRatio_val != null"> and overseas_sellable_sales_ratio ${overseasSellableSalesRatio_op} #{overseasSellableSalesRatio_val} </when>
+                </choose>
             </if>
-            <if test="overseasTotalSalesRatio_op != null and overseasTotalSalesRatio_val != null">
-                and overseas_total_sales_ratio ${overseasTotalSalesRatio_op} #{overseasTotalSalesRatio_val}
+            <if test="overseasTotalSalesRatio_op != null">
+                <choose>
+                    <when test="overseasTotalSalesRatio_op == 'between' and overseasTotalSalesRatio_val != null and overseasTotalSalesRatio_val2 != null">
+                        and overseas_total_sales_ratio between #{overseasTotalSalesRatio_val} and #{overseasTotalSalesRatio_val2}
+                    </when>
+                    <when test="overseasTotalSalesRatio_op == 'isNull'"> and overseas_total_sales_ratio is null </when>
+                    <when test="overseasTotalSalesRatio_op == 'isNotNull'"> and overseas_total_sales_ratio is not null </when>
+                    <when test="overseasTotalSalesRatio_val != null"> and overseas_total_sales_ratio ${overseasTotalSalesRatio_op} #{overseasTotalSalesRatio_val} </when>
+                </choose>
             </if>
-            <if test="totalInventorySalesRatio_op != null and totalInventorySalesRatio_val != null">
-                and total_inventory_sales_ratio ${totalInventorySalesRatio_op} #{totalInventorySalesRatio_val}
+            <if test="totalInventorySalesRatio_op != null">
+                <choose>
+                    <when test="totalInventorySalesRatio_op == 'between' and totalInventorySalesRatio_val != null and totalInventorySalesRatio_val2 != null">
+                        and total_inventory_sales_ratio between #{totalInventorySalesRatio_val} and #{totalInventorySalesRatio_val2}
+                    </when>
+                    <when test="totalInventorySalesRatio_op == 'isNull'"> and total_inventory_sales_ratio is null </when>
+                    <when test="totalInventorySalesRatio_op == 'isNotNull'"> and total_inventory_sales_ratio is not null </when>
+                    <when test="totalInventorySalesRatio_val != null"> and total_inventory_sales_ratio ${totalInventorySalesRatio_op} #{totalInventorySalesRatio_val} </when>
+                </choose>
             </if>
         </where>
         <include refid="sortClause"/>

@@ -17,6 +17,16 @@
       <el-form-item label="品牌" prop="brandCode">
         <el-input v-model="queryParams.brandCode" placeholder="请输入品牌" clearable style="width: 180px" @keyup.enter="handleQuery" />
       </el-form-item>
+      <el-form-item label="等级" prop="skuLevel">
+        <el-select v-model="queryParams.skuLevel" placeholder="全部等级" clearable style="width: 140px">
+          <el-option label="S" value="S" />
+          <el-option label="A" value="A" />
+          <el-option label="B" value="B" />
+          <el-option label="C" value="C" />
+          <el-option label="D" value="D" />
+          <el-option label="E" value="E" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="操作员" prop="operatorName">
         <el-input v-model="queryParams.operatorName" placeholder="请输入操作员" clearable style="width: 180px" @keyup.enter="handleQuery" />
       </el-form-item>
@@ -61,6 +71,7 @@
           align="center"
           prop="skuLevel"
           :width="col.width"
+          :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">
             <el-tag :type="levelTagType(scope.row.skuLevel)" effect="light">{{ scope.row.skuLevel || '-' }}</el-tag>
@@ -68,50 +79,36 @@
         </el-table-column>
         <el-table-column
           v-else-if="col.format === 'percent'"
-          :label="col.label"
-          :align="col.align"
-          :prop="col.key"
-          :width="col.width"
-          sortable="custom"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          sortable="custom" :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">{{ formatPercent(scope.row[col.key]) }}</template>
         </el-table-column>
         <el-table-column
           v-else-if="col.format === 'rate'"
-          :label="col.label"
-          :align="col.align"
-          :prop="col.key"
-          :width="col.width"
-          sortable="custom"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          sortable="custom" :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">{{ formatRate(scope.row[col.key]) }}</template>
         </el-table-column>
         <el-table-column
           v-else-if="col.format === 'days'"
-          :label="col.label"
-          :align="col.align"
-          :prop="col.key"
-          :width="col.width"
-          sortable="custom"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          sortable="custom" :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">{{ scope.row[col.key] != null ? scope.row[col.key] + '天' : '-' }}</template>
         </el-table-column>
         <el-table-column
           v-else-if="col.format === 'percentText'"
-          :label="col.label"
-          :align="col.align"
-          :prop="col.key"
-          :width="col.width"
-          sortable="custom"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          sortable="custom" :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">{{ scope.row[col.key] != null ? scope.row[col.key] + '%' : '-' }}</template>
         </el-table-column>
         <el-table-column
           v-else-if="col.format === 'link'"
-          :label="col.label"
-          :align="col.align"
-          :prop="col.key"
-          :width="col.width"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">
             <a v-if="scope.row[col.key]" :href="scope.row[col.key]" target="_blank" style="color:#409EFF">链接</a>
@@ -120,10 +117,8 @@
         </el-table-column>
         <el-table-column
           v-else-if="col.format === 'time'"
-          :label="col.label"
-          :align="col.align"
-          :prop="col.key"
-          :width="col.width"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          :render-header="renderColumnHeader(col)"
         >
           <template #default="scope"><span>{{ parseTime(scope.row[col.key]) }}</span></template>
         </el-table-column>
@@ -131,6 +126,7 @@
         <el-table-column
           v-else-if="col.format === 'trackingPrice'"
           :label="col.label" :align="col.align" :width="col.width" sortable="custom"
+          :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">
             <el-input v-model="editCache[key(scope.row, 'tp')]" size="small" placeholder="跟卖价" style="width:100px"
@@ -141,6 +137,7 @@
         <el-table-column
           v-else-if="col.format === 'oeNumber'"
           :label="col.label" :align="col.align" :width="col.width"
+          :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">
             <el-input v-model="editCache[key(scope.row, 'oe')]" size="small" placeholder="OE号" clearable style="width:110px"
@@ -151,6 +148,7 @@
         <el-table-column
           v-else-if="col.format === 'remark'"
           :label="col.label" :align="col.align" :width="col.width"
+          :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">
             <el-input v-model="editCache[key(scope.row, 'rk')]" size="small" placeholder="备注" clearable style="width:160px"
@@ -159,14 +157,15 @@
         </el-table-column>
         <el-table-column
           v-else
-          :label="col.label"
-          :align="col.align"
-          :prop="col.key"
-          :width="col.width"
-          :fixed="col.fixed || false"
-          :sortable="col.sortable ? 'custom' : false"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          :fixed="col.fixed || false" :sortable="col.sortable ? 'custom' : false"
           :show-overflow-tooltip="col.tooltip"
-        />
+          :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope">
+            <span>{{ formatCell(col, scope.row[col.key]) }}</span>
+          </template>
+        </el-table-column>
       </template>
     </el-table>
 
@@ -179,14 +178,44 @@
       :visible-keys="visibleKeys"
       @apply="handleColumnApply"
     />
+
+    <Teleport to="body">
+      <div v-if="filterPopoverVisible" class="number-filter-overlay" @click.self="filterPopoverVisible = false">
+        <div class="number-filter-popover" :style="popoverStyle" @click.stop>
+          <div class="popover-header">
+            <span>{{ filterEditingCol?.label || '' }} 筛选</span>
+            <el-icon class="close-btn" @click="filterPopoverVisible = false"><Delete /></el-icon>
+          </div>
+          <div class="popover-body">
+            <el-select v-model="filterEditingData.operator" size="small" style="width:100%" :teleported="false" popper-class="number-filter-select-popper">
+              <el-option v-for="op in OPERATOR_OPTIONS" :key="op.value" :label="op.label" :value="op.value" />
+            </el-select>
+            <el-input v-if="filterEditingData.operator !== 'isNull' && filterEditingData.operator !== 'isNotNull'" v-model="filterEditingData.value" size="small" :placeholder="filterEditingData.operator === 'between' ? '最小值' : '请输入数值'" style="margin-top:8px" @keyup.enter="applyFilter" />
+            <el-input v-if="filterEditingData.operator === 'between'" v-model="filterEditingData.value2" size="small" placeholder="最大值" style="margin-top:8px" @keyup.enter="applyFilter" />
+          </div>
+          <div class="popover-footer">
+            <el-button size="small" @click="clearFilter(filterEditingCol?.key)">清除</el-button>
+            <el-button size="small" type="primary" @click="applyFilter">确定</el-button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <div v-if="activeFilterTags.length > 0" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+      <span style="font-size:12px;color:#909399">列筛选:</span>
+      <el-tag v-for="tag in activeFilterTags" :key="tag.field" size="small" closable type="info" @close="clearFilter(tag.field)">{{ tag.label }}</el-tag>
+      <el-button size="small" text type="danger" @click="clearAllColumnFilters">清空全部</el-button>
+    </div>
   </div>
 </template>
 
 <script setup name="EbayPriceTracking">
+import { ref, reactive, toRefs, h, resolveComponent, getCurrentInstance, computed, watch } from 'vue'
 import { searchPriceTracking, refreshPriceTracking, calcTracking, saveOe, saveRemark } from '@/api/operations/ebay/priceTracking'
 import request from '@/utils/request'
 import { parseTime } from '@/utils/ruoyi'
 import { ElMessageBox } from 'element-plus'
+import { Filter, Delete } from '@element-plus/icons-vue'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
 
@@ -262,23 +291,23 @@ const columnDefs = [
   { key: 'sku', label: 'SKU', align: 'left', width: 170, fixed: true, sortable: true, tooltip: true },
   { key: 'productName', label: '产品名称', align: 'left', width: 260, tooltip: true },
   { key: 'skuLevel', label: '等级', align: 'center', width: 80 },
-  { key: 'ourLowestPrice', label: '最低价', align: 'right', width: 110, sortable: true },
-  { key: 'trackingPrice', label: '跟卖价', align: 'right', width: 120, format: 'trackingPrice', sortable: true },
-  { key: 'trackingProfitMargin', label: '跟卖利润率', align: 'right', width: 130, sortable: true, format: 'percent' },
-  { key: 'floorPrice', label: '底线价', align: 'right', width: 100, sortable: true },
-  { key: 'returnRate', label: '退货率', align: 'right', width: 90, sortable: true, format: 'rate' },
-  { key: 'sales3d', label: '近3天销量', align: 'right', width: 110, sortable: true },
-  { key: 'sales7d', label: '近7天销量', align: 'right', width: 110, sortable: true },
-  { key: 'sales30d', label: '近30天销量', align: 'right', width: 120, sortable: true },
-  { key: 'sales90d', label: '近90天销量', align: 'right', width: 120, sortable: true },
-  { key: 'maxMonthlySales', label: '历史最大月销', align: 'right', width: 140, sortable: true },
+  { key: 'ourLowestPrice', label: '最低价', align: 'right', width: 110, sortable: true, filterType: 'number' },
+  { key: 'trackingPrice', label: '跟卖价', align: 'right', width: 120, format: 'trackingPrice', sortable: true, filterType: 'number' },
+  { key: 'trackingProfitMargin', label: '跟卖利润率', align: 'right', width: 130, sortable: true, format: 'percent', filterType: 'number' },
+  { key: 'floorPrice', label: '底线价', align: 'right', width: 100, sortable: true, filterType: 'number' },
+  { key: 'returnRate', label: '退货率', align: 'right', width: 90, sortable: true, format: 'rate', filterType: 'number' },
+  { key: 'sales3d', label: '近3天销量', align: 'right', width: 110, sortable: true, filterType: 'number' },
+  { key: 'sales7d', label: '近7天销量', align: 'right', width: 110, sortable: true, filterType: 'number' },
+  { key: 'sales30d', label: '近30天销量', align: 'right', width: 120, sortable: true, filterType: 'number' },
+  { key: 'sales90d', label: '近90天销量', align: 'right', width: 120, sortable: true, filterType: 'number' },
+  { key: 'maxMonthlySales', label: '历史最大月销', align: 'right', width: 140, sortable: true, filterType: 'number' },
   { key: 'oeNumber', label: 'OE号', align: 'center', width: 130, format: 'oeNumber' },
   { key: 'presaleUrl', label: '售前链接', align: 'center', width: 70, format: 'link' },
   { key: 'soldUrl', label: '售后链接', align: 'center', width: 70, format: 'link' },
-  { key: 'overseasStock', label: '海外仓库存', align: 'right', width: 120, sortable: true },
-  { key: 'overseasStockAgeDays', label: '海外仓库龄', align: 'right', width: 120, sortable: true, format: 'days' },
-  { key: 'stockSalesRatio', label: '库销比', align: 'right', width: 100, sortable: true, format: 'percentText' },
-  { key: 'estimatedReplenishQty', label: '预估补货量', align: 'right', width: 120, sortable: true },
+  { key: 'overseasStock', label: '海外仓库存', align: 'right', width: 120, sortable: true, filterType: 'number' },
+  { key: 'overseasStockAgeDays', label: '海外仓库龄', align: 'right', width: 120, sortable: true, format: 'days', filterType: 'number' },
+  { key: 'stockSalesRatio', label: '库销比', align: 'right', width: 100, sortable: true, format: 'percentText', filterType: 'number' },
+  { key: 'estimatedReplenishQty', label: '预估补货量', align: 'right', width: 120, sortable: true, filterType: 'number' },
   { key: 'brandCode', label: '品牌', align: 'center', width: 90, tooltip: true },
   { key: 'operatorName', label: '操作员', align: 'center', width: 100, tooltip: true },
   { key: 'remark', label: '备注', align: 'left', width: 180, format: 'remark' },
@@ -304,11 +333,110 @@ const data = reactive({
     productName: undefined,
     brandCode: undefined,
     operatorName: undefined,
+    skuLevel: undefined,
     sortField: undefined,
     sortOrder: undefined
   }
 })
 const { queryParams } = toRefs(data)
+
+// ---- 数值列头筛选 ----
+const OPERATOR_OPTIONS = [
+  { label: '等于', value: '=' }, { label: '大于', value: '>' }, { label: '大于等于', value: '>=' },
+  { label: '小于', value: '<' }, { label: '小于等于', value: '<=' }, { label: '介于', value: 'between' },
+  { label: '为空', value: 'isNull' }, { label: '不为空', value: 'isNotNull' }
+]
+const columnFilters = reactive({})
+const filterPopoverVisible = ref(false)
+const filterEditingCol = ref(null)
+const filterEditingData = reactive({ operator: '>', value: '', value2: '' })
+const filterPopoverPos = ref({ top: 200, left: 400 })
+
+function hasActiveFilter(field) {
+  const f = columnFilters[field]
+  if (!f) return false
+  if (f.operator === 'isNull' || f.operator === 'isNotNull') return true
+  return f.value !== '' && f.value != null
+}
+
+function openFilter(col, triggerEl) {
+  filterEditingCol.value = col
+  const existing = columnFilters[col.key]
+  if (existing) {
+    filterEditingData.operator = existing.operator || '>'
+    filterEditingData.value = existing.value != null ? String(existing.value) : ''
+    filterEditingData.value2 = existing.value2 != null ? String(existing.value2) : ''
+  } else {
+    filterEditingData.operator = '>'; filterEditingData.value = ''; filterEditingData.value2 = ''
+  }
+  if (triggerEl) {
+    const rect = triggerEl.getBoundingClientRect()
+    filterPopoverPos.value = { top: rect.bottom + 4, left: rect.left }
+  }
+  filterPopoverVisible.value = true
+}
+
+function applyFilter() {
+  const col = filterEditingCol.value
+  if (!col) return
+  const op = filterEditingData.operator
+  const needsValue = op !== 'isNull' && op !== 'isNotNull'
+  const needsValue2 = op === 'between'
+  if (needsValue && !filterEditingData.value) { delete columnFilters[col.key]; filterPopoverVisible.value = false; return }
+  if (needsValue2 && !filterEditingData.value2) { delete columnFilters[col.key]; filterPopoverVisible.value = false; return }
+  columnFilters[col.key] = { operator: op, value: needsValue ? filterEditingData.value : undefined, value2: needsValue2 ? filterEditingData.value2 : undefined }
+  filterPopoverVisible.value = false
+  handleQuery()
+}
+
+function clearFilter(field) { delete columnFilters[field]; filterPopoverVisible.value = false; handleQuery() }
+function clearAllColumnFilters() { Object.keys(columnFilters).forEach(k => delete columnFilters[k]); handleQuery() }
+
+const popoverStyle = computed(() => ({ position: 'fixed', top: filterPopoverPos.value.top + 'px', left: filterPopoverPos.value.left + 'px', zIndex: 3000 }))
+
+const activeFilterTags = computed(() => {
+  return Object.entries(columnFilters)
+    .filter(([field]) => hasActiveFilter(field))
+    .map(([field, f]) => {
+      const col = columnDefs.find(c => c.key === field)
+      const opLabel = OPERATOR_OPTIONS.find(o => o.value === f.operator)?.label || f.operator
+      let label = (col?.label || field) + ' ' + opLabel
+      if (f.value != null) label += ' ' + f.value
+      if (f.operator === 'between' && f.value2 != null) label += ' ~ ' + f.value2
+      return { field, label }
+    })
+})
+
+function buildFilters() {
+  const filters = []
+  const p = queryParams.value
+  if (p.site) filters.push({ field: 'site', value: p.site })
+  if (p.sku) filters.push({ field: 'sku', value: p.sku })
+  if (p.productName) filters.push({ field: 'productName', value: p.productName })
+  if (p.brandCode) filters.push({ field: 'brandCode', value: p.brandCode })
+  if (p.operatorName) filters.push({ field: 'operatorName', value: p.operatorName })
+  if (p.skuLevel) filters.push({ field: 'skuLevel', value: p.skuLevel })
+  Object.entries(columnFilters).forEach(([field, f]) => {
+    if (hasActiveFilter(field)) {
+      filters.push({ field, type: 'number', operator: f.operator, value: f.value != null ? String(f.value) : undefined, value2: f.value2 != null ? String(f.value2) : undefined })
+    }
+  })
+  return filters
+}
+
+function renderColumnHeader(col) {
+  return ({ column }) => {
+    const label = column.label || col.label
+    if (col.filterType !== 'number') return h('span', label)
+    const active = hasActiveFilter(col.key)
+    const icon = resolveComponent('el-icon')
+    const filterIcon = resolveComponent('Filter')
+    return h('div', { class: 'col-header-cell', style: 'display:inline-flex;align-items:center;justify-content:flex-start;gap:2px;overflow:hidden' }, [
+      h(icon, { size: 13, style: `flex-shrink:0;cursor:pointer;color:${active ? '#409EFF' : '#909399'}`, onClick: (e) => { e.stopPropagation(); openFilter(col, (e && e.currentTarget) || null) } }, [h(filterIcon)]),
+      h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, label)
+    ])
+  }
+}
 
 function getList() {
   loading.value = true
@@ -318,15 +446,7 @@ function getList() {
     sortField: queryParams.value.sortField || undefined,
     sortOrder: queryParams.value.sortOrder || undefined
   }
-  const p = queryParams.value
-  if (p.site) body.filters = body.filters || []
-  // 用 filters 方式提交文本筛选
-  const filters = []
-  if (p.site) filters.push({ field: 'site', value: p.site })
-  if (p.sku) filters.push({ field: 'sku', value: p.sku })
-  if (p.productName) filters.push({ field: 'productName', value: p.productName })
-  if (p.brandCode) filters.push({ field: 'brandCode', value: p.brandCode })
-  if (p.operatorName) filters.push({ field: 'operatorName', value: p.operatorName })
+  const filters = buildFilters()
   if (filters.length) body.filters = filters
 
   searchPriceTracking(body).then(response => {
@@ -424,14 +544,8 @@ function handleExport() {
     rowKeys: sel ? checkedRows.value.map(r => r.site + '|' + r.sku) : undefined,
     columns: exportColumns.value }
   if (!sel) {
-    body.filters = []
-    const p = queryParams.value
-    if (p.site) body.filters.push({ field: 'site', value: p.site })
-    if (p.sku) body.filters.push({ field: 'sku', value: p.sku })
-    if (p.productName) body.filters.push({ field: 'productName', value: p.productName })
-    if (p.brandCode) body.filters.push({ field: 'brandCode', value: p.brandCode })
-    if (p.operatorName) body.filters.push({ field: 'operatorName', value: p.operatorName })
-    if (p.sortField) { body.sortField = p.sortField; body.sortOrder = p.sortOrder || 'descending' }
+    body.filters = buildFilters()
+    if (queryParams.value.sortField) { body.sortField = queryParams.value.sortField; body.sortOrder = queryParams.value.sortOrder || 'descending' }
   }
   request({ url: 'operations/ebay/price-tracking/export', method: 'post', data: body, responseType: 'blob' }).then(res => {
     const blob = new Blob([res]); const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
@@ -439,16 +553,21 @@ function handleExport() {
   })
 }
 
+function formatCell(col, value) {
+  if (value === null || value === undefined) return col.filterType === 'number' ? '0' : ''
+  return value
+}
+
 function formatPercent(value) {
-  if (value === null || value === undefined || value === '') return '-'
+  if (value === null || value === undefined || value === '') return '0.0%'
   const num = Number(value)
-  return Number.isFinite(num) ? `${(num * 100).toFixed(1)}%` : '-'
+  return Number.isFinite(num) ? `${(num * 100).toFixed(1)}%` : '0.0%'
 }
 
 function formatRate(value) {
-  if (value === null || value === undefined || value === '') return '-'
+  if (value === null || value === undefined || value === '') return '0.0%'
   const num = Number(value)
-  return Number.isFinite(num) ? `${(num * 100).toFixed(1)}%` : '-'
+  return Number.isFinite(num) ? `${(num * 100).toFixed(1)}%` : '0.0%'
 }
 
 function levelTagType(level) {
@@ -467,4 +586,17 @@ initPage()
 <style scoped>
 .ebay-price-tracking-page { background: #f5f7fa; }
 :deep(.el-table .cell) { white-space: nowrap; }
+:deep(.col-header-cell) { cursor: default; user-select: none; }
+:deep(.col-header-cell .el-icon) { opacity: 0.5; transition: opacity 0.2s; }
+:deep(.col-header-cell:hover .el-icon) { opacity: 1; }
+</style>
+
+<style>
+.number-filter-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 2999; background: transparent; }
+.number-filter-popover { position: fixed; background: #fff; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,0.15); min-width: 240px; z-index: 3000; }
+.number-filter-popover .popover-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px 6px; font-size: 14px; font-weight: 600; border-bottom: 1px solid #ebeef5; }
+.number-filter-popover .popover-header .close-btn { cursor: pointer; color: #909399; font-size: 14px; }
+.number-filter-popover .popover-body { padding: 12px 14px; overflow: visible; }
+.number-filter-popover .popover-footer { padding: 8px 14px 12px; display: flex; justify-content: flex-end; gap: 8px; }
+.number-filter-select-popper { z-index: 3100 !important; }
 </style>

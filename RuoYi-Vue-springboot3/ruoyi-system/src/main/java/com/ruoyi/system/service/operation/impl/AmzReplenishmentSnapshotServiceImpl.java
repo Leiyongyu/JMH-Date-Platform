@@ -44,6 +44,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         NUM_MAP.put("safetyStock","safety_stock"); NUM_MAP.put("shipQty","ship_qty");
         NUM_MAP.put("replenishQty","replenish_qty"); NUM_MAP.put("restockDays","restock_days");
     }
+    private static final Set<String> ALLOWED_OPS = Set.of("=", ">", ">=", "<", "<=", "between", "isNull", "isNotNull");
     private static final Set<String> DISTINCT_COLS = Set.of(
         "store_name","seller_sku","warehouse_sku","asin","principal_name","product_category","warehouse_name"
     );
@@ -105,16 +106,55 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         if (req.getFilters() == null || req.getFilters().isEmpty()) return p;
         for (EbayReplenishmentSearchRequest.FilterItem f : req.getFilters())
         {
-            if (!StringUtils.hasText(f.getField()) || !StringUtils.hasText(f.getValue())) continue;
-            String field = f.getField().trim(), raw = f.getValue().trim();
-            if (TEXT_FIELDS.contains(field)) { p.put(field, raw); continue; }
-            if (NUM_MAP.containsKey(field)) parseNum(p, field, raw);
+            if (!StringUtils.hasText(f.getField())) continue;
+            String field = f.getField().trim();
+            if (TEXT_FIELDS.contains(field))
+            {
+                if (!StringUtils.hasText(f.getValue())) continue;
+                p.put(field, f.getValue().trim());
+                continue;
+            }
+            if (NUM_MAP.containsKey(field)) parseNum(p, field, f);
         }
         return p;
     }
 
-    private void parseNum(Map<String, Object> p, String field, String raw)
+    private void parseNum(Map<String, Object> p, String field, EbayReplenishmentSearchRequest.FilterItem f)
     {
+        String operator = f.getOperator();
+        String value = f.getValue();
+        String value2 = f.getValue2();
+        // mapper XML 用 DB 列名做参数键（如 review_count_op），不是前端字段名（如 reviewCount_op）
+        String db = NUM_MAP.getOrDefault(field, field);
+
+        // 新格式：结构化 operator
+        if (StringUtils.hasText(operator) && ALLOWED_OPS.contains(operator))
+        {
+            if ("isNull".equals(operator)) { p.put(db + "_op", "isNull"); return; }
+            if ("isNotNull".equals(operator)) { p.put(db + "_op", "isNotNull"); return; }
+            if ("between".equals(operator) && StringUtils.hasText(value) && StringUtils.hasText(value2))
+            {
+                try {
+                    p.put(db + "_op", "between");
+                    p.put(db + "_val", new BigDecimal(value.trim()));
+                    p.put(db + "_val2", new BigDecimal(value2.trim()));
+                } catch (NumberFormatException ignored) {}
+                return;
+            }
+            if (StringUtils.hasText(value))
+            {
+                try {
+                    p.put(db + "_op", operator);
+                    p.put(db + "_val", new BigDecimal(value.trim()));
+                } catch (NumberFormatException ignored) {}
+                return;
+            }
+            return;
+        }
+
+        // 旧格式兼容：value=">30"
+        if (!StringUtils.hasText(value)) return;
+        String raw = value.trim();
         String op, ns;
         if (raw.startsWith(">=")) { op = ">="; ns = raw.substring(2).trim(); }
         else if (raw.startsWith("<=")) { op = "<="; ns = raw.substring(2).trim(); }
@@ -123,7 +163,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         else if (raw.startsWith("=")) { op = "="; ns = raw.substring(1).trim(); }
         else { op = "="; ns = raw; }
         if (ns.isEmpty()) return;
-        try { p.put(field + "_op", op); p.put(field + "_val", BigDecimal.valueOf(Double.parseDouble(ns))); }
+        try { p.put(db + "_op", op); p.put(db + "_val", BigDecimal.valueOf(Double.parseDouble(ns))); }
         catch (NumberFormatException e) { p.put(field, raw); }
     }
 

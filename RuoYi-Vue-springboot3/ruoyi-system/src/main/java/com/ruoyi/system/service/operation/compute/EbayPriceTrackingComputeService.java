@@ -205,7 +205,8 @@ public class EbayPriceTrackingComputeService
 
                 EbayProductDedup dedup = dedupByKey.get(site + "|" + baseSku);
                 double profitRate = dedup != null && dedup.getProfitRate() != null ? dedup.getProfitRate().doubleValue() : 0;
-                s.setSkuLevel(InventoryUtils.calcProductLevel(s.getSales30d(), profitRate));
+                // profitRate 是原始小数（0.21=21%），calcProductLevel 期望百分比值（21.0=21%）
+                s.setSkuLevel(InventoryUtils.calcProductLevel(s.getSales30d(), profitRate * 100));
 
                 s.setBrandCode(InventoryUtils.extractBrandPrefix(baseSku));
                 s.setOperatorName(InventoryUtils.matchOwner(baseSku, ownerByBrand));

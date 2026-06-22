@@ -67,7 +67,7 @@
             <!-- 文本 -->
             <if test="site != null and site != ''">
                 <choose>
-                    <when test="site.contains(',')">and s.site in <foreach collection="site.split(',')" item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <when test='site.contains(",")'>and s.site in <foreach collection='site.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
                     <otherwise>and s.site like concat('%', #{site}, '%')</otherwise>
                 </choose>
             </if>
@@ -83,42 +83,183 @@
             <if test="operatorName != null and operatorName != ''">
                 and s.operator_name like concat('%', #{operatorName}, '%')
             </if>
+            <if test="skuLevel != null and skuLevel != ''">
+                and s.sku_level = #{skuLevel}
+            </if>
             <!-- 数值（筛选 snapshot 的 computed 列） -->
-            <include refid="num"><property name="col" value="s.our_lowest_price"/><property name="op" value="our_lowest_price_op"/><property name="val" value="our_lowest_price_val"/></include>
-            <include refid="num"><property name="col" value="s.tracking_price"/><property name="op" value="tracking_price_op"/><property name="val" value="tracking_price_val"/></include>
-            <include refid="num"><property name="col" value="s.tracking_profit_margin"/><property name="op" value="tracking_profit_margin_op"/><property name="val" value="tracking_profit_margin_val"/></include>
-            <include refid="num"><property name="col" value="s.floor_price"/><property name="op" value="floor_price_op"/><property name="val" value="floor_price_val"/></include>
-            <include refid="num"><property name="col" value="s.return_rate"/><property name="op" value="return_rate_op"/><property name="val" value="return_rate_val"/></include>
-            <include refid="num"><property name="col" value="s.sales_3d"/><property name="op" value="sales_3d_op"/><property name="val" value="sales_3d_val"/></include>
-            <include refid="num"><property name="col" value="s.sales_7d"/><property name="op" value="sales_7d_op"/><property name="val" value="sales_7d_val"/></include>
-            <include refid="num"><property name="col" value="s.sales_30d"/><property name="op" value="sales_30d_op"/><property name="val" value="sales_30d_val"/></include>
-            <include refid="num"><property name="col" value="s.sales_90d"/><property name="op" value="sales_90d_op"/><property name="val" value="sales_90d_val"/></include>
-            <include refid="num"><property name="col" value="s.max_monthly_sales"/><property name="op" value="max_monthly_sales_op"/><property name="val" value="max_monthly_sales_val"/></include>
-            <include refid="num"><property name="col" value="s.overseas_stock"/><property name="op" value="overseas_stock_op"/><property name="val" value="overseas_stock_val"/></include>
-            <include refid="num"><property name="col" value="s.overseas_stock_age_days"/><property name="op" value="overseas_stock_age_days_op"/><property name="val" value="overseas_stock_age_days_val"/></include>
-            <include refid="num"><property name="col" value="s.stock_sales_ratio"/><property name="op" value="stock_sales_ratio_op"/><property name="val" value="stock_sales_ratio_val"/></include>
-            <include refid="num"><property name="col" value="s.estimated_replenish_qty"/><property name="op" value="estimated_replenish_qty_op"/><property name="val" value="estimated_replenish_qty_val"/></include>
+            <if test="our_lowest_price_op != null">
+                <choose>
+                    <when test="our_lowest_price_op == 'between' and our_lowest_price_val != null and our_lowest_price_val2 != null">
+                        and s.our_lowest_price between #{our_lowest_price_val} and #{our_lowest_price_val2}
+                    </when>
+                    <when test="our_lowest_price_op == 'isNull'"> and s.our_lowest_price is null </when>
+                    <when test="our_lowest_price_op == 'isNotNull'"> and s.our_lowest_price is not null </when>
+                    <when test="our_lowest_price_val != null"> and s.our_lowest_price ${our_lowest_price_op} #{our_lowest_price_val} </when>
+                </choose>
+            </if>
+            <if test="tracking_price_op != null">
+                <choose>
+                    <when test="tracking_price_op == 'between' and tracking_price_val != null and tracking_price_val2 != null">
+                        and s.tracking_price between #{tracking_price_val} and #{tracking_price_val2}
+                    </when>
+                    <when test="tracking_price_op == 'isNull'"> and s.tracking_price is null </when>
+                    <when test="tracking_price_op == 'isNotNull'"> and s.tracking_price is not null </when>
+                    <when test="tracking_price_val != null"> and s.tracking_price ${tracking_price_op} #{tracking_price_val} </when>
+                </choose>
+            </if>
+            <if test="tracking_profit_margin_op != null">
+                <choose>
+                    <when test="tracking_profit_margin_op == 'between' and tracking_profit_margin_val != null and tracking_profit_margin_val2 != null">
+                        and s.tracking_profit_margin between #{tracking_profit_margin_val} and #{tracking_profit_margin_val2}
+                    </when>
+                    <when test="tracking_profit_margin_op == 'isNull'"> and s.tracking_profit_margin is null </when>
+                    <when test="tracking_profit_margin_op == 'isNotNull'"> and s.tracking_profit_margin is not null </when>
+                    <when test="tracking_profit_margin_val != null"> and s.tracking_profit_margin ${tracking_profit_margin_op} #{tracking_profit_margin_val} </when>
+                </choose>
+            </if>
+            <if test="floor_price_op != null">
+                <choose>
+                    <when test="floor_price_op == 'between' and floor_price_val != null and floor_price_val2 != null">
+                        and s.floor_price between #{floor_price_val} and #{floor_price_val2}
+                    </when>
+                    <when test="floor_price_op == 'isNull'"> and s.floor_price is null </when>
+                    <when test="floor_price_op == 'isNotNull'"> and s.floor_price is not null </when>
+                    <when test="floor_price_val != null"> and s.floor_price ${floor_price_op} #{floor_price_val} </when>
+                </choose>
+            </if>
+            <if test="return_rate_op != null">
+                <choose>
+                    <when test="return_rate_op == 'between' and return_rate_val != null and return_rate_val2 != null">
+                        and s.return_rate between #{return_rate_val} and #{return_rate_val2}
+                    </when>
+                    <when test="return_rate_op == 'isNull'"> and s.return_rate is null </when>
+                    <when test="return_rate_op == 'isNotNull'"> and s.return_rate is not null </when>
+                    <when test="return_rate_val != null"> and s.return_rate ${return_rate_op} #{return_rate_val} </when>
+                </choose>
+            </if>
+            <if test="sales_3d_op != null">
+                <choose>
+                    <when test="sales_3d_op == 'between' and sales_3d_val != null and sales_3d_val2 != null">
+                        and s.sales_3d between #{sales_3d_val} and #{sales_3d_val2}
+                    </when>
+                    <when test="sales_3d_op == 'isNull'"> and s.sales_3d is null </when>
+                    <when test="sales_3d_op == 'isNotNull'"> and s.sales_3d is not null </when>
+                    <when test="sales_3d_val != null"> and s.sales_3d ${sales_3d_op} #{sales_3d_val} </when>
+                </choose>
+            </if>
+            <if test="sales_7d_op != null">
+                <choose>
+                    <when test="sales_7d_op == 'between' and sales_7d_val != null and sales_7d_val2 != null">
+                        and s.sales_7d between #{sales_7d_val} and #{sales_7d_val2}
+                    </when>
+                    <when test="sales_7d_op == 'isNull'"> and s.sales_7d is null </when>
+                    <when test="sales_7d_op == 'isNotNull'"> and s.sales_7d is not null </when>
+                    <when test="sales_7d_val != null"> and s.sales_7d ${sales_7d_op} #{sales_7d_val} </when>
+                </choose>
+            </if>
+            <if test="sales_30d_op != null">
+                <choose>
+                    <when test="sales_30d_op == 'between' and sales_30d_val != null and sales_30d_val2 != null">
+                        and s.sales_30d between #{sales_30d_val} and #{sales_30d_val2}
+                    </when>
+                    <when test="sales_30d_op == 'isNull'"> and s.sales_30d is null </when>
+                    <when test="sales_30d_op == 'isNotNull'"> and s.sales_30d is not null </when>
+                    <when test="sales_30d_val != null"> and s.sales_30d ${sales_30d_op} #{sales_30d_val} </when>
+                </choose>
+            </if>
+            <if test="sales_90d_op != null">
+                <choose>
+                    <when test="sales_90d_op == 'between' and sales_90d_val != null and sales_90d_val2 != null">
+                        and s.sales_90d between #{sales_90d_val} and #{sales_90d_val2}
+                    </when>
+                    <when test="sales_90d_op == 'isNull'"> and s.sales_90d is null </when>
+                    <when test="sales_90d_op == 'isNotNull'"> and s.sales_90d is not null </when>
+                    <when test="sales_90d_val != null"> and s.sales_90d ${sales_90d_op} #{sales_90d_val} </when>
+                </choose>
+            </if>
+            <if test="max_monthly_sales_op != null">
+                <choose>
+                    <when test="max_monthly_sales_op == 'between' and max_monthly_sales_val != null and max_monthly_sales_val2 != null">
+                        and s.max_monthly_sales between #{max_monthly_sales_val} and #{max_monthly_sales_val2}
+                    </when>
+                    <when test="max_monthly_sales_op == 'isNull'"> and s.max_monthly_sales is null </when>
+                    <when test="max_monthly_sales_op == 'isNotNull'"> and s.max_monthly_sales is not null </when>
+                    <when test="max_monthly_sales_val != null"> and s.max_monthly_sales ${max_monthly_sales_op} #{max_monthly_sales_val} </when>
+                </choose>
+            </if>
+            <if test="overseas_stock_op != null">
+                <choose>
+                    <when test="overseas_stock_op == 'between' and overseas_stock_val != null and overseas_stock_val2 != null">
+                        and s.overseas_stock between #{overseas_stock_val} and #{overseas_stock_val2}
+                    </when>
+                    <when test="overseas_stock_op == 'isNull'"> and s.overseas_stock is null </when>
+                    <when test="overseas_stock_op == 'isNotNull'"> and s.overseas_stock is not null </when>
+                    <when test="overseas_stock_val != null"> and s.overseas_stock ${overseas_stock_op} #{overseas_stock_val} </when>
+                </choose>
+            </if>
+            <if test="overseas_stock_age_days_op != null">
+                <choose>
+                    <when test="overseas_stock_age_days_op == 'between' and overseas_stock_age_days_val != null and overseas_stock_age_days_val2 != null">
+                        and s.overseas_stock_age_days between #{overseas_stock_age_days_val} and #{overseas_stock_age_days_val2}
+                    </when>
+                    <when test="overseas_stock_age_days_op == 'isNull'"> and s.overseas_stock_age_days is null </when>
+                    <when test="overseas_stock_age_days_op == 'isNotNull'"> and s.overseas_stock_age_days is not null </when>
+                    <when test="overseas_stock_age_days_val != null"> and s.overseas_stock_age_days ${overseas_stock_age_days_op} #{overseas_stock_age_days_val} </when>
+                </choose>
+            </if>
+            <if test="stock_sales_ratio_op != null">
+                <choose>
+                    <when test="stock_sales_ratio_op == 'between' and stock_sales_ratio_val != null and stock_sales_ratio_val2 != null">
+                        and s.stock_sales_ratio between #{stock_sales_ratio_val} and #{stock_sales_ratio_val2}
+                    </when>
+                    <when test="stock_sales_ratio_op == 'isNull'"> and s.stock_sales_ratio is null </when>
+                    <when test="stock_sales_ratio_op == 'isNotNull'"> and s.stock_sales_ratio is not null </when>
+                    <when test="stock_sales_ratio_val != null"> and s.stock_sales_ratio ${stock_sales_ratio_op} #{stock_sales_ratio_val} </when>
+                </choose>
+            </if>
+            <if test="estimated_replenish_qty_op != null">
+                <choose>
+                    <when test="estimated_replenish_qty_op == 'between' and estimated_replenish_qty_val != null and estimated_replenish_qty_val2 != null">
+                        and s.estimated_replenish_qty between #{estimated_replenish_qty_val} and #{estimated_replenish_qty_val2}
+                    </when>
+                    <when test="estimated_replenish_qty_op == 'isNull'"> and s.estimated_replenish_qty is null </when>
+                    <when test="estimated_replenish_qty_op == 'isNotNull'"> and s.estimated_replenish_qty is not null </when>
+                    <when test="estimated_replenish_qty_val != null"> and s.estimated_replenish_qty ${estimated_replenish_qty_op} #{estimated_replenish_qty_val} </when>
+                </choose>
+            </if>
         </where>
         <choose>
             <when test="sortField == 'site'">order by s.site</when>
             <when test="sortField == 'sku'">order by s.sku</when>
+            <when test="sortField == 'sales3d'">order by s.sales_3d</when>
+            <when test="sortField == 'sales7d'">order by s.sales_7d</when>
             <when test="sortField == 'sales30d'">order by s.sales_30d</when>
             <when test="sortField == 'sales90d'">order by s.sales_90d</when>
+            <when test="sortField == 'maxMonthlySales'">order by s.max_monthly_sales</when>
             <when test="sortField == 'overseasStock'">order by s.overseas_stock</when>
+            <when test="sortField == 'overseasStockAgeDays'">order by s.overseas_stock_age_days</when>
             <when test="sortField == 'stockSalesRatio'">order by s.stock_sales_ratio</when>
             <when test="sortField == 'estimatedReplenishQty'">order by s.estimated_replenish_qty</when>
             <when test="sortField == 'ourLowestPrice'">order by s.our_lowest_price</when>
             <when test="sortField == 'trackingPrice'">order by s.tracking_price</when>
-            <otherwise>order by s.site asc, s.sku asc</otherwise>
+            <when test="sortField == 'trackingProfitMargin'">order by s.tracking_profit_margin</when>
+            <when test="sortField == 'floorPrice'">order by s.floor_price</when>
+            <when test="sortField == 'returnRate'">order by s.return_rate</when>
+            <otherwise>order by s.site, s.sku</otherwise>
         </choose>
-        <if test="sortField != null and sortField != ''">
-            <choose><when test="sortOrder == 'ascending'">asc</when><otherwise>desc</otherwise></choose>
-        </if>
+        <choose><when test="sortOrder == 'ascending'">asc</when><otherwise>desc</otherwise></choose>
     </select>
 
     <sql id="num">
-        <if test="${op} != null and ${val} != null">
-            and ${col} ${op} #{${val}}
+        <if test="${op} != null">
+            <choose>
+                <when test="${op} == 'between' and ${val} != null and ${val2} != null">
+                    and ${col} between #{${val}} and #{${val2}}
+                </when>
+                <when test="${op} == 'isNull'"> and ${col} is null </when>
+                <when test="${op} == 'isNotNull'"> and ${col} is not null </when>
+                <when test="${val} != null"> and ${col} ${${op}} #{${val}} </when>
+            </choose>
         </if>
     </sql>
 

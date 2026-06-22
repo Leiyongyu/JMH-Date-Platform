@@ -6,6 +6,10 @@ export function listAmzReplenishment(query) {
   return request({ url: '/operations/amz/replenishment/list', method: 'get', params: query })
 }
 
+export function searchAmzReplenishment(data) {
+  return request({ url: '/operations/amz/replenishment/search', method: 'post', data })
+}
+
 export function refreshAmzReplenishment() {
   return request({ url: '/operations/amz/replenishment/refresh', method: 'post', timeout: LONG_TIMEOUT })
 }

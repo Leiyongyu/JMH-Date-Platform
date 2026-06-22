@@ -6,6 +6,7 @@ import com.ruoyi.system.domain.operation.OperationImportTask;
 import com.ruoyi.system.mapper.operation.OperationImportTaskMapper;
 import com.ruoyi.system.mapper.operation.external.EbayProductDedupMapper;
 import com.ruoyi.system.mapper.operation.external.EbaySalesMapper;
+import com.ruoyi.system.domain.operation.external.GoodcangProductInfo;
 import com.ruoyi.system.mapper.operation.external.GoodcangProductInfoMapper;
 import com.ruoyi.system.service.operation.compute.InventoryUtils;
 import java.io.InputStream;
@@ -331,6 +332,18 @@ public class OperationImportService
                         continue;
                     }
                     int rows = productInfoMapper.updatePrice(middleCode, price);
+                    if (rows == 0)
+                    {
+                        // 数字键跨品牌 fallback: 170084 → JMH-170084
+                        for (GoodcangProductInfo p : productInfoMapper.selectAll())
+                        {
+                            if (p.getSkuMiddle() != null && middleCode.equals(InventoryUtils.extractNumericKey(p.getSkuMiddle())))
+                            {
+                                rows = productInfoMapper.updatePrice(p.getSkuMiddle(), price);
+                                break;
+                            }
+                        }
+                    }
                     if (rows > 0) success++;
                     else addFailure(failures, i + 1, middleCode, "未匹配到谷仓商品记录");
                 }

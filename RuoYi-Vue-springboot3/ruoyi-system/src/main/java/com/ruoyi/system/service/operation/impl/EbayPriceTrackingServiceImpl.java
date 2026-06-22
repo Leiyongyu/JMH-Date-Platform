@@ -38,7 +38,7 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
         "overseasStock", "overseasStockAgeDays", "stockSalesRatio", "estimatedReplenishQty",
         "ourLowestPrice", "trackingPrice", "trackingProfitMargin", "floorPrice", "returnRate"
     );
-    private static final Set<String> TEXT_FIELDS = Set.of("site", "sku", "productName", "brandCode", "operatorName");
+    private static final Set<String> TEXT_FIELDS = Set.of("site", "sku", "productName", "brandCode", "operatorName", "skuLevel");
     private static final Map<String, String> NUM_MAP = new LinkedHashMap<>();
     static {
         NUM_MAP.put("ourLowestPrice", "our_lowest_price");
@@ -56,6 +56,7 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
         NUM_MAP.put("stockSalesRatio", "stock_sales_ratio");
         NUM_MAP.put("estimatedReplenishQty", "estimated_replenish_qty");
     }
+    private static final Set<String> ALLOWED_OPS = Set.of("=", ">", ">=", "<", "<=", "between", "isNull", "isNotNull");
     private static final Set<String> PERCENT_FIELDS = Set.of("trackingProfitMargin", "returnRate", "stockSalesRatio");
     private static final Set<String> DISTINCT_COLS = Set.of("site", "sku_level", "brand_code", "operator_name", "product_name", "sku");
 
@@ -154,6 +155,21 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
             String pureMiddleCode = mid.substring(mid.lastIndexOf('-') + 1);
             gp = productInfoMapper.selectByMiddleCode(pureMiddleCode);
             if (gp != null) mid = pureMiddleCode;
+        }
+        // 跨品牌数字键 fallback: VLV-170084 → numericKey=170084 → JMH-170084
+        if (gp == null)
+        {
+            String numKey = InventoryUtils.extractNumericKey(sku);
+            if (!numKey.isEmpty())
+            {
+                for (GoodcangProductInfo p : productInfoMapper.selectAll())
+                {
+                    if (p.getSkuMiddle() != null && numKey.equals(InventoryUtils.extractNumericKey(p.getSkuMiddle())))
+                    {
+                        gp = p; mid = p.getSkuMiddle(); break;
+                    }
+                }
+            }
         }
         if (gp == null || gp.getPrice() == null)
         {
@@ -258,16 +274,60 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
 
         for (EbayReplenishmentSearchRequest.FilterItem f : req.getFilters())
         {
-            if (!StringUtils.hasText(f.getField()) || !StringUtils.hasText(f.getValue())) continue;
-            String field = f.getField().trim(), raw = f.getValue().trim();
-            if (TEXT_FIELDS.contains(field)) { p.put(field, raw); continue; }
-            if (NUM_MAP.containsKey(field)) parseNum(p, field, raw);
+            if (!StringUtils.hasText(f.getField())) continue;
+            String field = f.getField().trim();
+            if (TEXT_FIELDS.contains(field))
+            {
+                if (!StringUtils.hasText(f.getValue())) continue;
+                p.put(field, f.getValue().trim());
+                continue;
+            }
+            if (NUM_MAP.containsKey(field)) parseNum(p, field, f);
         }
         return p;
     }
 
-    private void parseNum(Map<String, Object> p, String field, String raw)
+    private void parseNum(Map<String, Object> p, String field, EbayReplenishmentSearchRequest.FilterItem f)
     {
+        String operator = f.getOperator();
+        String value = f.getValue();
+        String value2 = f.getValue2();
+        // mapper XML 用 DB 列名做参数键（如 sales_30d_op），不是前端字段名（如 sales30d_op）
+        String db = NUM_MAP.getOrDefault(field, field);
+
+        // 新格式：结构化 operator
+        if (StringUtils.hasText(operator) && ALLOWED_OPS.contains(operator))
+        {
+            if ("isNull".equals(operator)) { p.put(db + "_op", "isNull"); return; }
+            if ("isNotNull".equals(operator)) { p.put(db + "_op", "isNotNull"); return; }
+            if ("between".equals(operator) && StringUtils.hasText(value) && StringUtils.hasText(value2))
+            {
+                try {
+                    double v1 = Double.parseDouble(value.trim());
+                    double v2 = Double.parseDouble(value2.trim());
+                    if (PERCENT_FIELDS.contains(field)) { v1 /= 100.0; v2 /= 100.0; }
+                    p.put(db + "_op", "between");
+                    p.put(db + "_val", BigDecimal.valueOf(v1));
+                    p.put(db + "_val2", BigDecimal.valueOf(v2));
+                } catch (NumberFormatException ignored) {}
+                return;
+            }
+            if (StringUtils.hasText(value))
+            {
+                try {
+                    double v = Double.parseDouble(value.trim());
+                    if (PERCENT_FIELDS.contains(field)) v /= 100.0;
+                    p.put(db + "_op", operator);
+                    p.put(db + "_val", BigDecimal.valueOf(v));
+                } catch (NumberFormatException ignored) {}
+                return;
+            }
+            return;
+        }
+
+        // 旧格式兼容：value=">30"
+        if (!StringUtils.hasText(value)) return;
+        String raw = value.trim();
         String op, ns;
         if (raw.startsWith(">=")) { op = ">="; ns = raw.substring(2).trim(); }
         else if (raw.startsWith("<=")) { op = "<="; ns = raw.substring(2).trim(); }
@@ -280,8 +340,8 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
         {
             double v = Double.parseDouble(ns);
             if (PERCENT_FIELDS.contains(field)) v /= 100.0;
-            p.put(field + "_op", op);
-            p.put(field + "_val", BigDecimal.valueOf(v));
+            p.put(db + "_op", op);
+            p.put(db + "_val", BigDecimal.valueOf(v));
         }
         catch (NumberFormatException e) { p.put(field, raw); }
     }

@@ -36,6 +36,11 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
         "site", "sku", "productName", "skuLevel", "ownerName", "lastLocalOutboundTime"
     );
 
+    /** 允许的操作符白名单 */
+    private static final Set<String> ALLOWED_OPS = Set.of(
+        "=", ">", ">=", "<", "<=", "between", "isNull", "isNotNull"
+    );
+
     /** 允许数值筛选的列 → SQL 列名 */
     private static final Map<String, String> NUMERIC_FIELD_MAP = new LinkedHashMap<>();
     static {
@@ -172,37 +177,93 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
 
         for (EbayReplenishmentSearchRequest.FilterItem f : req.getFilters())
         {
-            if (!StringUtils.hasText(f.getField()) || !StringUtils.hasText(f.getValue())) continue;
+            if (!StringUtils.hasText(f.getField())) continue;
             String field = f.getField().trim();
-            String rawVal = f.getValue().trim();
 
             // 文本字段
             if (TEXT_FIELDS.contains(field))
             {
-                p.put(field, rawVal);
+                if (!StringUtils.hasText(f.getValue())) continue;
+                p.put(field, f.getValue().trim());
                 continue;
             }
 
             // 数值字段
             if (NUMERIC_FIELD_MAP.containsKey(field))
             {
-                parseNumericFilter(p, field, rawVal);
+                parseNumericFilter(p, field, f);
             }
         }
 
         return p;
     }
 
-    /** 解析数值筛选：支持 > >= < <= = 前缀，= 可省略 */
-    private void parseNumericFilter(Map<String, Object> p, String field, String raw)
+    /**
+     * 解析数值筛选。支持两种格式：
+     * 1. 新格式（结构化）：operator + value [+ value2]，优先判断
+     * 2. 旧格式（兼容）：value=">30" 字符串前缀解析
+     */
+    private void parseNumericFilter(Map<String, Object> p, String field, EbayReplenishmentSearchRequest.FilterItem f)
     {
+        String operator = f.getOperator();
+        String value = f.getValue();
+        String value2 = f.getValue2();
+
+        // ---- 新格式：结构化 operator ----
+        if (StringUtils.hasText(operator) && ALLOWED_OPS.contains(operator))
+        {
+            // isNull / isNotNull 不需要 value
+            if ("isNull".equals(operator))
+            {
+                p.put(field + "_op", "isNull");
+                return;
+            }
+            if ("isNotNull".equals(operator))
+            {
+                p.put(field + "_op", "isNotNull");
+                return;
+            }
+            // between 需要 value + value2
+            if ("between".equals(operator) && StringUtils.hasText(value) && StringUtils.hasText(value2))
+            {
+                try
+                {
+                    double v1 = Double.parseDouble(value.trim());
+                    double v2 = Double.parseDouble(value2.trim());
+                    if (PERCENT_FIELDS.contains(field)) { v1 /= 100.0; v2 /= 100.0; }
+                    p.put(field + "_op", "between");
+                    p.put(field + "_val", BigDecimal.valueOf(v1));
+                    p.put(field + "_val2", BigDecimal.valueOf(v2));
+                }
+                catch (NumberFormatException ignored) {}
+                return;
+            }
+            // 常规比较 (> >= < <= =) 需要 value
+            if (StringUtils.hasText(value))
+            {
+                try
+                {
+                    double val = Double.parseDouble(value.trim());
+                    if (PERCENT_FIELDS.contains(field)) val /= 100.0;
+                    p.put(field + "_op", operator);
+                    p.put(field + "_val", BigDecimal.valueOf(val));
+                }
+                catch (NumberFormatException ignored) {}
+                return;
+            }
+            return;
+        }
+
+        // ---- 旧格式兼容：value=">30" 字符串前缀 ----
+        if (!StringUtils.hasText(value)) return;
+        String raw = value.trim();
         String op; String numStr;
         if (raw.startsWith(">="))      { op = ">="; numStr = raw.substring(2).trim(); }
         else if (raw.startsWith("<=")) { op = "<="; numStr = raw.substring(2).trim(); }
         else if (raw.startsWith(">"))  { op = ">";  numStr = raw.substring(1).trim(); }
         else if (raw.startsWith("<"))  { op = "<";  numStr = raw.substring(1).trim(); }
         else if (raw.startsWith("="))  { op = "=";  numStr = raw.substring(1).trim(); }
-        else { op = "="; numStr = raw; } // 无前缀 → 等于
+        else { op = "="; numStr = raw; }
 
         if (numStr.isEmpty()) return;
 
@@ -215,7 +276,6 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
         }
         catch (NumberFormatException e)
         {
-            // 非数字，按文本模糊处理
             p.put(field, raw);
         }
     }

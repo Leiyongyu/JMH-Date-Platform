@@ -164,14 +164,37 @@ public final class InventoryUtils
     }
 
     /**
-     * SKU 产品等级：A~E，基于近30天销量和利润率
+     * SKU 产品等级：S/A/B/C/D/E，基于近30天销量和利润率（百分比）。
+     *
+     * profitRate 传入时已是百分比值（如 21.0 表示 21%）。
+     *
+     * S：月销≥30，且利润≥20%（精品/重点加推需人工标记）
+     * A：月销≥15，且利润≥20%
+     * B：月销≥10，且利润≥18%
+     * C：月销≥10，利润≥10%（不满足B） 或 月销5~10，利润≥15%（不满足B）
+     * D：月销＜5，利润≥15% 或 月销5~10，利润10%~15%
+     * E：其余（淘汰/低价值）
      */
     public static String calcProductLevel(int sales, double profitRate)
     {
-        if (sales >= 100 && profitRate >= 0.30) return "A";
-        if (sales >= 50 && profitRate >= 0.20) return "B";
-        if (sales >= 20 && profitRate >= 0.10) return "C";
-        if (sales >= 5) return "D";
+        // S: 月销≥30，利润≥20%（自动标注S，人工确认为精品/重点加推）
+        if (sales >= 30 && profitRate >= 20) return "S";
+
+        // A: 月销≥15，且利润≥20%
+        if (sales >= 15 && profitRate >= 20) return "A";
+
+        // B: 月销≥10，且利润≥18%
+        if (sales >= 10 && profitRate >= 18) return "B";
+
+        // C: 月销≥10，利润≥10%（不满足B） 或 月销5-10，利润≥15%（不满足B）
+        if ((sales >= 10 && profitRate >= 10)
+                || (sales >= 5 && profitRate >= 15)) return "C";
+
+        // D: 月销＜5，利润≥15% 或 月销5-10，利润10%-15%
+        if ((sales < 5 && profitRate >= 15)
+                || (sales >= 5 && sales < 10 && profitRate >= 10)) return "D";
+
+        // E: 淘汰/低价值
         return "E";
     }
 

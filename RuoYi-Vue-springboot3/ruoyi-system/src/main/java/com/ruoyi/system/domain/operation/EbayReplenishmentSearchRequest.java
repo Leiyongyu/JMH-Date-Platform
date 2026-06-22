@@ -36,11 +36,21 @@ public class EbayReplenishmentSearchRequest
     /**
      * 单个筛选条件。
      * 字段名 field 在后端映射到白名单列名，不允许前端传原始 SQL。
+     *
+     * 数值筛选支持两种格式：
+     * 1. 旧格式（兼容）：value=">30"  → 后端解析操作符前缀
+     * 2. 新格式（结构化）：operator=">" / value="30" / value2="50"(between用) / type="number"
      */
     public static class FilterItem
     {
         private String field;
         private String value;
+        /** 操作符：= > >= < <= between isNull isNotNull */
+        private String operator;
+        /** between 的上限值 */
+        private String value2;
+        /** 字段类型：text / number */
+        private String type;
 
         public FilterItem() {}
         public FilterItem(String field, String value) { this.field = field; this.value = value; }
@@ -49,5 +59,11 @@ public class EbayReplenishmentSearchRequest
         public void setField(String field) { this.field = field; }
         public String getValue() { return value; }
         public void setValue(String value) { this.value = value; }
+        public String getOperator() { return operator; }
+        public void setOperator(String operator) { this.operator = operator; }
+        public String getValue2() { return value2; }
+        public void setValue2(String value2) { this.value2 = value2; }
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
     }
 }

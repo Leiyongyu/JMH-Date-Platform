@@ -6,6 +6,10 @@ export function listEbayReplenishment(query) {
   return request({ url: '/operations/ebay/replenishment/list', method: 'get', params: query })
 }
 
+export function searchEbayReplenishment(data) {
+  return request({ url: '/operations/ebay/replenishment/search', method: 'post', data })
+}
+
 export function refreshEbayReplenishment() {
   return request({ url: '/operations/ebay/replenishment/refresh', method: 'post', timeout: LONG_TIMEOUT })
 }
