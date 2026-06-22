@@ -12,6 +12,7 @@
         <result property="successRows" column="success_rows"/>
         <result property="failRows" column="fail_rows"/>
         <result property="errorFilePath" column="error_file_path"/>
+        <result property="failDetailJson" column="fail_detail_json"/>
         <result property="startTime" column="start_time"/>
         <result property="endTime" column="end_time"/>
         <result property="createTime" column="create_time"/>
@@ -30,6 +31,7 @@
             <if test="successRows != null">success_rows = #{successRows},</if>
             <if test="failRows != null">fail_rows = #{failRows},</if>
             <if test="errorFilePath != null">error_file_path = #{errorFilePath},</if>
+            <if test="failDetailJson != null">fail_detail_json = #{failDetailJson},</if>
             <if test="endTime != null">end_time = #{endTime},</if>
         </set>
         WHERE id = #{id}

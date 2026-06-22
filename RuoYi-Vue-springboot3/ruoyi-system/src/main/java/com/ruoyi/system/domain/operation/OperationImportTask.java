@@ -15,6 +15,7 @@ public class OperationImportTask implements Serializable
     private Integer successRows;
     private Integer failRows;
     private String errorFilePath;
+    private String failDetailJson;
     private Date startTime;
     private Date endTime;
     private Date createTime;
@@ -37,6 +38,8 @@ public class OperationImportTask implements Serializable
     public void setFailRows(Integer failRows) { this.failRows = failRows; }
     public String getErrorFilePath() { return errorFilePath; }
     public void setErrorFilePath(String errorFilePath) { this.errorFilePath = errorFilePath; }
+    public String getFailDetailJson() { return failDetailJson; }
+    public void setFailDetailJson(String failDetailJson) { this.failDetailJson = failDetailJson; }
     public Date getStartTime() { return startTime; }
     public void setStartTime(Date startTime) { this.startTime = startTime; }
     public Date getEndTime() { return endTime; }

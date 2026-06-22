@@ -39,7 +39,12 @@ public class AmzReplenishmentComputeService
     {
         log.info("==== AMZ补货快照 INSERT...SELECT 开始 ====");
         long start = System.currentTimeMillis();
-        int rows = snapshotMapper.insertByListing();
+        String batchNo = "AMZ_REPL-" + System.currentTimeMillis();
+        int rows = snapshotMapper.insertByListing(batchNo);
+        if (rows > 0)
+        {
+            snapshotMapper.activateBatch(batchNo);
+        }
         log.info("==== AMZ补货快照 INSERT...SELECT 完成: {} 条 耗时{}ms ====", rows, System.currentTimeMillis() - start);
     }
 }

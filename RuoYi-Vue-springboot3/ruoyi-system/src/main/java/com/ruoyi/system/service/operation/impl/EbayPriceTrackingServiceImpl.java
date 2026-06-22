@@ -88,16 +88,28 @@ public class EbayPriceTrackingServiceImpl implements IEbayPriceTrackingService
         log.info("==== eBay每日跟价快照刷新 开始 ====");
         long t = System.currentTimeMillis();
         List<EbayPriceTrackingSnapshot> computed = computeService.compute();
-        mapper.deleteAll();
+        if (computed.isEmpty())
+        {
+            log.warn("==== eBay price tracking snapshot refresh returned empty result, keep current snapshot ====");
+            return 0;
+        }
+
+        String batchNo = newBatchNo("EBAY_PRICE");
         if (!computed.isEmpty())
         {
             int batch = 500;
             for (int i = 0; i < computed.size(); i += batch)
-                mapper.batchInsert(computed.subList(i, Math.min(i + batch, computed.size())));
+                mapper.batchInsert(computed.subList(i, Math.min(i + batch, computed.size())), batchNo);
         }
+        mapper.activateBatch(batchNo);
         int filled = mapper.fillReplenishQtyFromSnapshot();
         log.info("==== eBay每日跟价快照刷新 完成: {}条, 补货数量填充{}条, 耗时{}ms ====", computed.size(), filled, System.currentTimeMillis() - t);
         return computed.size();
+    }
+
+    private String newBatchNo(String prefix)
+    {
+        return prefix + "-" + System.currentTimeMillis();
     }
 
     // ========== 跟卖价格计算 ==========

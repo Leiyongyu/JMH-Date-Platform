@@ -125,7 +125,13 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
         List<EbayReplenishmentSnapshot> computed = computeService.compute();
 
         // 事务内：清空 → 批量插入
-        snapshotMapper.deleteAll();
+        if (computed.isEmpty())
+        {
+            log.warn("==== eBay replenishment snapshot refresh returned empty result, keep current snapshot ====");
+            return 0;
+        }
+
+        String batchNo = newBatchNo("EBAY_REPL");
         if (!computed.isEmpty())
         {
             // 分批插入，每批 500 条
@@ -133,12 +139,18 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
             for (int i = 0; i < computed.size(); i += batchSize)
             {
                 int end = Math.min(i + batchSize, computed.size());
-                snapshotMapper.batchInsertSnapshots(computed.subList(i, end));
+                snapshotMapper.batchInsertSnapshots(computed.subList(i, end), batchNo);
             }
         }
+        snapshotMapper.activateBatch(batchNo);
 
         log.info("==== eBay补货快照刷新 完成: {} 条 耗时{}ms ====", computed.size(), System.currentTimeMillis() - start);
         return computed.size();
+    }
+
+    private String newBatchNo(String prefix)
+    {
+        return prefix + "-" + System.currentTimeMillis();
     }
 
     // ========================================================================

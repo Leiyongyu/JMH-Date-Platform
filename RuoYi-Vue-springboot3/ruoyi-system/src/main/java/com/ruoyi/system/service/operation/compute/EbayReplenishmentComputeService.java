@@ -202,7 +202,7 @@ public class EbayReplenishmentComputeService
                 snap.setTotalInventory(totalInv);
 
                 // ---- 销量 ----
-                String salesKey = row.site + "|" + InventoryUtils.extractNumericKey(baseSku);
+                String salesKey = row.site + "|" + InventoryUtils.extractMiddleCodeForInventory(baseSku);
                 snap.setSales7d(sa.sales7d.getOrDefault(salesKey, 0));
                 snap.setSales30d(sa.sales30d.getOrDefault(salesKey, 0));
                 snap.setSales90d(sa.sales90d.getOrDefault(salesKey, 0));

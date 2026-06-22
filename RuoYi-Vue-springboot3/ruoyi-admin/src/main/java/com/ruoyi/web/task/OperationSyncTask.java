@@ -139,7 +139,7 @@ public class OperationSyncTask
             logService.finish(logId, result);
         } catch (TimeoutException e) {
             if (future != null) future.cancel(true);
-            result = OperationSyncResult.failed(syncType, syncName, apiPath,
+            result = OperationSyncResult.timeout(syncType, syncName, apiPath,
                     "任务执行超时(" + TASK_TIMEOUT_MINUTES + "分钟)，已请求取消后台任务", System.currentTimeMillis() - start);
             LOG.error("同步任务超时 [{}] {}: 超过{}分钟，已请求取消后台任务", syncType, syncName, TASK_TIMEOUT_MINUTES);
             if (logId != null) logService.finish(logId, result);

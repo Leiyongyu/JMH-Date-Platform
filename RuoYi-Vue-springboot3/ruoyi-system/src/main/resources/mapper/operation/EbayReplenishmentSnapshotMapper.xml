@@ -54,6 +54,7 @@
     <select id="search" parameterType="map" resultMap="EbayReplenishmentSnapshotResult">
         select <include refid="columns"/> <include refid="fromTable"/>
         <where>
+            and current_flag = 1
             <!-- ====== 文本字段 ====== -->
             <if test="site != null and site != ''">
                 <choose>
@@ -197,6 +198,7 @@
     <select id="selectEbayReplenishmentSnapshotList" parameterType="com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot" resultMap="EbayReplenishmentSnapshotResult">
         select <include refid="columns"/> <include refid="fromTable"/>
         <where>
+            and current_flag = 1
             <if test="site != null and site != ''">and site = #{site}</if>
             <if test="sku != null and sku != ''">and sku like concat('%', #{sku}, '%')</if>
             <if test="productName != null and productName != ''">and product_name like concat('%', #{productName}, '%')</if>
@@ -210,7 +212,8 @@
     <select id="selectDistinctValues" parameterType="map" resultType="string">
         select distinct t.`${column}`
         from ebay_replenishment_snapshot t
-        where t.`${column}` is not null and t.`${column}` != ''
+        where t.current_flag = 1
+          and t.`${column}` is not null and t.`${column}` != ''
         <if test="keyword != null and keyword != ''">
             and t.`${column}` like concat('%', #{keyword}, '%')
         </if>
@@ -241,7 +244,7 @@
         )
     </insert>
 
-    <insert id="batchInsertSnapshots" parameterType="list">
+    <insert id="batchInsertSnapshots">
         INSERT INTO ebay_replenishment_snapshot (
             site, sku, product_name, sku_level, profit_rate_30d, return_rate,
             overseas_onway, overseas_sellable, overseas_total, purchase_pending_delivery,
@@ -249,7 +252,7 @@
             sales_7d, sales_30d, sales_90d, max_monthly_sales,
             overseas_sellable_sales_ratio, overseas_total_sales_ratio, total_inventory_sales_ratio,
             last_local_outbound_time, outbound_days, purchase_cycle_days, suggest_purchase_qty,
-            max_monthly_replenish_qty, owner_name, calc_time
+            max_monthly_replenish_qty, owner_name, calc_time, batch_no, current_flag
         ) VALUES
         <foreach collection="list" item="item" separator=",">
         (
@@ -264,13 +267,23 @@
             #{item.totalInventorySalesRatio},
             #{item.lastLocalOutboundTime}, #{item.outboundDays}, #{item.purchaseCycleDays},
             #{item.suggestPurchaseQty},
-            #{item.maxMonthlyReplenishQty}, #{item.ownerName}, NOW()
+            #{item.maxMonthlyReplenishQty}, #{item.ownerName}, NOW(), #{batchNo}, 0
         )
         </foreach>
     </insert>
 
     <delete id="deleteAll">
         DELETE FROM ebay_replenishment_snapshot
+    </delete>
+
+    <update id="activateBatch">
+        UPDATE ebay_replenishment_snapshot
+        SET current_flag = CASE WHEN batch_no = #{batchNo} THEN 1 ELSE 0 END
+    </update>
+
+    <delete id="deleteNonCurrent">
+        DELETE FROM ebay_replenishment_snapshot
+        WHERE current_flag = 0
     </delete>
 
 </mapper>

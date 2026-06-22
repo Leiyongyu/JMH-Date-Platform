@@ -48,7 +48,8 @@
             purchased_qty, domestic_stock, pending_ship_qty, fba_stock, fba_inbound, total_inventory,
             sales_7d, sales_14d, sales_30d, sales_60d,
             sales_speed_14d, sales_speed_30d, sales_speed_60d,
-            avg_monthly_sales, safety_stock, ship_qty, replenish_qty, restock_days, calc_time
+            avg_monthly_sales, safety_stock, ship_qty, replenish_qty, restock_days, calc_time,
+            batch_no, current_flag
         )
         SELECT
             COALESCE(pl.sid, 0) AS sid,
@@ -82,7 +83,9 @@
             ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 90, 2) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) AS ship_qty,
             ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 120, 2) - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0) AS replenish_qty,
             ROUND(((COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - ((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1) * 120 - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0))) / NULLIF((COALESCE(MAX(rs.avg_sales_14d),0)*0.5 + COALESCE(MAX(rs.avg_sales_30d),0)*0.4 + COALESCE(MAX(rs.avg_sales_60d),0)*0.1), 0), 2) AS restock_days,
-            NOW() AS calc_time
+            NOW() AS calc_time,
+            #{batchNo} AS batch_no,
+            0 AS current_flag
         FROM amz_warehouse_inventory_detail wd
         LEFT JOIN amz_product_listing pl ON pl.local_sku = wd.sku AND pl.status = 1
         LEFT JOIN shop_list sl ON sl.sid = pl.sid AND sl.platform_code = '10001'
@@ -110,6 +113,7 @@
         FROM amz_replenishment_snapshot s
         LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = o.sid AND s.seller_sku = o.seller_sku
         <where>
+            and s.current_flag = 1
             <!-- 文本字段 -->
             <if test="storeName != null and storeName != ''">
                 <choose>
@@ -155,7 +159,8 @@
     <!-- distinct 候选值 -->
     <select id="selectDistinctValues" parameterType="map" resultType="string">
         select distinct t.`${column}` from amz_replenishment_snapshot t
-        where t.`${column}` is not null and t.`${column}` != ''
+        where t.current_flag = 1
+          and t.`${column}` is not null and t.`${column}` != ''
         <if test="keyword != null and keyword != ''">and t.`${column}` like concat('%', #{keyword}, '%')</if>
         order by t.`${column}` limit 50
     </select>
@@ -177,6 +182,7 @@
         FROM amz_replenishment_snapshot s
         LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = o.sid AND s.seller_sku = o.seller_sku
         <where>
+            and s.current_flag = 1
             <if test="storeName != null and storeName != ''">and s.store_name like concat('%', #{storeName}, '%')</if>
             <if test="sellerSku != null and sellerSku != ''">and s.seller_sku like concat('%', #{sellerSku}, '%')</if>
             <if test="warehouseSku != null and warehouseSku != ''">and s.warehouse_sku like concat('%', #{warehouseSku}, '%')</if>
@@ -223,5 +229,15 @@
     <!-- 写入                                                              -->
     <!-- ==================================================================== -->
     <delete id="deleteAll">DELETE FROM amz_replenishment_snapshot</delete>
+
+    <update id="activateBatch">
+        UPDATE amz_replenishment_snapshot
+        SET current_flag = CASE WHEN batch_no = #{batchNo} THEN 1 ELSE 0 END
+    </update>
+
+    <delete id="deleteNonCurrent">
+        DELETE FROM amz_replenishment_snapshot
+        WHERE current_flag = 0
+    </delete>
 
 </mapper>

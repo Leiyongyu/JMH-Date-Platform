@@ -4,9 +4,7 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
- * 业务数据同步执行日志 —— 增强版，记录每次同步的接口、结果、失败明细。
- *
- * @author JMH
+ * Business data sync execution log.
  */
 public class DataSyncLog implements Serializable
 {
@@ -15,12 +13,12 @@ public class DataSyncLog implements Serializable
     private Long id;
     private String syncType;
     private String syncName;
-    private String apiPath;         // ★ 新增：调用的 API 路径
-    private String status;          // RUNNING / SUCCESS / FAILED
-    private String triggerType;     // MANUAL / JOB
+    private String apiPath;
+    private String status;
+    private String triggerType;
     private String operator;
-    private Long jobId;             // ★ 新增：若依 sys_job.job_id
-    private Long jobLogId;          // ★ 新增：若依 sys_job_log.job_log_id
+    private Long jobId;
+    private Long jobLogId;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private int totalCount;
@@ -28,9 +26,9 @@ public class DataSyncLog implements Serializable
     private int failCount;
     private String errorMessage;
     private String requestParams;
-    private String detailJson;      // ★ 新增：完整执行详情 JSON
-    private String failedJson;      // ★ 新增：失败明细 JSON
-    private Long parentId;           // ★ 新增：父日志ID，用于父子步骤关联
+    private String detailJson;
+    private String failedJson;
+    private Long parentId;
     private LocalDateTime createTime;
 
     public Long getId() { return id; }

@@ -3,21 +3,15 @@ package com.ruoyi.system.service.operation.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.system.domain.operation.DataSyncLog;
-import java.util.List;
 import com.ruoyi.system.mapper.operation.DataSyncLogMapper;
 import com.ruoyi.system.service.operation.IOperationSyncLogService;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
+import java.time.LocalDateTime;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
-
-/**
- * 业务同步日志服务实现。
- *
- * @author JMH
- */
 @Service
 public class OperationSyncLogServiceImpl implements IOperationSyncLogService
 {
@@ -47,7 +41,7 @@ public class OperationSyncLogServiceImpl implements IOperationSyncLogService
         log.setSyncType(syncType);
         log.setSyncName(syncName);
         log.setApiPath(apiPath);
-        log.setStatus("RUNNING");
+        log.setStatus(OperationSyncResult.STATUS_RUNNING);
         log.setTriggerType(triggerType != null ? triggerType : "JOB");
         log.setOperator(operator != null ? operator : "SYSTEM");
         log.setJobId(jobId);
@@ -57,7 +51,6 @@ public class OperationSyncLogServiceImpl implements IOperationSyncLogService
         log.setTotalCount(0);
         log.setSuccessCount(0);
         log.setFailCount(0);
-
         mapper.insert(log);
         return log.getId();
     }
@@ -65,10 +58,7 @@ public class OperationSyncLogServiceImpl implements IOperationSyncLogService
     @Override
     public void finish(Long logId, OperationSyncResult result)
     {
-        if (logId == null || result == null)
-        {
-            return;
-        }
+        if (logId == null || result == null) return;
 
         DataSyncLog log = new DataSyncLog();
         log.setId(logId);
@@ -79,9 +69,9 @@ public class OperationSyncLogServiceImpl implements IOperationSyncLogService
         log.setFailCount(result.getFailCount());
         log.setErrorMessage(truncate(result.getErrorMessage(), 2000));
 
-        // 序列化详情和失败信息为 JSON
         try
         {
+            log.setDetailJson(objectMapper.writeValueAsString(result));
             if (result.getFailures() != null && !result.getFailures().isEmpty())
             {
                 log.setFailedJson(objectMapper.writeValueAsString(result.getFailures()));
@@ -89,7 +79,7 @@ public class OperationSyncLogServiceImpl implements IOperationSyncLogService
         }
         catch (JsonProcessingException e)
         {
-            LOG.warn("序列化失败明细JSON出错: {}", e.getMessage());
+            LOG.warn("Serialize sync result json failed: {}", e.getMessage());
         }
 
         mapper.updateById(log);
@@ -102,21 +92,26 @@ public class OperationSyncLogServiceImpl implements IOperationSyncLogService
     }
 
     @Override
-    public int cleanOldLogs(int days) { return mapper.deleteOlderThan(days); }
+    public int cleanOldLogs(int days)
+    {
+        return mapper.deleteOlderThan(days);
+    }
 
     @Override
-    public List<DataSyncLog> getChildren(Long parentId) { return mapper.selectByParentId(parentId); }
+    public List<DataSyncLog> getChildren(Long parentId)
+    {
+        return mapper.selectByParentId(parentId);
+    }
 
     @Override
     public List<DataSyncLog> search(String syncType, String status, String triggerType)
-    { return mapper.search(syncType, status, triggerType); }
+    {
+        return mapper.search(syncType, status, triggerType);
+    }
 
     private String truncate(String text, int maxLen)
     {
-        if (text == null)
-        {
-            return null;
-        }
+        if (text == null) return null;
         return text.length() <= maxLen ? text : text.substring(0, maxLen);
     }
 }

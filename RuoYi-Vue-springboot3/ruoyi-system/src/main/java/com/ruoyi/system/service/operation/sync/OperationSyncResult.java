@@ -4,44 +4,28 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 统一同步结果模型 —— 每个接口同步任务都返回此对象，用于统一写入
- * data_sync_log 和增强 sys_job_log 的 job_message。
- *
- * @author JMH
+ * Unified result model for external sync tasks.
  */
 public class OperationSyncResult
 {
-    /** 同步类型标识，如 warehouse / ebay_listing / goodcang_grn */
+    public static final String STATUS_RUNNING = "RUNNING";
+    public static final String STATUS_SUCCESS = "SUCCESS";
+    public static final String STATUS_PARTIAL = "PARTIAL";
+    public static final String STATUS_FAILED = "FAILED";
+    public static final String STATUS_TIMEOUT = "TIMEOUT";
+    public static final String STATUS_CANCELLED = "CANCELLED";
+    public static final String STATUS_SKIPPED = "SKIPPED";
+
     private String syncType;
-
-    /** 同步名称（中文），如 "领星-仓库信息" */
     private String syncName;
-
-    /** 调用的 API 路径，如 erp/sc/data/local_inventory/warehouse */
     private String apiPath;
-
-    /** 执行状态：RUNNING / SUCCESS / FAILED */
     private String status;
-
-    /** 本次拉取到的总条数 */
     private int totalCount;
-
-    /** 成功写入/更新的条数 */
     private int successCount;
-
-    /** 失败条数 */
     private int failCount;
-
-    /** 全局错误信息（如整个接口调用失败） */
     private String errorMessage;
-
-    /** 执行耗时（毫秒） */
     private long elapsedMs;
-
-    /** 失败明细列表 */
     private List<FailureItem> failures = new ArrayList<>();
-
-    // ========== 工厂方法 ==========
 
     public static OperationSyncResult success(String syncType, String syncName, String apiPath,
                                                int totalCount, int successCount, long elapsedMs)
@@ -50,7 +34,7 @@ public class OperationSyncResult
         r.syncType = syncType;
         r.syncName = syncName;
         r.apiPath = apiPath;
-        r.status = "SUCCESS";
+        r.status = STATUS_SUCCESS;
         r.totalCount = totalCount;
         r.successCount = successCount;
         r.failCount = 0;
@@ -65,13 +49,28 @@ public class OperationSyncResult
         r.syncType = syncType;
         r.syncName = syncName;
         r.apiPath = apiPath;
-        r.status = "FAILED";
+        r.status = STATUS_FAILED;
         r.errorMessage = errorMessage;
         r.elapsedMs = elapsedMs;
         return r;
     }
 
-    /** 部分失败：有成功有失败 */
+    public static OperationSyncResult timeout(String syncType, String syncName, String apiPath,
+                                               String errorMessage, long elapsedMs)
+    {
+        OperationSyncResult r = failed(syncType, syncName, apiPath, errorMessage, elapsedMs);
+        r.status = STATUS_TIMEOUT;
+        return r;
+    }
+
+    public static OperationSyncResult skipped(String syncType, String syncName, String apiPath,
+                                               String reason, long elapsedMs)
+    {
+        OperationSyncResult r = failed(syncType, syncName, apiPath, reason, elapsedMs);
+        r.status = STATUS_SKIPPED;
+        return r;
+    }
+
     public static OperationSyncResult partial(String syncType, String syncName, String apiPath,
                                                int totalCount, int successCount, int failCount,
                                                List<FailureItem> failures, long elapsedMs)
@@ -80,7 +79,7 @@ public class OperationSyncResult
         r.syncType = syncType;
         r.syncName = syncName;
         r.apiPath = apiPath;
-        r.status = failCount >= totalCount ? "FAILED" : "SUCCESS";
+        r.status = failCount <= 0 ? STATUS_SUCCESS : (successCount > 0 ? STATUS_PARTIAL : STATUS_FAILED);
         r.totalCount = totalCount;
         r.successCount = successCount;
         r.failCount = failCount;
@@ -89,34 +88,22 @@ public class OperationSyncResult
         return r;
     }
 
-    /**
-     * 生成用于 sys_job_log.job_message 的增强描述文本。
-     * 示例：领星-仓库信息 执行成功，总数120，成功118，失败2，耗时12.3s，同步日志ID=45
-     */
     public String toJobMessage(Long syncLogId)
     {
         StringBuilder sb = new StringBuilder();
         sb.append(syncName).append(" 执行");
-        if ("SUCCESS".equals(status))
-        {
-            sb.append("成功");
-        }
-        else
-        {
-            sb.append("失败");
-        }
+        if (STATUS_SUCCESS.equals(status)) sb.append("成功");
+        else if (STATUS_PARTIAL.equals(status)) sb.append("部分成功");
+        else if (STATUS_TIMEOUT.equals(status)) sb.append("超时");
+        else if (STATUS_SKIPPED.equals(status)) sb.append("跳过");
+        else sb.append("失败");
         sb.append("，总数").append(totalCount);
         sb.append("，成功").append(successCount);
         sb.append("，失败").append(failCount);
         sb.append("，耗时").append(String.format("%.1f", elapsedMs / 1000.0)).append("s");
-        if (syncLogId != null)
-        {
-            sb.append("，同步日志ID=").append(syncLogId);
-        }
+        if (syncLogId != null) sb.append("，同步日志ID=").append(syncLogId);
         return sb.toString();
     }
-
-    // ========== getters / setters ==========
 
     public String getSyncType() { return syncType; }
     public void setSyncType(String syncType) { this.syncType = syncType; }
@@ -148,13 +135,10 @@ public class OperationSyncResult
     public List<FailureItem> getFailures() { return failures; }
     public void setFailures(List<FailureItem> failures) { this.failures = failures; }
 
-    /**
-     * 单条失败明细。
-     */
     public static class FailureItem
     {
-        private String key;       // 失败项的唯一标识，如 SKU / receiving_code
-        private String reason;    // 失败原因
+        private String key;
+        private String reason;
 
         public FailureItem() {}
 

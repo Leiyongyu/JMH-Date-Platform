@@ -34,7 +34,14 @@ public class LingxingPurchaseOrderSyncService
 
     /** 日常增量：拉前一天 */
     public OperationSyncResult sync() throws Exception {
-        return sync(LocalDate.now().minusDays(1), LocalDate.now().minusDays(1), 90);
+        boolean empty = mapper.selectAll().isEmpty();
+        LocalDate today = LocalDate.now();
+        if (empty)
+        {
+            LOG.info("purchase_order is empty, initialize Lingxing purchase orders for last 90 days");
+            return sync(today.minusDays(90), today, 90);
+        }
+        return sync(today.minusDays(1), today.minusDays(1), 90);
     }
 
     /** 校准模式：按 windowDays 分段拉取，upsert 不清空 */

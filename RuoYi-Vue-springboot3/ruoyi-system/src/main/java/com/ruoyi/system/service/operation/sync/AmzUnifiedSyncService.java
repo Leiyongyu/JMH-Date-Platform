@@ -109,11 +109,11 @@ public class AmzUnifiedSyncService
                 result.setElapsedMs(System.currentTimeMillis() - stepStart);
                 logSvc.finish(childId, result);
 
-                if ("FAILED".equals(result.getStatus()))
+                if (!OperationSyncResult.STATUS_SUCCESS.equals(result.getStatus()))
                 {
                     failedSteps++;
                     if (step.critical) criticalFailed = true;
-                    stepResults.add(stepMap(step.key, step.name, "FAILED", result.getErrorMessage()));
+                    stepResults.add(stepMap(step.key, step.name, result.getStatus(), result.getErrorMessage()));
                 }
                 else
                 {

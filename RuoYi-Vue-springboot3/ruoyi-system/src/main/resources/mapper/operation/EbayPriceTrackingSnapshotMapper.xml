@@ -63,6 +63,7 @@
         from ebay_price_tracking_snapshot s
         left join ebay_product_dedup d on s.site = d.site and s.sku = d.sku
         <where>
+            and s.current_flag = 1
             <!-- 文本 -->
             <if test="site != null and site != ''">
                 <choose>
@@ -123,21 +124,22 @@
 
     <select id="selectDistinctValues" parameterType="map" resultType="string">
         select distinct t.`${column}` from ebay_price_tracking_snapshot t
-        where t.`${column}` is not null and t.`${column}` != ''
+        where t.current_flag = 1
+          and t.`${column}` is not null and t.`${column}` != ''
         <if test="keyword != null and keyword != ''">
             and t.`${column}` like concat('%', #{keyword}, '%')
         </if>
         order by t.`${column}` limit 50
     </select>
 
-    <insert id="batchInsert" parameterType="list">
+    <insert id="batchInsert">
         INSERT INTO ebay_price_tracking_snapshot (
             site, sku, product_name, sku_level, our_lowest_price, tracking_price,
             tracking_profit_margin, floor_price, return_rate,
             sales_3d, sales_7d, sales_30d, sales_90d, max_monthly_sales,
             overseas_stock, overseas_stock_age_days, stock_sales_ratio,
             estimated_replenish_qty, brand_code, operator_name,
-            oe_number, presale_url, sold_url, remark, calc_time
+            oe_number, presale_url, sold_url, remark, calc_time, batch_no, current_flag
         ) VALUES
         <foreach collection="list" item="i" separator=",">
         (
@@ -147,7 +149,7 @@
             #{i.sales3d}, #{i.sales7d}, #{i.sales30d}, #{i.sales90d}, #{i.maxMonthlySales},
             #{i.overseasStock}, #{i.overseasStockAgeDays}, #{i.stockSalesRatio},
             #{i.estimatedReplenishQty}, #{i.brandCode}, #{i.operatorName},
-            #{i.oeNumber}, #{i.presaleUrl}, #{i.soldUrl}, #{i.remark}, NOW()
+            #{i.oeNumber}, #{i.presaleUrl}, #{i.soldUrl}, #{i.remark}, NOW(), #{batchNo}, 0
         )
         </foreach>
     </insert>
@@ -156,11 +158,23 @@
         DELETE FROM ebay_price_tracking_snapshot
     </delete>
 
+    <update id="activateBatch">
+        UPDATE ebay_price_tracking_snapshot
+        SET current_flag = CASE WHEN batch_no = #{batchNo} THEN 1 ELSE 0 END
+    </update>
+
+    <delete id="deleteNonCurrent">
+        DELETE FROM ebay_price_tracking_snapshot
+        WHERE current_flag = 0
+    </delete>
+
     <update id="fillReplenishQtyFromSnapshot">
         UPDATE ebay_price_tracking_snapshot t
         JOIN ebay_replenishment_snapshot r ON r.site = t.site AND r.sku = t.sku
         SET t.estimated_replenish_qty = r.max_monthly_replenish_qty
-        WHERE r.max_monthly_replenish_qty IS NOT NULL
+        WHERE t.current_flag = 1
+          AND r.current_flag = 1
+          AND r.max_monthly_replenish_qty IS NOT NULL
     </update>
 
 </mapper>

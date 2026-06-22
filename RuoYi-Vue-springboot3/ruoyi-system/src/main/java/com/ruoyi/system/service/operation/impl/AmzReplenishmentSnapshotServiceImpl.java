@@ -77,10 +77,21 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
     {
         log.info("==== AMZ补货快照刷新 开始 ====");
         long t = System.currentTimeMillis();
-        mapper.deleteAll();
-        int rows = mapper.insertByListing();
+        String batchNo = newBatchNo("AMZ_REPL");
+        int rows = mapper.insertByListing(batchNo);
+        if (rows <= 0)
+        {
+            log.warn("==== AMZ replenishment snapshot refresh returned empty result, keep current snapshot ====");
+            return 0;
+        }
+        mapper.activateBatch(batchNo);
         log.info("==== AMZ补货快照刷新 完成: {} 条 耗时{}ms ====", rows, System.currentTimeMillis() - t);
         return rows;
+    }
+
+    private String newBatchNo(String prefix)
+    {
+        return prefix + "-" + System.currentTimeMillis();
     }
 
     private Map<String, Object> buildParams(EbayReplenishmentSearchRequest req)
