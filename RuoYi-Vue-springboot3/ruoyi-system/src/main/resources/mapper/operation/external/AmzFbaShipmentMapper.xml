@@ -9,6 +9,7 @@
         <result property="username" column="username" />
         <result property="shipmentId" column="shipment_id" />
         <result property="shipmentName" column="shipment_name" />
+        <result property="shipmentStatus" column="shipment_status" />
         <result property="msku" column="msku" />
         <result property="sku" column="sku" />
         <result property="quantityShipped" column="quantity_shipped" />
@@ -30,11 +31,11 @@
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO amz_fba_shipment (
-            sid, username, shipment_id, shipment_name, msku, sku,
+            sid, username, shipment_id, shipment_name,shipment_status, msku, sku,
             quantity_shipped, init_quantity_shipped, quantity_received, quantity_shipped_local, declared_diff,
             gmt_create, gmt_modified
         ) VALUES (
-            #{sid}, #{username}, #{shipmentId}, #{shipmentName}, #{msku}, #{sku},
+            #{sid}, #{username}, #{shipmentId}, #{shipmentName},#{shipmentStatus}, #{msku}, #{sku},
             #{quantityShipped}, #{initQuantityShipped}, #{quantityReceived}, #{quantityShippedLocal},
             #{quantityShipped} - #{quantityReceived},
             #{gmtCreate}, #{gmtModified}
@@ -43,13 +44,13 @@
 
     <insert id="batchInsert">
         INSERT INTO amz_fba_shipment (
-            sid, username, shipment_id, shipment_name, msku, sku,
+            sid, username, shipment_id, shipment_name,shipment_status, msku, sku,
             quantity_shipped, init_quantity_shipped, quantity_received, quantity_shipped_local, declared_diff,
             gmt_create, gmt_modified
         ) VALUES
         <foreach collection="list" item="e" separator=",">
         (
-            #{e.sid}, #{e.username}, #{e.shipmentId}, #{e.shipmentName}, #{e.msku}, #{e.sku},
+            #{e.sid}, #{e.username}, #{e.shipmentId}, #{e.shipmentName}, #{e.shipmentStatus}, #{e.msku}, #{e.sku},
             #{e.quantityShipped}, #{e.initQuantityShipped}, #{e.quantityReceived}, #{e.quantityShippedLocal},
             #{e.quantityShipped} - #{e.quantityReceived},
             #{e.gmtCreate}, #{e.gmtModified}
@@ -59,19 +60,19 @@
 
     <insert id="batchUpsert">
         INSERT INTO amz_fba_shipment (
-            sid, username, shipment_id, shipment_name, msku, sku,
+            sid, username, shipment_id, shipment_name,shipment_status, msku, sku,
             quantity_shipped, init_quantity_shipped, quantity_received, quantity_shipped_local, declared_diff,
             gmt_create, gmt_modified
         ) VALUES
         <foreach collection="list" item="e" separator=",">
         (
-            #{e.sid}, #{e.username}, #{e.shipmentId}, #{e.shipmentName}, #{e.msku}, #{e.sku},
+            #{e.sid}, #{e.username}, #{e.shipmentId}, #{e.shipmentName}, #{e.shipmentStatus}, #{e.msku}, #{e.sku},
             #{e.quantityShipped}, #{e.initQuantityShipped}, #{e.quantityReceived}, #{e.quantityShippedLocal},
             #{e.quantityShipped} - #{e.quantityReceived},
             #{e.gmtCreate}, #{e.gmtModified}
         )
         </foreach>
-        ON DUPLICATE KEY UPDATE
+        ON DUPLICATE KEY UPDATE shipment_status = VALUES(shipment_status),
             username = VALUES(username),
             shipment_name = VALUES(shipment_name),
             msku = VALUES(msku),

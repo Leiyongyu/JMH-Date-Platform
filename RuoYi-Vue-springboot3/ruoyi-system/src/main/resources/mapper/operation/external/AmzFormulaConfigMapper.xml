@@ -16,6 +16,12 @@
         <result property="replenishDays" column="replenish_days" />
         <result property="enabled" column="enabled" />
         <result property="remark" column="remark" />
+        <result property="formulaWeightedDaily" column="formula_weighted_daily" />
+        <result property="formulaMonthly" column="formula_monthly" />
+        <result property="formulaSafety" column="formula_safety" />
+        <result property="formulaShip" column="formula_ship" />
+        <result property="formulaReplenish" column="formula_replenish" />
+        <result property="formulaRestock" column="formula_restock" />
         <result property="updateTime" column="update_time" />
     </resultMap>
 
@@ -38,6 +44,12 @@
             safety_days = #{safetyDays},
             ship_days = #{shipDays},
             replenish_days = #{replenishDays},
+            formula_weighted_daily = #{formulaWeightedDaily},
+            formula_monthly = #{formulaMonthly},
+            formula_safety = #{formulaSafety},
+            formula_ship = #{formulaShip},
+            formula_replenish = #{formulaReplenish},
+            formula_restock = #{formulaRestock},
             enabled = #{enabled},
             remark = #{remark}
         WHERE id = #{id}

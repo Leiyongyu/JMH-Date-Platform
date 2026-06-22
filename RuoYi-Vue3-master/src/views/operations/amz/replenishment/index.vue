@@ -92,6 +92,7 @@
     </el-row>
 
     <el-table
+      ref="tableRef"
       v-if="columnConfigLoaded"
       :key="columnTableKey"
       v-loading="loading"
@@ -222,6 +223,7 @@ const router = useRouter()
 const { proxy } = getCurrentInstance()
 
 const loading = ref(false)
+const tableRef = ref(null)
 const showSearch = ref(true)
 const total = ref(0)
 const replenishmentList = ref([])
@@ -436,6 +438,9 @@ function resetQuery() {
   proxy.resetForm('queryRef')
   queryParams.value.sortField = undefined
   queryParams.value.sortOrder = undefined
+  regionGroup.value = ''
+  Object.keys(columnFilters).forEach(k => delete columnFilters[k])
+  tableRef.value?.clearSort()
   handleQuery()
 }
 

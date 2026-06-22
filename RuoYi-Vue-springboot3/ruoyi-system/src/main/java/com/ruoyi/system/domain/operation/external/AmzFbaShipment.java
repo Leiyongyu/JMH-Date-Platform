@@ -16,6 +16,7 @@ public class AmzFbaShipment implements Serializable
     private String username;
     private String shipmentId;
     private String shipmentName;
+    private String shipmentStatus;
     private String msku;
     private String sku;
     private Integer quantityShipped;
@@ -39,6 +40,8 @@ public class AmzFbaShipment implements Serializable
     public void setShipmentId(String shipmentId) { this.shipmentId = shipmentId; }
     public String getShipmentName() { return shipmentName; }
     public void setShipmentName(String shipmentName) { this.shipmentName = shipmentName; }
+    public String getShipmentStatus() { return shipmentStatus; }
+    public void setShipmentStatus(String shipmentStatus) { this.shipmentStatus = shipmentStatus; }
     public String getMsku() { return msku; }
     public void setMsku(String msku) { this.msku = msku; }
     public String getSku() { return sku; }

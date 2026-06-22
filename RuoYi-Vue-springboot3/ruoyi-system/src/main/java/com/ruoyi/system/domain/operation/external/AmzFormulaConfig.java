@@ -21,6 +21,12 @@ public class AmzFormulaConfig implements Serializable
     private Integer replenishDays;
     private Integer enabled;
     private String remark;
+    private String formulaWeightedDaily;
+    private String formulaMonthly;
+    private String formulaSafety;
+    private String formulaShip;
+    private String formulaReplenish;
+    private String formulaRestock;
     private Date updateTime;
 
     public Long getId() { return id; }
@@ -49,6 +55,18 @@ public class AmzFormulaConfig implements Serializable
     public void setEnabled(Integer enabled) { this.enabled = enabled; }
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
+    public String getFormulaWeightedDaily() { return formulaWeightedDaily; }
+    public void setFormulaWeightedDaily(String v) { this.formulaWeightedDaily = v; }
+    public String getFormulaMonthly() { return formulaMonthly; }
+    public void setFormulaMonthly(String v) { this.formulaMonthly = v; }
+    public String getFormulaSafety() { return formulaSafety; }
+    public void setFormulaSafety(String v) { this.formulaSafety = v; }
+    public String getFormulaShip() { return formulaShip; }
+    public void setFormulaShip(String v) { this.formulaShip = v; }
+    public String getFormulaReplenish() { return formulaReplenish; }
+    public void setFormulaReplenish(String v) { this.formulaReplenish = v; }
+    public String getFormulaRestock() { return formulaRestock; }
+    public void setFormulaRestock(String v) { this.formulaRestock = v; }
     public Date getUpdateTime() { return updateTime; }
     public void setUpdateTime(Date updateTime) { this.updateTime = updateTime; }
 }

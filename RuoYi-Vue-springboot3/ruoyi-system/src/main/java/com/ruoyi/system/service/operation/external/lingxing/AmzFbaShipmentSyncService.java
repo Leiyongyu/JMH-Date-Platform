@@ -86,6 +86,7 @@ public class AmzFbaShipmentSyncService
                     if (sid == null) continue;
                     String shipmentId = str(shipment, "shipment_id");
                     String shipmentName = str(shipment, "shipment_name");
+                    String shipmentStatus = str(shipment, "shipment_status");
                     Date gmtCreate = parseDt(str(shipment, "gmt_create"));
                     Date gmtModified = parseDt(str(shipment, "gmt_modified"));
 
@@ -105,6 +106,7 @@ public class AmzFbaShipmentSyncService
                         row.setUsername(username);
                         row.setShipmentId(shipmentId != null ? shipmentId : "");
                         row.setShipmentName(shipmentName != null ? shipmentName : "");
+                        row.setShipmentStatus(shipmentStatus != null ? shipmentStatus : "");
                         row.setMsku(msku != null ? msku : "");
                         row.setSku(sku);
                         row.setQuantityShipped(intVal(item, "quantity_shipped"));

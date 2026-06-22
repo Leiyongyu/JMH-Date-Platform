@@ -35,7 +35,8 @@
     <el-table v-loading="loading" :data="records" border stripe height="640" @sort-change="handleSortChange">
       <el-table-column label="店铺" prop="storeName" align="left" width="160" sortable="custom" show-overflow-tooltip />
       <el-table-column label="货件单号" prop="shipmentId" align="left" width="180" sortable="custom" show-overflow-tooltip />
-      <el-table-column label="货件名称" prop="shipmentName" align="left" width="220" show-overflow-tooltip />
+      <el-table-column label="货件名称" prop="shipmentName" align="left" width="180" show-overflow-tooltip />
+      <el-table-column label="状态" prop="shipmentStatus" align="center" width="100" />
       <el-table-column label="MSKU" prop="msku" align="left" width="160" sortable="custom" show-overflow-tooltip />
       <el-table-column label="SKU" prop="sku" align="left" width="170" sortable="custom" show-overflow-tooltip />
       <el-table-column label="申报量" prop="quantityShipped" align="right" width="90" sortable="custom" />

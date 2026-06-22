@@ -6,6 +6,7 @@ import com.ruoyi.system.service.operation.IOperationSyncLogService;
 import com.ruoyi.system.service.operation.external.lingxing.AmzOrderProfitSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.AmzRestockSummarySyncService;
 import com.ruoyi.system.service.operation.external.lingxing.AmzWarehouseInventorySyncService;
+import com.ruoyi.system.service.operation.external.lingxing.AmzFbaShipmentSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingAmzListingSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingShopSyncService;
 import java.util.ArrayList;
@@ -30,6 +31,7 @@ public class AmzUnifiedSyncService
         new StepDef("amz_profit", "领星-Amazon订单利润", "basicOpen/finance/mreport/OrderProfit"),
         new StepDef("amz_restock", "领星-Amazon补货建议", "erp/sc/routing/restocking/analysis/getSummaryList"),
         new StepDef("amz_inv", "领星-Amazon库存明细", "erp/sc/routing/data/local_inventory/inventoryDetails"),
+        new StepDef("amz_fba", "领星-FBA货件", "erp/sc/data/fba_report/shipmentList"),
         new StepDef("amz_replenish", "刷新Amazon补货快照", "compute/amzReplenishment")
     };
 
@@ -174,6 +176,8 @@ public class AmzUnifiedSyncService
                 return SpringUtils.getBean(AmzRestockSummarySyncService.class).syncAll();
             case "amz_inv":
                 return SpringUtils.getBean(AmzWarehouseInventorySyncService.class).syncAll();
+            case "amz_fba":
+                return SpringUtils.getBean(AmzFbaShipmentSyncService.class).sync();
             case "amz_replenish":
                 int rows = SpringUtils.getBean(com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService.class)
                         .refreshSnapshot();

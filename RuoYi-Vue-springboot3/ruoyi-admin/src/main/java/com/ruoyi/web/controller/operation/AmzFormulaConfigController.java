@@ -18,6 +18,7 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.system.domain.operation.external.AmzFormulaConfig;
 import com.ruoyi.system.mapper.operation.external.AmzFormulaConfigMapper;
+import com.ruoyi.system.mapper.operation.external.WarehouseMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 @Tag(name = "AMZ补货公式配置")
@@ -27,6 +28,8 @@ public class AmzFormulaConfigController extends BaseController
 {
     @Autowired
     private AmzFormulaConfigMapper mapper;
+    @Autowired
+    private WarehouseMapper warehouseMapper;
 
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
     @GetMapping("/list")
@@ -45,7 +48,7 @@ public class AmzFormulaConfigController extends BaseController
 
     @Log(title = "AMZ公式配置", businessType = BusinessType.INSERT)
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
-    @PostMapping
+    @PostMapping("/add")
     public AjaxResult add(@RequestBody AmzFormulaConfig config)
     {
         mapper.insert(config);
@@ -54,10 +57,21 @@ public class AmzFormulaConfigController extends BaseController
 
     @Log(title = "AMZ公式配置", businessType = BusinessType.UPDATE)
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
-    @PutMapping
+    @PutMapping("/update")
     public AjaxResult edit(@RequestBody AmzFormulaConfig config)
     {
         mapper.updateById(config);
         return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
+    @GetMapping("/warehouses")
+    public AjaxResult warehouses()
+    {
+        List<String> names = warehouseMapper.selectAll().stream()
+            .filter(w -> w.getName() != null && w.getName().contains("AMZ"))
+            .map(w -> w.getName())
+            .distinct().sorted().collect(java.util.stream.Collectors.toList());
+        return success(names);
     }
 }
