@@ -269,11 +269,6 @@ const columnDefs = [
   { key: 'shipQty', label: '发货量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
   { key: 'replenishQty', label: '补货量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
   { key: 'restockDays', label: '补货时间', align: 'right', width: 105, sortable: true, filterType: 'number' },
-  { key: 'fbaShipmentId', label: 'FBA货件单号', align: 'left', width: 200, tooltip: true },
-  { key: 'fbaQuantityShipped', label: 'FBA申报量', align: 'right', width: 100, sortable: true, filterType: 'number' },
-  { key: 'fbaQuantityReceived', label: 'FBA签收量', align: 'right', width: 100, sortable: true, filterType: 'number' },
-  { key: 'fbaDeclaredDiff', label: 'FBA申报差异', align: 'right', width: 110, sortable: true, filterType: 'number' },
-  { key: 'fbaShipmentCreateTime', label: 'FBA货件创建时间', align: 'center', width: 170, format: 'time' },
   { key: 'calcTime', label: '计算时间', align: 'center', width: 170, format: 'time' }
 ]
 const {
