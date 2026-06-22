@@ -9,9 +9,13 @@ export function getFormulaConfig(id) {
 }
 
 export function addFormulaConfig(data) {
-  return request({ url: '/operations/amz/formula-config', method: 'post', data })
+  return request({ url: '/operations/amz/formula-config/add', method: 'post', data })
 }
 
 export function updateFormulaConfig(data) {
-  return request({ url: '/operations/amz/formula-config', method: 'put', data })
+  return request({ url: '/operations/amz/formula-config/update', method: 'put', data })
+}
+
+export function listWarehouses() {
+  return request({ url: '/operations/amz/formula-config/warehouses', method: 'get' })
 }

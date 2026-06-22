@@ -62,7 +62,7 @@
       ></right-toolbar>
     </el-row>
 
-    <el-table v-if="columnConfigLoaded" :key="columnTableKey" v-loading="loading" :data="records" border stripe height="640" :row-key="(row) => row.site + '|' + row.sku" @selection-change="handleSelectionChange" @sort-change="handleSortChange">
+    <el-table ref="tableRef" v-if="columnConfigLoaded" :key="columnTableKey" v-loading="loading" :data="records" border stripe height="640" :row-key="(row) => row.site + '|' + row.sku" @selection-change="handleSelectionChange" @sort-change="handleSortChange">
       <el-table-column type="selection" width="45" fixed />
       <template v-for="col in visibleColumns" :key="col.key">
         <el-table-column
@@ -223,6 +223,7 @@ const router = useRouter()
 const { proxy } = getCurrentInstance()
 
 const loading = ref(false)
+const tableRef = ref(null)
 const importing = ref(false)
 const IMPORT_TIMEOUT = 10 * 60 * 1000
 const showSearch = ref(true)
@@ -391,6 +392,7 @@ function applyFilter() {
 
 function clearFilter(field) { delete columnFilters[field]; filterPopoverVisible.value = false; handleQuery() }
 function clearAllColumnFilters() { Object.keys(columnFilters).forEach(k => delete columnFilters[k]); handleQuery() }
+  tableRef.value?.clearSort()
 
 const popoverStyle = computed(() => ({ position: 'fixed', top: filterPopoverPos.value.top + 'px', left: filterPopoverPos.value.left + 'px', zIndex: 3000 }))
 
@@ -464,6 +466,8 @@ function resetQuery() {
   proxy.resetForm('queryRef')
   queryParams.value.sortField = undefined
   queryParams.value.sortOrder = undefined
+  Object.keys(columnFilters).forEach(k => delete columnFilters[k])
+  tableRef.value?.clearSort()
   handleQuery()
 }
 

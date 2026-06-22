@@ -81,7 +81,7 @@
       ></right-toolbar>
     </el-row>
 
-    <el-table
+    <el-table ref="tableRef"
       v-if="columnConfigLoaded"
       :key="columnTableKey"
       v-loading="loading"
@@ -255,6 +255,7 @@ const router = useRouter()
 const { proxy } = getCurrentInstance()
 
 const loading = ref(false)
+const tableRef = ref(null)
 const importing = ref(false)
 const IMPORT_TIMEOUT = 10 * 60 * 1000
 const showSearch = ref(true)
@@ -428,6 +429,7 @@ function clearFilter(field) {
 
 function clearAllColumnFilters() {
   Object.keys(columnFilters).forEach(k => delete columnFilters[k])
+  tableRef.value?.clearSort()
 }
 
 // Build filters array from both top-form and column filters
@@ -531,6 +533,8 @@ function resetQuery() {
   proxy.resetForm('queryRef')
   queryParams.value.sortField = undefined
   queryParams.value.sortOrder = undefined
+  Object.keys(columnFilters).forEach(k => delete columnFilters[k])
+  tableRef.value?.clearSort()
   handleQuery()
 }
 
