@@ -100,6 +100,7 @@
           prop="skuLevel"
           :width="col.width"
           sortable="custom"
+          :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">
             <el-tag :type="levelTagType(scope.row.skuLevel)" effect="light">{{ scope.row.skuLevel || '-' }}</el-tag>
@@ -112,6 +113,7 @@
           :prop="col.key"
           :width="col.width"
           sortable="custom"
+          :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">{{ formatPercentNumber(scope.row[col.key]) }}</template>
         </el-table-column>
@@ -122,6 +124,7 @@
           :prop="col.key"
           :width="col.width"
           sortable="custom"
+          :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">{{ formatRate(scope.row[col.key]) }}</template>
         </el-table-column>
@@ -132,6 +135,7 @@
           :prop="col.key"
           :width="col.width"
           sortable="custom"
+          :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">{{ formatRatio(scope.row[col.key]) }}</template>
         </el-table-column>
@@ -142,6 +146,7 @@
           :prop="col.key"
           :width="col.width"
           :show-overflow-tooltip="col.tooltip"
+          :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">
             <span>{{ parseTime(scope.row[col.key]) }}</span>
@@ -156,7 +161,12 @@
           :fixed="col.fixed || false"
           :sortable="col.sortable ? 'custom' : false"
           :show-overflow-tooltip="col.tooltip"
-        />
+          :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope">
+            <span>{{ col.filterType === 'number' && (scope.row[col.key] === null || scope.row[col.key] === undefined) ? '0' : scope.row[col.key] }}</span>
+          </template>
+        </el-table-column>
       </template>
     </el-table>
 
@@ -175,15 +185,69 @@
       :visible-keys="visibleKeys"
       @apply="handleColumnApply"
     />
+
+    <!-- 数值筛选弹窗 -->
+    <Teleport to="body">
+      <div
+        v-if="filterPopoverVisible"
+        class="number-filter-overlay"
+        @click.self="filterPopoverVisible = false"
+      >
+        <div class="number-filter-popover" :style="popoverStyle" @click.stop>
+          <div class="popover-header">
+            <span>{{ filterEditingCol?.label || '' }} 筛选</span>
+            <el-icon class="close-btn" @click="filterPopoverVisible = false"><Delete /></el-icon>
+          </div>
+          <div class="popover-body">
+            <el-select v-model="filterEditingData.operator" size="small" style="width:100%" :teleported="false" popper-class="number-filter-select-popper">
+              <el-option v-for="op in OPERATOR_OPTIONS" :key="op.value" :label="op.label" :value="op.value" />
+            </el-select>
+            <el-input
+              v-if="filterEditingData.operator !== 'isNull' && filterEditingData.operator !== 'isNotNull'"
+              v-model="filterEditingData.value"
+              size="small"
+              :placeholder="filterEditingData.operator === 'between' ? '最小值' : '请输入数值'"
+              style="margin-top:8px"
+              @keyup.enter="applyFilter"
+            />
+            <el-input
+              v-if="filterEditingData.operator === 'between'"
+              v-model="filterEditingData.value2"
+              size="small"
+              placeholder="最大值"
+              style="margin-top:8px"
+              @keyup.enter="applyFilter"
+            />
+          </div>
+          <div class="popover-footer">
+            <el-button size="small" @click="clearFilter(filterEditingCol?.key)">清除</el-button>
+            <el-button size="small" type="primary" @click="applyFilter">确定</el-button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 激活的列筛选标签 -->
+    <div v-if="activeFilterTags.length > 0" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+      <span style="font-size:12px;color:#909399">列筛选:</span>
+      <el-tag
+        v-for="tag in activeFilterTags" :key="tag.field"
+        size="small" closable type="info"
+        @close="clearFilter(tag.field)"
+      >{{ tag.label }}</el-tag>
+      <el-button size="small" text type="danger" @click="clearAllColumnFilters">清空全部</el-button>
+    </div>
   </div>
 </template>
 
 <script setup name="EbayReplenishment">
-import { listEbayReplenishment, refreshEbayReplenishment } from '@/api/operations/ebay/replenishment'
+import { ref, reactive, toRefs, h, resolveComponent, getCurrentInstance, computed } from 'vue'
+import { searchEbayReplenishment, refreshEbayReplenishment } from '@/api/operations/ebay/replenishment'
 import { syncEbayAll } from '@/api/operations/sync'
 import request from '@/utils/request'
 import { parseTime } from '@/utils/ruoyi'
 import { ElMessageBox } from 'element-plus'
+import { Filter, Delete } from '@element-plus/icons-vue'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
 
@@ -203,29 +267,29 @@ const columnDefs = [
   { key: 'sku', label: 'SKU', align: 'left', width: 170, fixed: true, sortable: true, tooltip: true },
   { key: 'productName', label: '产品名称', align: 'left', width: 260, tooltip: true },
   { key: 'skuLevel', label: '等级', align: 'center', width: 80, sortable: true },
-  { key: 'profitRate30d', label: '近30天利润', align: 'right', width: 120, sortable: true, format: 'percentNumber' },
-  { key: 'returnRate', label: '退货率', align: 'right', width: 100, sortable: true, format: 'rate' },
-  { key: 'overseasOnway', label: '海外在途', align: 'right', width: 105, sortable: true },
-  { key: 'overseasSellable', label: '海外可售', align: 'right', width: 105, sortable: true },
-  { key: 'overseasTotal', label: '海外总库存', align: 'right', width: 120, sortable: true },
-  { key: 'purchasePendingDelivery', label: '采购待交付', align: 'right', width: 120, sortable: true },
-  { key: 'localSellable', label: '成都可售', align: 'right', width: 105, sortable: true },
-  { key: 'localOnway', label: '成都在途', align: 'right', width: 105, sortable: true },
-  { key: 'purchasePlanQty', label: '采购计划', align: 'right', width: 105, sortable: true },
-  { key: 'lockedQty', label: '待出库', align: 'right', width: 95, sortable: true },
-  { key: 'totalInventory', label: '总库存', align: 'right', width: 105, sortable: true },
-  { key: 'sales7d', label: '近7天销量', align: 'right', width: 110, sortable: true },
-  { key: 'sales30d', label: '近30天销量', align: 'right', width: 120, sortable: true },
-  { key: 'sales90d', label: '近90天销量', align: 'right', width: 120, sortable: true },
-  { key: 'maxMonthlySales', label: '历史最大月销', align: 'right', width: 130, sortable: true },
-  { key: 'overseasSellableSalesRatio', label: '海外在库库销比', align: 'right', width: 145, sortable: true, format: 'ratio' },
-  { key: 'overseasTotalSalesRatio', label: '海外总库销比', align: 'right', width: 135, sortable: true, format: 'ratio' },
-  { key: 'totalInventorySalesRatio', label: '总库存库销比', align: 'right', width: 135, sortable: true, format: 'ratio' },
+  { key: 'profitRate30d', label: '近30天利润', align: 'right', width: 120, sortable: true, format: 'percentNumber', filterType: 'number' },
+  { key: 'returnRate', label: '退货率', align: 'right', width: 110, sortable: true, format: 'rate', filterType: 'number' },
+  { key: 'overseasOnway', label: '海外在途', align: 'right', width: 115, sortable: true, filterType: 'number' },
+  { key: 'overseasSellable', label: '海外可售', align: 'right', width: 115, sortable: true, filterType: 'number' },
+  { key: 'overseasTotal', label: '海外总库存', align: 'right', width: 130, sortable: true, filterType: 'number' },
+  { key: 'purchasePendingDelivery', label: '采购待交付', align: 'right', width: 130, sortable: true, filterType: 'number' },
+  { key: 'localSellable', label: '成都可售', align: 'right', width: 115, sortable: true, filterType: 'number' },
+  { key: 'localOnway', label: '成都在途', align: 'right', width: 115, sortable: true, filterType: 'number' },
+  { key: 'purchasePlanQty', label: '采购计划', align: 'right', width: 115, sortable: true, filterType: 'number' },
+  { key: 'lockedQty', label: '待出库', align: 'right', width: 105, sortable: true, filterType: 'number' },
+  { key: 'totalInventory', label: '总库存', align: 'right', width: 115, sortable: true, filterType: 'number' },
+  { key: 'sales7d', label: '近7天销量', align: 'right', width: 120, sortable: true, filterType: 'number' },
+  { key: 'sales30d', label: '近30天销量', align: 'right', width: 120, sortable: true, filterType: 'number' },
+  { key: 'sales90d', label: '近90天销量', align: 'right', width: 120, sortable: true, filterType: 'number' },
+  { key: 'maxMonthlySales', label: '历史最大月销', align: 'right', width: 130, sortable: true, filterType: 'number' },
+  { key: 'overseasSellableSalesRatio', label: '海外在库库销比', align: 'right', width: 145, sortable: true, format: 'ratio', filterType: 'number' },
+  { key: 'overseasTotalSalesRatio', label: '海外总库销比', align: 'right', width: 135, sortable: true, format: 'ratio', filterType: 'number' },
+  { key: 'totalInventorySalesRatio', label: '总库存库销比', align: 'right', width: 135, sortable: true, format: 'ratio', filterType: 'number' },
   { key: 'lastLocalOutboundTime', label: '最近本地出库', align: 'center', width: 140, tooltip: true },
-  { key: 'outboundDays', label: '出库天数', align: 'right', width: 105, sortable: true },
-  { key: 'purchaseCycleDays', label: '采购周期', align: 'right', width: 105, sortable: true },
-  { key: 'suggestPurchaseQty', label: '采购数量', align: 'right', width: 110, sortable: true },
-  { key: 'maxMonthlyReplenishQty', label: '最大月销补货量', align: 'right', width: 145, sortable: true },
+  { key: 'outboundDays', label: '出库天数', align: 'right', width: 115, sortable: true, filterType: 'number' },
+  { key: 'purchaseCycleDays', label: '采购周期', align: 'right', width: 115, sortable: true, filterType: 'number' },
+  { key: 'suggestPurchaseQty', label: '采购数量', align: 'right', width: 120, sortable: true, filterType: 'number' },
+  { key: 'maxMonthlyReplenishQty', label: '最大月销补货量', align: 'right', width: 145, sortable: true, filterType: 'number' },
   { key: 'ownerName', label: '负责人', align: 'center', width: 110, tooltip: true },
   { key: 'calcTime', label: '计算时间', align: 'center', width: 170, format: 'time' }
 ]
@@ -256,9 +320,177 @@ const data = reactive({
 
 const { queryParams } = toRefs(data)
 
+// ---- 数值列头筛选 ----
+const OPERATOR_OPTIONS = [
+  { label: '等于', value: '=' },
+  { label: '大于', value: '>' },
+  { label: '大于等于', value: '>=' },
+  { label: '小于', value: '<' },
+  { label: '小于等于', value: '<=' },
+  { label: '介于', value: 'between' },
+  { label: '为空', value: 'isNull' },
+  { label: '不为空', value: 'isNotNull' }
+]
+// columnFilters: { fieldName: { operator, value, value2 } }
+const columnFilters = reactive({})
+// active filter popover state
+const filterPopoverVisible = ref(false)
+const filterEditingCol = ref(null)
+const filterEditingData = reactive({ operator: '>', value: '', value2: '' })
+
+function hasActiveFilter(field) {
+  const f = columnFilters[field]
+  if (!f) return false
+  if (f.operator === 'isNull' || f.operator === 'isNotNull') return true
+  return f.value !== '' && f.value != null
+}
+
+function openFilter(col, triggerEl) {
+  filterEditingCol.value = col
+  const existing = columnFilters[col.key]
+  if (existing) {
+    filterEditingData.operator = existing.operator || '>'
+    filterEditingData.value = existing.value != null ? String(existing.value) : ''
+    filterEditingData.value2 = existing.value2 != null ? String(existing.value2) : ''
+  } else {
+    filterEditingData.operator = '>'
+    filterEditingData.value = ''
+    filterEditingData.value2 = ''
+  }
+  // Store trigger element position
+  if (triggerEl) {
+    const rect = triggerEl.getBoundingClientRect()
+    filterPopoverPos.value = { top: rect.bottom + 4, left: rect.left }
+  } else {
+    filterPopoverPos.value = { top: 200, left: 400 }
+  }
+  filterPopoverVisible.value = true
+}
+
+const filterPopoverPos = ref({ top: 200, left: 400 })
+const popoverStyle = computed(() => ({
+  position: 'fixed',
+  top: filterPopoverPos.value.top + 'px',
+  left: filterPopoverPos.value.left + 'px',
+  zIndex: 3000
+}))
+
+const activeFilterTags = computed(() => {
+  return Object.entries(columnFilters)
+    .filter(([field]) => hasActiveFilter(field))
+    .map(([field, f]) => {
+      const col = columnDefs.find(c => c.key === field)
+      const opLabel = OPERATOR_OPTIONS.find(o => o.value === f.operator)?.label || f.operator
+      let label = (col?.label || field) + ' ' + opLabel
+      if (f.operator !== 'isNull' && f.operator !== 'isNotNull' && f.value != null) {
+        label += ' ' + f.value
+      }
+      if (f.operator === 'between' && f.value2 != null) {
+        label += ' ~ ' + f.value2
+      }
+      return { field, label }
+    })
+})
+
+function applyFilter() {
+  const col = filterEditingCol.value
+  if (!col) return
+  const op = filterEditingData.operator
+  const needsValue = op !== 'isNull' && op !== 'isNotNull'
+  const needsValue2 = op === 'between'
+
+  if (needsValue && !filterEditingData.value) {
+    // Clear if no value
+    delete columnFilters[col.key]
+    filterPopoverVisible.value = false
+    return
+  }
+  if (needsValue2 && !filterEditingData.value2) {
+    delete columnFilters[col.key]
+    filterPopoverVisible.value = false
+    return
+  }
+
+  columnFilters[col.key] = {
+    operator: op,
+    value: needsValue ? filterEditingData.value : undefined,
+    value2: needsValue2 ? filterEditingData.value2 : undefined
+  }
+  filterPopoverVisible.value = false
+  handleQuery()
+}
+
+function clearFilter(field) {
+  delete columnFilters[field]
+  filterPopoverVisible.value = false
+  handleQuery()
+}
+
+function clearAllColumnFilters() {
+  Object.keys(columnFilters).forEach(k => delete columnFilters[k])
+}
+
+// Build filters array from both top-form and column filters
+function buildFilters() {
+  const filters = []
+  const p = queryParams.value
+  // Top-form text filters
+  if (p.site) filters.push({ field: 'site', value: p.site })
+  if (p.sku) filters.push({ field: 'sku', value: p.sku })
+  if (p.productName) filters.push({ field: 'productName', value: p.productName })
+  if (p.skuLevel) filters.push({ field: 'skuLevel', value: p.skuLevel })
+  if (p.ownerName) filters.push({ field: 'ownerName', value: p.ownerName })
+  // Column numeric filters
+  Object.entries(columnFilters).forEach(([field, f]) => {
+    if (hasActiveFilter(field)) {
+      filters.push({
+        field,
+        type: 'number',
+        operator: f.operator,
+        value: f.value != null ? String(f.value) : undefined,
+        value2: f.value2 != null ? String(f.value2) : undefined
+      })
+    }
+  })
+  return filters
+}
+
+// Render header for columns - adds filter icon for numeric columns
+function renderColumnHeader(col) {
+  return ({ column }) => {
+    const label = column.label || col.label
+    if (col.filterType !== 'number') {
+      return h('span', label)
+    }
+    const active = hasActiveFilter(col.key)
+    const icon = resolveComponent('el-icon')
+    const filterIcon = resolveComponent('Filter')
+    return h('div', {
+      class: 'col-header-cell',
+      style: 'display:inline-flex;align-items:center;justify-content:flex-start;gap:2px;overflow:hidden'
+    }, [
+      h(icon, {
+        size: 13,
+        style: `flex-shrink:0;cursor:pointer;color:${active ? '#409EFF' : '#909399'}`,
+        onClick: (e) => { e.stopPropagation(); openFilter(col, (e && e.currentTarget) || null) }
+      }, [h(filterIcon)]),
+      h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, label)
+    ])
+  }
+}
+
 function getList() {
   loading.value = true
-  listEbayReplenishment(queryParams.value).then(response => {
+  const body = {
+    pageNum: queryParams.value.pageNum,
+    pageSize: queryParams.value.pageSize,
+    sortField: queryParams.value.sortField || undefined,
+    sortOrder: queryParams.value.sortOrder || undefined
+  }
+  const filters = buildFilters()
+  if (filters.length) body.filters = filters
+
+  searchEbayReplenishment(body).then(response => {
     replenishmentList.value = response.rows || []
     total.value = response.total || 0
   }).finally(() => {
@@ -373,14 +605,11 @@ function handleExport() {
     columns: exportColumns.value
   }
   if (!selected) {
-    body.filters = []
-    const p = queryParams.value
-    if (p.site) body.filters.push({ field: 'site', value: p.site })
-    if (p.sku) body.filters.push({ field: 'sku', value: p.sku })
-    if (p.productName) body.filters.push({ field: 'productName', value: p.productName })
-    if (p.skuLevel) body.filters.push({ field: 'skuLevel', value: p.skuLevel })
-    if (p.ownerName) body.filters.push({ field: 'ownerName', value: p.ownerName })
-    if (p.sortField) { body.sortField = p.sortField; body.sortOrder = p.sortOrder || 'descending' }
+    body.filters = buildFilters()
+    if (queryParams.value.sortField) {
+      body.sortField = queryParams.value.sortField
+      body.sortOrder = queryParams.value.sortOrder || 'descending'
+    }
   }
   request({ url: 'operations/ebay/replenishment/export', method: 'post', data: body, responseType: 'blob' }).then(res => {
     const blob = new Blob([res]); const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
@@ -389,21 +618,21 @@ function handleExport() {
 }
 
 function formatPercentNumber(value) {
-  if (value === null || value === undefined || value === '') return '-'
+  if (value === null || value === undefined || value === '') return '0.0%'
   const num = Number(value)
-  return Number.isFinite(num) ? `${num.toFixed(1)}%` : '-'
+  return Number.isFinite(num) ? `${num.toFixed(1)}%` : '0.0%'
 }
 
 function formatRate(value) {
-  if (value === null || value === undefined || value === '') return '-'
+  if (value === null || value === undefined || value === '') return '0.0%'
   const num = Number(value)
-  return Number.isFinite(num) ? `${(num * 100).toFixed(1)}%` : '-'
+  return Number.isFinite(num) ? `${(num * 100).toFixed(1)}%` : '0.0%'
 }
 
 function formatRatio(value) {
-  if (value === null || value === undefined || value === '') return '-'
+  if (value === null || value === undefined || value === '') return '0.0'
   const num = Number(value)
-  return Number.isFinite(num) ? num.toFixed(1) : '-'
+  return Number.isFinite(num) ? num.toFixed(1) : '0.0'
 }
 
 function levelTagType(level) {
@@ -422,4 +651,42 @@ initPage()
 <style scoped>
 .ebay-replenishment-page { background: #f5f7fa; }
 :deep(.el-table .cell) { white-space: nowrap; }
+:deep(.col-header-cell) { cursor: default; user-select: none; }
+:deep(.col-header-cell .el-icon) { opacity: 0.5; transition: opacity 0.2s; }
+:deep(.col-header-cell:hover .el-icon) { opacity: 1; }
+</style>
+
+<style>
+.number-filter-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 2999;
+  background: transparent;
+}
+.number-filter-popover {
+  position: fixed;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.15);
+  min-width: 240px;
+  z-index: 3000;
+}
+.number-filter-popover .popover-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px 6px; font-size: 14px; font-weight: 600;
+  border-bottom: 1px solid #ebeef5;
+}
+.number-filter-popover .popover-header .close-btn {
+  cursor: pointer; color: #909399; font-size: 14px;
+}
+.number-filter-popover .popover-body {
+  padding: 12px 14px; overflow: visible;
+}
+.number-filter-select-popper {
+  z-index: 3100 !important;
+}
+.number-filter-popover .popover-footer {
+  padding: 8px 14px 12px;
+  display: flex; justify-content: flex-end; gap: 8px;
+}
 </style>
