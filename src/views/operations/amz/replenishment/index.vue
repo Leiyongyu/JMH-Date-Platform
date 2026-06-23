@@ -259,6 +259,7 @@ const columnDefs = [
   { key: 'warehouseSku', label: '仓库SKU', align: 'left', width: 170, sortable: true, tooltip: true },
   { key: 'warehouseName', label: '仓库', align: 'left', width: 170, tooltip: true },
   { key: 'asin', label: 'ASIN', align: 'center', width: 130, sortable: true, tooltip: true },
+  { key: 'tagName', label: '标签', align: 'left', width: 140, tooltip: true },
   { key: 'regionGroup', label: '区域组', align: 'center', width: 80 },
   { key: 'principalName', label: '负责人', align: 'center', width: 120, tooltip: true },
   { key: 'productCategory', label: '产品分类', align: 'center', width: 130, format: 'productCategory' },
