@@ -30,6 +30,8 @@ public class AmzFbaShipment implements Serializable
     private Date shippedTime;
     private Date receivingTime;
     private Date closedTime;
+    private String remark;
+    private Integer confirmed;
     private Date createTime;
 
     public Long getId() { return id; }
@@ -72,6 +74,10 @@ public class AmzFbaShipment implements Serializable
     public void setReceivingTime(Date v) { this.receivingTime = v; }
     public Date getClosedTime() { return closedTime; }
     public void setClosedTime(Date v) { this.closedTime = v; }
+    public String getRemark() { return remark; }
+    public void setRemark(String remark) { this.remark = remark; }
+    public Integer getConfirmed() { return confirmed; }
+    public void setConfirmed(Integer confirmed) { this.confirmed = confirmed; }
     public Date getCreateTime() { return createTime; }
     public void setCreateTime(Date createTime) { this.createTime = createTime; }
 }

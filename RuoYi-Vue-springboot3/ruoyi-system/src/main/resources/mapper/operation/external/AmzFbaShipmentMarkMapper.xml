@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.AmzFbaShipmentMarkMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.AmzFbaShipmentMark" id="Result">
+        <id property="id" column="id" />
+        <result property="msku" column="msku" />
+        <result property="remark" column="remark" />
+        <result property="confirmed" column="confirmed" />
+        <result property="updateTime" column="update_time" />
+    </resultMap>
+
+    <select id="selectByMsku" resultMap="Result">
+        SELECT * FROM amz_fba_shipment_mark WHERE msku = #{msku}
+    </select>
+
+    <insert id="upsert">
+        INSERT INTO amz_fba_shipment_mark (msku, remark, confirmed)
+        VALUES (#{msku}, #{remark}, #{confirmed})
+        ON DUPLICATE KEY UPDATE remark = VALUES(remark), confirmed = VALUES(confirmed)
+    </insert>
+
+    <update id="confirm">
+        INSERT INTO amz_fba_shipment_mark (msku, remark, confirmed)
+        VALUES (#{msku}, '', 1)
+        ON DUPLICATE KEY UPDATE confirmed = 1
+    </update>
+
+</mapper>

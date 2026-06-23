@@ -17,7 +17,7 @@ public class AmzFbaShipmentServiceImpl implements IAmzFbaShipmentService
         "declaredDiff", "gmtCreate"
     );
     private static final Set<String> TEXT_FIELDS = Set.of(
-        "shipmentId", "sku", "msku", "storeName", "username", "shipmentStatus"
+        "shipmentId", "sku", "msku", "storeName", "username", "shipmentStatus", "confirmed"
     );
     private static final Set<String> DATE_FIELDS = Set.of(
         "gmtCreateStart", "gmtCreateEnd", "gmtModifiedStart", "gmtModifiedEnd"

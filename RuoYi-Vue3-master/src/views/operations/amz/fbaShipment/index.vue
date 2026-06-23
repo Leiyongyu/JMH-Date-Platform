@@ -13,6 +13,12 @@
       <el-form-item label="MSKU" prop="msku">
         <el-input v-model="queryParams.msku" placeholder="请输入" clearable style="width:200px" @keyup.enter="handleQuery" />
       </el-form-item>
+      <el-form-item label="已完结" prop="confirmed">
+        <el-select v-model="queryParams.confirmed" placeholder="全部" clearable style="width:120px" @change="handleQuery">
+          <el-option label="是" value="1" />
+          <el-option label="否" value="0" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="状态" prop="shipmentStatus">
         <el-select v-model="queryParams.shipmentStatus" placeholder="全部" clearable style="width:160px" @change="handleQuery">
           <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
@@ -37,15 +43,15 @@
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
-    <el-table v-loading="loading" :data="records" border stripe height="640" @sort-change="handleSortChange">
+    <el-table ref="tableRef" v-loading="loading" :data="records" border stripe height="640" @sort-change="handleSortChange">
       <el-table-column label="店铺" prop="storeName" align="left" width="160" sortable="custom" show-overflow-tooltip />
-      <el-table-column label="货件单号" prop="shipmentId" align="left" width="180" sortable="custom" show-overflow-tooltip />
-      <el-table-column label="货件名称" prop="shipmentName" align="left" width="180" show-overflow-tooltip />
-      <el-table-column label="状态" prop="shipmentStatus" align="center" width="100">
+      <el-table-column label="货件单号" prop="shipmentId" align="left" width="160" sortable="custom" show-overflow-tooltip />
+      <el-table-column label="货件名称" prop="shipmentName" align="left" width="140" show-overflow-tooltip />
+      <el-table-column label="状态" prop="shipmentStatus" align="center" width="80">
         <template #default="scope">{{ statusMap[scope.row.shipmentStatus] || scope.row.shipmentStatus || '-' }}</template>
       </el-table-column>
-      <el-table-column label="MSKU" prop="msku" align="left" width="160" sortable="custom" show-overflow-tooltip />
-      <el-table-column label="SKU" prop="sku" align="left" width="170" sortable="custom" show-overflow-tooltip />
+      <el-table-column label="MSKU" prop="msku" align="left" width="130" sortable="custom" show-overflow-tooltip />
+      <el-table-column label="SKU" prop="sku" align="left" width="140" sortable="custom" show-overflow-tooltip />
       <el-table-column label="申报量" prop="quantityShipped" align="right" width="90" sortable="custom" />
       <el-table-column label="签收量" prop="quantityReceived" align="right" width="90" sortable="custom">
         <template #default="scope">
@@ -58,23 +64,34 @@
         </template>
       </el-table-column>
       <el-table-column label="创建人" prop="username" align="center" width="100" />
-      <el-table-column label="创建时间" prop="gmtCreate" align="center" width="120">
+      <el-table-column label="创建时间" prop="gmtCreate" align="center" width="105">
         <template #default="scope">{{ scope.row.gmtCreate ? scope.row.gmtCreate.substring(0,10) : '-' }}</template>
       </el-table-column>
-      <el-table-column label="更新时间" prop="gmtModified" align="center" width="120">
+      <el-table-column label="更新时间" prop="gmtModified" align="center" width="105">
         <template #default="scope">{{ scope.row.gmtModified ? scope.row.gmtModified.substring(0,10) : '-' }}</template>
       </el-table-column>
-      <el-table-column label="待发货时间" prop="workingTime" align="center" width="120">
+      <el-table-column label="待发货" prop="workingTime" align="center" width="100">
         <template #default="scope">{{ scope.row.workingTime ? scope.row.workingTime.substring(0,10) : '-' }}</template>
       </el-table-column>
-      <el-table-column label="已发货时间" prop="shippedTime" align="center" width="120">
+      <el-table-column label="已发货" prop="shippedTime" align="center" width="100">
         <template #default="scope">{{ scope.row.shippedTime ? scope.row.shippedTime.substring(0,10) : '-' }}</template>
       </el-table-column>
-      <el-table-column label="接收中时间" prop="receivingTime" align="center" width="120">
+      <el-table-column label="接收中" prop="receivingTime" align="center" width="100">
         <template #default="scope">{{ scope.row.receivingTime ? scope.row.receivingTime.substring(0,10) : '-' }}</template>
       </el-table-column>
-      <el-table-column label="完成时间" prop="closedTime" align="center" width="120">
+      <el-table-column label="完成" prop="closedTime" align="center" width="100">
         <template #default="scope">{{ scope.row.closedTime ? scope.row.closedTime.substring(0,10) : '-' }}</template>
+      </el-table-column>
+      <el-table-column label="备注" prop="remark" align="left" width="160">
+        <template #default="scope">
+          <el-input v-model="scope.row.remark" size="small" placeholder="备注" clearable @blur="saveRemark(scope.row)" @keyup.enter="saveRemark(scope.row)" />
+        </template>
+      </el-table-column>
+      <el-table-column label="已完结" prop="confirmed" align="center" width="80">
+        <template #default="scope">
+          <span v-if="scope.row.confirmed === 1" style="color:#67c23a">已完结</span>
+          <el-button v-else size="small" plain @click="handleConfirm(scope.row)">确认</el-button>
+        </template>
       </el-table-column>
     </el-table>
 
@@ -84,12 +101,14 @@
 
 <script setup name="AmzFbaShipment">
 import { ref, reactive, toRefs, getCurrentInstance } from 'vue'
-import { searchFbaShipment } from '@/api/operations/amz/fbaShipment'
+import { searchFbaShipment, saveFbaRemark, confirmFbaShipment } from '@/api/operations/amz/fbaShipment'
 import request from '@/utils/request'
 import { parseTime } from '@/utils/ruoyi'
+import { ElMessageBox } from 'element-plus'
 
 const { proxy } = getCurrentInstance()
 const loading = ref(false)
+const tableRef = ref(null)
 const showSearch = ref(true)
 const total = ref(0)
 const records = ref([])
@@ -115,7 +134,7 @@ const statusOptions = [
 const data = reactive({
   queryParams: {
     pageNum: 1, pageSize: 50,
-    storeName: undefined, shipmentId: undefined, sku: undefined, msku: undefined, username: undefined, shipmentStatus: undefined,
+    storeName: undefined, shipmentId: undefined, sku: undefined, msku: undefined, username: undefined, shipmentStatus: undefined, confirmed: undefined,
     sortField: undefined, sortOrder: undefined
   }
 })
@@ -132,17 +151,33 @@ function getList() {
   if (p.msku) filters.push({ field: 'msku', value: p.msku })
   if (p.username) filters.push({ field: 'username', value: p.username })
   if (p.shipmentStatus) filters.push({ field: 'shipmentStatus', value: p.shipmentStatus })
+  if (p.confirmed) filters.push({ field: 'confirmed', value: p.confirmed })
   if (gmtCreateRange.value && gmtCreateRange.value.length === 2) {
     if (gmtCreateRange.value[0]) filters.push({ field: 'gmtCreateStart', value: gmtCreateRange.value[0] })
     if (gmtCreateRange.value[1]) filters.push({ field: 'gmtCreateEnd', value: gmtCreateRange.value[1] })
   }
   if (filters.length) body.filters = filters
-  searchFbaShipment(body).then(res => { records.value = res.rows || []; total.value = res.total || 0 }).finally(() => { loading.value = false })
+  searchFbaShipment(body).then(res => { records.value = res.rows || []; total.value = res.total || 0; nextTick(() => tableRef.value?.doLayout()) }).finally(() => { loading.value = false })
 }
 
 function handleQuery() { queryParams.value.pageNum = 1; getList() }
 function resetQuery() { proxy.resetForm('queryRef'); queryParams.value.sortField = undefined; queryParams.value.sortOrder = undefined; handleQuery() }
 function handleSortChange({ prop, order }) { queryParams.value.sortField = order ? prop : undefined; queryParams.value.sortOrder = order || undefined; queryParams.value.pageNum = 1; getList() }
+
+function saveRemark(row) {
+  if (!row.msku) return
+  saveFbaRemark({ msku: row.msku, remark: row.remark || '' }).then(() => {
+    proxy.$modal.msgSuccess('备注已保存')
+  }).catch(() => {})
+}
+
+function handleConfirm(row) {
+  if (!row.msku) return
+  ElMessageBox.confirm(`确认 MSKU「${row.msku}」的货件数据已完结？`, '确认已完结', { confirmButtonText: '确认完结', cancelButtonText: '取消', type: 'warning' })
+    .then(() => confirmFbaShipment(row.msku))
+    .then(() => { row.confirmed = 1; proxy.$modal.msgSuccess('已标记为完结') })
+    .catch(() => {})
+}
 
 function handleExport() {
   const filters = []
@@ -153,6 +188,7 @@ function handleExport() {
   if (p.msku) filters.push({ field: 'msku', value: p.msku })
   if (p.username) filters.push({ field: 'username', value: p.username })
   if (p.shipmentStatus) filters.push({ field: 'shipmentStatus', value: p.shipmentStatus })
+  if (p.confirmed) filters.push({ field: 'confirmed', value: p.confirmed })
   if (gmtCreateRange.value && gmtCreateRange.value.length === 2) {
     if (gmtCreateRange.value[0]) filters.push({ field: 'gmtCreateStart', value: gmtCreateRange.value[0] })
     if (gmtCreateRange.value[1]) filters.push({ field: 'gmtCreateEnd', value: gmtCreateRange.value[1] })

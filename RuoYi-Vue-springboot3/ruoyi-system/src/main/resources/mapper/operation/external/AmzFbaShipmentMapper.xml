@@ -23,6 +23,8 @@
         <result property="shippedTime" column="shipped_time" />
         <result property="receivingTime" column="receiving_time" />
         <result property="closedTime" column="closed_time" />
+        <result property="remark" column="remark" />
+        <result property="confirmed" column="confirmed" />
     </resultMap>
 
     <select id="selectAll" resultMap="Result">
@@ -89,10 +91,12 @@
     </insert>
 
     <select id="search" resultMap="Result">
-        SELECT s.*, sl.store_name
+        SELECT s.*, sl.store_name, COALESCE(m.remark, '') AS remark, COALESCE(m.confirmed, 0) AS confirmed
         FROM amz_fba_shipment s
         LEFT JOIN shop_list sl ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = sl.sid AND sl.platform_code = '10001'
+        LEFT JOIN amz_fba_shipment_mark m ON s.msku = m.msku
         <where>
+            <if test="params.confirmed != null and params.confirmed != ''"> and COALESCE(m.confirmed, 0) = #{params.confirmed} </if>
             and s.username IS NOT NULL and s.username != ''
             <if test="params.storeName != null and params.storeName != ''"> and sl.store_name like concat('%', #{params.storeName}, '%') </if>
             <if test="params.shipmentId != null and params.shipmentId != ''"> and s.shipment_id like concat('%', #{params.shipmentId}, '%') </if>
