@@ -351,8 +351,8 @@ function updateCron() {
 function cronToText(expr) {
   if (!expr) return '-'
   const p = expr.trim().split(/\s+/)
-  if (p.length < 5) return expr
-  const [m, h, day, month, week] = p
+  if (p.length < 6) return expr
+  const m = p[1], h = p[2], day = p[3], month = p[4], week = p[5]
   const hm = h.padStart(2,'0')+':'+m.padStart(2,'0')
   if (day === '*' && month === '*' && week === '?') return '每天 '+hm
   if (day === '?' && month === '*') {
