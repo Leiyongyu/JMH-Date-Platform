@@ -98,6 +98,7 @@
       v-loading="loading"
       :data="replenishmentList"
       border stripe height="640"
+      show-summary :summary-method="getSummaries"
       :row-key="(row) => (row.sid||'') + '|' + (row.sellerSku||'') + '|' + (row.warehouseSku||'')"
       @selection-change="handleSelectionChange"
       @sort-change="handleSortChange"
@@ -318,6 +319,19 @@ const { queryParams } = toRefs(data)
 const regionGroup = ref('')
 
 function handleRegionChange() { queryParams.value.pageNum = 1; getList() }
+
+const summaryFields = ['reviewCount','purchasedQty','domesticStock','pendingShipQty','fbaStock','fbaInbound','totalInventory','sales7d','sales14d','sales30d','sales60d']
+function getSummaries({ columns, data }) {
+  const sums = {}
+  if (!data || !data.length) return []
+  summaryFields.forEach(f => { sums[f] = data.reduce((s, r) => s + (Number(r[f]) || 0), 0) })
+  return columns.map((col, i) => {
+    if (i === 0) return ''
+    const key = col.property
+    if (summaryFields.includes(key)) return sums[key]
+    return ''
+  })
+}
 
 // ---- 数值列头筛选 ----
 const OPERATOR_OPTIONS = [
