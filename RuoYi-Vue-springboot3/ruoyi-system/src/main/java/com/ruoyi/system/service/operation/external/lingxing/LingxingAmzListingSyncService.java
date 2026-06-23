@@ -32,7 +32,7 @@ public class LingxingAmzListingSyncService
         long start = System.currentTimeMillis();
         List<String> sids = shopMapper.selectSidsByPlatform("10001", 1);
         if (sids.isEmpty()) sids = Collections.singletonList("0");
-        int total = 0, pageSize = 200;
+        int total = 0, pageSize = 1000;
         for (int i = 0; i < sids.size(); i += 20)
         {
             List<String> batch = sids.subList(i, Math.min(i + 20, sids.size()));
