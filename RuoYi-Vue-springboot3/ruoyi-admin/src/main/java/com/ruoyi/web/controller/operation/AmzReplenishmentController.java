@@ -28,6 +28,7 @@ import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.domain.operation.ExportRequest;
 import com.ruoyi.system.domain.operation.external.AmzReplenishmentOverride;
 import com.ruoyi.system.mapper.operation.external.AmzReplenishmentOverrideMapper;
+import com.ruoyi.system.mapper.operation.external.AmzWarehouseInventoryDetailMapper;
 import com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService;
 import com.ruoyi.system.service.operation.UnifiedExportService;
 import com.github.pagehelper.PageHelper;
@@ -44,6 +45,8 @@ public class AmzReplenishmentController extends BaseController
     private UnifiedExportService exportService;
     @Autowired
     private AmzReplenishmentOverrideMapper overrideMapper;
+    @Autowired
+    private AmzWarehouseInventoryDetailMapper inventoryMapper;
     @Autowired
     private RedisCache redisCache;
 
@@ -119,6 +122,18 @@ public class AmzReplenishmentController extends BaseController
         }
         if (hasProductCategory) overrideMapper.upsertProductCategory(ov);
         if (hasManualPurchasedQty) overrideMapper.upsertManualPurchasedQty(ov);
+        return success();
+    }
+
+    /** 直接修改库存表的待到货量（已采购数量 = quantity_receive + product_qc_num） */
+    @Log(title = "AMZ补货-修改已采购", businessType = BusinessType.UPDATE)
+    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
+    @PostMapping("/update-qty-receive")
+    public AjaxResult updateQtyReceive(@RequestBody Map<String, Object> body)
+    {
+        String warehouseSku = (String) body.get("warehouseSku");
+        BigDecimal v = body.get("value") != null ? new BigDecimal(String.valueOf(body.get("value"))) : BigDecimal.ZERO;
+        inventoryMapper.updateQuantityReceive(warehouseSku, v);
         return success();
     }
 

@@ -49,6 +49,7 @@ public class AmzRestockSummarySyncService
             {
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("data_type", 2);
+                body.put("mode", 0);
                 body.put("offset", offset); body.put("length", PAGE_SIZE);
                 body.put("sid_list", batch);
                 Map<String, Object> resp = gw.post(API, body);
@@ -69,6 +70,8 @@ public class AmzRestockSummarySyncService
                 for (AmzRestockSummary e : list)
                     if (seen.add(e.getHashId())) fresh.add(e);
                 if (!fresh.isEmpty()) { mapper.batchInsert(fresh); total += fresh.size(); }
+                int remoteTotal = getInt(resp, "total");
+                if (remoteTotal > 0 && offset + PAGE_SIZE >= remoteTotal) break;
                 if (data.size() < PAGE_SIZE) break;
                 offset += PAGE_SIZE;
             }
@@ -125,6 +128,7 @@ public class AmzRestockSummarySyncService
     private Map<String, Object> getMap(Map<String, Object> m, String k) { Object v = m.get(k); return v instanceof Map ? (Map<String, Object>) v : null; }
     private String str(Map<String, Object> m, String k) { Object v = m.get(k); return v != null ? String.valueOf(v) : ""; }
     private int intVal(Map<String, Object> m, String k) { Object v = m.get(k); if (v instanceof Number) return ((Number)v).intValue(); if (v != null) try { return Integer.parseInt(v.toString()); } catch (Exception e) {} return 0; }
+    private int getInt(Map<String, Object> m, String k) { Object v = m.get(k); if (v instanceof Number) return ((Number)v).intValue(); return 0; }
     private Integer intObj(Map<String, Object> m, String k) { Object v = m.get(k); if (v instanceof Number) return ((Number)v).intValue(); if (v != null) try { return Integer.parseInt(v.toString()); } catch (Exception e) {} return null; }
     private BigDecimal bd(Map<String, Object> m, String k) { Object v = m.get(k); if (v == null) return null; if (v instanceof Number) return BigDecimal.valueOf(((Number)v).doubleValue()); try { return new BigDecimal(v.toString()); } catch (Exception e) { return null; } }
 }

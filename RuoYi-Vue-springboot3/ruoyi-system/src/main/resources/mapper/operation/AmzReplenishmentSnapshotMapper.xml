@@ -68,7 +68,10 @@
             ANY_VALUE(op.spend_rate * 100) AS ad_rate,
             ANY_VALUE(op.gross_margin * 100) AS profit_rate_30d,
             ANY_VALUE(op.refund_amount_rate * 100) AS refund_rate_90d,
-            COALESCE(MAX(wd.product_valid_num), 0) AS purchased_qty,
+            CASE WHEN COALESCE(ANY_VALUE(fc.region_group), 'US') = 'EU'
+                 THEN COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)), 0) + COALESCE(MAX(wd.product_qc_num), 0)
+                 ELSE COALESCE(MAX(wd.product_valid_num), 0)
+            END AS purchased_qty,
             COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)), 0) AS domestic_stock,
             COALESCE(MAX(wd.product_lock_num), 0) AS pending_ship_qty,
             COALESCE(MAX(rs.fba_sellable), 0) AS fba_stock,
@@ -111,7 +114,7 @@
                COALESCE(o.product_category, s.product_category) AS product_category,
                s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
                s.refund_rate_90d, s.tag_name,
-               COALESCE(o.manual_purchased_qty, s.purchased_qty) AS purchased_qty,
+               s.purchased_qty AS purchased_qty,
                s.domestic_stock, s.pending_ship_qty, s.fba_stock,
                s.fba_inbound, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,
                s.sales_speed_14d, s.sales_speed_30d, s.sales_speed_60d, s.avg_monthly_sales,
@@ -374,7 +377,7 @@
                COALESCE(o.product_category, s.product_category) AS product_category,
                s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
                s.refund_rate_90d, s.tag_name,
-               COALESCE(o.manual_purchased_qty, s.purchased_qty) AS purchased_qty,
+               s.purchased_qty AS purchased_qty,
                s.domestic_stock, s.pending_ship_qty, s.fba_stock,
                s.fba_inbound, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,
                s.sales_speed_14d, s.sales_speed_30d, s.sales_speed_60d, s.avg_monthly_sales,

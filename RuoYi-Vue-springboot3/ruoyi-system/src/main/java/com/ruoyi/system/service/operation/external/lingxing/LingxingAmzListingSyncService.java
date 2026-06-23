@@ -69,6 +69,8 @@ public class LingxingAmzListingSyncService
                 }
                 mapper.batchInsert(batchList);
                 total += batchList.size();
+                int remoteTotal = getInt(resp, "total");
+                if (remoteTotal > 0 && offset + pageSize >= remoteTotal) break;
                 if (list.size() < pageSize) break;
                 offset += pageSize;
             }
@@ -112,4 +114,5 @@ public class LingxingAmzListingSyncService
     }
     private String str(Map<String, Object> m, String... ks) { for (String k : ks) { Object v = m.get(k); if (v != null && StringUtils.hasText(v.toString())) return v.toString(); } return null; }
     private Integer intVal(Map<String, Object> m, String... ks) { String s = str(m, ks); if (s == null) return null; try { return Integer.valueOf(s); } catch (Exception e) { return null; } }
+    private int getInt(Map<String, Object> m, String k) { Object v = m.get(k); if (v instanceof Number) return ((Number)v).intValue(); return 0; }
 }

@@ -72,6 +72,8 @@ public class AmzOrderProfitSyncService
                     list.add(e);
                 }
                 if (!list.isEmpty()) { mapper.batchInsert(list); total += list.size(); }
+                int remoteTotal = getInt(resp, "total");
+                if (remoteTotal > 0 && offset + PAGE_SIZE >= remoteTotal) break;
                 if (data.size() < PAGE_SIZE) break;
                 offset += PAGE_SIZE;
             }
@@ -85,5 +87,6 @@ public class AmzOrderProfitSyncService
     { Object o = r.get(k); if (o instanceof List) return (List<Map<String, Object>>) o; try { return om.convertValue(o, new TypeReference<List<Map<String, Object>>>() {}); } catch (Exception e) { return new ArrayList<>(); } }
     private String str(Map<String, Object> m, String k) { Object v = m.get(k); return v != null ? String.valueOf(v) : ""; }
     private Integer intVal(Map<String, Object> m, String k) { Object v = m.get(k); if (v instanceof Number) return ((Number)v).intValue(); if (v != null) try { return Integer.parseInt(v.toString()); } catch (Exception e) {} return 0; }
+    private int getInt(Map<String, Object> m, String k) { Object v = m.get(k); if (v instanceof Number) return ((Number)v).intValue(); return 0; }
     private BigDecimal bd(Map<String, Object> m, String k) { Object v = m.get(k); if (v == null) return BigDecimal.ZERO; if (v instanceof Number) return BigDecimal.valueOf(((Number)v).doubleValue()); try { return new BigDecimal(v.toString()); } catch (Exception e) { return BigDecimal.ZERO; } }
 }

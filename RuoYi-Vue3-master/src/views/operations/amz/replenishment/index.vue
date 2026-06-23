@@ -243,10 +243,11 @@ async function onAmzCellBlur(row, field) {
   const v = editCache[k] || ''; const oldV = field === 'cat' ? (row.productCategory ?? '') : String(row.purchasedQty ?? '')
   if (v === oldV || row._saving) return; row._saving = true
   try {
-    const body = { sid: String(row.sid || ''), sellerSku: row.sellerSku }
-    if (field === 'cat') body.productCategory = v || ''
-    else body.manualPurchasedQty = v || null
-    await request({ url: '/operations/amz/replenishment/override', method: 'post', data: body })
+    if (field === 'cat') {
+      await request({ url: '/operations/amz/replenishment/override', method: 'post', data: { sid: String(row.sid||''), sellerSku: row.sellerSku, productCategory: v || '' } })
+    } else {
+      await request({ url: '/operations/amz/replenishment/update-qty-receive', method: 'post', data: { warehouseSku: row.warehouseSku, value: v || null } })
+    }
     if (field === 'cat') row.productCategory = v || ''
     else row.purchasedQty = v || ''
   } catch { editCache[k] = oldV } finally { row._saving = false }
@@ -320,7 +321,7 @@ const regionGroup = ref('')
 
 function handleRegionChange() { queryParams.value.pageNum = 1; getList() }
 
-const summaryFields = ['reviewCount','purchasedQty','domesticStock','pendingShipQty','fbaStock','fbaInbound','totalInventory','sales7d','sales14d','sales30d','sales60d']
+const summaryFields = ['reviewCount','sales7d','sales14d','sales30d','sales60d']
 function getSummaries({ columns, data }) {
   const sums = {}
   if (!data || !data.length) return []

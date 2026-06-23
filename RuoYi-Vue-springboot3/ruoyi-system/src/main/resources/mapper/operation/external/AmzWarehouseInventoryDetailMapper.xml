@@ -16,7 +16,7 @@
     </select>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO amz_warehouse_inventory_detail (wid,seller_id,sku,quantity_receive,product_valid_num,product_lock_num,product_qc_num)
-        VALUES (#{wid},#{sellerId},#{sku},#{quantityReceive},#{productValidNum},#{productLockNum})
+        VALUES (#{wid},#{sellerId},#{sku},#{quantityReceive},#{productValidNum},#{productLockNum},#{productQcNum})
     </insert>
     <update id="updateById">
         UPDATE amz_warehouse_inventory_detail SET quantity_receive=#{quantityReceive},product_valid_num=#{productValidNum},product_lock_num=#{productLockNum}
@@ -25,8 +25,12 @@
     <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
         INSERT IGNORE INTO amz_warehouse_inventory_detail (wid,seller_id,sku,quantity_receive,product_valid_num,product_lock_num,product_qc_num) VALUES
         <foreach collection="list" item="e" separator=",">
-        (#{e.wid},#{e.sellerId},#{e.sku},#{e.quantityReceive},#{e.productValidNum},#{e.productLockNum})
+        (#{e.wid},#{e.sellerId},#{e.sku},#{e.quantityReceive},#{e.productValidNum},#{e.productLockNum},#{e.productQcNum})
         </foreach>
     </insert>
     <delete id="deleteAll">DELETE FROM amz_warehouse_inventory_detail</delete>
+
+    <update id="updateQuantityReceive">
+        UPDATE amz_warehouse_inventory_detail SET quantity_receive = #{val} WHERE sku = #{sku}
+    </update>
 </mapper>

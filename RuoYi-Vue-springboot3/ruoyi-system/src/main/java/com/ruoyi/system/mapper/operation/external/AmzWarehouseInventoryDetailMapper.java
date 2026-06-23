@@ -11,4 +11,5 @@ public interface AmzWarehouseInventoryDetailMapper
     int updateById(AmzWarehouseInventoryDetail entity);
     int batchInsert(@Param("list") List<AmzWarehouseInventoryDetail> list);
     int deleteAll();
+    int updateQuantityReceive(@Param("sku") String sku, @Param("val") java.math.BigDecimal val);
 }
