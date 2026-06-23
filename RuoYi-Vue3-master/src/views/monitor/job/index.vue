@@ -101,7 +101,9 @@
             </template>
          </el-table-column>
          <el-table-column label="调用目标字符串" align="center" prop="invokeTarget" :show-overflow-tooltip="true" />
-         <el-table-column label="cron执行表达式" align="center" prop="cronExpression" :show-overflow-tooltip="true" />
+         <el-table-column label="执行时间" align="center" :show-overflow-tooltip="true">
+            <template #default="scope">{{ cronToText(scope.row.cronExpression) }}</template>
+         </el-table-column>
          <el-table-column label="备注" align="center" prop="remark" :show-overflow-tooltip="true" />
          <el-table-column label="状态" align="center">
             <template #default="scope">
@@ -206,8 +208,11 @@
                </el-col>
                <el-col :span="24">
                   <el-collapse>
-                     <el-collapse-item title="高级设置 / Cron 表达式">
-                        <el-input v-model="form.cronExpression" placeholder="请输入 Cron 表达式（高级用户可直接编辑）" size="small" @change="parseCron" />
+                     <el-collapse-item title="高级设置">
+                        <template #title>
+                           <span>高级设置<span v-if="form.cronExpression" style="font-weight:400;color:#909399;margin-left:8px;font-size:12px">{{ cronToText(form.cronExpression) }}</span></span>
+                        </template>
+                        <el-input v-model="form.cronExpression" placeholder="直接编辑 Cron 表达式" size="small" @change="parseCron" />
                      </el-collapse-item>
                   </el-collapse>
                </el-col>
@@ -343,6 +348,22 @@ function updateCron() {
   else return
   form.value.cronExpression = expr; validateCron()
 }
+function cronToText(expr) {
+  if (!expr) return '-'
+  const p = expr.trim().split(/\s+/)
+  if (p.length < 5) return expr
+  const [m, h, day, month, week] = p
+  const hm = h.padStart(2,'0')+':'+m.padStart(2,'0')
+  if (day === '*' && month === '*' && week === '?') return '每天 '+hm
+  if (day === '?' && month === '*') {
+    const wmap = {1:'一',2:'二',3:'三',4:'四',5:'五',6:'六',0:'日'}
+    const ws = week.split(',').map(w => '周'+wmap[+w]||'').filter(Boolean).join('、')
+    return ws ? '每'+ws+' '+hm : expr
+  }
+  if (month === '*' && week === '?' && day !== '*') return '每月'+day+'号 '+hm
+  return expr
+}
+
 function parseCron() {
   const v = form.value.cronExpression; if (!v) return
   const parts = v.trim().split(/\s+/)
