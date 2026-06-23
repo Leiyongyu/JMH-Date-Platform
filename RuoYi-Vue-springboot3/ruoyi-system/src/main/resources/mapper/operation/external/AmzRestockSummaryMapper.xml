@@ -9,6 +9,7 @@
         <result property="fbaSellable" column="fba_sellable"/>
         <result property="fbaInbound" column="fba_inbound"/>
         <result property="fbaReserved" column="fba_reserved"/>
+        <result property="nodeType" column="node_type"/>
         <result property="sales7d" column="sales_7d"/>
         <result property="sales14d" column="sales_14d"/>
         <result property="sales30d" column="sales_30d"/>
@@ -21,8 +22,8 @@
         SELECT * FROM amz_restock_summary WHERE hash_id=#{hashId}
     </select>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO amz_restock_summary (hash_id,sid,msku,fba_sellable,fba_inbound,fba_reserved,sales_7d,sales_14d,sales_30d,sales_60d,avg_sales_14d,avg_sales_30d,avg_sales_60d)
-        VALUES (#{hashId},#{sid},#{msku},#{fbaSellable},#{fbaInbound},#{fbaReserved},#{sales7d},#{sales14d},#{sales30d},#{sales60d},#{avgSales14d},#{avgSales30d},#{avgSales60d})
+        INSERT INTO amz_restock_summary (hash_id,sid,msku,fba_sellable,fba_inbound,fba_reserved,node_type,sales_7d,sales_14d,sales_30d,sales_60d,avg_sales_14d,avg_sales_30d,avg_sales_60d)
+        VALUES (#{hashId},#{sid},#{msku},#{fbaSellable},#{fbaInbound},#{fbaReserved},#{nodeType},#{sales7d},#{sales14d},#{sales30d},#{sales60d},#{avgSales14d},#{avgSales30d},#{avgSales60d})
     </insert>
     <update id="updateById">
         UPDATE amz_restock_summary SET fba_sellable=#{fbaSellable},fba_inbound=#{fbaInbound},fba_reserved=#{fbaReserved},
@@ -31,9 +32,9 @@
         WHERE id=#{id}
     </update>
     <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO amz_restock_summary (hash_id,sid,msku,fba_sellable,fba_inbound,fba_reserved,sales_7d,sales_14d,sales_30d,sales_60d,avg_sales_14d,avg_sales_30d,avg_sales_60d) VALUES
+        INSERT INTO amz_restock_summary (hash_id,sid,msku,fba_sellable,fba_inbound,fba_reserved,node_type,sales_7d,sales_14d,sales_30d,sales_60d,avg_sales_14d,avg_sales_30d,avg_sales_60d) VALUES
         <foreach collection="list" item="e" separator=",">
-        (#{e.hashId},#{e.sid},#{e.msku},#{e.fbaSellable},#{e.fbaInbound},#{e.fbaReserved},#{e.sales7d},#{e.sales14d},#{e.sales30d},#{e.sales60d},#{e.avgSales14d},#{e.avgSales30d},#{e.avgSales60d})
+        (#{e.hashId},#{e.sid},#{e.msku},#{e.fbaSellable},#{e.fbaInbound},#{e.fbaReserved},#{e.nodeType},#{e.sales7d},#{e.sales14d},#{e.sales30d},#{e.sales60d},#{e.avgSales14d},#{e.avgSales30d},#{e.avgSales60d})
         </foreach>
     </insert>
     <delete id="deleteAll">DELETE FROM amz_restock_summary</delete>

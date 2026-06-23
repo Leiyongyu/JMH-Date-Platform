@@ -114,14 +114,18 @@ public class AmzReplenishmentController extends BaseController
         ov.setSellerSku(sellerSku);
         boolean hasProductCategory = body.containsKey("productCategory");
         boolean hasManualPurchasedQty = body.containsKey("manualPurchasedQty");
+        boolean hasRemark = body.containsKey("remark");
         if (hasProductCategory)
             ov.setProductCategory((String) body.get("productCategory"));
         if (hasManualPurchasedQty) {
             Object v = body.get("manualPurchasedQty");
             ov.setManualPurchasedQty(v != null && !"".equals(v) ? new BigDecimal(String.valueOf(v)) : null);
         }
+        if (hasRemark)
+            ov.setRemark((String) body.get("remark"));
         if (hasProductCategory) overrideMapper.upsertProductCategory(ov);
         if (hasManualPurchasedQty) overrideMapper.upsertManualPurchasedQty(ov);
+        if (hasRemark) overrideMapper.upsertRemark(ov);
         return success();
     }
 

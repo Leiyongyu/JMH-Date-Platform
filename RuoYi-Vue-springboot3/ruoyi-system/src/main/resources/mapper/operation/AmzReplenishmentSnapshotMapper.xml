@@ -13,6 +13,7 @@
         <result property="principalName" column="principal_name" />
         <result property="storeName" column="store_name" />
         <result property="productCategory" column="product_category" />
+        <result property="remark" column="remark" />
         <result property="rating" column="rating" />
         <result property="reviewCount" column="review_count" />
         <result property="adRate" column="ad_rate" />
@@ -112,6 +113,7 @@
         SELECT s.id, s.sid, s.seller_sku, s.warehouse_sku, s.warehouse_name, s.asin, s.principal_name,
                s.store_name,
                COALESCE(o.product_category, s.product_category) AS product_category,
+               COALESCE(o.remark, '') AS remark,
                s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
                s.refund_rate_90d, s.tag_name,
                s.purchased_qty AS purchased_qty,
@@ -375,6 +377,7 @@
         SELECT s.id, s.sid, s.seller_sku, s.warehouse_sku, s.warehouse_name, s.asin, s.principal_name,
                s.store_name,
                COALESCE(o.product_category, s.product_category) AS product_category,
+               COALESCE(o.remark, '') AS remark,
                s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
                s.refund_rate_90d, s.tag_name,
                s.purchased_qty AS purchased_qty,

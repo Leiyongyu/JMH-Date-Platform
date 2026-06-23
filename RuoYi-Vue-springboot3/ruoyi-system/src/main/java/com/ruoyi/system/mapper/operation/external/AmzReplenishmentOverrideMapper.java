@@ -10,4 +10,5 @@ public interface AmzReplenishmentOverrideMapper
     int upsert(AmzReplenishmentOverride entity);
     int upsertProductCategory(AmzReplenishmentOverride entity);
     int upsertManualPurchasedQty(AmzReplenishmentOverride entity);
+    int upsertRemark(AmzReplenishmentOverride entity);
 }

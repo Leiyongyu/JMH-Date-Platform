@@ -84,6 +84,8 @@ public class AmzRestockSummarySyncService
     {
         Map<String, Object> basic = getMap(item, "basic_info");
         if (basic == null) return;
+        Integer nodeType = intObj(basic, "node_type");
+        if (nodeType != null && nodeType == 2) return; // 跳过共享库存子行
         String hashId = str(basic, "hash_id");
         if (hashId.isEmpty()) return;
         Integer sid = intObj(basic, "sid");
@@ -100,6 +102,7 @@ public class AmzRestockSummarySyncService
         e.setFbaSellable(qty != null ? intVal(qty, "amazon_quantity_valid") : 0);
         e.setFbaInbound(qty != null ? intVal(qty, "amazon_quantity_shipping") : 0);
         e.setFbaReserved(qty != null ? intVal(qty, "afn_reserved_quantity") : 0);
+        e.setNodeType(intObj(basic, "node_type"));
         e.setSales7d(sales != null ? intVal(sales, "sales_total_7") : 0);
         e.setSales14d(sales != null ? intVal(sales, "sales_total_14") : 0);
         e.setSales30d(sales != null ? intVal(sales, "sales_total_30") : 0);

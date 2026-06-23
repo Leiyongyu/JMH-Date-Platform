@@ -37,6 +37,8 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     @Excel(name = "产品分类")
     private String productCategory;
 
+    private String remark;
+
     @Excel(name = "评分")
     private BigDecimal rating;
 
@@ -134,6 +136,8 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     public void setStoreName(String storeName) { this.storeName = storeName; }
     public String getProductCategory() { return productCategory; }
     public void setProductCategory(String productCategory) { this.productCategory = productCategory; }
+    public String getRemark() { return remark; }
+    public void setRemark(String remark) { this.remark = remark; }
     public BigDecimal getRating() { return rating; }
     public void setRating(BigDecimal rating) { this.rating = rating; }
     public Integer getReviewCount() { return reviewCount; }

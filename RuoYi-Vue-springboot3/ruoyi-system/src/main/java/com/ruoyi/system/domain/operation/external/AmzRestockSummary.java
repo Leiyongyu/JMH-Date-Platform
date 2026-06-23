@@ -15,6 +15,7 @@ public class AmzRestockSummary implements Serializable
     private Integer fbaReserved;
     private Integer sales7d, sales14d, sales30d, sales60d;
     private BigDecimal avgSales14d, avgSales30d, avgSales60d;
+    private Integer nodeType;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -44,4 +45,6 @@ public class AmzRestockSummary implements Serializable
     public void setAvgSales30d(BigDecimal avgSales30d) { this.avgSales30d = avgSales30d; }
     public BigDecimal getAvgSales60d() { return avgSales60d; }
     public void setAvgSales60d(BigDecimal avgSales60d) { this.avgSales60d = avgSales60d; }
+    public Integer getNodeType() { return nodeType; }
+    public void setNodeType(Integer nodeType) { this.nodeType = nodeType; }
 }
