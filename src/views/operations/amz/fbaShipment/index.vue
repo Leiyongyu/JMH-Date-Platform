@@ -62,6 +62,18 @@
       <el-table-column label="更新时间" prop="gmtModified" align="center" width="120">
         <template #default="scope">{{ scope.row.gmtModified ? scope.row.gmtModified.substring(0,10) : '-' }}</template>
       </el-table-column>
+      <el-table-column label="WORKING" prop="workingTime" align="center" width="120">
+        <template #default="scope">{{ scope.row.workingTime ? scope.row.workingTime.substring(0,10) : '-' }}</template>
+      </el-table-column>
+      <el-table-column label="SHIPPED" prop="shippedTime" align="center" width="120">
+        <template #default="scope">{{ scope.row.shippedTime ? scope.row.shippedTime.substring(0,10) : '-' }}</template>
+      </el-table-column>
+      <el-table-column label="RECEIVING" prop="receivingTime" align="center" width="120">
+        <template #default="scope">{{ scope.row.receivingTime ? scope.row.receivingTime.substring(0,10) : '-' }}</template>
+      </el-table-column>
+      <el-table-column label="CLOSED" prop="closedTime" align="center" width="120">
+        <template #default="scope">{{ scope.row.closedTime ? scope.row.closedTime.substring(0,10) : '-' }}</template>
+      </el-table-column>
     </el-table>
 
     <pagination v-show="total > 0" :total="total" v-model:page="queryParams.pageNum" v-model:limit="queryParams.pageSize" @pagination="getList" />
