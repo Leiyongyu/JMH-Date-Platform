@@ -114,6 +114,10 @@ public class AmzFbaShipmentSyncService
                         row.setQuantityShippedLocal(intVal(item, "quantity_shipped_local"));
                         row.setGmtCreate(gmtCreate);
                         row.setGmtModified(gmtModified);
+                        row.setWorkingTime(parseDt(str(shipment, "working_time")));
+                        row.setShippedTime(parseDt(str(shipment, "shipped_time")));
+                        row.setReceivingTime(parseDt(str(shipment, "receiving_time")));
+                        row.setClosedTime(parseDt(str(shipment, "closed_time")));
                         rows.add(row);
                     }
                 }

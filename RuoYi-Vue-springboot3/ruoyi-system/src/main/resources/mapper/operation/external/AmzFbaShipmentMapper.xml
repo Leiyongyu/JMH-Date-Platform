@@ -19,6 +19,10 @@
         <result property="declaredDiff" column="declared_diff" />
         <result property="gmtCreate" column="gmt_create" />
         <result property="gmtModified" column="gmt_modified" />
+        <result property="workingTime" column="working_time" />
+        <result property="shippedTime" column="shipped_time" />
+        <result property="receivingTime" column="receiving_time" />
+        <result property="closedTime" column="closed_time" />
     </resultMap>
 
     <select id="selectAll" resultMap="Result">
@@ -33,12 +37,12 @@
         INSERT INTO amz_fba_shipment (
             sid, username, shipment_id, shipment_name,shipment_status, msku, sku,
             quantity_shipped, init_quantity_shipped, quantity_received, quantity_shipped_local, declared_diff,
-            gmt_create, gmt_modified
+            gmt_create, gmt_modified, working_time, shipped_time, receiving_time, closed_time
         ) VALUES (
             #{sid}, #{username}, #{shipmentId}, #{shipmentName},#{shipmentStatus}, #{msku}, #{sku},
             #{quantityShipped}, #{initQuantityShipped}, #{quantityReceived}, #{quantityShippedLocal},
             #{quantityShipped} - #{quantityReceived},
-            #{gmtCreate}, #{gmtModified}
+            #{gmtCreate}, #{gmtModified}, #{workingTime}, #{shippedTime}, #{receivingTime}, #{closedTime}
         )
     </insert>
 
@@ -46,14 +50,14 @@
         INSERT INTO amz_fba_shipment (
             sid, username, shipment_id, shipment_name,shipment_status, msku, sku,
             quantity_shipped, init_quantity_shipped, quantity_received, quantity_shipped_local, declared_diff,
-            gmt_create, gmt_modified
+            gmt_create, gmt_modified, working_time, shipped_time, receiving_time, closed_time
         ) VALUES
         <foreach collection="list" item="e" separator=",">
         (
             #{e.sid}, #{e.username}, #{e.shipmentId}, #{e.shipmentName}, #{e.shipmentStatus}, #{e.msku}, #{e.sku},
             #{e.quantityShipped}, #{e.initQuantityShipped}, #{e.quantityReceived}, #{e.quantityShippedLocal},
             #{e.quantityShipped} - #{e.quantityReceived},
-            #{e.gmtCreate}, #{e.gmtModified}
+            #{e.gmtCreate}, #{e.gmtModified}, #{e.workingTime}, #{e.shippedTime}, #{e.receivingTime}, #{e.closedTime}
         )
         </foreach>
     </insert>
@@ -62,17 +66,17 @@
         INSERT INTO amz_fba_shipment (
             sid, username, shipment_id, shipment_name,shipment_status, msku, sku,
             quantity_shipped, init_quantity_shipped, quantity_received, quantity_shipped_local, declared_diff,
-            gmt_create, gmt_modified
+            gmt_create, gmt_modified, working_time, shipped_time, receiving_time, closed_time
         ) VALUES
         <foreach collection="list" item="e" separator=",">
         (
             #{e.sid}, #{e.username}, #{e.shipmentId}, #{e.shipmentName}, #{e.shipmentStatus}, #{e.msku}, #{e.sku},
             #{e.quantityShipped}, #{e.initQuantityShipped}, #{e.quantityReceived}, #{e.quantityShippedLocal},
             #{e.quantityShipped} - #{e.quantityReceived},
-            #{e.gmtCreate}, #{e.gmtModified}
+            #{e.gmtCreate}, #{e.gmtModified}, #{e.workingTime}, #{e.shippedTime}, #{e.receivingTime}, #{e.closedTime}
         )
         </foreach>
-        ON DUPLICATE KEY UPDATE shipment_status = VALUES(shipment_status),
+        ON DUPLICATE KEY UPDATE working_time = VALUES(working_time), shipped_time = VALUES(shipped_time), receiving_time = VALUES(receiving_time), closed_time = VALUES(closed_time), shipment_status = VALUES(shipment_status),
             username = VALUES(username),
             shipment_name = VALUES(shipment_name),
             msku = VALUES(msku),

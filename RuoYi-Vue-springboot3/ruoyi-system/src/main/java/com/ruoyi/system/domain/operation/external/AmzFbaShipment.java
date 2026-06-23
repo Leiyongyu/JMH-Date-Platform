@@ -26,6 +26,10 @@ public class AmzFbaShipment implements Serializable
     private Integer declaredDiff;
     private Date gmtCreate;
     private Date gmtModified;
+    private Date workingTime;
+    private Date shippedTime;
+    private Date receivingTime;
+    private Date closedTime;
     private Date createTime;
 
     public Long getId() { return id; }
@@ -60,6 +64,14 @@ public class AmzFbaShipment implements Serializable
     public void setGmtCreate(Date gmtCreate) { this.gmtCreate = gmtCreate; }
     public Date getGmtModified() { return gmtModified; }
     public void setGmtModified(Date gmtModified) { this.gmtModified = gmtModified; }
+    public Date getWorkingTime() { return workingTime; }
+    public void setWorkingTime(Date v) { this.workingTime = v; }
+    public Date getShippedTime() { return shippedTime; }
+    public void setShippedTime(Date v) { this.shippedTime = v; }
+    public Date getReceivingTime() { return receivingTime; }
+    public void setReceivingTime(Date v) { this.receivingTime = v; }
+    public Date getClosedTime() { return closedTime; }
+    public void setClosedTime(Date v) { this.closedTime = v; }
     public Date getCreateTime() { return createTime; }
     public void setCreateTime(Date createTime) { this.createTime = createTime; }
 }
