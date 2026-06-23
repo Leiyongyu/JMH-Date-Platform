@@ -7,5 +7,5 @@ public interface AmzFbaShipmentMarkMapper
 {
     AmzFbaShipmentMark selectByMsku(@Param("msku") String msku);
     int upsert(AmzFbaShipmentMark mark);
-    int confirm(@Param("msku") String msku);
+    int confirm(@Param("msku") String msku, @Param("shipmentId") String shipmentId);
 }

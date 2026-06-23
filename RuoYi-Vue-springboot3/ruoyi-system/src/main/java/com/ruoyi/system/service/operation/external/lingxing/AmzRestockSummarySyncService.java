@@ -45,7 +45,7 @@ public class AmzRestockSummarySyncService
         {
             List<String> batch = sids.subList(i, Math.min(i + SID_BATCH_SIZE, sids.size()));
             int offset = 0;
-            while (true)
+            while (true)    
             {
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("data_type", 2);

@@ -28,6 +28,7 @@ public class AmzFbaShipmentMarkController extends BaseController
     {
         AmzFbaShipmentMark mark = new AmzFbaShipmentMark();
         mark.setMsku(body.get("msku"));
+        mark.setShipmentId(body.getOrDefault("shipmentId", ""));
         mark.setRemark(body.getOrDefault("remark", ""));
         AmzFbaShipmentMark existing = markMapper.selectByMsku(body.get("msku"));
         mark.setConfirmed(existing != null ? existing.getConfirmed() : 0);
@@ -40,7 +41,7 @@ public class AmzFbaShipmentMarkController extends BaseController
     @PostMapping("/confirm")
     public AjaxResult confirm(@RequestBody Map<String, String> body)
     {
-        markMapper.confirm(body.get("msku"));
+        markMapper.confirm(body.get("msku"), body.getOrDefault("shipmentId", ""));
         return success();
     }
 }

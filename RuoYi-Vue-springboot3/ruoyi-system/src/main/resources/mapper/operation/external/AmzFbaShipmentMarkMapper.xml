@@ -5,6 +5,7 @@
     <resultMap type="com.ruoyi.system.domain.operation.external.AmzFbaShipmentMark" id="Result">
         <id property="id" column="id" />
         <result property="msku" column="msku" />
+        <result property="shipmentId" column="shipment_id" />
         <result property="remark" column="remark" />
         <result property="confirmed" column="confirmed" />
         <result property="updateTime" column="update_time" />
@@ -15,14 +16,14 @@
     </select>
 
     <insert id="upsert">
-        INSERT INTO amz_fba_shipment_mark (msku, remark, confirmed)
-        VALUES (#{msku}, #{remark}, COALESCE(#{confirmed}, 0))
+        INSERT INTO amz_fba_shipment_mark (msku, shipment_id, remark, confirmed)
+        VALUES (#{msku}, #{shipmentId}, #{remark}, COALESCE(#{confirmed}, 0))
         ON DUPLICATE KEY UPDATE remark = VALUES(remark), confirmed = VALUES(confirmed)
     </insert>
 
     <update id="confirm">
-        INSERT INTO amz_fba_shipment_mark (msku, remark, confirmed)
-        VALUES (#{msku}, '', 1)
+        INSERT INTO amz_fba_shipment_mark (msku, shipment_id, remark, confirmed)
+        VALUES (#{msku}, #{shipmentId}, '', 1)
         ON DUPLICATE KEY UPDATE confirmed = 1
     </update>
 

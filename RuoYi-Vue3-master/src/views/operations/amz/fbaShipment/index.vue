@@ -166,15 +166,15 @@ function handleSortChange({ prop, order }) { queryParams.value.sortField = order
 
 function saveRemark(row) {
   if (!row.msku) return
-  saveFbaRemark({ msku: row.msku, remark: row.remark || '' }).then(() => {
+  saveFbaRemark({ msku: row.msku, shipmentId: row.shipmentId || '', remark: row.remark || '' }).then(() => {
     proxy.$modal.msgSuccess('备注已保存')
   }).catch(() => {})
 }
 
 function handleConfirm(row) {
   if (!row.msku) return
-  ElMessageBox.confirm(`确认 MSKU「${row.msku}」的货件数据已完结？`, '确认已完结', { confirmButtonText: '确认完结', cancelButtonText: '取消', type: 'warning' })
-    .then(() => confirmFbaShipment(row.msku))
+  ElMessageBox.confirm(`确认货件「${row.shipmentId}」MSKU「${row.msku}」已完结？`, '确认已完结', { confirmButtonText: '确认完结', cancelButtonText: '取消', type: 'warning' })
+    .then(() => confirmFbaShipment(row.msku, row.shipmentId || ''))
     .then(() => { row.confirmed = 1; proxy.$modal.msgSuccess('已标记为完结') })
     .catch(() => {})
 }
