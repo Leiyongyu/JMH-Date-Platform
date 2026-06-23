@@ -30,7 +30,7 @@ public class AmzFbaShipmentMarkController extends BaseController
         mark.setMsku(body.get("msku"));
         mark.setRemark(body.getOrDefault("remark", ""));
         AmzFbaShipmentMark existing = markMapper.selectByMsku(body.get("msku"));
-        if (existing != null) mark.setConfirmed(existing.getConfirmed());
+        mark.setConfirmed(existing != null ? existing.getConfirmed() : 0);
         markMapper.upsert(mark);
         return success();
     }

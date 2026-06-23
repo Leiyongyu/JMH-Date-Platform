@@ -16,7 +16,7 @@
 
     <insert id="upsert">
         INSERT INTO amz_fba_shipment_mark (msku, remark, confirmed)
-        VALUES (#{msku}, #{remark}, #{confirmed})
+        VALUES (#{msku}, #{remark}, COALESCE(#{confirmed}, 0))
         ON DUPLICATE KEY UPDATE remark = VALUES(remark), confirmed = VALUES(confirmed)
     </insert>
 
