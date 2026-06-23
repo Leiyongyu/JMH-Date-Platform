@@ -59,6 +59,7 @@ public class AmzWarehouseInventorySyncService
                 e.setQuantityReceive(bd(row, "quantity_receive", "quantityReceive"));
                 e.setProductValidNum(intVal(row, "product_valid_num", "productValidNum"));
                 e.setProductLockNum(intVal(row, "product_lock_num", "productLockNum"));
+                e.setProductQcNum(intVal(row, "product_qc_num", "productQcNum"));
                 batch.add(e);
             }
                 if (!batch.isEmpty()) { mapper.batchInsert(batch); total += batch.size(); }

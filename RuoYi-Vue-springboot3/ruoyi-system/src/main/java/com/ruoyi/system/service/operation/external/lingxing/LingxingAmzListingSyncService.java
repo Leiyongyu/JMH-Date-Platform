@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-/** 领星 Amazon Listing 同步 → amz_product_listing，按 sid 分页拉取（不清空，增量 upsert） */
+/** 领星 Amazon Listing 同步 → amz_product_listing，按 sid 分页拉取（先清空，全量覆盖） */
 @Service
 public class LingxingAmzListingSyncService
 {
@@ -32,6 +32,7 @@ public class LingxingAmzListingSyncService
         long start = System.currentTimeMillis();
         List<String> sids = shopMapper.selectSidsByPlatform("10001", 1);
         if (sids.isEmpty()) sids = Collections.singletonList("0");
+        mapper.deleteAll();
         int total = 0, pageSize = 1000;
         for (int i = 0; i < sids.size(); i += 20)
         {
@@ -46,14 +47,14 @@ public class LingxingAmzListingSyncService
                 Map<String, Object> resp = gw.post(API, body);
                 List<Map<String, Object>> list = getList(resp, "data");
                 if (list.isEmpty()) break;
+                List<AmzProductListing> batchList = new ArrayList<>();
                 for (Map<String, Object> row : list)
                 {
                     Integer sid = intVal(row, "sid");
                     String sellerSku = str(row, "seller_sku", "sellerSku");
                     if (sid == null || !StringUtils.hasText(sellerSku)) continue;
                     Integer status = intVal(row, "status");
-                    List<AmzProductListing> ex = mapper.selectBySidSellerSku(sid, sellerSku);
-                    AmzProductListing e = ex.isEmpty() ? new AmzProductListing() : ex.get(0);
+                    AmzProductListing e = new AmzProductListing();
                     e.setSid(sid); e.setSellerSku(sellerSku);
                     e.setStatus(status != null ? status : 1);
                     e.setMarketplace(str(row, "marketplace"));
@@ -64,9 +65,10 @@ public class LingxingAmzListingSyncService
                     e.setLastStar(str(row, "last_star", "lastStar"));
                     e.setPrincipalName(extractPrincipalName(row));
                     e.setTagName(extractTagName(row));
-                    if (ex.isEmpty()) mapper.insert(e); else mapper.updateById(e);
-                    total++;
+                    batchList.add(e);
                 }
+                mapper.batchInsert(batchList);
+                total += batchList.size();
                 if (list.size() < pageSize) break;
                 offset += pageSize;
             }

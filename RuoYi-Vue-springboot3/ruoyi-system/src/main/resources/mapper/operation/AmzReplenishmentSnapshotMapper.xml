@@ -68,7 +68,6 @@
             ANY_VALUE(op.spend_rate * 100) AS ad_rate,
             ANY_VALUE(op.gross_margin * 100) AS profit_rate_30d,
             ANY_VALUE(op.refund_amount_rate * 100) AS refund_rate_90d,
-            ANY_VALUE(COALESCE(pl.tag_name, '')) AS tag_name,
             COALESCE(MAX(wd.product_valid_num), 0) AS purchased_qty,
             COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)), 0) AS domestic_stock,
             COALESCE(MAX(wd.product_lock_num), 0) AS pending_ship_qty,

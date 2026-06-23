@@ -13,6 +13,7 @@ public class AmzWarehouseInventoryDetail implements Serializable
     private BigDecimal quantityReceive;
     private Integer productValidNum;
     private Integer productLockNum;
+    private Integer productQcNum;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -28,4 +29,6 @@ public class AmzWarehouseInventoryDetail implements Serializable
     public void setProductValidNum(Integer productValidNum) { this.productValidNum = productValidNum; }
     public Integer getProductLockNum() { return productLockNum; }
     public void setProductLockNum(Integer productLockNum) { this.productLockNum = productLockNum; }
+    public Integer getProductQcNum() { return productQcNum; }
+    public void setProductQcNum(Integer productQcNum) { this.productQcNum = productQcNum; }
 }
