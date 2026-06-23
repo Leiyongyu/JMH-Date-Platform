@@ -16,6 +16,7 @@ public class AmzProductListing implements Serializable
     private Integer reviewNum;
     private String lastStar;
     private String principalName;
+    private String tagName;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -39,4 +40,6 @@ public class AmzProductListing implements Serializable
     public void setLastStar(String lastStar) { this.lastStar = lastStar; }
     public String getPrincipalName() { return principalName; }
     public void setPrincipalName(String principalName) { this.principalName = principalName; }
+    public String getTagName() { return tagName; }
+    public void setTagName(String tagName) { this.tagName = tagName; }
 }

@@ -13,23 +13,24 @@
         <result property="reviewNum" column="review_num"/>
         <result property="lastStar" column="last_star"/>
         <result property="principalName" column="principal_name"/>
+        <result property="tagName" column="tag_name"/>
     </resultMap>
     <select id="selectBySidSellerSku" resultMap="Result">
         SELECT * FROM amz_product_listing WHERE sid=#{sid} AND seller_sku=#{sellerSku}
     </select>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO amz_product_listing (sid,marketplace,seller_sku,asin,local_sku,local_name,status,review_num,last_star,principal_name)
-        VALUES (#{sid},#{marketplace},#{sellerSku},#{asin},#{localSku},#{localName},#{status},#{reviewNum},#{lastStar},#{principalName})
+        INSERT INTO amz_product_listing (sid,marketplace,seller_sku,asin,local_sku,local_name,status,review_num,last_star,principal_name,tag_name)
+        VALUES (#{sid},#{marketplace},#{sellerSku},#{asin},#{localSku},#{localName},#{status},#{reviewNum},#{lastStar},#{principalName},#{tagName})
     </insert>
     <update id="updateById">
         UPDATE amz_product_listing SET marketplace=#{marketplace},asin=#{asin},local_sku=#{localSku},
-        local_name=#{localName},status=#{status},review_num=#{reviewNum},last_star=#{lastStar},principal_name=#{principalName}
+        local_name=#{localName},status=#{status},review_num=#{reviewNum},last_star=#{lastStar},principal_name=#{principalName},tag_name=#{tagName}
         WHERE id=#{id}
     </update>
     <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO amz_product_listing (sid,marketplace,seller_sku,asin,local_sku,local_name,status,review_num,last_star,principal_name) VALUES
+        INSERT INTO amz_product_listing (sid,marketplace,seller_sku,asin,local_sku,local_name,status,review_num,last_star,principal_name,tag_name) VALUES
         <foreach collection="list" item="e" separator=",">
-        (#{e.sid},#{e.marketplace},#{e.sellerSku},#{e.asin},#{e.localSku},#{e.localName},#{e.status},#{e.reviewNum},#{e.lastStar},#{e.principalName})
+        (#{e.sid},#{e.marketplace},#{e.sellerSku},#{e.asin},#{e.localSku},#{e.localName},#{e.status},#{e.reviewNum},#{e.lastStar},#{e.principalName},#{e.tagName})
         </foreach>
     </insert>
     <delete id="deleteAll">DELETE FROM amz_product_listing</delete>

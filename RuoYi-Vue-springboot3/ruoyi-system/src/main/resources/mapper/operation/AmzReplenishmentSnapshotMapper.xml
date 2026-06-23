@@ -9,6 +9,7 @@
         <result property="warehouseSku" column="warehouse_sku" />
         <result property="warehouseName" column="warehouse_name" />
         <result property="asin" column="asin" />
+        <result property="tagName" column="tag_name" />
         <result property="principalName" column="principal_name" />
         <result property="storeName" column="store_name" />
         <result property="productCategory" column="product_category" />
@@ -44,7 +45,7 @@
     <!-- ==================================================================== -->
     <insert id="insertByListing">
         INSERT INTO amz_replenishment_snapshot (
-            sid, seller_sku, warehouse_sku, warehouse_name, asin, principal_name, store_name,
+            sid, seller_sku, warehouse_sku, warehouse_name, asin, tag_name, principal_name, store_name,
             product_category, rating, review_count, ad_rate, profit_rate_30d, refund_rate_90d,
             purchased_qty, domestic_stock, pending_ship_qty, fba_stock, fba_inbound, total_inventory,
             sales_7d, sales_14d, sales_30d, sales_60d,
@@ -58,6 +59,7 @@
             wd.sku AS warehouse_sku,
             ANY_VALUE(wh.name) AS warehouse_name,
             ANY_VALUE(pl.asin) AS asin,
+            ANY_VALUE(COALESCE(pl.tag_name, '')) AS tag_name,
             ANY_VALUE(pl.principal_name) AS principal_name,
             ANY_VALUE(COALESCE(sl.store_name, '')) AS store_name,
             ANY_VALUE(COALESCE(pc.category, '')) AS product_category,
@@ -66,6 +68,7 @@
             ANY_VALUE(op.spend_rate * 100) AS ad_rate,
             ANY_VALUE(op.gross_margin * 100) AS profit_rate_30d,
             ANY_VALUE(op.refund_amount_rate * 100) AS refund_rate_90d,
+            ANY_VALUE(COALESCE(pl.tag_name, '')) AS tag_name,
             COALESCE(MAX(wd.product_valid_num), 0) AS purchased_qty,
             COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)), 0) AS domestic_stock,
             COALESCE(MAX(wd.product_lock_num), 0) AS pending_ship_qty,
@@ -89,7 +92,7 @@
             #{batchNo} AS batch_no,
             0 AS current_flag
         FROM amz_warehouse_inventory_detail wd
-        LEFT JOIN amz_product_listing pl ON pl.local_sku = wd.sku AND pl.status = 1
+        LEFT JOIN amz_product_listing pl ON pl.local_sku = wd.sku
         LEFT JOIN shop_list sl ON sl.sid = pl.sid AND sl.platform_code = '10001'
         LEFT JOIN amz_product_category pc ON pc.sid = pl.sid AND pc.seller_sku = pl.seller_sku
         LEFT JOIN amz_order_profit op ON op.sid = pl.sid AND op.seller_sku = pl.seller_sku
@@ -108,7 +111,7 @@
                s.store_name,
                COALESCE(o.product_category, s.product_category) AS product_category,
                s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
-               s.refund_rate_90d,
+               s.refund_rate_90d, s.tag_name,
                COALESCE(o.manual_purchased_qty, s.purchased_qty) AS purchased_qty,
                s.domestic_stock, s.pending_ship_qty, s.fba_stock,
                s.fba_inbound, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,
@@ -371,7 +374,7 @@
                s.store_name,
                COALESCE(o.product_category, s.product_category) AS product_category,
                s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
-               s.refund_rate_90d,
+               s.refund_rate_90d, s.tag_name,
                COALESCE(o.manual_purchased_qty, s.purchased_qty) AS purchased_qty,
                s.domestic_stock, s.pending_ship_qty, s.fba_stock,
                s.fba_inbound, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,

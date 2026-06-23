@@ -25,6 +25,9 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     @Excel(name = "ASIN")
     private String asin;
 
+    @Excel(name = "标签")
+    private String tagName;
+
     @Excel(name = "负责人")
     private String principalName;
 
@@ -123,6 +126,8 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     public void setWarehouseName(String warehouseName) { this.warehouseName = warehouseName; }
     public String getAsin() { return asin; }
     public void setAsin(String asin) { this.asin = asin; }
+    public String getTagName() { return tagName; }
+    public void setTagName(String tagName) { this.tagName = tagName; }
     public String getPrincipalName() { return principalName; }
     public void setPrincipalName(String principalName) { this.principalName = principalName; }
     public String getStoreName() { return storeName; }

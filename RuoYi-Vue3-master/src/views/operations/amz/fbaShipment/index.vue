@@ -13,6 +13,11 @@
       <el-form-item label="MSKU" prop="msku">
         <el-input v-model="queryParams.msku" placeholder="请输入" clearable style="width:200px" @keyup.enter="handleQuery" />
       </el-form-item>
+      <el-form-item label="状态" prop="shipmentStatus">
+        <el-select v-model="queryParams.shipmentStatus" placeholder="全部" clearable style="width:160px" @change="handleQuery">
+          <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="创建人" prop="username">
         <el-input v-model="queryParams.username" placeholder="搜索创建人" clearable style="width:160px" @keyup.enter="handleQuery" />
       </el-form-item>
@@ -75,11 +80,23 @@ const showSearch = ref(true)
 const total = ref(0)
 const records = ref([])
 const gmtCreateRange = ref(null)
+const statusOptions = [
+  { label: 'WORKING · 待发货', value: 'WORKING' },
+  { label: 'SHIPPED · 已发货', value: 'SHIPPED' },
+  { label: 'IN_TRANSIT · 运输中', value: 'IN_TRANSIT' },
+  { label: 'DELIVERED · 已送达', value: 'DELIVERED' },
+  { label: 'CHECK_IN · 已登记', value: 'CHECK_IN' },
+  { label: 'RECEIVING · 接收中', value: 'RECEIVING' },
+  { label: 'CLOSED · 已完成', value: 'CLOSED' },
+  { label: 'CANCELLED · 已取消', value: 'CANCELLED' },
+  { label: 'DELETE · 已删除', value: 'DELETE' },
+  { label: 'ERROR · 出错', value: 'ERROR' }
+]
 
 const data = reactive({
   queryParams: {
     pageNum: 1, pageSize: 50,
-    storeName: undefined, shipmentId: undefined, sku: undefined, msku: undefined, username: undefined,
+    storeName: undefined, shipmentId: undefined, sku: undefined, msku: undefined, username: undefined, shipmentStatus: undefined,
     sortField: undefined, sortOrder: undefined
   }
 })
@@ -95,6 +112,7 @@ function getList() {
   if (p.sku) filters.push({ field: 'sku', value: p.sku })
   if (p.msku) filters.push({ field: 'msku', value: p.msku })
   if (p.username) filters.push({ field: 'username', value: p.username })
+  if (p.shipmentStatus) filters.push({ field: 'shipmentStatus', value: p.shipmentStatus })
   if (gmtCreateRange.value && gmtCreateRange.value.length === 2) {
     if (gmtCreateRange.value[0]) filters.push({ field: 'gmtCreateStart', value: gmtCreateRange.value[0] })
     if (gmtCreateRange.value[1]) filters.push({ field: 'gmtCreateEnd', value: gmtCreateRange.value[1] })
@@ -115,6 +133,7 @@ function handleExport() {
   if (p.sku) filters.push({ field: 'sku', value: p.sku })
   if (p.msku) filters.push({ field: 'msku', value: p.msku })
   if (p.username) filters.push({ field: 'username', value: p.username })
+  if (p.shipmentStatus) filters.push({ field: 'shipmentStatus', value: p.shipmentStatus })
   if (gmtCreateRange.value && gmtCreateRange.value.length === 2) {
     if (gmtCreateRange.value[0]) filters.push({ field: 'gmtCreateStart', value: gmtCreateRange.value[0] })
     if (gmtCreateRange.value[1]) filters.push({ field: 'gmtCreateEnd', value: gmtCreateRange.value[1] })

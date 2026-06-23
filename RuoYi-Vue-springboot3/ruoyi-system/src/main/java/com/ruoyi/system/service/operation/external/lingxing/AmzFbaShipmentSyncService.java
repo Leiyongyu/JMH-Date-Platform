@@ -41,12 +41,11 @@ public class AmzFbaShipmentSyncService
                                       ShopListMapper shopMapper, ObjectMapper om)
     { this.gw = gw; this.mapper = mapper; this.om = om; this.shopMapper = shopMapper; }
 
-    /** 日常增量：拉最近5天；表为空则拉最近365天 */
+    /** 全量拉取最近365天 */
     public OperationSyncResult sync() throws Exception
     {
         LocalDate end = LocalDate.now();
-        int days = mapper.count() == 0 ? 365 : 5;
-        LocalDate start = end.minusDays(days);
+        LocalDate start = end.minusDays(365);
         return sync(start, end);
     }
 

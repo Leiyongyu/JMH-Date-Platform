@@ -42,7 +42,6 @@ public class LingxingAmzListingSyncService
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("sid", String.join(",", batch));
                 body.put("is_pair", 1); body.put("is_delete", 0);
-                body.put("status", 1);  // ★ 只拉取在售Listing
                 body.put("offset", offset); body.put("length", pageSize);
                 Map<String, Object> resp = gw.post(API, body);
                 List<Map<String, Object>> list = getList(resp, "data");
@@ -52,8 +51,7 @@ public class LingxingAmzListingSyncService
                     Integer sid = intVal(row, "sid");
                     String sellerSku = str(row, "seller_sku", "sellerSku");
                     if (sid == null || !StringUtils.hasText(sellerSku)) continue;
-                    Integer status = intVal(row, "status");  // ★ 入库前兜底过滤
-                    if (status != null && status != 1) continue;
+                    Integer status = intVal(row, "status");
                     List<AmzProductListing> ex = mapper.selectBySidSellerSku(sid, sellerSku);
                     AmzProductListing e = ex.isEmpty() ? new AmzProductListing() : ex.get(0);
                     e.setSid(sid); e.setSellerSku(sellerSku);
@@ -65,6 +63,7 @@ public class LingxingAmzListingSyncService
                     e.setReviewNum(intVal(row, "review_num", "reviewNum"));
                     e.setLastStar(str(row, "last_star", "lastStar"));
                     e.setPrincipalName(extractPrincipalName(row));
+                    e.setTagName(extractTagName(row));
                     if (ex.isEmpty()) mapper.insert(e); else mapper.updateById(e);
                     total++;
                 }
@@ -88,6 +87,24 @@ public class LingxingAmzListingSyncService
                 Object name = list.get(0).get("principal_name");
                 return name != null ? String.valueOf(name) : null;
             }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractTagName(Map<String, Object> row) {
+        Object tags = row.get("global_tags");
+        if (tags instanceof List) {
+            List<Map<String, Object>> list = (List<Map<String, Object>>) tags;
+            StringBuilder sb = new StringBuilder();
+            for (Map<String, Object> tag : list) {
+                Object name = tag.get("tagName");
+                if (name != null && !name.toString().isEmpty()) {
+                    if (sb.length() > 0) sb.append(',');
+                    sb.append(name.toString());
+                }
+            }
+            return sb.toString();
         }
         return null;
     }

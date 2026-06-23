@@ -95,6 +95,7 @@
             <if test="params.sku != null and params.sku != ''"> and s.sku like concat('%', #{params.sku}, '%') </if>
             <if test="params.msku != null and params.msku != ''"> and s.msku like concat('%', #{params.msku}, '%') </if>
             <if test="params.username != null and params.username != ''"> and s.username like concat('%', #{params.username}, '%') </if>
+            <if test="params.shipmentStatus != null and params.shipmentStatus != ''"> and s.shipment_status = #{params.shipmentStatus} </if>
             <if test="params.gmtCreateStart != null"> and s.gmt_create &gt;= #{params.gmtCreateStart} </if>
             <if test="params.gmtCreateEnd != null"> and s.gmt_create &lt;= #{params.gmtCreateEnd} </if>
             <if test="params.gmtModifiedStart != null"> and s.gmt_modified &gt;= #{params.gmtModifiedStart} </if>
