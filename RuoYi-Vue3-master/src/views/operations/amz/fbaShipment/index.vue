@@ -41,7 +41,9 @@
       <el-table-column label="店铺" prop="storeName" align="left" width="160" sortable="custom" show-overflow-tooltip />
       <el-table-column label="货件单号" prop="shipmentId" align="left" width="180" sortable="custom" show-overflow-tooltip />
       <el-table-column label="货件名称" prop="shipmentName" align="left" width="180" show-overflow-tooltip />
-      <el-table-column label="状态" prop="shipmentStatus" align="center" width="100" />
+      <el-table-column label="状态" prop="shipmentStatus" align="center" width="100">
+        <template #default="scope">{{ statusMap[scope.row.shipmentStatus] || scope.row.shipmentStatus || '-' }}</template>
+      </el-table-column>
       <el-table-column label="MSKU" prop="msku" align="left" width="160" sortable="custom" show-overflow-tooltip />
       <el-table-column label="SKU" prop="sku" align="left" width="170" sortable="custom" show-overflow-tooltip />
       <el-table-column label="申报量" prop="quantityShipped" align="right" width="90" sortable="custom" />
@@ -62,16 +64,16 @@
       <el-table-column label="更新时间" prop="gmtModified" align="center" width="120">
         <template #default="scope">{{ scope.row.gmtModified ? scope.row.gmtModified.substring(0,10) : '-' }}</template>
       </el-table-column>
-      <el-table-column label="WORKING" prop="workingTime" align="center" width="120">
+      <el-table-column label="待发货时间" prop="workingTime" align="center" width="120">
         <template #default="scope">{{ scope.row.workingTime ? scope.row.workingTime.substring(0,10) : '-' }}</template>
       </el-table-column>
-      <el-table-column label="SHIPPED" prop="shippedTime" align="center" width="120">
+      <el-table-column label="已发货时间" prop="shippedTime" align="center" width="120">
         <template #default="scope">{{ scope.row.shippedTime ? scope.row.shippedTime.substring(0,10) : '-' }}</template>
       </el-table-column>
-      <el-table-column label="RECEIVING" prop="receivingTime" align="center" width="120">
+      <el-table-column label="接收中时间" prop="receivingTime" align="center" width="120">
         <template #default="scope">{{ scope.row.receivingTime ? scope.row.receivingTime.substring(0,10) : '-' }}</template>
       </el-table-column>
-      <el-table-column label="CLOSED" prop="closedTime" align="center" width="120">
+      <el-table-column label="完成时间" prop="closedTime" align="center" width="120">
         <template #default="scope">{{ scope.row.closedTime ? scope.row.closedTime.substring(0,10) : '-' }}</template>
       </el-table-column>
     </el-table>
@@ -92,6 +94,11 @@ const showSearch = ref(true)
 const total = ref(0)
 const records = ref([])
 const gmtCreateRange = ref(null)
+const statusMap = {
+  WORKING: '待发货', SHIPPED: '已发货', IN_TRANSIT: '运输中', DELIVERED: '已送达',
+  CHECK_IN: '已登记', RECEIVING: '接收中', CLOSED: '已完成', CANCELLED: '已取消',
+  DELETE: '已删除', ERROR: '出错'
+}
 const statusOptions = [
   { label: 'WORKING · 待发货', value: 'WORKING' },
   { label: 'SHIPPED · 已发货', value: 'SHIPPED' },
