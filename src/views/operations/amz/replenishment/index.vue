@@ -150,6 +150,17 @@
               @blur="onAmzCellBlur(scope.row,'pqty')" @keyup.enter="onAmzCellBlur(scope.row,'pqty')" @clear="onAmzCellClear(scope.row,'pqty')" />
           </template>
         </el-table-column>
+        <!-- 备注：内联编辑 -->
+        <el-table-column
+          v-else-if="col.format === 'remark'"
+          :label="col.label" :align="col.align" :width="col.width" sortable="custom"
+          :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope">
+            <el-input v-model="editCache[amzKey(scope.row,'rem')]" size="small" placeholder="备注" clearable
+              @blur="onAmzCellBlur(scope.row,'rem')" @keyup.enter="onAmzCellBlur(scope.row,'rem')" @clear="onAmzCellClear(scope.row,'rem')" />
+          </template>
+        </el-table-column>
         <el-table-column
           v-else
           :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
@@ -235,6 +246,7 @@ function initAmzEditCache() {
   for (const row of replenishmentList.value) {
     const cat = amzKey(row, 'cat'); if (!(cat in editCache)) editCache[cat] = row.productCategory ?? ''
     const pq = amzKey(row, 'pqty'); if (!(pq in editCache)) editCache[pq] = row.purchasedQty ?? ''
+    const rem = amzKey(row, 'rem'); if (!(rem in editCache)) editCache[rem] = row.remark ?? ''
   }
 }
 watch(replenishmentList, initAmzEditCache, { flush: 'post' })
@@ -245,6 +257,8 @@ async function onAmzCellBlur(row, field) {
   try {
     if (field === 'cat') {
       await request({ url: '/operations/amz/replenishment/override', method: 'post', data: { sid: String(row.sid||''), sellerSku: row.sellerSku, productCategory: v || '' } })
+    } else if (field === 'rem') {
+      await request({ url: '/operations/amz/replenishment/override', method: 'post', data: { sid: String(row.sid||''), sellerSku: row.sellerSku, remark: v || '' } })
     } else {
       await request({ url: '/operations/amz/replenishment/update-qty-receive', method: 'post', data: { warehouseSku: row.warehouseSku, value: v || null } })
     }
@@ -288,6 +302,7 @@ const columnDefs = [
   { key: 'shipQty', label: '发货量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
   { key: 'replenishQty', label: '补货量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
   { key: 'restockDays', label: '补货时间', align: 'right', width: 105, sortable: true, filterType: 'number' },
+  { key: 'remark', label: '备注', align: 'left', width: 160, format: 'remark' },
   { key: 'calcTime', label: '计算时间', align: 'center', width: 170, format: 'time' }
 ]
 const {
