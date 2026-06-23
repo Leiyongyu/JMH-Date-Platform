@@ -207,9 +207,7 @@
                <el-col :span="24">
                   <el-collapse>
                      <el-collapse-item title="高级设置 / Cron 表达式">
-                        <el-input v-model="form.cronExpression" placeholder="请输入 Cron 表达式" size="small" @change="parseCron">
-                           <template #append><el-button size="small" @click="handleShowCron">生成器</el-button></template>
-                        </el-input>
+                        <el-input v-model="form.cronExpression" placeholder="请输入 Cron 表达式（高级用户可直接编辑）" size="small" @change="parseCron" />
                      </el-collapse-item>
                   </el-collapse>
                </el-col>
@@ -241,9 +239,7 @@
          </template>
       </el-dialog>
 
-     <el-dialog title="Cron表达式生成器" v-model="openCron" append-to-body destroy-on-close>
-       <crontab ref="crontabRef" @hide="openCron=false" @fill="crontabFill" :expression="expression"></crontab>
-     </el-dialog>
+
 
       <!-- 任务详细 -->
       <job-detail v-model:visible="openView" :row="form" type="job" />
@@ -251,7 +247,7 @@
 </template>
 
 <script setup name="Job">
-import Crontab from '@/components/Crontab'
+
 import JobDetail from './detail'
 import { listJob, getJob, delJob, addJob, updateJob, runJob, changeJobStatus } from "@/api/monitor/job"
 
@@ -269,8 +265,7 @@ const multiple = ref(true)
 const total = ref(0)
 const title = ref("")
 const openView = ref(false)
-const openCron = ref(false)
-const expression = ref("")
+
 
 const data = reactive({
   form: {},
