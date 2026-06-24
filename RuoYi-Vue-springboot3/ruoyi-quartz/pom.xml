@@ -23,6 +23,12 @@
             <artifactId>quartz</artifactId>
         </dependency>
 
+        <!-- Spring Boot Quartz 自动配置（JDBC持久化） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-quartz</artifactId>
+        </dependency>
+
         <!-- 通用工具-->
         <dependency>
             <groupId>com.ruoyi</groupId>

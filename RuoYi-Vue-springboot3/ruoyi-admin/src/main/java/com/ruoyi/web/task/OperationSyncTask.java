@@ -60,7 +60,7 @@ public class OperationSyncTask
     public void syncLingxingInventory() { exec("lingxing_inventory", "领星-库存明细", "erp/sc/routing/data/local_inventory/inventoryDetails", LOCK_EBAY,
             () -> SpringUtils.getBean(LingxingInventorySyncService.class).syncAll()); }
     public void syncGoodcangGrnList() { exec("goodcang_grn_list", "谷仓-入库单", "/inbound_order/get_grn_list", LOCK_EBAY,
-            () -> SpringUtils.getBean(GoodcangGrnSyncService.class).syncGrnList(3)); }
+            () -> SpringUtils.getBean(GoodcangGrnSyncService.class).syncGrnListSmart()); }
     public void syncGoodcangGrnDetail() { exec("goodcang_grn_detail", "谷仓-入库单详情", "/inbound_order/get_grn_detail", LOCK_EBAY,
             () -> SpringUtils.getBean(GoodcangGrnSyncService.class).syncAllGrnDetails()); }
     public void syncLingxingStatement() { exec("warehouse_statement", "领星-库存流水", "erp/sc/routing/inventoryLog/WareHouseInventory/wareHouseCenterStatement", LOCK_EBAY,

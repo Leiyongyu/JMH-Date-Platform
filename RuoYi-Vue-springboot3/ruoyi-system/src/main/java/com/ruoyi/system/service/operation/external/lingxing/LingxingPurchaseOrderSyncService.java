@@ -32,7 +32,7 @@ public class LingxingPurchaseOrderSyncService
     public LingxingPurchaseOrderSyncService(LingxingGatewayService gw, PurchaseOrderMapper mapper, ObjectMapper om)
     { this.gw = gw; this.mapper = mapper; this.om = om; }
 
-    /** 日常增量：拉前一天 */
+    /** 日常增量：表空拉90天，有数据拉30天 */
     public OperationSyncResult sync() throws Exception {
         boolean empty = mapper.selectAll().isEmpty();
         LocalDate today = LocalDate.now();
@@ -41,7 +41,7 @@ public class LingxingPurchaseOrderSyncService
             LOG.info("purchase_order is empty, initialize Lingxing purchase orders for last 90 days");
             return sync(today.minusDays(90), today, 90);
         }
-        return sync(today.minusDays(1), today.minusDays(1), 90);
+        return sync(today.minusDays(30), today, 90);
     }
 
     /** 校准模式：按 windowDays 分段拉取，upsert 不清空 */

@@ -58,6 +58,13 @@ public class GoodcangGrnSyncService
         return OperationSyncResult.success("gc_grn_list", "谷仓-入库单(全量)", "/inbound_order/get_grn_list", total, total, System.currentTimeMillis() - start);
     }
 
+    /** 智能同步：表空拉90天，有数据拉30天 */
+    public OperationSyncResult syncGrnListSmart() throws Exception
+    {
+        int days = listMapper.selectAll().isEmpty() ? 90 : 30;
+        return syncGrnList(days);
+    }
+
     /** 同步入库单列表(最近N天) */
     public OperationSyncResult syncGrnList(int daysBack) throws Exception
     {

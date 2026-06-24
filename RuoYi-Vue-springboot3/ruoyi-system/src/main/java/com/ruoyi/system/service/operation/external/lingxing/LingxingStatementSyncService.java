@@ -31,9 +31,10 @@ public class LingxingStatementSyncService
     public LingxingStatementSyncService(LingxingGatewayService gw, WarehouseStatementMapper mapper, ObjectMapper om)
     { this.gw = gw; this.mapper = mapper; this.om = om; }
 
-    /** 日常增量：拉最近2天 */
+    /** 日常增量：表空拉90天，有数据拉30天 */
     public OperationSyncResult sync() throws Exception {
-        return sync(LocalDate.now().minusDays(2), LocalDate.now(), 30);
+        int days = mapper.selectAll().isEmpty() ? 90 : 30;
+        return sync(LocalDate.now().minusDays(days), LocalDate.now(), 90);
     }
 
     /** 校准模式：按 windowDays 分段拉取，upsert 不清空 */
