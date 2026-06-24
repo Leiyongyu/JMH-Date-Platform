@@ -11,6 +11,7 @@ public class OperationSyncResult
     public static final String STATUS_RUNNING = "RUNNING";
     public static final String STATUS_SUCCESS = "SUCCESS";
     public static final String STATUS_PARTIAL = "PARTIAL";
+    public static final String STATUS_PARTIAL_SUCCESS = "PARTIAL_SUCCESS";
     public static final String STATUS_FAILED = "FAILED";
     public static final String STATUS_TIMEOUT = "TIMEOUT";
     public static final String STATUS_CANCELLED = "CANCELLED";
@@ -93,7 +94,7 @@ public class OperationSyncResult
         StringBuilder sb = new StringBuilder();
         sb.append(syncName).append(" 执行");
         if (STATUS_SUCCESS.equals(status)) sb.append("成功");
-        else if (STATUS_PARTIAL.equals(status)) sb.append("部分成功");
+        else if (STATUS_PARTIAL.equals(status) || STATUS_PARTIAL_SUCCESS.equals(status)) sb.append("部分成功");
         else if (STATUS_TIMEOUT.equals(status)) sb.append("超时");
         else if (STATUS_SKIPPED.equals(status)) sb.append("跳过");
         else sb.append("失败");
