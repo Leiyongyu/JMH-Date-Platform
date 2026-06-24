@@ -28,4 +28,9 @@
         UPDATE goodcang_grn_list SET warehouse_code=#{warehouseCode},reference_no=#{referenceNo},receiving_status=#{receivingStatus},create_at=#{createAt}
         WHERE id=#{id}
     </update>
+
+    <select id="selectRecentByCreateAt" resultMap="Result">
+        SELECT id, receiving_code, warehouse_code, create_at FROM goodcang_grn_list
+        WHERE create_at >= DATE_SUB(NOW(), INTERVAL #{days} DAY)
+    </select>
 </mapper>

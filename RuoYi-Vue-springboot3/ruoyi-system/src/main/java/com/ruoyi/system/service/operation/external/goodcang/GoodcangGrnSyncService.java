@@ -100,13 +100,15 @@ public class GoodcangGrnSyncService
         return OperationSyncResult.success("gc_grn_list", "谷仓-入库单", "/inbound_order/get_grn_list", total, total, System.currentTimeMillis() - start);
     }
 
-    /** 全量刷新入库单详情 */
+    /** 仅同步最近5天入库单详情（按create_at筛选） */
     public OperationSyncResult syncAllGrnDetails() throws Exception
     {
         long start = System.currentTimeMillis();
-        List<GoodcangGrnList> all = listMapper.selectAll();
+        List<GoodcangGrnList> recent = listMapper.selectRecentByCreateAt(5);
+        LOG.info("谷仓入库单详情 最近5天: {}条", recent.size());
+
         int total = 0;
-        for (GoodcangGrnList grn : all)
+        for (GoodcangGrnList grn : recent)
         {
             try
             {
@@ -138,7 +140,7 @@ public class GoodcangGrnSyncService
             }
             catch (Exception e) { LOG.warn("详情同步失败 {}: {}", grn.getReceivingCode(), e.getMessage()); }
         }
-        return OperationSyncResult.success("gc_grn_detail", "谷仓-入库单详情", "/inbound_order/get_grn_detail", total, total, System.currentTimeMillis() - start);
+        return OperationSyncResult.success("gc_grn_detail", "谷仓-入库单详情(近5天)", "/inbound_order/get_grn_detail", total, total, System.currentTimeMillis() - start);
     }
 
     private String str(Map<String, Object> m, String k) { Object v = m.get(k); return v != null ? v.toString() : null; }
