@@ -28,6 +28,9 @@ public interface ShopListMapper
     List<String> selectSidsByPlatform(@Param("platformCode") String platformCode,
                                       @Param("status") Integer status);
 
+    /** 按平台查去重店铺名称 */
+    List<String> selectStoreNamesByPlatform(@Param("platformCode") String platformCode);
+
     /** 内部类：联合键 */
     class ShopListKey
     {

@@ -29,6 +29,7 @@ import com.ruoyi.system.domain.operation.ExportRequest;
 import com.ruoyi.system.domain.operation.external.AmzReplenishmentOverride;
 import com.ruoyi.system.mapper.operation.external.AmzReplenishmentOverrideMapper;
 import com.ruoyi.system.mapper.operation.external.AmzWarehouseInventoryDetailMapper;
+import com.ruoyi.system.mapper.operation.external.ShopListMapper;
 import com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService;
 import com.ruoyi.system.service.operation.UnifiedExportService;
 import com.github.pagehelper.PageHelper;
@@ -47,6 +48,8 @@ public class AmzReplenishmentController extends BaseController
     private AmzReplenishmentOverrideMapper overrideMapper;
     @Autowired
     private AmzWarehouseInventoryDetailMapper inventoryMapper;
+    @Autowired
+    private ShopListMapper shopListMapper;
     @Autowired
     private RedisCache redisCache;
 
@@ -74,6 +77,14 @@ public class AmzReplenishmentController extends BaseController
     public AjaxResult distinctValues(@RequestParam String field, @RequestParam(required = false) String keyword)
     {
         return AjaxResult.success(snapshotService.distinctValues(field, keyword));
+    }
+
+    /** 从 shop_list 取 Amazon 店铺名称列表 */
+    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
+    @GetMapping("/store-names")
+    public AjaxResult storeNames()
+    {
+        return AjaxResult.success(shopListMapper.selectStoreNamesByPlatform("10001"));
     }
 
     // ====== 刷新 ======

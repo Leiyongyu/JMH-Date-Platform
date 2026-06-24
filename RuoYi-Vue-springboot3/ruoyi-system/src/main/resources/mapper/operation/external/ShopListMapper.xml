@@ -64,4 +64,11 @@
         AND sid IS NOT NULL AND sid != ''
     </select>
 
+    <select id="selectStoreNamesByPlatform" resultType="String">
+        SELECT DISTINCT store_name FROM shop_list
+        WHERE platform_code = #{platformCode} AND status = 1
+        AND store_name IS NOT NULL AND store_name != ''
+        ORDER BY store_name
+    </select>
+
 </mapper>

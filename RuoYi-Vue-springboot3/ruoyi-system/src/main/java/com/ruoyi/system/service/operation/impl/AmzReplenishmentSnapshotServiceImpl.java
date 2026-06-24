@@ -46,9 +46,11 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         NUM_MAP.put("replenishQty","replenish_qty"); NUM_MAP.put("restockDays","restock_days");
     }
     private static final Set<String> ALLOWED_OPS = Set.of("=", ">", ">=", "<", "<=", "between", "isNull", "isNotNull");
-    private static final Set<String> DISTINCT_COLS = Set.of(
-        "store_name","seller_sku","warehouse_sku","asin","principal_name","product_category","warehouse_name"
+    private static final Map<String, String> FIELD_TO_COL = Map.of(
+        "storeName","store_name","sellerSku","seller_sku","warehouseSku","warehouse_sku",
+        "asin","asin","principalName","principal_name","productCategory","product_category","warehouseName","warehouse_name"
     );
+    private static final Set<String> ALLOWED_FIELDS = FIELD_TO_COL.keySet();
 
     @Autowired private AmzReplenishmentSnapshotMapper mapper;
     @Autowired private AmzReplenishmentComputeService computeService;
@@ -69,8 +71,9 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
     @Override
     public List<String> distinctValues(String field, String keyword)
     {
-        if (field == null || !DISTINCT_COLS.contains(field)) return Collections.emptyList();
-        return mapper.selectDistinctValues(field, keyword != null ? keyword.trim() : null);
+        String col = FIELD_TO_COL.get(field);
+        if (col == null) return Collections.emptyList();
+        return mapper.selectDistinctValues(col, keyword != null ? keyword.trim() : null);
     }
 
     @Override
