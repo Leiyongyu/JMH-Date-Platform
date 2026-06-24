@@ -178,7 +178,6 @@
                            <div class="freq-card" :class="{active:cronFreq==='day'}" @click="setFreq('day')"><span>每天</span></div>
                            <div class="freq-card" :class="{active:cronFreq==='week'}" @click="setFreq('week')"><span>每周</span></div>
                            <div class="freq-card" :class="{active:cronFreq==='month'}" @click="setFreq('month')"><span>每月</span></div>
-                           <div class="freq-card" :class="{active:cronFreq==='custom'}" @click="setFreq('custom')"><span>自定义</span></div>
                         </div>
                         <div v-if="cronFreq==='week'" class="week-days">
                            <el-checkbox-button v-for="d in weekDays" :key="d.value" v-model="cronWeekDays[d.value]" size="small" @change="updateCron">{{ d.label }}</el-checkbox-button>
@@ -191,7 +190,7 @@
                            <span class="ml8">执行</span>
                         </div>
                         <div class="time-row">
-                           <el-time-select v-model="cronTime" placeholder="执行时间" start="00:00" step="00:30" end="23:59" size="small" style="width:130px" @change="updateCron" />
+                           <el-time-picker v-model="cronTime" placeholder="执行时间" format="HH:mm" value-format="HH:mm" size="small" style="width:130px" @change="updateCron" />
                            <span v-if="cronPreview" class="preview-text">{{ cronPreview }}</span>
                         </div>
                      </div>
@@ -345,7 +344,7 @@ function updateCron() {
   if (cronFreq.value === 'day') expr += '* * ?'
   else if (cronFreq.value === 'week') { const ds = weekDays.filter(d => cronWeekDays[d.value]).map(d => d.value).join(','); expr += '? * '+(ds||'1') }
   else if (cronFreq.value === 'month') expr += cronMonthDay.value + ' * ?'
-  else return
+  else { expr += '* * ?' }
   form.value.cronExpression = expr; validateCron()
 }
 function cronToText(expr) {
@@ -373,7 +372,7 @@ function parseCron() {
   if (day === '*' && month === '*' && week === '?') cronFreq.value = 'day'
   else if (day === '?' && month === '*') { cronFreq.value = 'week'; week.split(',').forEach(w => { const n=+w; if (n>=0&&n<=6) cronWeekDays[n]=true }) }
   else if (month === '*' && week === '?' && day !== '*') { cronFreq.value = 'month'; cronMonthDay.value = +day||1 }
-  else cronFreq.value = 'custom'
+  else cronFreq.value = 'day'
 }
 function validateCron() { if (form.value.cronExpression) formRef.value?.validateField('cronExpression') }
 
