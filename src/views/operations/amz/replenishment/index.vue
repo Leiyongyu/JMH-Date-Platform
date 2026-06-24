@@ -2,13 +2,23 @@
   <div class="app-container amz-replenishment-page">
     <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" label-width="82px">
       <el-form-item label="店铺" prop="storeName">
-        <el-input
+        <el-select
           v-model="queryParams.storeName"
-          placeholder="请输入店铺"
+          multiple
+          filterable
+          @change="handleQuery"
+          collapse-tags
+          collapse-tags-tooltip
+          placeholder="全部店铺"
           clearable
-          style="width: 200px"
-          @keyup.enter="handleQuery"
-        />
+          style="width: 260px"
+        >
+          <div style="padding: 6px 12px; border-bottom: 1px solid #e4e7ed; display:flex; gap:8px">
+            <el-button type="primary" link size="small" @click="selectAllStores">全选</el-button>
+            <el-button type="primary" link size="small" @click="deselectAllStores">取消</el-button>
+          </div>
+          <el-option v-for="store in storeOptions" :key="store" :label="store" :value="store" />
+        </el-select>
       </el-form-item>
       <el-form-item label="Seller SKU" prop="sellerSku">
         <el-input
@@ -240,6 +250,19 @@ const showSearch = ref(true)
 const total = ref(0)
 const replenishmentList = ref([])
 const checkedRows = ref([])
+const storeOptions = ref([])
+// 加载店铺选项
+function loadStoreOptions() {
+  request({ url: '/operations/amz/replenishment/store-names', method: 'get' }).then(res => {
+    storeOptions.value = res.data || []
+  })
+}
+function selectAllStores() {
+  queryParams.value.storeName = [...storeOptions.value]
+}
+function deselectAllStores() {
+  queryParams.value.storeName = []
+}
 const editCache = reactive({})
 function amzKey(row, field) { return (row.sid || '') + '|' + (row.sellerSku || '') + '_' + field }
 function initAmzEditCache() {
@@ -320,7 +343,7 @@ const data = reactive({
   queryParams: {
     pageNum: 1,
     pageSize: 50,
-    storeName: undefined,
+    storeName: [],
     sellerSku: undefined,
     warehouseSku: undefined,
     asin: undefined,
@@ -396,7 +419,7 @@ const activeFilterTags = computed(() => {
 function buildFilters() {
   const filters = []; const p = queryParams.value
   if (regionGroup.value) filters.push({ field: 'regionGroup', value: regionGroup.value })
-  if (p.storeName) filters.push({ field: 'storeName', value: p.storeName })
+  if (p.storeName && p.storeName.length) filters.push({ field: 'storeName', value: p.storeName.join(',') })
   if (p.sellerSku) filters.push({ field: 'sellerSku', value: p.sellerSku })
   if (p.warehouseSku) filters.push({ field: 'warehouseSku', value: p.warehouseSku })
   if (p.asin) filters.push({ field: 'asin', value: p.asin })
@@ -467,6 +490,7 @@ function handleQuery() {
 
 function resetQuery() {
   proxy.resetForm('queryRef')
+  queryParams.value.storeName = []
   queryParams.value.sortField = undefined
   queryParams.value.sortOrder = undefined
   regionGroup.value = ''
@@ -522,6 +546,7 @@ function formatNumber(value) {
 }
 
 async function initPage() {
+  loadStoreOptions()
   await initColumnConfig()
   getList()
 }
