@@ -15,6 +15,7 @@
         >
           <div style="padding: 6px 12px; border-bottom: 1px solid #e4e7ed; display:flex; gap:8px">
             <el-button type="primary" link size="small" @click="selectAllStores">全选</el-button>
+            <el-button type="primary" link size="small" @click="invertStoreSelection">反选</el-button>
             <el-button type="primary" link size="small" @click="deselectAllStores">取消</el-button>
           </div>
           <el-option v-for="store in storeOptions" :key="store" :label="store" :value="store" />
@@ -259,6 +260,9 @@ function loadStoreOptions() {
 }
 function selectAllStores() {
   queryParams.value.storeName = [...storeOptions.value]
+}
+function invertStoreSelection() {
+  queryParams.value.storeName = storeOptions.value.filter(s => !queryParams.value.storeName.includes(s))
 }
 function deselectAllStores() {
   queryParams.value.storeName = []
