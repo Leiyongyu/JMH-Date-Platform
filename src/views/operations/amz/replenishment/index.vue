@@ -129,7 +129,34 @@
           sortable="custom" :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">
-            <span :class="{ 'negative-value': Number(scope.row[col.key]) < 0 }">{{ formatNumber(scope.row[col.key]) }}</span>
+            <el-popover
+              v-if="isSalesColumn(col.key)"
+              placement="right"
+              :width="260"
+              trigger="hover"
+              :show-after="300"
+              @show="loadBreakdown(scope.row, col.key)"
+            >
+              <template #reference>
+                <span class="sales-cell" :class="{ 'negative-value': Number(scope.row[col.key]) < 0 }">{{ formatNumber(scope.row[col.key]) }}</span>
+              </template>
+              <div class="breakdown-popover">
+                <div class="bd-title">{{ col.label }} - 店铺明细</div>
+                <div v-if="bdLoading" class="bd-loading">加载中...</div>
+                <div v-else-if="bdList.length === 0" class="bd-empty">暂无数据</div>
+                <div v-else class="bd-list" :class="{ 'bd-scroll': bdList.length > 10 }">
+                  <div v-for="item in bdList" :key="item.storeName" class="bd-item">
+                    <span class="bd-store">{{ item.storeName }}</span>
+                    <span class="bd-val">{{ item.value }}</span>
+                  </div>
+                </div>
+                <div v-if="bdList.length" class="bd-total">
+                  <span>合计</span>
+                  <span class="bd-total-val">{{ bdTotal }}</span>
+                </div>
+              </div>
+            </el-popover>
+            <span v-else :class="{ 'negative-value': Number(scope.row[col.key]) < 0 }">{{ formatNumber(scope.row[col.key]) }}</span>
           </template>
         </el-table-column>
         <el-table-column
@@ -252,6 +279,28 @@ const total = ref(0)
 const replenishmentList = ref([])
 const checkedRows = ref([])
 const storeOptions = ref([])
+
+// ---- 销量弹窗 ----
+const salesColKeys = new Set(['sales7d','sales14d','sales30d','sales60d','salesSpeed14d','salesSpeed30d','salesSpeed60d','avgMonthlySales'])
+const bdList = ref([])
+const bdLoading = ref(false)
+const bdTotal = computed(() => Number(bdList.value.reduce((s, i) => s + Number(i.value || 0), 0)).toFixed(2))
+let bdCache = {}
+function isSalesColumn(key) { return salesColKeys.has(key) }
+async function loadBreakdown(row, field) {
+  const cacheKey = row.warehouseSku + '|' + field + '|' + (queryParams.value.storeName || []).join(',')
+  if (bdCache[cacheKey]) { bdList.value = bdCache[cacheKey]; return }
+  bdLoading.value = true; bdList.value = []
+  try {
+    const params = { warehouseSku: row.warehouseSku, field }
+    if (queryParams.value.storeName && queryParams.value.storeName.length) {
+      params.storeNames = queryParams.value.storeName.join(',')
+    }
+    const res = await request({ url: '/operations/amz/replenishment/sales-breakdown', method: 'get', params })
+    bdList.value = res.data || []
+    bdCache[cacheKey] = bdList.value
+  } finally { bdLoading.value = false }
+}
 // 加载店铺选项
 function loadStoreOptions() {
   request({ url: '/operations/amz/replenishment/store-names', method: 'get' }).then(res => {
@@ -317,14 +366,14 @@ const columnDefs = [
   { key: 'fbaStock', label: 'FBA在库', align: 'right', width: 105, sortable: true, filterType: 'number' },
   { key: 'fbaInbound', label: 'FBA在途', align: 'right', width: 105, sortable: true, filterType: 'number' },
   { key: 'totalInventory', label: '总库存', align: 'right', width: 105, sortable: true, filterType: 'number' },
-  { key: 'sales7d', label: '7天销量', align: 'right', width: 95, sortable: true, filterType: 'number' },
-  { key: 'sales14d', label: '14天销量', align: 'right', width: 100, sortable: true, filterType: 'number' },
-  { key: 'sales30d', label: '30天销量', align: 'right', width: 100, sortable: true, filterType: 'number' },
-  { key: 'sales60d', label: '60天销量', align: 'right', width: 100, sortable: true, filterType: 'number' },
-  { key: 'salesSpeed14d', label: '14日均销', align: 'right', width: 105, sortable: true, filterType: 'number' },
-  { key: 'salesSpeed30d', label: '30日均销', align: 'right', width: 105, sortable: true, filterType: 'number' },
-  { key: 'salesSpeed60d', label: '60日均销', align: 'right', width: 105, sortable: true, filterType: 'number' },
-  { key: 'avgMonthlySales', label: '平均月销量', align: 'right', width: 120, sortable: true, filterType: 'number' },
+  { key: 'sales7d', label: '7天销量', align: 'right', width: 95, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'sales14d', label: '14天销量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'sales30d', label: '30天销量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'sales60d', label: '60天销量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'salesSpeed14d', label: '14日均销', align: 'right', width: 105, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'salesSpeed30d', label: '30日均销', align: 'right', width: 105, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'salesSpeed60d', label: '60日均销', align: 'right', width: 105, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'avgMonthlySales', label: '平均月销量', align: 'right', width: 120, sortable: true, format: 'number', filterType: 'number' },
   { key: 'safetyStock', label: '安全库存', align: 'right', width: 110, sortable: true, filterType: 'number' },
   { key: 'shipQty', label: '发货量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
   { key: 'replenishQty', label: '补货量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
@@ -488,6 +537,7 @@ async function handleSyncAll() {
 }
 
 function handleQuery() {
+  bdCache = {}
   queryParams.value.pageNum = 1
   getList()
 }
@@ -561,10 +611,22 @@ initPage()
 <style scoped>
 .amz-replenishment-page { background: #f5f7fa; }
 
-.negative-value {
-  color: #f56c6c;
-  font-weight: 600;
-}
+.sales-cell { cursor: pointer; color: #409eff; border-bottom: 1.5px dashed #409eff; padding-bottom: 1px; }
+.sales-cell:hover { color: #1a6fd4; border-bottom-color: #1a6fd4; font-weight: 600; }
+.negative-value { color: #f56c6c; font-weight: 600; }
+.sales-cell.negative-value { color: #f56c6c; border-bottom-color: #f56c6c; }
+.negative-value { color: #f56c6c; font-weight: 600; }
+.breakdown-popover { max-height: 360px; }
+.breakdown-popover .bd-title { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #ebeef5; }
+.breakdown-popover .bd-loading, .breakdown-popover .bd-empty { text-align: center; color: #909399; padding: 12px 0; font-size: 13px; }
+.breakdown-popover .bd-list { max-height: 300px; overflow: hidden; }
+.breakdown-popover .bd-list.bd-scroll { overflow-y: auto; }
+.breakdown-popover .bd-item { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; color: #606266; border-bottom: 1px solid #f2f3f5; }
+.breakdown-popover .bd-item:last-child { border-bottom: none; }
+.breakdown-popover .bd-store { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.breakdown-popover .bd-val { font-weight: 600; color: #303133; margin-left: 12px; flex-shrink: 0; }
+.breakdown-popover .bd-total { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 6px; border-top: 1.5px solid #dcdfe6; font-size: 13px; font-weight: 600; color: #303133; }
+.breakdown-popover .bd-total-val { color: #e6a23c; font-size: 14px; }
 
 :deep(.el-table .cell) { white-space: nowrap; }
 :deep(.col-header-cell) { cursor: default; user-select: none; }
