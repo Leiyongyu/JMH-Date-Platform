@@ -7,30 +7,35 @@
         <result property="receivingCode" column="receiving_code" />
         <result property="warehouseCode" column="warehouse_code" />
         <result property="createAt" column="create_at" />
+        <result property="caAddress1" column="ca_address1" />
     </resultMap>
 
     <select id="selectAll" resultMap="Result">
-        SELECT id, receiving_code, warehouse_code, create_at FROM goodcang_grn_list
+        SELECT id, receiving_code, warehouse_code, create_at, ca_address1 FROM goodcang_grn_list
     </select>
 
     <select id="selectByReceivingCodes" resultMap="Result" parameterType="java.util.List">
-        SELECT id, receiving_code, warehouse_code, create_at FROM goodcang_grn_list
+        SELECT id, receiving_code, warehouse_code, create_at, ca_address1 FROM goodcang_grn_list
         WHERE receiving_code IN
         <foreach collection="list" item="code" open="(" separator="," close=")">
             #{code}
         </foreach>
     </select>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO goodcang_grn_list (receiving_code,warehouse_code,reference_no,receiving_status,create_at)
-        VALUES (#{receivingCode},#{warehouseCode},#{referenceNo},#{receivingStatus},#{createAt})
+        INSERT INTO goodcang_grn_list (receiving_code,warehouse_code,reference_no,receiving_status,create_at,ca_address1)
+        VALUES (#{receivingCode},#{warehouseCode},#{referenceNo},#{receivingStatus},#{createAt},#{caAddress1})
     </insert>
     <update id="updateById">
-        UPDATE goodcang_grn_list SET warehouse_code=#{warehouseCode},reference_no=#{referenceNo},receiving_status=#{receivingStatus},create_at=#{createAt}
+        UPDATE goodcang_grn_list SET warehouse_code=#{warehouseCode},reference_no=#{referenceNo},receiving_status=#{receivingStatus},create_at=#{createAt},ca_address1=#{caAddress1}
         WHERE id=#{id}
     </update>
 
+    <update id="updateCaAddress1">
+        UPDATE goodcang_grn_list SET ca_address1 = #{caAddress1} WHERE id = #{id}
+    </update>
+
     <select id="selectRecentByCreateAt" resultMap="Result">
-        SELECT id, receiving_code, warehouse_code, create_at FROM goodcang_grn_list
+        SELECT id, receiving_code, warehouse_code, create_at, ca_address1 FROM goodcang_grn_list
         WHERE create_at >= DATE_SUB(NOW(), INTERVAL #{days} DAY)
     </select>
 </mapper>

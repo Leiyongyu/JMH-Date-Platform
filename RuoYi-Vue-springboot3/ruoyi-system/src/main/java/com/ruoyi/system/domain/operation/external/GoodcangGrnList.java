@@ -19,6 +19,7 @@ public class GoodcangGrnList implements Serializable
     private Integer transitType;
     private Date createAt;
     private Date updateAt;
+    private String caAddress1;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -38,4 +39,6 @@ public class GoodcangGrnList implements Serializable
     public void setCreateAt(Date createAt) { this.createAt = createAt; }
     public Date getUpdateAt() { return updateAt; }
     public void setUpdateAt(Date updateAt) { this.updateAt = updateAt; }
+    public String getCaAddress1() { return caAddress1; }
+    public void setCaAddress1(String caAddress1) { this.caAddress1 = caAddress1; }
 }
