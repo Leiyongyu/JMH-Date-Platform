@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.OverseasStockOrderMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.OverseasStockOrder" id="Result">
+        <id property="id" column="id" />
+        <result property="overseasOrderNo" column="overseas_order_no" />
+        <result property="inboundOrderNo" column="inbound_order_no" />
+        <result property="createTime" column="create_time" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="Result">
+        SELECT id, overseas_order_no, inbound_order_no, create_time FROM overseas_stock_order
+    </select>
+
+    <select id="selectByOrderNo" resultMap="Result">
+        SELECT id, overseas_order_no, inbound_order_no, create_time FROM overseas_stock_order
+        WHERE overseas_order_no = #{overseasOrderNo}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO overseas_stock_order (overseas_order_no, inbound_order_no) VALUES (#{overseasOrderNo}, #{inboundOrderNo})
+    </insert>
+
+    <update id="updateById">
+        UPDATE overseas_stock_order SET overseas_order_no = #{overseasOrderNo} WHERE id = #{id}
+    </update>
+
+</mapper>

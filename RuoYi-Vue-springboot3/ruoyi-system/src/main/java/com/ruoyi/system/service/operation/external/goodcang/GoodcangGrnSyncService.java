@@ -100,12 +100,12 @@ public class GoodcangGrnSyncService
         return OperationSyncResult.success("gc_grn_list", "谷仓-入库单", "/inbound_order/get_grn_list", total, total, System.currentTimeMillis() - start);
     }
 
-    /** 同步所有入库单详情（全量） */
+    /** 仅同步最近5天入库单详情（按create_at筛选） */
     public OperationSyncResult syncAllGrnDetails() throws Exception
     {
         long start = System.currentTimeMillis();
-        List<GoodcangGrnList> recent = listMapper.selectAll();
-        LOG.info("谷仓入库单详情 全量: {}条", recent.size());
+        List<GoodcangGrnList> recent = listMapper.selectRecentByCreateAt(5);
+        LOG.info("谷仓入库单详情 最近5天: {}条", recent.size());
 
         int total = 0;
         for (GoodcangGrnList grn : recent)
@@ -117,20 +117,12 @@ public class GoodcangGrnSyncService
                 Map<String, Object> dd = (Map<String, Object>) resp.get("data");
                 if (dd == null) continue;
 
-                // 提取提货地址（尝试多种可能的字段名）
+                // 提取提货地址
                 String ca1 = null;
                 @SuppressWarnings("unchecked")
                 List<Map<String, Object>> collectingAddress = (List<Map<String, Object>>) dd.get("collecting_address");
-                if (collectingAddress == null) collectingAddress = (List<Map<String, Object>>) dd.get("collectingAddress");
-                if (collectingAddress == null) collectingAddress = (List<Map<String, Object>>) dd.get("collecting_address_list");
                 if (collectingAddress != null && !collectingAddress.isEmpty()) {
                     ca1 = str(collectingAddress.get(0), "ca_address1");
-                    if (ca1 == null) ca1 = str(collectingAddress.get(0), "caAddress1");
-                    if (ca1 == null) ca1 = str(collectingAddress.get(0), "address1");
-                }
-                if (ca1 == null && dd.get("ca_address1") != null) ca1 = str(dd, "ca_address1");
-                if (ca1 == null && collectingAddress == null) {
-                    LOG.warn("详情{}无提货地址字段, data keys: {}", grn.getReceivingCode(), dd.keySet());
                 }
                 boolean caChanged = !Objects.equals(ca1, grn.getCaAddress1());
                 if (caChanged) {

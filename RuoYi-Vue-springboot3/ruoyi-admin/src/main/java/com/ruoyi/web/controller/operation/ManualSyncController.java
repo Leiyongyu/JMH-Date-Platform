@@ -2,8 +2,10 @@ package com.ruoyi.web.controller.operation;
 
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.system.service.operation.external.lingxing.OverseasStockOrderSyncService;
 import com.ruoyi.system.service.operation.sync.AmzUnifiedSyncService;
 import com.ruoyi.system.service.operation.sync.EbayUnifiedSyncService;
+import com.ruoyi.system.service.operation.sync.OperationSyncResult;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Map;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -18,11 +20,14 @@ public class ManualSyncController extends BaseController
 {
     private final EbayUnifiedSyncService ebaySyncService;
     private final AmzUnifiedSyncService amzSyncService;
+    private final OverseasStockOrderSyncService stockOrderSyncService;
 
-    public ManualSyncController(EbayUnifiedSyncService ebaySyncService, AmzUnifiedSyncService amzSyncService)
+    public ManualSyncController(EbayUnifiedSyncService ebaySyncService, AmzUnifiedSyncService amzSyncService,
+                                OverseasStockOrderSyncService stockOrderSyncService)
     {
         this.ebaySyncService = ebaySyncService;
         this.amzSyncService = amzSyncService;
+        this.stockOrderSyncService = stockOrderSyncService;
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:sync')")
@@ -51,6 +56,14 @@ public class ManualSyncController extends BaseController
     public AjaxResult refreshAmzOnly()
     {
         return handle(amzSyncService.refreshOnly("MANUAL", getUsername()), "AMZ");
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:sync')")
+    @PostMapping("/stock-order")
+    public AjaxResult syncStockOrder() throws Exception
+    {
+        OperationSyncResult r = stockOrderSyncService.sync();
+        return r.getStatus().equals("SUCCESS") ? success(r) : error(r.getErrorMessage());
     }
 
     private AjaxResult handle(Map<String, Object> result, String label)
