@@ -46,9 +46,15 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         NUM_MAP.put("replenishQty","replenish_qty"); NUM_MAP.put("restockDays","restock_days");
     }
     private static final Set<String> ALLOWED_OPS = Set.of("=", ">", ">=", "<", "<=", "between", "isNull", "isNotNull");
-    private static final Map<String, String> FIELD_TO_COL = Map.of(
-        "storeName","store_name","sellerSku","seller_sku","warehouseSku","warehouse_sku",
-        "asin","asin","principalName","principal_name","productCategory","product_category","warehouseName","warehouse_name"
+    private static final Map<String, String> FIELD_TO_COL = Map.ofEntries(
+        Map.entry("storeName","store_name"), Map.entry("sellerSku","seller_sku"),
+        Map.entry("warehouseSku","warehouse_sku"), Map.entry("asin","asin"),
+        Map.entry("principalName","principal_name"), Map.entry("productCategory","product_category"),
+        Map.entry("warehouseName","warehouse_name"),
+        Map.entry("sales7d","sales_7d"), Map.entry("sales14d","sales_14d"), Map.entry("sales30d","sales_30d"),
+        Map.entry("sales60d","sales_60d"),
+        Map.entry("salesSpeed14d","sales_speed_14d"), Map.entry("salesSpeed30d","sales_speed_30d"),
+        Map.entry("salesSpeed60d","sales_speed_60d"), Map.entry("avgMonthlySales","avg_monthly_sales")
     );
     private static final Set<String> ALLOWED_FIELDS = FIELD_TO_COL.keySet();
 
@@ -74,6 +80,14 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         String col = FIELD_TO_COL.get(field);
         if (col == null) return Collections.emptyList();
         return mapper.selectDistinctValues(col, keyword != null ? keyword.trim() : null);
+    }
+
+    @Override
+    public List<Map<String, Object>> salesBreakdown(String warehouseSku, String field, List<String> storeNames)
+    {
+        String col = FIELD_TO_COL.get(field);
+        if (col == null) return Collections.emptyList();
+        return mapper.selectSalesBreakdown(warehouseSku, col, storeNames);
     }
 
     @Override

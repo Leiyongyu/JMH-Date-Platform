@@ -87,6 +87,17 @@ public class AmzReplenishmentController extends BaseController
         return AjaxResult.success(shopListMapper.selectStoreNamesByPlatform("10001"));
     }
 
+    /** 按仓库SKU查询各店铺销量明细 */
+    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
+    @GetMapping("/sales-breakdown")
+    public AjaxResult salesBreakdown(@RequestParam String warehouseSku, @RequestParam String field,
+                                      @RequestParam(required = false) String storeNames)
+    {
+        List<String> stores = storeNames != null && !storeNames.isEmpty()
+                ? java.util.Arrays.asList(storeNames.split(",")) : null;
+        return AjaxResult.success(snapshotService.salesBreakdown(warehouseSku, field, stores));
+    }
+
     // ====== 刷新 ======
     @Log(title = "Amazon补货", businessType = BusinessType.OTHER)
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")

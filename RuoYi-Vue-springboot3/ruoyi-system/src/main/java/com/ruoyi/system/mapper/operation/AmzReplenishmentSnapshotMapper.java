@@ -13,6 +13,11 @@ public interface AmzReplenishmentSnapshotMapper
 
     List<String> selectDistinctValues(@Param("column") String column, @Param("keyword") String keyword);
 
+    /** 按仓库SKU查询各店铺销量明细 */
+    List<Map<String, Object>> selectSalesBreakdown(@Param("warehouseSku") String warehouseSku,
+                                                    @Param("column") String column,
+                                                    @Param("storeNames") List<String> storeNames);
+
     int insertByListing(@Param("batchNo") String batchNo);
 
     int deleteAll();

@@ -370,6 +370,20 @@
         order by t.`${column}` limit 50
     </select>
 
+    <select id="selectSalesBreakdown" resultType="map">
+        SELECT store_name AS storeName, ${column} AS `value`
+        FROM amz_replenishment_snapshot
+        WHERE warehouse_sku = #{warehouseSku}
+          AND current_flag = 1
+          AND store_name IS NOT NULL AND store_name != ''
+          <if test="storeNames != null and storeNames.size() > 0">
+          AND store_name IN
+          <foreach collection="storeNames" item="s" open="(" separator="," close=")">#{s}</foreach>
+          </if>
+        ORDER BY ${column} DESC
+        LIMIT 10
+    </select>
+
     <!-- ==================================================================== -->
     <!-- 基础查询（保留若依兼容）                                              -->
     <!-- ==================================================================== -->
