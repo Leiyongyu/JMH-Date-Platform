@@ -288,7 +288,7 @@ const bdTotal = computed(() => Number(bdList.value.reduce((s, i) => s + Number(i
 let bdCache = {}
 function isSalesColumn(key) { return salesColKeys.has(key) }
 async function loadBreakdown(row, field) {
-  const cacheKey = row.warehouseSku + '|' + field + '|' + (queryParams.value.storeName || []).join(',')
+  const cacheKey = row.warehouseSku + '|' + field + '|' + (queryParams.value.storeName || []).join(',') + '|' + regionGroup.value
   if (bdCache[cacheKey]) { bdList.value = bdCache[cacheKey]; return }
   bdLoading.value = true; bdList.value = []
   try {
@@ -297,7 +297,12 @@ async function loadBreakdown(row, field) {
       params.storeNames = queryParams.value.storeName.join(',')
     }
     const res = await request({ url: '/operations/amz/replenishment/sales-breakdown', method: 'get', params })
-    bdList.value = res.data || []
+    bdList.value = (res.data || []).filter(item => {
+      const sn = item.storeName || ''
+      if (regionGroup.value === 'EU') return sn.startsWith('EU-')
+      if (regionGroup.value === 'US') return !sn.startsWith('EU-')
+      return true
+    })
     bdCache[cacheKey] = bdList.value
   } finally { bdLoading.value = false }
 }
