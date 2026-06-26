@@ -190,6 +190,15 @@
         </el-table-column>
         <!-- 备注：内联编辑 -->
         <el-table-column
+          v-else-if="col.key === 'imageUrl'"
+          :label="col.label" :align="col.align" :width="col.width"
+        >
+          <template #default="scope">
+            <img v-if="scope.row.imageUrl" :src="scope.row.imageUrl" style="width:50px;height:50px;object-fit:contain" />
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column
           v-else-if="col.format === 'remark'"
           :label="col.label" :align="col.align" :width="col.width" sortable="custom"
           :render-header="renderColumnHeader(col)"
@@ -352,6 +361,7 @@ function onAmzCellClear(row, field) { editCache[amzKey(row, field)] = ''; onAmzC
 const fixedColumnKeys = ['storeName', 'sellerSku']
 const columnDefs = [
   { key: 'storeName', label: '店铺', align: 'left', width: 160, fixed: true, sortable: true, tooltip: true },
+  { key: 'imageUrl', label: '图片', align: 'center', width: 80 },
   { key: 'sellerSku', label: 'Seller SKU', align: 'left', width: 180, fixed: true, sortable: true, tooltip: true },
   { key: 'warehouseSku', label: '仓库SKU', align: 'left', width: 170, sortable: true, tooltip: true },
   { key: 'warehouseName', label: '仓库', align: 'left', width: 170, tooltip: true },
