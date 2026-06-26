@@ -26,11 +26,12 @@
         <result property="orderTime" column="order_time"/>
         <result property="updateTime" column="update_time"/>
         <result property="createTime" column="create_time"/>
+        <result property="isTax" column="is_tax"/>
     </resultMap>
     <select id="selectAll" resultMap="Result">SELECT * FROM purchase_order</select>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO purchase_order (order_sn,custom_order_sn,supplier_id,supplier_name,opt_uid,opt_realname,auditor_realname,last_realname,status,status_text,wid,ware_house_name,item_sku,item_product_name,item_product_id,item_quantity_real,item_quantity_entry,item_quantity_receive,item_price,item_amount,order_time,update_time,create_time)
-        VALUES (#{orderSn},#{customOrderSn},#{supplierId},#{supplierName},#{optUid},#{optRealname},#{auditorRealname},#{lastRealname},#{status},#{statusText},#{wid},#{wareHouseName},#{itemSku},#{itemProductName},#{itemProductId},#{itemQuantityReal},#{itemQuantityEntry},#{itemQuantityReceive},#{itemPrice},#{itemAmount},#{orderTime},#{updateTime},#{createTime})
+        INSERT INTO purchase_order (order_sn,custom_order_sn,supplier_id,supplier_name,opt_uid,opt_realname,auditor_realname,last_realname,status,status_text,wid,ware_house_name,item_sku,item_product_name,item_product_id,item_quantity_real,item_quantity_entry,item_quantity_receive,item_price,item_amount,is_tax,order_time,update_time,create_time)
+        VALUES (#{orderSn},#{customOrderSn},#{supplierId},#{supplierName},#{optUid},#{optRealname},#{auditorRealname},#{lastRealname},#{status},#{statusText},#{wid},#{wareHouseName},#{itemSku},#{itemProductName},#{itemProductId},#{itemQuantityReal},#{itemQuantityEntry},#{itemQuantityReceive},#{itemPrice},#{itemAmount},#{isTax},#{orderTime},#{updateTime},#{createTime})
     </insert>
     <update id="updateById">
         UPDATE purchase_order SET custom_order_sn=#{customOrderSn},supplier_id=#{supplierId},supplier_name=#{supplierName},
@@ -38,7 +39,7 @@
         status=#{status},status_text=#{statusText},wid=#{wid},ware_house_name=#{wareHouseName},
         item_sku=#{itemSku},item_product_name=#{itemProductName},item_product_id=#{itemProductId},
         item_quantity_real=#{itemQuantityReal},item_quantity_entry=#{itemQuantityEntry},item_quantity_receive=#{itemQuantityReceive},
-        item_price=#{itemPrice},item_amount=#{itemAmount},order_time=#{orderTime},update_time=#{updateTime},create_time=#{createTime}
+        item_price=#{itemPrice},item_amount=#{itemAmount},is_tax=#{isTax},order_time=#{orderTime},update_time=#{updateTime},create_time=#{createTime}
         WHERE id=#{id}
     </update>
 </mapper>

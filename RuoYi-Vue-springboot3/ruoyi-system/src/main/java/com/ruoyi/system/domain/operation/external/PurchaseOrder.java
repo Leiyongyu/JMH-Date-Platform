@@ -32,6 +32,7 @@ public class PurchaseOrder implements Serializable
     private Date orderTime;
     private Date updateTime;
     private Date createTime;
+    private Integer isTax;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -81,4 +82,6 @@ public class PurchaseOrder implements Serializable
     public void setUpdateTime(Date v) { this.updateTime = v; }
     public Date getCreateTime() { return createTime; }
     public void setCreateTime(Date v) { this.createTime = v; }
+    public Integer getIsTax() { return isTax; }
+    public void setIsTax(Integer v) { this.isTax = v; }
 }

@@ -117,6 +117,7 @@ public class LingxingPurchaseOrderSyncService
                 e.setItemQuantityReceive(intVal(firstItem, "quantity_receive"));
                 e.setItemPrice(bdVal(firstItem, "price"));
                 e.setItemAmount(bdVal(firstItem, "amount"));
+                e.setIsTax(intVal(row, "is_tax"));
 
                 if (isNew) { mapper.insert(e); existing.put(key, e); inserted++; }
                 else { mapper.updateById(e); updated++; }

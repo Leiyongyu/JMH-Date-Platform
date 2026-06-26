@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.customs.CustomsInventoryMapper">
+
+    <resultMap id="CustomsInventoryResult" type="com.ruoyi.system.domain.operation.customs.CustomsInventoryItem">
+        <id property="id" column="id"/>
+        <result property="productCode" column="product_code"/>
+        <result property="productName" column="product_name"/>
+        <result property="sku" column="sku"/>
+        <result property="purchaseQuantity" column="purchase_quantity"/>
+        <result property="unit" column="unit"/>
+        <result property="taxIncludedPrice" column="tax_included_price"/>
+        <result property="purchaseDate" column="purchase_date"/>
+        <result property="inboundDate" column="inbound_date"/>
+        <result property="inboundQuantity" column="inbound_quantity"/>
+        <result property="inboundRemark" column="inbound_remark"/>
+        <result property="outboundDate" column="outbound_date"/>
+        <result property="czechWarehouseQty" column="czech_warehouse_qty"/>
+        <result property="ukWarehouseQty" column="uk_warehouse_qty"/>
+        <result property="usWarehouseQty" column="us_warehouse_qty"/>
+        <result property="deWarehouseQty" column="de_warehouse_qty"/>
+        <result property="fbaDeQty" column="fba_de_qty"/>
+        <result property="fbaUkQty" column="fba_uk_qty"/>
+        <result property="fbaUsQty" column="fba_us_qty"/>
+        <result property="fbaFrQty" column="fba_fr_qty"/>
+        <result property="remainingStock" column="remaining_stock"/>
+        <result property="remark" column="remark"/>
+        <result property="customsUnit" column="customs_unit"/>
+        <result property="declarationElements" column="declaration_elements"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <sql id="columns">
+        id, product_code, product_name, sku, purchase_quantity, unit, tax_included_price,
+        purchase_date, inbound_date, inbound_quantity, inbound_remark, outbound_date,
+        czech_warehouse_qty, uk_warehouse_qty, us_warehouse_qty, de_warehouse_qty,
+        fba_de_qty, fba_uk_qty, fba_us_qty, fba_fr_qty, remaining_stock, remark,
+        customs_unit, declaration_elements, created_at, updated_at
+    </sql>
+
+    <select id="selectList" resultMap="CustomsInventoryResult">
+        SELECT <include refid="columns"/>
+        FROM customs_inventory_list
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    sku LIKE CONCAT('%', #{keyword}, '%')
+                    OR product_code LIKE CONCAT('%', #{keyword}, '%')
+                    OR product_name LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+        </where>
+        ORDER BY id
+    </select>
+
+    <select id="selectById" resultMap="CustomsInventoryResult">
+        SELECT <include refid="columns"/>
+        FROM customs_inventory_list
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="selectByIds" resultMap="CustomsInventoryResult">
+        SELECT <include refid="columns"/>
+        FROM customs_inventory_list
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY id
+    </select>
+
+    <select id="selectProductOptions" resultMap="CustomsInventoryResult">
+        SELECT
+            MIN(id) AS id,
+            product_code,
+            product_name,
+            sku,
+            unit,
+            NULL AS purchase_quantity,
+            NULL AS tax_included_price,
+            NULL AS purchase_date,
+            NULL AS inbound_date,
+            NULL AS inbound_quantity,
+            NULL AS inbound_remark,
+            NULL AS outbound_date,
+            NULL AS czech_warehouse_qty,
+            NULL AS uk_warehouse_qty,
+            NULL AS us_warehouse_qty,
+            NULL AS de_warehouse_qty,
+            NULL AS fba_de_qty,
+            NULL AS fba_uk_qty,
+            NULL AS fba_us_qty,
+            NULL AS fba_fr_qty,
+            NULL AS remaining_stock,
+            NULL AS remark,
+            NULL AS customs_unit,
+            NULL AS declaration_elements,
+            NULL AS created_at,
+            NULL AS updated_at
+        FROM customs_inventory_list
+        <where>
+            AND (product_code IS NOT NULL AND product_code != ''
+                OR product_name IS NOT NULL AND product_name != ''
+                OR sku IS NOT NULL AND sku != ''
+                OR unit IS NOT NULL AND unit != '')
+            <if test="productCode != null and productCode != ''">
+                AND product_code LIKE CONCAT('%', #{productCode}, '%')
+            </if>
+            <if test="productName != null and productName != ''">
+                AND product_name LIKE CONCAT('%', #{productName}, '%')
+            </if>
+            <if test="sku != null and sku != ''">
+                AND sku LIKE CONCAT('%', #{sku}, '%')
+            </if>
+            <if test="unit != null and unit != ''">
+                AND unit LIKE CONCAT('%', #{unit}, '%')
+            </if>
+        </where>
+        GROUP BY product_code, product_name, sku, unit
+        ORDER BY
+            CASE
+                WHEN #{sku} IS NOT NULL AND #{sku} != '' AND sku = #{sku} THEN 0
+                WHEN #{productCode} IS NOT NULL AND #{productCode} != '' AND product_code = #{productCode} THEN 0
+                ELSE 1
+            END,
+            product_code,
+            sku
+        LIMIT #{limit}
+    </select>
+
+    <delete id="deleteAll">
+        DELETE FROM customs_inventory_list
+    </delete>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO customs_inventory_list
+        (product_code, product_name, sku, purchase_quantity, unit, tax_included_price,
+         purchase_date, inbound_date, inbound_quantity, inbound_remark, outbound_date,
+         czech_warehouse_qty, uk_warehouse_qty, us_warehouse_qty, de_warehouse_qty,
+         fba_de_qty, fba_uk_qty, fba_us_qty, fba_fr_qty, remaining_stock, remark,
+         customs_unit, declaration_elements)
+        VALUES
+        (#{productCode}, #{productName}, #{sku}, #{purchaseQuantity}, #{unit}, #{taxIncludedPrice},
+         #{purchaseDate}, #{inboundDate}, #{inboundQuantity}, #{inboundRemark}, #{outboundDate},
+         #{czechWarehouseQty}, #{ukWarehouseQty}, #{usWarehouseQty}, #{deWarehouseQty},
+         #{fbaDeQty}, #{fbaUkQty}, #{fbaUsQty}, #{fbaFrQty}, #{remainingStock}, #{remark},
+         #{customsUnit}, #{declarationElements})
+    </insert>
+
+    <update id="update">
+        UPDATE customs_inventory_list
+        SET product_code = #{productCode},
+            product_name = #{productName},
+            sku = #{sku},
+            purchase_quantity = #{purchaseQuantity},
+            unit = #{unit},
+            tax_included_price = #{taxIncludedPrice},
+            purchase_date = #{purchaseDate},
+            inbound_date = #{inboundDate},
+            inbound_quantity = #{inboundQuantity},
+            inbound_remark = #{inboundRemark},
+            outbound_date = #{outboundDate},
+            czech_warehouse_qty = #{czechWarehouseQty},
+            uk_warehouse_qty = #{ukWarehouseQty},
+            us_warehouse_qty = #{usWarehouseQty},
+            de_warehouse_qty = #{deWarehouseQty},
+            fba_de_qty = #{fbaDeQty},
+            fba_uk_qty = #{fbaUkQty},
+            fba_us_qty = #{fbaUsQty},
+            fba_fr_qty = #{fbaFrQty},
+            remaining_stock = #{remainingStock},
+            remark = #{remark},
+            customs_unit = #{customsUnit},
+            declaration_elements = #{declarationElements}
+        WHERE id = #{id}
+    </update>
+
+    <insert id="batchInsert">
+        INSERT INTO customs_inventory_list
+        (product_code, product_name, sku, purchase_quantity, unit, tax_included_price,
+         purchase_date, inbound_date, inbound_quantity, inbound_remark, outbound_date,
+         czech_warehouse_qty, uk_warehouse_qty, us_warehouse_qty, de_warehouse_qty,
+         fba_de_qty, fba_uk_qty, fba_us_qty, fba_fr_qty, remaining_stock, remark,
+         customs_unit, declaration_elements)
+        VALUES
+        <foreach collection="items" item="item" separator=",">
+            (#{item.productCode}, #{item.productName}, #{item.sku}, #{item.purchaseQuantity},
+             #{item.unit}, #{item.taxIncludedPrice}, #{item.purchaseDate}, #{item.inboundDate},
+             #{item.inboundQuantity}, #{item.inboundRemark}, #{item.outboundDate},
+             #{item.czechWarehouseQty}, #{item.ukWarehouseQty}, #{item.usWarehouseQty}, #{item.deWarehouseQty},
+             #{item.fbaDeQty}, #{item.fbaUkQty}, #{item.fbaUsQty}, #{item.fbaFrQty}, #{item.remainingStock},
+             #{item.remark}, #{item.customsUnit}, #{item.declarationElements})
+        </foreach>
+    </insert>
+</mapper>

@@ -99,6 +99,10 @@ public class OperationSyncTask
     public void syncOverseasStockOrderDetail() { exec("stock_order_detail", "领星-备货单详情", "basicOpen/overSeaWarehouse/stockOrder/detail", null,
             () -> SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.OverseasStockOrderDetailSyncService.class).sync()); }
 
+    // ==================== 报关产品库 ====================
+    public void syncCustomsProduct() { exec("customs_product", "报关产品库同步", "sql/join", null,
+            () -> SpringUtils.getBean(com.ruoyi.system.service.operation.sync.CustomsProductSyncService.class).sync()); }
+
     // ==================== 内部方法 ====================
     private static final int TASK_TIMEOUT_MINUTES = 30;
     private static final ExecutorService TIMEOUT_POOL = Executors.newCachedThreadPool(r -> {
