@@ -94,8 +94,10 @@ public class OperationSyncTask
             () -> SpringUtils.getBean(AmzFbaShipmentSyncService.class).sync()); }
 
     // ==================== 备货单号 ====================
-    public void syncOverseasStockOrder() { exec("stock_order", "领星-备货单号", "erp/sc/routing/owms/inbound/listOrderNos", null,
+    public void syncOverseasStockOrder() { exec("stock_order", "领星-备货单号", "erp/sc/routing/owms/inbound/listInbound", null,
             () -> SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.OverseasStockOrderSyncService.class).sync()); }
+    public void syncOverseasStockOrderDetail() { exec("stock_order_detail", "领星-备货单详情", "basicOpen/overSeaWarehouse/stockOrder/detail", null,
+            () -> SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.OverseasStockOrderDetailSyncService.class).sync()); }
 
     // ==================== 内部方法 ====================
     private static final int TASK_TIMEOUT_MINUTES = 30;

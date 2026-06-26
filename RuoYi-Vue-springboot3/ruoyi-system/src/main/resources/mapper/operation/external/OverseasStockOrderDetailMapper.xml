@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.OverseasStockOrderDetailMapper">
+
+    <delete id="deleteByOrderNo">
+        DELETE FROM overseas_stock_order_detail WHERE overseas_order_no = #{overseasOrderNo}
+    </delete>
+
+    <insert id="batchInsert" parameterType="java.util.List">
+        INSERT INTO overseas_stock_order_detail (
+            overseas_order_no, s_wid, r_wid, status, product_code, sku, seller_id,
+            package_num, tariffs_currency_unit,
+            box_type, box_sku, box_third_party_product_name, box_third_party_product_code,
+            box_seller_id, box_range, box_number,
+            cg_box_weight, cg_box_length, cg_box_width, cg_box_height, quantity_in_case,
+            box_cbm, total_box_volume, total_box_weight, total_box_volume_weight,
+            box_remark, order_total_box_num, order_total_box_weight,
+            order_total_box_volume, order_total_box_volume_weight
+        ) VALUES
+        <foreach collection="list" item="e" separator=",">
+        (
+            #{e.overseasOrderNo}, #{e.sWid}, #{e.rWid}, #{e.status}, #{e.productCode}, #{e.sku}, #{e.sellerId},
+            #{e.packageNum}, #{e.tariffsCurrencyUnit},
+            #{e.boxType}, #{e.boxSku}, #{e.boxThirdPartyProductName}, #{e.boxThirdPartyProductCode},
+            #{e.boxSellerId}, #{e.boxRange}, #{e.boxNumber},
+            #{e.cgBoxWeight}, #{e.cgBoxLength}, #{e.cgBoxWidth}, #{e.cgBoxHeight}, #{e.quantityInCase},
+            #{e.boxCbm}, #{e.totalBoxVolume}, #{e.totalBoxWeight}, #{e.totalBoxVolumeWeight},
+            #{e.boxRemark}, #{e.orderTotalBoxNum}, #{e.orderTotalBoxWeight},
+            #{e.orderTotalBoxVolume}, #{e.orderTotalBoxVolumeWeight}
+        )
+        </foreach>
+    </insert>
+
+</mapper>
