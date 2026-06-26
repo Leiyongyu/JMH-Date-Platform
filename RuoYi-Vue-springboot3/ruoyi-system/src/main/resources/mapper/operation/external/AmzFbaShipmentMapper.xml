@@ -68,14 +68,18 @@
         INSERT INTO amz_fba_shipment (
             sid, username, shipment_id, shipment_name,shipment_status, msku, sku,
             quantity_shipped, init_quantity_shipped, quantity_received, quantity_shipped_local, declared_diff,
-            gmt_create, gmt_modified, working_time, shipped_time, receiving_time, closed_time
+            gmt_create, gmt_modified, working_time, shipped_time, receiving_time, closed_time,
+            ship_to_name, ship_to_country_code, ship_to_state, ship_to_city, ship_to_region,
+            ship_to_address_line1, ship_to_address_line2, ship_to_postal_code, ship_to_doorplate
         ) VALUES
         <foreach collection="list" item="e" separator=",">
         (
             #{e.sid}, #{e.username}, #{e.shipmentId}, #{e.shipmentName}, #{e.shipmentStatus}, #{e.msku}, #{e.sku},
             #{e.quantityShipped}, #{e.initQuantityShipped}, #{e.quantityReceived}, #{e.quantityShippedLocal},
             #{e.quantityShipped} - #{e.quantityReceived},
-            #{e.gmtCreate}, #{e.gmtModified}, #{e.workingTime}, #{e.shippedTime}, #{e.receivingTime}, #{e.closedTime}
+            #{e.gmtCreate}, #{e.gmtModified}, #{e.workingTime}, #{e.shippedTime}, #{e.receivingTime}, #{e.closedTime},
+            #{e.shipToName}, #{e.shipToCountryCode}, #{e.shipToState}, #{e.shipToCity}, #{e.shipToRegion},
+            #{e.shipToAddressLine1}, #{e.shipToAddressLine2}, #{e.shipToPostalCode}, #{e.shipToDoorplate}
         )
         </foreach>
         ON DUPLICATE KEY UPDATE working_time = VALUES(working_time), shipped_time = VALUES(shipped_time), receiving_time = VALUES(receiving_time), closed_time = VALUES(closed_time), shipment_status = VALUES(shipment_status),
@@ -87,7 +91,16 @@
             quantity_received = VALUES(quantity_received),
             quantity_shipped_local = VALUES(quantity_shipped_local),
             declared_diff = VALUES(declared_diff),
-            gmt_modified = VALUES(gmt_modified)
+            gmt_modified = VALUES(gmt_modified),
+            ship_to_name = VALUES(ship_to_name),
+            ship_to_country_code = VALUES(ship_to_country_code),
+            ship_to_state = VALUES(ship_to_state),
+            ship_to_city = VALUES(ship_to_city),
+            ship_to_region = VALUES(ship_to_region),
+            ship_to_address_line1 = VALUES(ship_to_address_line1),
+            ship_to_address_line2 = VALUES(ship_to_address_line2),
+            ship_to_postal_code = VALUES(ship_to_postal_code),
+            ship_to_doorplate = VALUES(ship_to_doorplate)
     </insert>
 
     <select id="search" resultMap="Result">

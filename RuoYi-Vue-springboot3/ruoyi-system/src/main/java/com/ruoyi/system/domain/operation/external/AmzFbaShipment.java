@@ -33,6 +33,15 @@ public class AmzFbaShipment implements Serializable
     private String remark;
     private Integer confirmed;
     private Date createTime;
+    private String shipToName;
+    private String shipToCountryCode;
+    private String shipToState;
+    private String shipToCity;
+    private String shipToRegion;
+    private String shipToAddressLine1;
+    private String shipToAddressLine2;
+    private String shipToPostalCode;
+    private String shipToDoorplate;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -80,4 +89,22 @@ public class AmzFbaShipment implements Serializable
     public void setConfirmed(Integer confirmed) { this.confirmed = confirmed; }
     public Date getCreateTime() { return createTime; }
     public void setCreateTime(Date createTime) { this.createTime = createTime; }
+    public String getShipToName() { return shipToName; }
+    public void setShipToName(String v) { this.shipToName = v; }
+    public String getShipToCountryCode() { return shipToCountryCode; }
+    public void setShipToCountryCode(String v) { this.shipToCountryCode = v; }
+    public String getShipToState() { return shipToState; }
+    public void setShipToState(String v) { this.shipToState = v; }
+    public String getShipToCity() { return shipToCity; }
+    public void setShipToCity(String v) { this.shipToCity = v; }
+    public String getShipToRegion() { return shipToRegion; }
+    public void setShipToRegion(String v) { this.shipToRegion = v; }
+    public String getShipToAddressLine1() { return shipToAddressLine1; }
+    public void setShipToAddressLine1(String v) { this.shipToAddressLine1 = v; }
+    public String getShipToAddressLine2() { return shipToAddressLine2; }
+    public void setShipToAddressLine2(String v) { this.shipToAddressLine2 = v; }
+    public String getShipToPostalCode() { return shipToPostalCode; }
+    public void setShipToPostalCode(String v) { this.shipToPostalCode = v; }
+    public String getShipToDoorplate() { return shipToDoorplate; }
+    public void setShipToDoorplate(String v) { this.shipToDoorplate = v; }
 }

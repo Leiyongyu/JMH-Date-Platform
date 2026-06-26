@@ -89,6 +89,23 @@ public class AmzFbaShipmentSyncService
                     Date gmtCreate = parseDt(str(shipment, "gmt_create"));
                     Date gmtModified = parseDt(str(shipment, "gmt_modified"));
 
+                    // ship_to_address
+                    String stName = null, stCountry = null, stState = null, stCity = null,
+                           stRegion = null, stAddr1 = null, stAddr2 = null, stZip = null, stDoor = null;
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> shipTo = (Map<String, Object>) shipment.get("ship_to_address");
+                    if (shipTo != null) {
+                        stName = str(shipTo, "name");
+                        stCountry = str(shipTo, "country_code");
+                        stState = str(shipTo, "state_or_province_code");
+                        stCity = str(shipTo, "city");
+                        stRegion = str(shipTo, "region");
+                        stAddr1 = str(shipTo, "address_line1");
+                        stAddr2 = str(shipTo, "address_line2");
+                        stZip = str(shipTo, "postal_code");
+                        stDoor = str(shipTo, "doorplate");
+                    }
+
                     @SuppressWarnings("unchecked")
                     List<Map<String, Object>> items = (List<Map<String, Object>>) shipment.get("item_list");
                     if (items == null || items.isEmpty()) continue;
@@ -118,6 +135,15 @@ public class AmzFbaShipmentSyncService
                         row.setShippedTime(parseDt(str(shipment, "shipped_time")));
                         row.setReceivingTime(parseDt(str(shipment, "receiving_time")));
                         row.setClosedTime(parseDt(str(shipment, "closed_time")));
+                        row.setShipToName(stName);
+                        row.setShipToCountryCode(stCountry);
+                        row.setShipToState(stState);
+                        row.setShipToCity(stCity);
+                        row.setShipToRegion(stRegion);
+                        row.setShipToAddressLine1(stAddr1);
+                        row.setShipToAddressLine2(stAddr2);
+                        row.setShipToPostalCode(stZip);
+                        row.setShipToDoorplate(stDoor);
                         rows.add(row);
                     }
                 }
