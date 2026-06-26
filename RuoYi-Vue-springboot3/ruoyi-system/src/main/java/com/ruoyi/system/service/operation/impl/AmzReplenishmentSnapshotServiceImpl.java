@@ -104,6 +104,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
             return 0;
         }
         mapper.activateBatch(batchNo);
+        mapper.deleteNonCurrent();
         log.info("==== AMZ补货快照刷新 完成: {} 条 耗时{}ms ====", rows, System.currentTimeMillis() - t);
         return rows;
     }

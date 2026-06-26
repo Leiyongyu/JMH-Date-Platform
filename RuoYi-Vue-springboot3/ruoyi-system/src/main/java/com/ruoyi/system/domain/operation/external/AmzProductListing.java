@@ -17,6 +17,7 @@ public class AmzProductListing implements Serializable
     private String lastStar;
     private String principalName;
     private String tagName;
+    private String smallImageUrl;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -42,4 +43,6 @@ public class AmzProductListing implements Serializable
     public void setPrincipalName(String principalName) { this.principalName = principalName; }
     public String getTagName() { return tagName; }
     public void setTagName(String tagName) { this.tagName = tagName; }
+    public String getSmallImageUrl() { return smallImageUrl; }
+    public void setSmallImageUrl(String v) { this.smallImageUrl = v; }
 }

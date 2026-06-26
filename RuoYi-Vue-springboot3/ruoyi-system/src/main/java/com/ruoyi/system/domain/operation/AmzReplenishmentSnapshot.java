@@ -115,6 +115,7 @@ public class AmzReplenishmentSnapshot extends BaseEntity
 
     private String sortField;
     private String sortOrder;
+    private String imageUrl;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -192,4 +193,6 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     public void setSortField(String sortField) { this.sortField = sortField; }
     public String getSortOrder() { return sortOrder; }
     public void setSortOrder(String sortOrder) { this.sortOrder = sortOrder; }
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
 }

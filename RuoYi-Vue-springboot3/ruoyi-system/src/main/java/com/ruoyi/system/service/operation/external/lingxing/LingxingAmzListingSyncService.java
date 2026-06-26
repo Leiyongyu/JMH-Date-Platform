@@ -65,6 +65,7 @@ public class LingxingAmzListingSyncService
                     e.setLastStar(str(row, "last_star", "lastStar"));
                     e.setPrincipalName(extractPrincipalName(row));
                     e.setTagName(extractTagName(row));
+                    e.setSmallImageUrl(str(row, "small_image_url"));
                     batchList.add(e);
                 }
                 mapper.batchInsert(batchList);

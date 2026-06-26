@@ -27,10 +27,9 @@ import org.springframework.stereotype.Service;
 public class CustomsDeclarationExportService
 {
     private static final String TEMPLATE = "templates/customs/customs-declaration-template.xlsx";
-    private static final int DATA_START_ROW = 10;
-    private static final int TEMPLATE_ITEM_ROWS = 25;
-    private static final int TEMPLATE_FOOTER_ROW = DATA_START_ROW + TEMPLATE_ITEM_ROWS;
-    private static final int TEMPLATE_LAST_ROW = 37;
+    private static final int DATA_START_ROW = 11;
+    private static final int TEMPLATE_FOOTER_ROW = 10;
+    private static final int TEMPLATE_LAST_ROW = 12;
     private static final int MAX_ITEMS = 1000;
 
     public void export(CustomsDeclarationRequest request, HttpServletResponse response) throws Exception
@@ -58,44 +57,46 @@ public class CustomsDeclarationExportService
     }
 
     /**
-     * 正式模板预留 25 条商品行，第 36-38 行为固定页脚。
-     * 根据实际商品数量移动页脚，避免导出残留模板示例数据。
+     * 当前模板已删除商品示例行，第 11-13 行为固定页脚。
+     * 导出时下移页脚，从 Excel 第 12 行开始写商品。
      */
     private int prepareRows(Sheet sheet, int itemCount)
     {
-        int difference = itemCount - TEMPLATE_ITEM_ROWS;
-        if (difference < 0)
-        {
-            int firstUnusedRow = DATA_START_ROW + itemCount;
-            for (int i = sheet.getNumMergedRegions() - 1; i >= 0; i--)
-            {
-                CellRangeAddress region = sheet.getMergedRegion(i);
-                if (region.getFirstRow() >= firstUnusedRow && region.getLastRow() < TEMPLATE_FOOTER_ROW)
-                    sheet.removeMergedRegion(i);
-            }
-        }
-        if (difference != 0)
-        {
-            sheet.shiftRows(TEMPLATE_FOOTER_ROW, TEMPLATE_LAST_ROW, difference, true, false);
-        }
+        int footerShiftRows = itemCount + 1;
+        Row originalStyleRow = sheet.getRow(DATA_START_ROW);
+        CellStyle[] styles = copyStyles(originalStyleRow);
+        short rowHeight = originalStyleRow == null ? sheet.getDefaultRowHeight() : originalStyleRow.getHeight();
 
-        int footerStartRow = TEMPLATE_FOOTER_ROW + difference;
-        Row styleRow = sheet.getRow(DATA_START_ROW);
+        sheet.shiftRows(TEMPLATE_FOOTER_ROW, TEMPLATE_LAST_ROW, footerShiftRows, true, false);
+
+        int footerStartRow = TEMPLATE_FOOTER_ROW + footerShiftRows;
         for (int rowIndex = DATA_START_ROW; rowIndex < footerStartRow; rowIndex++)
         {
             Row row = sheet.getRow(rowIndex);
             if (row == null) row = sheet.createRow(rowIndex);
-            if (styleRow != null) row.setHeight(styleRow.getHeight());
+            row.setHeight(rowHeight);
             for (int column = 0; column < 13; column++)
             {
                 Cell cell = row.getCell(column);
                 if (cell == null) cell = row.createCell(column);
+                if (styles[column] != null) cell.setCellStyle(styles[column]);
+                else applyBorder(cell);
                 cell.setBlank();
             }
         }
-        int footerRows = TEMPLATE_LAST_ROW - TEMPLATE_FOOTER_ROW + 1;
-        clearRows(sheet, footerStartRow + footerRows, TEMPLATE_LAST_ROW);
         return footerStartRow;
+    }
+
+    private CellStyle[] copyStyles(Row sourceRow)
+    {
+        CellStyle[] styles = new CellStyle[13];
+        if (sourceRow == null) return styles;
+        for (int column = 0; column < styles.length; column++)
+        {
+            Cell cell = sourceRow.getCell(column);
+            if (cell != null) styles[column] = cell.getCellStyle();
+        }
+        return styles;
     }
 
     private void clearRows(Sheet sheet, int firstRow, int lastRow)

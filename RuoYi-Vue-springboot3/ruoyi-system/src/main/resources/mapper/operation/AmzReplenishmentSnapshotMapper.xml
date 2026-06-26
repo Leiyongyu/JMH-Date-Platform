@@ -39,6 +39,7 @@
         <result property="restockDays" column="restock_days" />
         <result property="regionGroup" column="region_group" />
         <result property="calcTime" column="calc_time" />
+        <result property="imageUrl" column="image_url" />
     </resultMap>
 
     <!-- ==================================================================== -->
@@ -52,7 +53,7 @@
             sales_7d, sales_14d, sales_30d, sales_60d,
             sales_speed_14d, sales_speed_30d, sales_speed_60d,
             avg_monthly_sales, safety_stock, ship_qty, replenish_qty, restock_days,
-            region_group, calc_time, batch_no, current_flag
+            region_group, image_url, calc_time, batch_no, current_flag
         )
         SELECT
             COALESCE(pl.sid, 0) AS sid,
@@ -91,6 +92,7 @@
             ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1)) * COALESCE(ANY_VALUE(fc.replenish_days),120), 2) - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0) AS replenish_qty,
             ROUND(((COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - ((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1)) * COALESCE(ANY_VALUE(fc.replenish_days),120) - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0))) / NULLIF((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1)), 0), 2) AS restock_days,
             ANY_VALUE(COALESCE(fc.region_group, 'US')) AS region_group,
+            ANY_VALUE(pl.small_image_url) AS image_url,
             NOW() AS calc_time,
             #{batchNo} AS batch_no,
             0 AS current_flag
@@ -111,7 +113,7 @@
     <!-- ==================================================================== -->
     <select id="search" parameterType="map" resultMap="AmzReplenishmentSnapshotResult">
         SELECT s.id, s.sid, s.seller_sku, s.warehouse_sku, s.warehouse_name, s.asin, s.principal_name,
-               s.store_name,
+               s.store_name, s.image_url,
                COALESCE(o.product_category, s.product_category) AS product_category,
                COALESCE(o.remark, '') AS remark,
                s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
@@ -389,7 +391,7 @@
     <!-- ==================================================================== -->
     <select id="selectAmzReplenishmentSnapshotList" parameterType="com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot" resultMap="AmzReplenishmentSnapshotResult">
         SELECT s.id, s.sid, s.seller_sku, s.warehouse_sku, s.warehouse_name, s.asin, s.principal_name,
-               s.store_name,
+               s.store_name, s.image_url,
                COALESCE(o.product_category, s.product_category) AS product_category,
                COALESCE(o.remark, '') AS remark,
                s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,

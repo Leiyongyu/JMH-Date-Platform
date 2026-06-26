@@ -148,6 +148,7 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
             }
         }
         snapshotMapper.activateBatch(batchNo);
+        snapshotMapper.deleteNonCurrent();
 
         log.info("==== eBay补货快照刷新 完成: {} 条 耗时{}ms ====", computed.size(), System.currentTimeMillis() - start);
         return computed.size();
