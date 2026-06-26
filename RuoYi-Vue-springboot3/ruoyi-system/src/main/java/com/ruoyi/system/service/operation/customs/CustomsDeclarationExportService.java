@@ -93,7 +93,30 @@ public class CustomsDeclarationExportService
                 cell.setBlank();
             }
         }
+        int footerRows = TEMPLATE_LAST_ROW - TEMPLATE_FOOTER_ROW + 1;
+        clearRows(sheet, footerStartRow + footerRows, TEMPLATE_LAST_ROW);
         return footerStartRow;
+    }
+
+    private void clearRows(Sheet sheet, int firstRow, int lastRow)
+    {
+        if (firstRow > lastRow) return;
+        for (int i = sheet.getNumMergedRegions() - 1; i >= 0; i--)
+        {
+            CellRangeAddress region = sheet.getMergedRegion(i);
+            if (region.getFirstRow() >= firstRow && region.getFirstRow() <= lastRow)
+                sheet.removeMergedRegion(i);
+        }
+        for (int rowIndex = firstRow; rowIndex <= lastRow; rowIndex++)
+        {
+            Row row = sheet.getRow(rowIndex);
+            if (row == null) continue;
+            for (int column = 0; column < 13; column++)
+            {
+                Cell cell = row.getCell(column);
+                if (cell != null) cell.setBlank();
+            }
+        }
     }
 
     private void validateAndCalculate(CustomsDeclarationRequest request)

@@ -20,7 +20,6 @@
                 v-hasPermi="['customs:declaration:import']">批量导入 SKU</el-dropdown-item>
               <el-dropdown-item command="save" icon="Finished" :disabled="saving"
                 v-hasPermi="['customs:product:edit']">保存至商品库</el-dropdown-item>
-              <el-dropdown-item command="clear" icon="Delete" divided>清空商品明细</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -268,7 +267,6 @@ function handleToolbarCommand(command) {
     history: openHistoryFile,
     sku: openSkuFile,
     save: handleSaveProducts,
-    clear: handleClear
   }
   actions[command]?.()
 }

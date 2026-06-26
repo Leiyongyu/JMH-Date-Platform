@@ -174,4 +174,9 @@
         </choose>
     </select>
 
+    <select id="selectDistinctSidShipment" resultType="map">
+        SELECT DISTINCT sid, shipment_id FROM amz_fba_shipment
+        WHERE shipment_id IS NOT NULL AND shipment_id != ''
+    </select>
+
 </mapper>

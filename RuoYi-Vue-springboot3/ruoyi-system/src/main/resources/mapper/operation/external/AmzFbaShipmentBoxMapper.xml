@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.AmzFbaShipmentBoxMapper">
+
+    <delete id="deleteByShipmentId">
+        DELETE FROM amz_fba_shipment_box WHERE shipment_id = #{shipmentId}
+    </delete>
+
+    <insert id="batchInsert" parameterType="java.util.List">
+        INSERT IGNORE INTO amz_fba_shipment_box (
+            sid, shipment_id, box_type,
+            box_length, box_width, box_height, box_weight,
+            box_dimensions_unit, box_weight_unit, box_num,
+            msku, sku, fulfillment_network_sku, quantity_in_case
+        ) VALUES
+        <foreach collection="list" item="e" separator=",">
+        (
+            #{e.sid}, #{e.shipmentId}, #{e.boxType},
+            #{e.boxLength}, #{e.boxWidth}, #{e.boxHeight}, #{e.boxWeight},
+            #{e.boxDimensionsUnit}, #{e.boxWeightUnit}, #{e.boxNum},
+            #{e.msku}, #{e.sku}, #{e.fulfillmentNetworkSku}, #{e.quantityInCase}
+        )
+        </foreach>
+    </insert>
+
+    <update id="updateSkuFromListing">
+        UPDATE amz_fba_shipment_box b
+        JOIN amz_product_listing p ON b.msku = p.seller_sku
+        SET b.sku = p.local_sku
+        WHERE b.sku IS NULL
+    </update>
+
+</mapper>

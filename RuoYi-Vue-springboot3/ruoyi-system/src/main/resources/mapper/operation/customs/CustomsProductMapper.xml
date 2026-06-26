@@ -95,9 +95,9 @@
             IFNULL(w.name, ''),
             '', '', '照章', IFNULL(po.is_tax, 0)
         FROM overseas_stock_order_detail od
-        LEFT JOIN customs_inventory_list il ON REPLACE(od.product_code, 'JMH-', '') = REPLACE(il.sku, 'JMH', '')
+        LEFT JOIN customs_inventory_list il ON REPLACE(od.product_code, 'JMH-', '') COLLATE utf8mb4_unicode_ci = REPLACE(il.sku, 'JMH', '')
         LEFT JOIN warehouse w ON od.r_wid = w.wid
-        LEFT JOIN purchase_order po ON od.sku = po.item_sku
+        LEFT JOIN purchase_order po ON od.sku COLLATE utf8mb4_unicode_ci = po.item_sku
         WHERE od.product_code LIKE 'JMH-%'
         ON DUPLICATE KEY UPDATE
             source_location = VALUES(source_location),
