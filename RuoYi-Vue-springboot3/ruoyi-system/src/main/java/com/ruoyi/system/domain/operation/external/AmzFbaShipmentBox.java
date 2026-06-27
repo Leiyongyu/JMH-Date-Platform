@@ -21,6 +21,7 @@ public class AmzFbaShipmentBox implements Serializable
     private Integer boxNum;
     private String msku;
     private String sku;
+    private String productName;
     private String fulfillmentNetworkSku;
     private String quantityInCase;
     private Date createTime;
@@ -51,6 +52,8 @@ public class AmzFbaShipmentBox implements Serializable
     public void setMsku(String v) { this.msku = v; }
     public String getSku() { return sku; }
     public void setSku(String v) { this.sku = v; }
+    public String getProductName() { return productName; }
+    public void setProductName(String v) { this.productName = v; }
     public String getFulfillmentNetworkSku() { return fulfillmentNetworkSku; }
     public void setFulfillmentNetworkSku(String v) { this.fulfillmentNetworkSku = v; }
     public String getQuantityInCase() { return quantityInCase; }

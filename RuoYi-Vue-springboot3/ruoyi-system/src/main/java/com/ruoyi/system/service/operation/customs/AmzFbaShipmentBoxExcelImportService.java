@@ -103,6 +103,7 @@ public class AmzFbaShipmentBoxExcelImportService
             row.setBoxNum(source.boxNum);
             row.setMsku(source.msku);
             row.setSku(source.sku);
+            row.setProductName(source.productName);
             row.setFulfillmentNetworkSku(source.fnsku);
             row.setQuantityInCase(source.quantityInCase);
             rows.add(row);
@@ -170,6 +171,7 @@ public class AmzFbaShipmentBoxExcelImportService
             parsed.msku = msku;
             parsed.sku = sku;
             parsed.fnsku = fnsku;
+            parsed.productName = cell(row, cols, "品名", formatter);
             parsed.quantityInCase = firstText(cell(row, cols, "单箱数量", formatter), cell(row, cols, "申报量", formatter));
             parsed.boxWeight = firstText(cell(row, cols, "箱子毛重", formatter), cell(row, cols, "总重量-箱子", formatter));
             parsed.boxLength = cell(row, cols, "箱子长度", formatter);
@@ -293,6 +295,7 @@ public class AmzFbaShipmentBoxExcelImportService
         String msku;
         String sku;
         String fnsku;
+        String productName;
         String quantityInCase;
     }
 }

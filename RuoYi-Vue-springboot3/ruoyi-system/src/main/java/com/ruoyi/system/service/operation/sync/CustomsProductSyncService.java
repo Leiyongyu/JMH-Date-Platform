@@ -6,7 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/** 报关产品库同步：overseas_stock_order_detail + customs_inventory_list → customs_products_list */
+/** 报关产品库同步：备货单详情 + FBA装箱明细 + 出入库清单 → customs_products_list */
 @Service
 public class CustomsProductSyncService
 {
@@ -19,8 +19,15 @@ public class CustomsProductSyncService
     public OperationSyncResult sync() throws Exception
     {
         long start = System.currentTimeMillis();
-        int rows = mapper.refreshFromJoin();
-        LOG.info("报关产品库同步完成: {} 条", rows);
-        return OperationSyncResult.success("customs_product", "报关产品库同步", "sql/join", rows, rows, System.currentTimeMillis() - start);
+        int beforeCount = mapper.countAll();
+        int overseasRows = mapper.refreshFromJoin();
+        int amzRows = mapper.insertMissingFromAmzShipmentBox();
+        int afterCount = mapper.countAll();
+        int insertedRows = Math.max(afterCount - beforeCount, 0);
+        int affectedRows = overseasRows + amzRows;
+        LOG.info("报关产品库同步完成: SQL影响{}条(备货单{}, AMZ装箱{}), 实际新增{}条, 当前商品库{}条",
+                affectedRows, overseasRows, amzRows, insertedRows, afterCount);
+        return OperationSyncResult.success("customs_product", "报关产品库同步", "sql/join",
+                afterCount, insertedRows, System.currentTimeMillis() - start);
     }
 }

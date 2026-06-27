@@ -40,6 +40,10 @@
         SELECT <include refid="columns"/> FROM customs_products_list WHERE sku = #{sku} LIMIT 1
     </select>
 
+    <select id="countAll" resultType="int">
+        SELECT COUNT(1) FROM customs_products_list
+    </select>
+
     <select id="selectBySkus" resultMap="CustomsProductResult">
         SELECT <include refid="columns"/> FROM customs_products_list
         WHERE sku IN
@@ -93,7 +97,9 @@
             IFNULL(od.cg_box_weight, 0),
             '中国',
             IFNULL(w.name, ''),
-            '', '', '照章', IFNULL(po.is_tax, 0)
+            IFNULL(REGEXP_SUBSTR(TRIM(IFNULL(il.declaration_elements, '')), '^[0-9]+'), ''),
+            TRIM(REGEXP_REPLACE(TRIM(IFNULL(il.declaration_elements, '')), '^[0-9]+[[:space:]]*', '')),
+            '照章', IFNULL(po.is_tax, 0)
         FROM overseas_stock_order_detail od
         LEFT JOIN customs_inventory_list il ON REPLACE(od.product_code, 'JMH-', '') COLLATE utf8mb4_unicode_ci = REPLACE(il.sku, 'JMH', '')
         LEFT JOIN warehouse w ON od.r_wid = w.wid
@@ -111,5 +117,76 @@
             exemption = VALUES(exemption),
             is_tax = VALUES(is_tax),
             updated_at = NOW()
+    </insert>
+
+    <insert id="insertMissingFromAmzShipmentBox">
+        INSERT IGNORE INTO customs_products_list
+        (sku, source_location, description_cn, model, unit, unit_price_usd, currency, single_weight,
+         origin_country, destination_country, hs_code, hs_description, exemption, is_tax)
+        SELECT
+            src.sku,
+            src.source_location,
+            IFNULL(NULLIF(src.product_name, ''), ''),
+            '无型号',
+            IFNULL(src.unit, ''),
+            IF(src.tax_included_price IS NOT NULL AND src.tax_included_price REGEXP '^[0-9.]+(/[0-9.]+)*$',
+               CAST(SUBSTRING_INDEX(src.tax_included_price, '/', -1) AS DECIMAL(10,2)),
+               0),
+            'USD',
+            IFNULL(src.single_weight, 0),
+            '中国',
+            src.country_name,
+            IFNULL(REGEXP_SUBSTR(TRIM(IFNULL(src.declaration_elements, '')), '^[0-9]+'), ''),
+            TRIM(REGEXP_REPLACE(TRIM(IFNULL(src.declaration_elements, '')), '^[0-9]+[[:space:]]*', '')),
+            '照章', 0
+        FROM (
+            SELECT
+                b.sku,
+                COALESCE(NULLIF(il.product_name, ''), NULLIF(b.product_name, '')) AS product_name,
+                il.unit,
+                il.tax_included_price,
+                il.declaration_elements,
+                IF(il.product_code IS NOT NULL,
+                   REPLACE(REPLACE(
+                       IF(REPLACE(il.product_code, '\n', '') REGEXP '[（(]',
+                          SUBSTRING_INDEX(REPLACE(REPLACE(REPLACE(il.product_code, '\n', ''), '(', '（'), ')', '）'), '（', -1),
+                          ''),
+                       '）', ''), ')', ''), '') AS source_location,
+                IF(b.box_weight IS NOT NULL AND b.box_weight REGEXP '^[0-9.]+$',
+                   CAST(b.box_weight AS DECIMAL(10,4)),
+                   0) AS single_weight,
+                CASE UPPER(IFNULL(s.ship_to_country_code, ''))
+                    WHEN 'DE' THEN '德国'
+                    WHEN 'US' THEN '美国'
+                    WHEN 'GB' THEN '英国'
+                    WHEN 'UK' THEN '英国'
+                    WHEN 'ES' THEN '西班牙'
+                    WHEN 'CN' THEN '中国'
+                    WHEN 'FR' THEN '法国'
+                    WHEN 'PL' THEN '波兰'
+                    WHEN 'IT' THEN '意大利'
+                    ELSE IFNULL(s.ship_to_country_code, '')
+                END AS country_name
+            FROM amz_fba_shipment_box b
+            INNER JOIN (
+                SELECT sku, MIN(id) AS id
+                FROM amz_fba_shipment_box
+                WHERE sku IS NOT NULL AND sku != ''
+                GROUP BY sku
+            ) pick ON b.id = pick.id
+            LEFT JOIN (
+                SELECT il1.*
+                FROM customs_inventory_list il1
+                INNER JOIN (
+                    SELECT sku, MIN(id) AS id
+                    FROM customs_inventory_list
+                    WHERE sku IS NOT NULL AND sku != ''
+                    GROUP BY sku
+                ) il_pick ON il1.id = il_pick.id
+            ) il ON b.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
+            LEFT JOIN amz_fba_shipment s
+                ON b.shipment_id COLLATE utf8mb4_unicode_ci = s.shipment_id COLLATE utf8mb4_unicode_ci
+        ) src
+        WHERE src.sku IS NOT NULL AND src.sku != ''
     </insert>
 </mapper>

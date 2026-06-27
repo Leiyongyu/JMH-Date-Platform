@@ -17,12 +17,29 @@ CREATE TABLE IF NOT EXISTS `amz_fba_shipment_box`  (
   `box_num` int NULL DEFAULT 1 COMMENT '箱数',
   `msku` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '货件MSKU',
   `sku` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT 'local_sku(从amz_product_listing映射)',
+  `product_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '商品名称',
   `fulfillment_network_sku` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT 'FNSKU',
   `quantity_in_case` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '单箱数量',
   `create_time` datetime NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_ship_box_msku`(`sid` ASC, `shipment_id` ASC, `box_num` ASC, `msku` ASC) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'FBA货件装箱信息' ROW_FORMAT = Dynamic;
+
+-- Existing table supplement: amz_fba_shipment_box.product_name
+SET @col_exists := (
+  SELECT COUNT(1)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'amz_fba_shipment_box'
+    AND COLUMN_NAME = 'product_name'
+);
+SET @sql := IF(@col_exists = 0,
+  'ALTER TABLE `amz_fba_shipment_box` ADD COLUMN `product_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT ''商品名称'' AFTER `sku`',
+  'SELECT ''amz_fba_shipment_box.product_name already exists'''
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- Missing table: customs_inventory_list
 CREATE TABLE IF NOT EXISTS `customs_inventory_list`  (
