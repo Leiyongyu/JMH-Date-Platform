@@ -29,10 +29,9 @@ public class AmzFbaShipmentBoxSyncService
                                          AmzFbaShipmentMapper shipmentMapper, ShopListMapper shopMapper, ObjectMapper om)
     { this.gw = gw; this.mapper = mapper; this.shipmentMapper = shipmentMapper; this.shopMapper = shopMapper; this.om = om; }
 
-    /** 表空全量拉，有数据拉最近5天 */
+    /** 日常同步只拉最近5天；历史初始化使用页面 Excel 导入，避免逐单接口慢拉全量。 */
     public OperationSyncResult sync() throws Exception {
-        int days = mapper.count() == 0 ? 365 : 5;
-        return sync(days);
+        return sync(5);
     }
 
     /** 全量拉取：最近N天已完成的货件 */

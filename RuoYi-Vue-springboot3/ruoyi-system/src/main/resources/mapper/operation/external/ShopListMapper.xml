@@ -71,4 +71,11 @@
         ORDER BY store_name
     </select>
 
+    <select id="selectByPlatformStatus" resultMap="ShopListResult">
+        SELECT * FROM shop_list
+        WHERE platform_code = #{platformCode}
+        <if test="status != null">AND status = #{status}</if>
+        ORDER BY store_name
+    </select>
+
 </mapper>

@@ -6,6 +6,7 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.system.domain.operation.customs.CustomsDeclarationRequest;
 import com.ruoyi.system.domain.operation.customs.CustomsProduct;
+import com.ruoyi.system.service.operation.customs.AmzFbaShipmentBoxExcelImportService;
 import com.ruoyi.system.service.operation.customs.CustomsDeclarationExportService;
 import com.ruoyi.system.service.operation.customs.CustomsProductService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -29,12 +30,15 @@ public class CustomsDeclarationController extends BaseController
 {
     private final CustomsProductService productService;
     private final CustomsDeclarationExportService exportService;
+    private final AmzFbaShipmentBoxExcelImportService shipmentBoxImportService;
 
     public CustomsDeclarationController(CustomsProductService productService,
-                                        CustomsDeclarationExportService exportService)
+                                        CustomsDeclarationExportService exportService,
+                                        AmzFbaShipmentBoxExcelImportService shipmentBoxImportService)
     {
         this.productService = productService;
         this.exportService = exportService;
+        this.shipmentBoxImportService = shipmentBoxImportService;
     }
 
     @PreAuthorize("@ss.hasPermi('customs:declaration:query')")
@@ -66,6 +70,15 @@ public class CustomsDeclarationController extends BaseController
     public AjaxResult importHistory(@RequestParam("file") MultipartFile file)
     {
         try { return success(productService.importHistory(file)); }
+        catch (Exception e) { return error(e.getMessage()); }
+    }
+
+    @Log(title = "FBA装箱明细导入", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('customs:declaration:import')")
+    @PostMapping("/import-fba-shipment-box")
+    public AjaxResult importFbaShipmentBox(@RequestParam("file") MultipartFile file)
+    {
+        try { return success(shipmentBoxImportService.importFile(file)); }
         catch (Exception e) { return error(e.getMessage()); }
     }
 

@@ -6,6 +6,24 @@
         SELECT COUNT(1) FROM amz_fba_shipment_box
     </select>
 
+    <select id="selectExistingShipmentIds" resultType="String">
+        SELECT DISTINCT shipment_id FROM amz_fba_shipment_box
+        WHERE shipment_id IN
+        <foreach collection="shipmentIds" item="shipmentId" open="(" separator="," close=")">
+            #{shipmentId}
+        </foreach>
+    </select>
+
+    <select id="selectSidByShipmentIds" resultType="map">
+        SELECT shipment_id, MIN(sid) AS sid
+        FROM amz_fba_shipment
+        WHERE shipment_id IN
+        <foreach collection="shipmentIds" item="shipmentId" open="(" separator="," close=")">
+            #{shipmentId}
+        </foreach>
+        GROUP BY shipment_id
+    </select>
+
     <delete id="deleteByShipmentId">
         DELETE FROM amz_fba_shipment_box WHERE shipment_id = #{shipmentId}
     </delete>

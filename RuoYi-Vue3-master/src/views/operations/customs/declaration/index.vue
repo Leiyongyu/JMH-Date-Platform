@@ -8,9 +8,9 @@
       <div class="toolbar">
         <el-button type="primary" icon="Download" :loading="exporting" @click="handleExport"
           v-hasPermi="['customs:declaration:export']">导出报关单</el-button>
-        <el-dropdown trigger="click" @command="handleToolbarCommand">
-          <el-button>
-            更多操作<el-icon class="dropdown-icon"><ArrowDown /></el-icon>
+        <el-dropdown trigger="click" @command="handleToolbarCommand" :disabled="fbaBoxImporting">
+          <el-button :loading="fbaBoxImporting">
+            {{ fbaBoxImporting ? '导入中' : '更多操作' }}<el-icon v-if="!fbaBoxImporting" class="dropdown-icon"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
@@ -18,6 +18,8 @@
                 v-hasPermi="['customs:declaration:import']">导入历史报关单</el-dropdown-item>
               <el-dropdown-item command="sku" icon="DocumentAdd"
                 v-hasPermi="['customs:declaration:import']">批量导入 SKU</el-dropdown-item>
+              <el-dropdown-item command="fbaBox" icon="Box" :disabled="fbaBoxImporting"
+                v-hasPermi="['customs:declaration:import']">导入 FBA 装箱明细</el-dropdown-item>
               <el-dropdown-item command="save" icon="Finished" :disabled="saving"
                 v-hasPermi="['customs:product:edit']">保存至商品库</el-dropdown-item>
             </el-dropdown-menu>
@@ -26,6 +28,7 @@
       </div>
       <input ref="historyFileRef" class="file-input" type="file" accept=".xlsx" multiple @change="handleHistoryFile">
       <input ref="skuFileRef" class="file-input" type="file" accept=".xlsx" @change="handleSkuFile">
+      <input ref="fbaBoxFileRef" class="file-input" type="file" accept=".xlsx" @change="handleFbaBoxFile">
     </div>
 
     <section class="declaration-sheet">
@@ -162,6 +165,7 @@ import { saveAs } from 'file-saver'
 import { blobValidate } from '@/utils/ruoyi'
 import {
   exportCustomsDeclaration,
+  importFbaShipmentBox,
   importCustomsHistory,
   importCustomsSkus,
   saveCustomsProducts,
@@ -171,9 +175,11 @@ import {
 const { proxy } = getCurrentInstance()
 const historyFileRef = ref()
 const skuFileRef = ref()
+const fbaBoxFileRef = ref()
 const searching = ref(false)
 const saving = ref(false)
 const exporting = ref(false)
+const fbaBoxImporting = ref(false)
 const headerExpanded = ref(false)
 const productOptions = ref([])
 let keySeed = 0
@@ -261,11 +267,13 @@ function removeRow(index) {
 
 function openHistoryFile() { historyFileRef.value?.click() }
 function openSkuFile() { skuFileRef.value?.click() }
+function openFbaBoxFile() { fbaBoxFileRef.value?.click() }
 
 function handleToolbarCommand(command) {
   const actions = {
     history: openHistoryFile,
     sku: openSkuFile,
+    fbaBox: openFbaBoxFile,
     save: handleSaveProducts,
   }
   actions[command]?.()
@@ -316,6 +324,32 @@ async function handleSkuFile(event) {
     if (missing.length) proxy.$modal.msgWarning(`已加载 ${loaded.length} 个商品，${missing.length} 个未找到`)
     else proxy.$modal.msgSuccess(`已加载 ${loaded.length} 个商品`)
   } finally {
+    event.target.value = ''
+  }
+}
+
+async function handleFbaBoxFile(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  fbaBoxImporting.value = true
+  proxy.$modal.loading('正在导入 FBA 装箱明细，请稍候...')
+  try {
+    const response = await importFbaShipmentBox(file)
+    const result = response.data || {}
+    const message = `FBA 装箱明细导入完成：读取 ${result.readRows || 0} 行，新增 ${result.insertedRows || 0} 行，货件 ${result.importedShipments || 0} 个`
+      + (result.skippedExistingShipments ? `，跳过已存在货件 ${result.skippedExistingShipments} 个` : '')
+      + (result.failedRows ? `，失败 ${result.failedRows} 行` : '')
+      + (result.unmatchedShops?.length ? `，未匹配店铺 ${result.unmatchedShops.length} 个` : '')
+    if (result.failedRows || result.unmatchedShops?.length) {
+      proxy.$alert(message, '导入完成但有异常', { type: 'warning' })
+    } else {
+      proxy.$alert(message, '导入成功', { type: 'success' })
+    }
+  } catch (error) {
+    proxy.$modal.msgError(`FBA 装箱明细导入失败：${error?.message || error || '请查看后台日志'}`)
+  } finally {
+    proxy.$modal.closeLoading()
+    fbaBoxImporting.value = false
     event.target.value = ''
   }
 }

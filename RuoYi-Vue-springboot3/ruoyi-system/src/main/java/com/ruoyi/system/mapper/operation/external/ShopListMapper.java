@@ -31,6 +31,10 @@ public interface ShopListMapper
     /** 按平台查去重店铺名称 */
     List<String> selectStoreNamesByPlatform(@Param("platformCode") String platformCode);
 
+    /** 按平台和状态查店铺列表 */
+    List<ShopList> selectByPlatformStatus(@Param("platformCode") String platformCode,
+                                          @Param("status") Integer status);
+
     /** 内部类：联合键 */
     class ShopListKey
     {
