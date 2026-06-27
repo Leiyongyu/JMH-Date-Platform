@@ -34,6 +34,18 @@ export function importCustomsHistory(file) {
   })
 }
 
+export function importFbaShipmentBox(file) {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/operations/customs/declaration/import-fba-shipment-box',
+    method: 'post',
+    data,
+    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false },
+    timeout: FILE_TIMEOUT
+  })
+}
+
 export function saveCustomsProducts(data) {
   return request({
     url: '/operations/customs/declaration/products',
