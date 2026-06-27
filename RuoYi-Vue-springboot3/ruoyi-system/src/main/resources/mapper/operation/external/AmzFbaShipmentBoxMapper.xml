@@ -2,6 +2,10 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ruoyi.system.mapper.operation.external.AmzFbaShipmentBoxMapper">
 
+    <select id="count" resultType="int">
+        SELECT COUNT(1) FROM amz_fba_shipment_box
+    </select>
+
     <delete id="deleteByShipmentId">
         DELETE FROM amz_fba_shipment_box WHERE shipment_id = #{shipmentId}
     </delete>
@@ -25,7 +29,7 @@
 
     <update id="updateSkuFromListing">
         UPDATE amz_fba_shipment_box b
-        JOIN amz_product_listing p ON b.msku = p.seller_sku
+        JOIN amz_product_listing p ON b.msku COLLATE utf8mb4_unicode_ci = p.seller_sku
         SET b.sku = p.local_sku
         WHERE b.sku IS NULL
     </update>

@@ -5,6 +5,7 @@ import java.util.List;
 
 public interface AmzFbaShipmentBoxMapper
 {
+    int count();
     int deleteByShipmentId(String shipmentId);
     int batchInsert(List<AmzFbaShipmentBox> list);
 

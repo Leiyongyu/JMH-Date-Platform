@@ -179,4 +179,11 @@
         WHERE shipment_id IS NOT NULL AND shipment_id != ''
     </select>
 
+    <select id="selectClosedSidShipmentByDays" resultType="map">
+        SELECT DISTINCT sid, shipment_id FROM amz_fba_shipment
+        WHERE shipment_status = 'CLOSED'
+          AND shipment_id IS NOT NULL AND shipment_id != ''
+          AND working_time >= DATE_SUB(NOW(), INTERVAL #{days} DAY)
+    </select>
+
 </mapper>

@@ -26,4 +26,7 @@ public interface AmzFbaShipmentMapper
 
     /** 去重 sid + shipment_id（用于装箱信息同步） */
     List<Map<String, Object>> selectDistinctSidShipment();
+
+    /** 已完成货件的 sid + shipment_id，按最近N天筛选 */
+    List<Map<String, Object>> selectClosedSidShipmentByDays(@Param("days") int days);
 }

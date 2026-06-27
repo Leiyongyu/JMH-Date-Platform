@@ -29,13 +29,20 @@ public class AmzFbaShipmentBoxSyncService
                                          AmzFbaShipmentMapper shipmentMapper, ShopListMapper shopMapper, ObjectMapper om)
     { this.gw = gw; this.mapper = mapper; this.shipmentMapper = shipmentMapper; this.shopMapper = shopMapper; this.om = om; }
 
-    public OperationSyncResult sync() throws Exception
+    /** 表空全量拉，有数据拉最近5天 */
+    public OperationSyncResult sync() throws Exception {
+        int days = mapper.count() == 0 ? 365 : 5;
+        return sync(days);
+    }
+
+    /** 全量拉取：最近N天已完成的货件 */
+    public OperationSyncResult sync(int days) throws Exception
     {
         long start = System.currentTimeMillis();
         List<String> sids = shopMapper.selectSidsByPlatform("10001", 1);
-        // 从 amz_fba_shipment 获取去重的 shipment_id
-        List<Map<String, Object>> refs = shipmentMapper.selectDistinctSidShipment();
-        LOG.info("FBA装箱信息 共 {} 个sid, {} 条货件", sids.size(), refs.size());
+        // CLOSED货件 + 最近N天
+        List<Map<String, Object>> refs = shipmentMapper.selectClosedSidShipmentByDays(days);
+        LOG.info("FBA装箱信息 共 {} 个sid, {} 条已完成货件(最近{}天)", sids.size(), refs.size(), days);
 
         int total = 0;
         for (Map<String, Object> ref : refs)
