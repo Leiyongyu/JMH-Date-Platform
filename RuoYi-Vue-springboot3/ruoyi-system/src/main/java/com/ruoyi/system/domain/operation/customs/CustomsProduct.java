@@ -16,6 +16,12 @@ public class CustomsProduct implements Serializable
     private BigDecimal unitPriceUsd;
     private String currency;
     private BigDecimal singleWeight;
+    private BigDecimal packingNetWeight;
+    private BigDecimal packingGrossWeight;
+    private BigDecimal packingCbm;
+    private BigDecimal boxLength;
+    private BigDecimal boxWidth;
+    private BigDecimal boxHeight;
     private String hsCode;
     private String hsDescription;
     private String originCountry;
@@ -41,6 +47,18 @@ public class CustomsProduct implements Serializable
     public void setCurrency(String currency) { this.currency = currency; }
     public BigDecimal getSingleWeight() { return singleWeight; }
     public void setSingleWeight(BigDecimal singleWeight) { this.singleWeight = singleWeight; }
+    public BigDecimal getPackingNetWeight() { return packingNetWeight; }
+    public void setPackingNetWeight(BigDecimal packingNetWeight) { this.packingNetWeight = packingNetWeight; }
+    public BigDecimal getPackingGrossWeight() { return packingGrossWeight; }
+    public void setPackingGrossWeight(BigDecimal packingGrossWeight) { this.packingGrossWeight = packingGrossWeight; }
+    public BigDecimal getPackingCbm() { return packingCbm; }
+    public void setPackingCbm(BigDecimal packingCbm) { this.packingCbm = packingCbm; }
+    public BigDecimal getBoxLength() { return boxLength; }
+    public void setBoxLength(BigDecimal boxLength) { this.boxLength = boxLength; }
+    public BigDecimal getBoxWidth() { return boxWidth; }
+    public void setBoxWidth(BigDecimal boxWidth) { this.boxWidth = boxWidth; }
+    public BigDecimal getBoxHeight() { return boxHeight; }
+    public void setBoxHeight(BigDecimal boxHeight) { this.boxHeight = boxHeight; }
     public String getHsCode() { return hsCode; }
     public void setHsCode(String hsCode) { this.hsCode = hsCode; }
     public String getHsDescription() { return hsDescription; }

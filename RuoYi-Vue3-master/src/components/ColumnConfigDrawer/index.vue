@@ -14,7 +14,7 @@
           >
             <el-checkbox
               :model-value="editingKeys.includes(col.key)"
-              :disabled="fixedKeys.includes(col.key)"
+              :disabled="requiredKeys.includes(col.key)"
               @change="toggleColumn(col.key)"
             >
               {{ col.label }}
@@ -71,6 +71,10 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
+  requiredKeys: {
+    type: Array,
+    default: null
+  },
   visibleKeys: {
     type: Array,
     default: () => []
@@ -80,13 +84,14 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'apply'])
 const editingKeys = ref([])
 const dragIndex = ref(null)
+const requiredKeys = computed(() => props.requiredKeys || props.fixedKeys)
 
 const drawerVisible = computed({
   get: () => props.modelValue,
   set: (val) => emit('update:modelValue', val)
 })
 
-const allNonFixedKeys = computed(() => props.columns.map((col) => col.key).filter((key) => !props.fixedKeys.includes(key)))
+const allNonFixedKeys = computed(() => props.columns.map((col) => col.key).filter((key) => !requiredKeys.value.includes(key)))
 const selectedColumns = computed(() => editingKeys.value.map((key) => props.columns.find((col) => col.key === key)).filter(Boolean))
 const allChecked = computed(() => allNonFixedKeys.value.every((key) => editingKeys.value.includes(key)))
 const indeterminate = computed(() => allNonFixedKeys.value.some((key) => editingKeys.value.includes(key)) && !allChecked.value)
@@ -97,30 +102,35 @@ watch(() => props.modelValue, (val) => {
 
 function normalizeKeys(keys) {
   const allKeys = props.columns.map((col) => col.key)
+  const valid = Array.isArray(keys) ? keys.filter((key) => allKeys.includes(key)) : []
+  const validSet = new Set(valid)
   const next = []
-  props.fixedKeys.forEach((key) => {
+  requiredKeys.value.forEach((key) => {
     if (allKeys.includes(key) && !next.includes(key)) next.push(key)
   })
-  ;(Array.isArray(keys) ? keys : []).forEach((key) => {
-    if (allKeys.includes(key) && !next.includes(key)) next.push(key)
+  props.fixedKeys.forEach((key) => {
+    if (allKeys.includes(key) && validSet.has(key) && !next.includes(key)) next.push(key)
+  })
+  valid.forEach((key) => {
+    if (!props.fixedKeys.includes(key) && !next.includes(key)) next.push(key)
   })
   return next
 }
 
 function toggleAll() {
   if (allChecked.value) {
-    editingKeys.value = props.fixedKeys.filter((key) => props.columns.some((col) => col.key === key))
+    editingKeys.value = requiredKeys.value.filter((key) => props.columns.some((col) => col.key === key))
   } else {
     editingKeys.value = props.columns.map((col) => col.key)
   }
 }
 
 function toggleColumn(key) {
-  if (props.fixedKeys.includes(key)) return
+  if (requiredKeys.value.includes(key)) return
   if (editingKeys.value.includes(key)) {
     editingKeys.value = editingKeys.value.filter((item) => item !== key)
   } else {
-    editingKeys.value.push(key)
+    editingKeys.value = normalizeKeys([...editingKeys.value, key])
   }
 }
 

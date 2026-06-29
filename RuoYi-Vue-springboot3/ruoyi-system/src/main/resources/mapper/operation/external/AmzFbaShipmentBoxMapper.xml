@@ -31,14 +31,14 @@
     <insert id="batchInsert" parameterType="java.util.List">
         INSERT IGNORE INTO amz_fba_shipment_box (
             sid, shipment_id, box_type,
-            box_length, box_width, box_height, box_weight,
+            box_length, box_width, box_height, box_weight, box_volume,
             box_dimensions_unit, box_weight_unit, box_num,
             msku, sku, product_name, fulfillment_network_sku, quantity_in_case
         ) VALUES
         <foreach collection="list" item="e" separator=",">
         (
             #{e.sid}, #{e.shipmentId}, #{e.boxType},
-            #{e.boxLength}, #{e.boxWidth}, #{e.boxHeight}, #{e.boxWeight},
+            #{e.boxLength}, #{e.boxWidth}, #{e.boxHeight}, #{e.boxWeight}, #{e.boxVolume},
             #{e.boxDimensionsUnit}, #{e.boxWeightUnit}, #{e.boxNum},
             #{e.msku}, #{e.sku}, #{e.productName}, #{e.fulfillmentNetworkSku}, #{e.quantityInCase}
         )

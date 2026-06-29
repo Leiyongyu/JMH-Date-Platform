@@ -75,7 +75,7 @@
             product_code,
             product_name,
             sku,
-            unit,
+            customs_unit AS unit,
             NULL AS purchase_quantity,
             NULL AS tax_included_price,
             NULL AS purchase_date,
@@ -93,7 +93,7 @@
             NULL AS fba_fr_qty,
             NULL AS remaining_stock,
             NULL AS remark,
-            NULL AS customs_unit,
+            customs_unit AS customs_unit,
             NULL AS declaration_elements,
             NULL AS created_at,
             NULL AS updated_at
@@ -102,7 +102,7 @@
             AND (product_code IS NOT NULL AND product_code != ''
                 OR product_name IS NOT NULL AND product_name != ''
                 OR sku IS NOT NULL AND sku != ''
-                OR unit IS NOT NULL AND unit != '')
+                OR customs_unit IS NOT NULL AND customs_unit != '')
             <if test="productCode != null and productCode != ''">
                 AND product_code LIKE CONCAT('%', #{productCode}, '%')
             </if>
@@ -113,10 +113,10 @@
                 AND sku LIKE CONCAT('%', #{sku}, '%')
             </if>
             <if test="unit != null and unit != ''">
-                AND unit LIKE CONCAT('%', #{unit}, '%')
+                AND customs_unit LIKE CONCAT('%', #{unit}, '%')
             </if>
         </where>
-        GROUP BY product_code, product_name, sku, unit
+        GROUP BY product_code, product_name, sku, customs_unit
         ORDER BY
             CASE
                 WHEN #{sku} IS NOT NULL AND #{sku} != '' AND sku = #{sku} THEN 0

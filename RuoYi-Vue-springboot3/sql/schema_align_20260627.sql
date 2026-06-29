@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS `amz_fba_shipment_box`  (
   `box_width` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '箱子宽',
   `box_height` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '箱子高',
   `box_weight` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '箱子重',
+  `box_volume` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '箱子体积m3',
   `box_dimensions_unit` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT 'cm' COMMENT '长度单位',
   `box_weight_unit` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT 'kg' COMMENT '重量单位',
   `box_num` int NULL DEFAULT 1 COMMENT '箱数',
@@ -36,6 +37,22 @@ SET @col_exists := (
 SET @sql := IF(@col_exists = 0,
   'ALTER TABLE `amz_fba_shipment_box` ADD COLUMN `product_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT ''商品名称'' AFTER `sku`',
   'SELECT ''amz_fba_shipment_box.product_name already exists'''
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Existing table supplement: amz_fba_shipment_box.box_volume
+SET @col_exists := (
+  SELECT COUNT(1)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'amz_fba_shipment_box'
+    AND COLUMN_NAME = 'box_volume'
+);
+SET @sql := IF(@col_exists = 0,
+  'ALTER TABLE `amz_fba_shipment_box` ADD COLUMN `box_volume` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT ''箱子体积m3'' AFTER `box_weight`',
+  'SELECT ''amz_fba_shipment_box.box_volume already exists'''
 );
 PREPARE stmt FROM @sql;
 EXECUTE stmt;

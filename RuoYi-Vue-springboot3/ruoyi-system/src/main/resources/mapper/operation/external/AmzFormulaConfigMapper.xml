@@ -7,6 +7,7 @@
         <result property="regionGroup" column="region_group" />
         <result property="regionName" column="region_name" />
         <result property="marketplaces" column="marketplaces" />
+        <result property="strategyType" column="strategy_type" />
         <result property="salesWeight14d" column="sales_weight_14d" />
         <result property="salesWeight30d" column="sales_weight_30d" />
         <result property="salesWeight60d" column="sales_weight_60d" />
@@ -14,6 +15,15 @@
         <result property="safetyDays" column="safety_days" />
         <result property="shipDays" column="ship_days" />
         <result property="replenishDays" column="replenish_days" />
+        <result property="deductFbaStock" column="deduct_fba_stock" />
+        <result property="deductFbaInbound" column="deduct_fba_inbound" />
+        <result property="deductDomesticStock" column="deduct_domestic_stock" />
+        <result property="deductPurchasedQty" column="deduct_purchased_qty" />
+        <result property="deductPendingShipQty" column="deduct_pending_ship_qty" />
+        <result property="allowNegativeReplenish" column="allow_negative_replenish" />
+        <result property="minReplenishQty" column="min_replenish_qty" />
+        <result property="maxReplenishQty" column="max_replenish_qty" />
+        <result property="roundMode" column="round_mode" />
         <result property="enabled" column="enabled" />
         <result property="remark" column="remark" />
         <result property="formulaWeightedDaily" column="formula_weighted_daily" />
@@ -37,6 +47,7 @@
         UPDATE amz_replenishment_formula_config SET
             region_name = #{regionName},
             marketplaces = #{marketplaces},
+            strategy_type = COALESCE(#{strategyType}, 'CUSTOM'),
             sales_weight_14d = #{salesWeight14d},
             sales_weight_30d = #{salesWeight30d},
             sales_weight_60d = #{salesWeight60d},
@@ -44,6 +55,15 @@
             safety_days = #{safetyDays},
             ship_days = #{shipDays},
             replenish_days = #{replenishDays},
+            deduct_fba_stock = COALESCE(#{deductFbaStock}, 1),
+            deduct_fba_inbound = COALESCE(#{deductFbaInbound}, 1),
+            deduct_domestic_stock = COALESCE(#{deductDomesticStock}, 1),
+            deduct_purchased_qty = COALESCE(#{deductPurchasedQty}, 1),
+            deduct_pending_ship_qty = COALESCE(#{deductPendingShipQty}, 1),
+            allow_negative_replenish = COALESCE(#{allowNegativeReplenish}, 1),
+            min_replenish_qty = #{minReplenishQty},
+            max_replenish_qty = #{maxReplenishQty},
+            round_mode = COALESCE(#{roundMode}, 'NONE'),
             formula_weighted_daily = #{formulaWeightedDaily},
             formula_monthly = #{formulaMonthly},
             formula_safety = #{formulaSafety},
@@ -57,14 +77,24 @@
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO amz_replenishment_formula_config (
-            region_group, region_name, marketplaces,
+            region_group, region_name, marketplaces, strategy_type,
             sales_weight_14d, sales_weight_30d, sales_weight_60d,
             month_multiplier, safety_days, ship_days, replenish_days,
+            deduct_fba_stock, deduct_fba_inbound, deduct_domestic_stock,
+            deduct_purchased_qty, deduct_pending_ship_qty, allow_negative_replenish,
+            min_replenish_qty, max_replenish_qty, round_mode,
+            formula_weighted_daily, formula_monthly, formula_safety,
+            formula_ship, formula_replenish, formula_restock,
             enabled, remark
         ) VALUES (
-            #{regionGroup}, #{regionName}, #{marketplaces},
+            #{regionGroup}, #{regionName}, #{marketplaces}, COALESCE(#{strategyType}, 'CUSTOM'),
             #{salesWeight14d}, #{salesWeight30d}, #{salesWeight60d},
             #{monthMultiplier}, #{safetyDays}, #{shipDays}, #{replenishDays},
+            COALESCE(#{deductFbaStock}, 1), COALESCE(#{deductFbaInbound}, 1), COALESCE(#{deductDomesticStock}, 1),
+            COALESCE(#{deductPurchasedQty}, 1), COALESCE(#{deductPendingShipQty}, 1), COALESCE(#{allowNegativeReplenish}, 1),
+            #{minReplenishQty}, #{maxReplenishQty}, COALESCE(#{roundMode}, 'NONE'),
+            #{formulaWeightedDaily}, #{formulaMonthly}, #{formulaSafety},
+            #{formulaShip}, #{formulaReplenish}, #{formulaRestock},
             #{enabled}, #{remark}
         )
     </insert>

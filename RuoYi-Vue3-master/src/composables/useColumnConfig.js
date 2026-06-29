@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { getUserColumnConfig, saveUserColumnConfig } from '@/api/system/userColumnConfig'
 
-export function useColumnConfig(pageKey, columns, fixedKeys = []) {
+export function useColumnConfig(pageKey, columns, fixedKeys = [], requiredKeys = fixedKeys) {
   const showColumnDrawer = ref(false)
   const allKeys = columns.map((item) => item.key)
   const columnMap = new Map(columns.map((item) => [item.key, item]))
@@ -11,12 +11,16 @@ export function useColumnConfig(pageKey, columns, fixedKeys = []) {
 
   function normalizeKeys(keys, appendMissing = true) {
     const valid = Array.isArray(keys) ? keys.filter((key) => columnMap.has(key)) : []
+    const validSet = new Set(valid)
     const merged = []
-    fixedKeys.forEach((key) => {
+    requiredKeys.forEach((key) => {
       if (columnMap.has(key) && !merged.includes(key)) merged.push(key)
     })
+    fixedKeys.forEach((key) => {
+      if (columnMap.has(key) && !merged.includes(key) && (validSet.has(key) || appendMissing)) merged.push(key)
+    })
     valid.forEach((key) => {
-      if (!merged.includes(key)) merged.push(key)
+      if (!fixedKeys.includes(key) && !merged.includes(key)) merged.push(key)
     })
     if (appendMissing) {
       allKeys.forEach((key) => {

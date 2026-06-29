@@ -42,6 +42,65 @@
         <result property="imageUrl" column="image_url" />
     </resultMap>
 
+    <sql id="amzWeightedDailyExpr">
+        (COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5)
+        + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4)
+        + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1))
+    </sql>
+
+    <sql id="amzFbaDeductExpr">
+        (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_stock),1) = 1 THEN COALESCE(MAX(rs.fba_sellable),0) ELSE 0 END
+        + CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_inbound),1) = 1 THEN COALESCE(MAX(rs.fba_inbound),0) ELSE 0 END)
+    </sql>
+
+    <sql id="amzDomesticDeductExpr">
+        (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_domestic_stock),1) = 1 THEN COALESCE(MAX(wd.product_valid_num),0) ELSE 0 END)
+    </sql>
+
+    <sql id="amzPurchasedDeductExpr">
+        (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_purchased_qty),1) = 1 THEN COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) ELSE 0 END)
+    </sql>
+
+    <sql id="amzPendingDeductExpr">
+        (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_pending_ship_qty),1) = 1 THEN COALESCE(MAX(wd.product_lock_num),0) ELSE 0 END)
+    </sql>
+
+    <sql id="amzRawReplenishExpr">
+        (ROUND(<include refid="amzWeightedDailyExpr"/> * COALESCE(ANY_VALUE(fc.replenish_days),120), 2)
+        - <include refid="amzDomesticDeductExpr"/>
+        - <include refid="amzPurchasedDeductExpr"/>
+        - <include refid="amzFbaDeductExpr"/>
+        - <include refid="amzPendingDeductExpr"/>)
+    </sql>
+
+    <sql id="amzBaseReplenishExpr">
+        (CASE WHEN COALESCE(ANY_VALUE(fc.allow_negative_replenish),1) = 1
+              THEN <include refid="amzRawReplenishExpr"/>
+              ELSE GREATEST(<include refid="amzRawReplenishExpr"/>, 0)
+         END)
+    </sql>
+
+    <sql id="amzLimitedReplenishExpr">
+        (CASE
+            WHEN ANY_VALUE(fc.min_replenish_qty) IS NOT NULL AND ANY_VALUE(fc.max_replenish_qty) IS NOT NULL
+                THEN LEAST(ANY_VALUE(fc.max_replenish_qty), GREATEST(ANY_VALUE(fc.min_replenish_qty), <include refid="amzBaseReplenishExpr"/>))
+            WHEN ANY_VALUE(fc.min_replenish_qty) IS NOT NULL
+                THEN GREATEST(ANY_VALUE(fc.min_replenish_qty), <include refid="amzBaseReplenishExpr"/>)
+            WHEN ANY_VALUE(fc.max_replenish_qty) IS NOT NULL
+                THEN LEAST(ANY_VALUE(fc.max_replenish_qty), <include refid="amzBaseReplenishExpr"/>)
+            ELSE <include refid="amzBaseReplenishExpr"/>
+         END)
+    </sql>
+
+    <sql id="amzFinalReplenishExpr">
+        (CASE COALESCE(ANY_VALUE(fc.round_mode), 'NONE')
+            WHEN 'CEIL' THEN CEIL(<include refid="amzLimitedReplenishExpr"/>)
+            WHEN 'FLOOR' THEN FLOOR(<include refid="amzLimitedReplenishExpr"/>)
+            WHEN 'ROUND' THEN ROUND(<include refid="amzLimitedReplenishExpr"/>, 0)
+            ELSE <include refid="amzLimitedReplenishExpr"/>
+         END)
+    </sql>
+
     <!-- ==================================================================== -->
     <!-- 核心：INSERT...SELECT 聚合生成快照（from 旧项目 SQL）                    -->
     <!-- ==================================================================== -->
@@ -86,11 +145,11 @@
             MAX(rs.avg_sales_14d) AS sales_speed_14d,
             MAX(rs.avg_sales_30d) AS sales_speed_30d,
             MAX(rs.avg_sales_60d) AS sales_speed_60d,
-            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1)) * COALESCE(ANY_VALUE(fc.month_multiplier),30), 2) AS avg_monthly_sales,
-            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1)) * COALESCE(ANY_VALUE(fc.safety_days),90), 2) AS safety_stock,
-            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1)) * COALESCE(ANY_VALUE(fc.ship_days),90), 2) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) AS ship_qty,
-            ROUND((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1)) * COALESCE(ANY_VALUE(fc.replenish_days),120), 2) - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0) AS replenish_qty,
-            ROUND(((COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - ((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1)) * COALESCE(ANY_VALUE(fc.replenish_days),120) - COALESCE(MAX(wd.product_valid_num),0) - COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) - (COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - COALESCE(MAX(wd.product_lock_num),0))) / NULLIF((COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5) + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4) + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1)), 0), 2) AS restock_days,
+            ROUND(<include refid="amzWeightedDailyExpr"/> * COALESCE(ANY_VALUE(fc.month_multiplier),30), 2) AS avg_monthly_sales,
+            ROUND(<include refid="amzWeightedDailyExpr"/> * COALESCE(ANY_VALUE(fc.safety_days),90), 2) AS safety_stock,
+            ROUND(<include refid="amzWeightedDailyExpr"/> * COALESCE(ANY_VALUE(fc.ship_days),90), 2) - <include refid="amzFbaDeductExpr"/> AS ship_qty,
+            <include refid="amzFinalReplenishExpr"/> AS replenish_qty,
+            ROUND(((COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - <include refid="amzFinalReplenishExpr"/>) / NULLIF(<include refid="amzWeightedDailyExpr"/>, 0), 2) AS restock_days,
             ANY_VALUE(COALESCE(fc.region_group, 'US')) AS region_group,
             ANY_VALUE(pl.small_image_url) AS image_url,
             NOW() AS calc_time,
@@ -295,6 +354,36 @@
                     <when test="sales_60d_val != null"> and sales_60d ${sales_60d_op} #{sales_60d_val} </when>
                 </choose>
             </if>
+            <if test="sales_speed_14d_op != null">
+                <choose>
+                    <when test="sales_speed_14d_op == 'between' and sales_speed_14d_val != null and sales_speed_14d_val2 != null">
+                        and sales_speed_14d between #{sales_speed_14d_val} and #{sales_speed_14d_val2}
+                    </when>
+                    <when test="sales_speed_14d_op == 'isNull'"> and sales_speed_14d is null </when>
+                    <when test="sales_speed_14d_op == 'isNotNull'"> and sales_speed_14d is not null </when>
+                    <when test="sales_speed_14d_val != null"> and sales_speed_14d ${sales_speed_14d_op} #{sales_speed_14d_val} </when>
+                </choose>
+            </if>
+            <if test="sales_speed_30d_op != null">
+                <choose>
+                    <when test="sales_speed_30d_op == 'between' and sales_speed_30d_val != null and sales_speed_30d_val2 != null">
+                        and sales_speed_30d between #{sales_speed_30d_val} and #{sales_speed_30d_val2}
+                    </when>
+                    <when test="sales_speed_30d_op == 'isNull'"> and sales_speed_30d is null </when>
+                    <when test="sales_speed_30d_op == 'isNotNull'"> and sales_speed_30d is not null </when>
+                    <when test="sales_speed_30d_val != null"> and sales_speed_30d ${sales_speed_30d_op} #{sales_speed_30d_val} </when>
+                </choose>
+            </if>
+            <if test="sales_speed_60d_op != null">
+                <choose>
+                    <when test="sales_speed_60d_op == 'between' and sales_speed_60d_val != null and sales_speed_60d_val2 != null">
+                        and sales_speed_60d between #{sales_speed_60d_val} and #{sales_speed_60d_val2}
+                    </when>
+                    <when test="sales_speed_60d_op == 'isNull'"> and sales_speed_60d is null </when>
+                    <when test="sales_speed_60d_op == 'isNotNull'"> and sales_speed_60d is not null </when>
+                    <when test="sales_speed_60d_val != null"> and sales_speed_60d ${sales_speed_60d_op} #{sales_speed_60d_val} </when>
+                </choose>
+            </if>
             <if test="avg_monthly_sales_op != null">
                 <choose>
                     <when test="avg_monthly_sales_op == 'between' and avg_monthly_sales_val != null and avg_monthly_sales_val2 != null">
@@ -456,12 +545,7 @@
         LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = o.sid AND s.seller_sku = o.seller_sku
         <where>
             and s.current_flag = 1
-            <if test="storeName != null and storeName != ''">
-                <choose>
-                    <when test='storeName.contains(",")'>and s.store_name in <foreach collection='storeName.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
-                    <otherwise>and s.store_name like concat('%', #{storeName}, '%')</otherwise>
-                </choose>
-            </if>
+            <if test="storeName != null and storeName != ''">and s.store_name like concat('%', #{storeName}, '%')</if>
             <if test="sellerSku != null and sellerSku != ''">and s.seller_sku like concat('%', #{sellerSku}, '%')</if>
             <if test="warehouseSku != null and warehouseSku != ''">and s.warehouse_sku like concat('%', #{warehouseSku}, '%')</if>
             <if test="asin != null and asin != ''">and s.asin like concat('%', #{asin}, '%')</if>
@@ -491,6 +575,9 @@
             <when test="sortField == 'sales14d'">order by sales_14d</when>
             <when test="sortField == 'sales30d'">order by sales_30d</when>
             <when test="sortField == 'sales60d'">order by sales_60d</when>
+            <when test="sortField == 'salesSpeed14d'">order by sales_speed_14d</when>
+            <when test="sortField == 'salesSpeed30d'">order by sales_speed_30d</when>
+            <when test="sortField == 'salesSpeed60d'">order by sales_speed_60d</when>
             <when test="sortField == 'avgMonthlySales'">order by avg_monthly_sales</when>
             <when test="sortField == 'safetyStock'">order by safety_stock</when>
             <when test="sortField == 'shipQty'">order by ship_qty</when>

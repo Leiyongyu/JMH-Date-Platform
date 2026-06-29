@@ -103,6 +103,7 @@ public class AmzFbaShipmentBoxSyncService
         b.setBoxWidth(str(box, "box_width"));
         b.setBoxHeight(str(box, "box_height"));
         b.setBoxWeight(str(box, "box_weight"));
+        b.setBoxVolume(str(box, "box_volume"));
         b.setBoxDimensionsUnit(str(box, "box_dimensions_unit"));
         b.setBoxWeightUnit(str(box, "box_weight_unit"));
         b.setBoxNum(boxNum);

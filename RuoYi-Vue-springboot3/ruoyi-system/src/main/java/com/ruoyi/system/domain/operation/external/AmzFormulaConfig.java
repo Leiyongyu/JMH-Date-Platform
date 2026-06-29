@@ -12,6 +12,7 @@ public class AmzFormulaConfig implements Serializable
     private String regionGroup;
     private String regionName;
     private String marketplaces;
+    private String strategyType;
     private BigDecimal salesWeight14d;
     private BigDecimal salesWeight30d;
     private BigDecimal salesWeight60d;
@@ -19,6 +20,15 @@ public class AmzFormulaConfig implements Serializable
     private Integer safetyDays;
     private Integer shipDays;
     private Integer replenishDays;
+    private Integer deductFbaStock;
+    private Integer deductFbaInbound;
+    private Integer deductDomesticStock;
+    private Integer deductPurchasedQty;
+    private Integer deductPendingShipQty;
+    private Integer allowNegativeReplenish;
+    private BigDecimal minReplenishQty;
+    private BigDecimal maxReplenishQty;
+    private String roundMode;
     private Integer enabled;
     private String remark;
     private String formulaWeightedDaily;
@@ -37,6 +47,8 @@ public class AmzFormulaConfig implements Serializable
     public void setRegionName(String regionName) { this.regionName = regionName; }
     public String getMarketplaces() { return marketplaces; }
     public void setMarketplaces(String marketplaces) { this.marketplaces = marketplaces; }
+    public String getStrategyType() { return strategyType; }
+    public void setStrategyType(String strategyType) { this.strategyType = strategyType; }
     public BigDecimal getSalesWeight14d() { return salesWeight14d; }
     public void setSalesWeight14d(BigDecimal v) { this.salesWeight14d = v; }
     public BigDecimal getSalesWeight30d() { return salesWeight30d; }
@@ -51,6 +63,24 @@ public class AmzFormulaConfig implements Serializable
     public void setShipDays(Integer v) { this.shipDays = v; }
     public Integer getReplenishDays() { return replenishDays; }
     public void setReplenishDays(Integer v) { this.replenishDays = v; }
+    public Integer getDeductFbaStock() { return deductFbaStock; }
+    public void setDeductFbaStock(Integer deductFbaStock) { this.deductFbaStock = deductFbaStock; }
+    public Integer getDeductFbaInbound() { return deductFbaInbound; }
+    public void setDeductFbaInbound(Integer deductFbaInbound) { this.deductFbaInbound = deductFbaInbound; }
+    public Integer getDeductDomesticStock() { return deductDomesticStock; }
+    public void setDeductDomesticStock(Integer deductDomesticStock) { this.deductDomesticStock = deductDomesticStock; }
+    public Integer getDeductPurchasedQty() { return deductPurchasedQty; }
+    public void setDeductPurchasedQty(Integer deductPurchasedQty) { this.deductPurchasedQty = deductPurchasedQty; }
+    public Integer getDeductPendingShipQty() { return deductPendingShipQty; }
+    public void setDeductPendingShipQty(Integer deductPendingShipQty) { this.deductPendingShipQty = deductPendingShipQty; }
+    public Integer getAllowNegativeReplenish() { return allowNegativeReplenish; }
+    public void setAllowNegativeReplenish(Integer allowNegativeReplenish) { this.allowNegativeReplenish = allowNegativeReplenish; }
+    public BigDecimal getMinReplenishQty() { return minReplenishQty; }
+    public void setMinReplenishQty(BigDecimal minReplenishQty) { this.minReplenishQty = minReplenishQty; }
+    public BigDecimal getMaxReplenishQty() { return maxReplenishQty; }
+    public void setMaxReplenishQty(BigDecimal maxReplenishQty) { this.maxReplenishQty = maxReplenishQty; }
+    public String getRoundMode() { return roundMode; }
+    public void setRoundMode(String roundMode) { this.roundMode = roundMode; }
     public Integer getEnabled() { return enabled; }
     public void setEnabled(Integer enabled) { this.enabled = enabled; }
     public String getRemark() { return remark; }

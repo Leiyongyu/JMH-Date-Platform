@@ -27,10 +27,14 @@ import org.springframework.stereotype.Service;
 public class CustomsDeclarationExportService
 {
     private static final String TEMPLATE = "templates/customs/customs-declaration-template.xlsx";
-    private static final int DATA_START_ROW = 11;
-    private static final int TEMPLATE_FOOTER_ROW = 10;
-    private static final int TEMPLATE_LAST_ROW = 12;
     private static final int MAX_ITEMS = 1000;
+
+    private static final int CONTRACT_START_ROW = 15;
+    private static final int CONTRACT_FOOTER_ROW = 16;
+    private static final int INVOICE_START_ROW = 10;
+    private static final int PACKING_START_ROW = 9;
+    private static final int CUSTOMS_START_ROW = 10;
+    private static final int CUSTOMS_FOOTER_ROW = 11;
 
     public void export(CustomsDeclarationRequest request, HttpServletResponse response) throws Exception
     {
@@ -38,14 +42,30 @@ public class CustomsDeclarationExportService
         ClassPathResource resource = new ClassPathResource(TEMPLATE);
         try (InputStream input = resource.getInputStream(); Workbook workbook = new XSSFWorkbook(input))
         {
-            while (workbook.getNumberOfSheets() > 1)
-                workbook.removeSheetAt(workbook.getNumberOfSheets() - 1);
-            Sheet sheet = workbook.getSheetAt(0);
-            fillHeader(sheet, request.getHeader(), request.getItems().size());
-            int footerStartRow = prepareRows(sheet, request.getItems().size());
-            fillItems(sheet, request.getItems());
-            workbook.setPrintArea(workbook.getSheetIndex(sheet), 0, 12, 0,
-                    footerStartRow + (TEMPLATE_LAST_ROW - TEMPLATE_FOOTER_ROW));
+            Sheet contract = requiredSheet(workbook, "合同");
+            Sheet invoice = requiredSheet(workbook, "INVOICE");
+            Sheet packing = requiredSheet(workbook, "Packing List ");
+            Sheet customs = requiredSheet(workbook, "报关单");
+
+            CustomsDeclarationHeader header = request.getHeader() == null ? new CustomsDeclarationHeader() : request.getHeader();
+            fillContractHeader(contract, header);
+            fillCustomsHeader(customs, header, request.getItems().size());
+
+            int contractTotalRow = prepareContractRows(contract, request.getItems().size());
+            fillContractItems(contract, request.getItems(), contractTotalRow);
+
+            int invoiceTotalRow = INVOICE_START_ROW + request.getItems().size();
+            fillInvoiceItems(invoice, request.getItems().size(), invoiceTotalRow);
+
+            int packingTotalRow = PACKING_START_ROW + request.getItems().size();
+            fillPackingItems(packing, request.getItems(), packingTotalRow, header);
+
+            int customsFooterRow = prepareRows(customs, CUSTOMS_START_ROW, CUSTOMS_FOOTER_ROW,
+                    customs.getLastRowNum(), request.getItems().size(), 13);
+            fillCustomsItems(customs, request.getItems());
+
+            setPrintAreas(workbook, contract, invoice, packing, customs, contractTotalRow, invoiceTotalRow,
+                    packingTotalRow, customsFooterRow);
 
             String filename = "报关单_" + LocalDate.now().format(DateTimeFormatter.ofPattern("yyMMdd")) + ".xlsx";
             response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -56,26 +76,31 @@ public class CustomsDeclarationExportService
         }
     }
 
-    /**
-     * 当前模板已删除商品示例行，第 11-13 行为固定页脚。
-     * 导出时下移页脚，从 Excel 第 12 行开始写商品。
-     */
-    private int prepareRows(Sheet sheet, int itemCount)
+    private Sheet requiredSheet(Workbook workbook, String name)
     {
-        int footerShiftRows = itemCount + 1;
-        Row originalStyleRow = sheet.getRow(DATA_START_ROW);
-        CellStyle[] styles = copyStyles(originalStyleRow);
-        short rowHeight = originalStyleRow == null ? sheet.getDefaultRowHeight() : originalStyleRow.getHeight();
+        Sheet sheet = workbook.getSheet(name);
+        if (sheet == null) throw new IllegalStateException("报关资料模板缺少工作表：" + name);
+        return sheet;
+    }
 
-        sheet.shiftRows(TEMPLATE_FOOTER_ROW, TEMPLATE_LAST_ROW, footerShiftRows, true, false);
+    private int prepareRows(Sheet sheet, int dataStartRow, int footerStartRow, int templateLastRow,
+                            int itemCount, int columnCount)
+    {
+        int footerShiftRows = itemCount;
+        Row styleRow = sheet.getRow(dataStartRow);
+        CellStyle[] styles = copyStyles(styleRow, columnCount);
+        short rowHeight = styleRow == null ? sheet.getDefaultRowHeight() : styleRow.getHeight();
 
-        int footerStartRow = TEMPLATE_FOOTER_ROW + footerShiftRows;
-        for (int rowIndex = DATA_START_ROW; rowIndex < footerStartRow; rowIndex++)
+        if (templateLastRow >= footerStartRow)
+            sheet.shiftRows(footerStartRow, templateLastRow, footerShiftRows, true, false);
+
+        int footerRow = footerStartRow + footerShiftRows;
+        for (int rowIndex = dataStartRow; rowIndex < footerRow; rowIndex++)
         {
             Row row = sheet.getRow(rowIndex);
             if (row == null) row = sheet.createRow(rowIndex);
             row.setHeight(rowHeight);
-            for (int column = 0; column < 13; column++)
+            for (int column = 0; column < columnCount; column++)
             {
                 Cell cell = row.getCell(column);
                 if (cell == null) cell = row.createCell(column);
@@ -84,12 +109,38 @@ public class CustomsDeclarationExportService
                 cell.setBlank();
             }
         }
-        return footerStartRow;
+        return footerRow;
     }
 
-    private CellStyle[] copyStyles(Row sourceRow)
+    private int prepareContractRows(Sheet sheet, int itemCount)
     {
-        CellStyle[] styles = new CellStyle[13];
+        Row styleRow = sheet.getRow(CONTRACT_START_ROW);
+        CellStyle[] styles = copyStyles(styleRow, 9);
+        short rowHeight = styleRow == null ? sheet.getDefaultRowHeight() : styleRow.getHeight();
+        int totalRow = CONTRACT_START_ROW + itemCount;
+        int footerShiftRows = itemCount + 3;
+
+        sheet.shiftRows(CONTRACT_FOOTER_ROW, sheet.getLastRowNum(), footerShiftRows, true, false);
+        for (int rowIndex = CONTRACT_START_ROW; rowIndex < CONTRACT_FOOTER_ROW + footerShiftRows; rowIndex++)
+        {
+            Row row = sheet.getRow(rowIndex);
+            if (row == null) row = sheet.createRow(rowIndex);
+            row.setHeight(rowHeight);
+            for (int column = 0; column < 9; column++)
+            {
+                Cell cell = row.getCell(column);
+                if (cell == null) cell = row.createCell(column);
+                if (styles[column] != null) cell.setCellStyle(styles[column]);
+                else applyBorder(cell);
+                cell.setBlank();
+            }
+        }
+        return totalRow;
+    }
+
+    private CellStyle[] copyStyles(Row sourceRow, int columnCount)
+    {
+        CellStyle[] styles = new CellStyle[columnCount];
         if (sourceRow == null) return styles;
         for (int column = 0; column < styles.length; column++)
         {
@@ -97,27 +148,6 @@ public class CustomsDeclarationExportService
             if (cell != null) styles[column] = cell.getCellStyle();
         }
         return styles;
-    }
-
-    private void clearRows(Sheet sheet, int firstRow, int lastRow)
-    {
-        if (firstRow > lastRow) return;
-        for (int i = sheet.getNumMergedRegions() - 1; i >= 0; i--)
-        {
-            CellRangeAddress region = sheet.getMergedRegion(i);
-            if (region.getFirstRow() >= firstRow && region.getFirstRow() <= lastRow)
-                sheet.removeMergedRegion(i);
-        }
-        for (int rowIndex = firstRow; rowIndex <= lastRow; rowIndex++)
-        {
-            Row row = sheet.getRow(rowIndex);
-            if (row == null) continue;
-            for (int column = 0; column < 13; column++)
-            {
-                Cell cell = row.getCell(column);
-                if (cell != null) cell.setBlank();
-            }
-        }
     }
 
     private void validateAndCalculate(CustomsDeclarationRequest request)
@@ -139,11 +169,22 @@ public class CustomsDeclarationExportService
         }
     }
 
-    private void fillHeader(Sheet sheet, CustomsDeclarationHeader h, int itemCount)
+    private void fillContractHeader(Sheet sheet, CustomsDeclarationHeader h)
     {
-        if (h == null) h = new CustomsDeclarationHeader();
-        set(sheet, 1, 1, h.getPreEntry());
-        set(sheet, 1, 3, h.getCustomsNo());
+        if (!blank(h.getContractNo())) set(sheet, 4, 6, h.getContractNo());
+        if (!blank(h.getExportDate())) set(sheet, 5, 6, h.getExportDate());
+        if (!blank(h.getConsignee()))
+        {
+            set(sheet, 12, 0, h.getConsignee());
+        }
+        if (!blank(h.getTransportMode())) set(sheet, 8, 6, h.getTransportMode());
+        setFormula(sheet, 10, 6, "H" + (CONTRACT_START_ROW + 2));
+    }
+
+    private void fillCustomsHeader(Sheet sheet, CustomsDeclarationHeader h, int itemCount)
+    {
+        set(sheet, 1, 0, "预录入编号：" + value(h.getPreEntry()));
+        set(sheet, 1, 2, "海关编号：" + value(h.getCustomsNo()));
         set(sheet, 2, 1, h.getConsignor());
         set(sheet, 2, 3, h.getCustomsArea());
         set(sheet, 2, 6, h.getExportDate());
@@ -157,7 +198,8 @@ public class CustomsDeclarationExportService
         set(sheet, 4, 3, h.getSupervision());
         set(sheet, 4, 6, h.getTaxNature());
         set(sheet, 4, 8, h.getLicenseNo());
-        set(sheet, 5, 1, h.getContractNo());
+        if (blank(h.getContractNo())) setFormula(sheet, 5, 1, "'合同'!G5");
+        else set(sheet, 5, 1, h.getContractNo());
         set(sheet, 5, 3, h.getTradeCountry());
         set(sheet, 5, 6, h.getDestCountry());
         set(sheet, 5, 8, h.getDestPort());
@@ -165,8 +207,8 @@ public class CustomsDeclarationExportService
         set(sheet, 6, 1, h.getPackType());
         set(sheet, 6, 2, "件数  " + (h.getPackQty() == null ? itemCount : h.getPackQty()));
         set(sheet, 6, 3, blank(h.getGrossWt()) ? "" : "毛重（千克）" + h.getGrossWt());
-        set(sheet, 6, 5, blank(h.getNetWt()) ? "" : "净重（千克）" + h.getNetWt());
-        set(sheet, 6, 6, blank(h.getTradeTerm()) ? "" : "成交方式 " + h.getTradeTerm());
+        set(sheet, 6, 5, blank(h.getNetWt()) ? "" : "净重  （千克）" + h.getNetWt());
+        set(sheet, 6, 6, blank(h.getTradeTerm()) ? "" : "成交方式   " + h.getTradeTerm());
         set(sheet, 6, 8, h.getFreight());
         set(sheet, 6, 10, h.getInsurance());
         set(sheet, 6, 12, h.getOtherFee());
@@ -174,68 +216,204 @@ public class CustomsDeclarationExportService
         set(sheet, 8, 1, h.getMarks());
     }
 
-    private void fillItems(Sheet sheet, List<CustomsDeclarationItem> items)
+    private void fillContractItems(Sheet sheet, List<CustomsDeclarationItem> items, int totalRow)
     {
-        Row styleRow = sheet.getRow(DATA_START_ROW);
-        CellStyle[] styles = new CellStyle[13];
-        for (int c = 0; c < styles.length; c++)
-            if (styleRow != null && styleRow.getCell(c) != null) styles[c] = styleRow.getCell(c).getCellStyle();
-
         for (int i = 0; i < items.size(); i++)
         {
-            int rowIndex = DATA_START_ROW + i;
-            Row row = sheet.getRow(rowIndex);
-            if (row == null) row = sheet.createRow(rowIndex);
-            if (styleRow != null) row.setHeight(styleRow.getHeight());
+            CustomsDeclarationItem item = items.get(i);
+            int rowIndex = CONTRACT_START_ROW + i;
+            int excelRow = rowIndex + 1;
+            setNumber(sheet, rowIndex, 0, i + 1);
+            set(sheet, rowIndex, 1, item.getDescriptionCn());
+            set(sheet, rowIndex, 2, item.getSku());
+            set(sheet, rowIndex, 3, defaultValue(item.getModel(), "无型号"));
+            set(sheet, rowIndex, 4, defaultValue(item.getUnit(), "PIECE"));
+            setNumber(sheet, rowIndex, 5, item.getQuantity());
+            setNumber(sheet, rowIndex, 6, item.getUnitPriceUsd());
+            setFormula(sheet, rowIndex, 7, "ROUND(F" + excelRow + "*G" + excelRow + ",2)");
+            set(sheet, rowIndex, 8, defaultValue(item.getCurrency(), "USD"));
+        }
+        setFormula(sheet, 10, 6, "H" + (totalRow + 1));
+        setFormula(sheet, totalRow, 5, "SUM(F" + (CONTRACT_START_ROW + 1) + ":F" + totalRow + ")");
+        set(sheet, totalRow, 6, "PIECES");
+        setFormula(sheet, totalRow, 7, "SUM(H" + (CONTRACT_START_ROW + 1) + ":H" + totalRow + ")");
+    }
+
+    private void fillInvoiceItems(Sheet sheet, int itemCount, int totalRow)
+    {
+        Row styleRow = sheet.getRow(INVOICE_START_ROW - 1);
+        CellStyle[] styles = copyStyles(styleRow, 8);
+        for (int i = 0; i < itemCount; i++)
+        {
+            int rowIndex = INVOICE_START_ROW + i;
+            int excelRow = rowIndex + 1;
+            Row row = getRow(sheet, rowIndex);
+            for (int c = 0; c < 8; c++) applyStyle(row, c, styles[c]);
+            setNumber(sheet, rowIndex, 0, i + 1);
+            setFormula(sheet, rowIndex, 1, "'合同'!B" + (CONTRACT_START_ROW + i + 1));
+            setFormula(sheet, rowIndex, 2, "'合同'!C" + (CONTRACT_START_ROW + i + 1));
+            setFormula(sheet, rowIndex, 3, "'合同'!D" + (CONTRACT_START_ROW + i + 1));
+            setFormula(sheet, rowIndex, 4, "'合同'!E" + (CONTRACT_START_ROW + i + 1));
+            setFormula(sheet, rowIndex, 5, "'合同'!F" + (CONTRACT_START_ROW + i + 1));
+            setFormula(sheet, rowIndex, 6, "'合同'!G" + (CONTRACT_START_ROW + i + 1));
+            setFormula(sheet, rowIndex, 7, "'合同'!H" + (CONTRACT_START_ROW + i + 1));
+        }
+        Row total = getRow(sheet, totalRow);
+        for (int c = 0; c < 8; c++) applyStyle(total, c, styles[c]);
+        setFormula(sheet, totalRow, 5, "SUM(F" + (INVOICE_START_ROW + 1) + ":F" + totalRow + ")");
+        set(sheet, totalRow, 6, "PIECES");
+        setFormula(sheet, totalRow, 7, "SUM(H" + (INVOICE_START_ROW + 1) + ":H" + totalRow + ")");
+    }
+
+    private void fillPackingItems(Sheet sheet, List<CustomsDeclarationItem> items, int totalRow, CustomsDeclarationHeader h)
+    {
+        Row styleRow = sheet.getRow(PACKING_START_ROW - 1);
+        CellStyle[] styles = copyStyles(styleRow, 12);
+        for (int i = 0; i < items.size(); i++)
+        {
+            CustomsDeclarationItem item = items.get(i);
+            int rowIndex = PACKING_START_ROW + i;
+            Row row = getRow(sheet, rowIndex);
+            for (int c = 0; c < 12; c++) applyStyle(row, c, styles[c]);
+            setNumber(sheet, rowIndex, 0, i + 1);
+            setFormula(sheet, rowIndex, 1, "'INVOICE'!B" + (INVOICE_START_ROW + i + 1));
+            setFormula(sheet, rowIndex, 2, "'INVOICE'!C" + (INVOICE_START_ROW + i + 1));
+            setFormula(sheet, rowIndex, 3, "'INVOICE'!D" + (INVOICE_START_ROW + i + 1));
+            setFormula(sheet, rowIndex, 4, "'INVOICE'!E" + (INVOICE_START_ROW + i + 1));
+            setFormula(sheet, rowIndex, 5, "'INVOICE'!F" + (INVOICE_START_ROW + i + 1));
+            setNumber(sheet, rowIndex, 6, firstNonNull(item.getPackingNetWeight(), item.getTotalWeight()));
+            setNumber(sheet, rowIndex, 7, firstNonNull(item.getPackingGrossWeight(), item.getTotalWeight()));
+            setNumber(sheet, rowIndex, 8, item.getPackingCbm());
+            setNumber(sheet, rowIndex, 9, item.getBoxLength());
+            setNumber(sheet, rowIndex, 10, item.getBoxWidth());
+            setNumber(sheet, rowIndex, 11, item.getBoxHeight());
+        }
+        Row total = getRow(sheet, totalRow);
+        for (int c = 0; c < 12; c++) applyStyle(total, c, styles[c]);
+        merge(sheet, totalRow, 0, 1);
+        merge(sheet, totalRow, 4, 5);
+        merge(sheet, totalRow, 8, 11);
+        set(sheet, totalRow, 0, "CTN NO:1-" + (h.getPackQty() == null ? items.size() : h.getPackQty()));
+        set(sheet, totalRow, 3, "TOTAL:");
+        setFormula(sheet, totalRow, 4, "SUM(F" + (PACKING_START_ROW + 1) + ":F" + totalRow + ")&\"PCS\"");
+        setFormula(sheet, totalRow, 6, "SUM(G" + (PACKING_START_ROW + 1) + ":G" + totalRow + ")");
+        setFormula(sheet, totalRow, 7, "SUM(H" + (PACKING_START_ROW + 1) + ":H" + totalRow + ")");
+        setFormula(sheet, totalRow, 8, "SUM(I" + (PACKING_START_ROW + 1) + ":I" + totalRow + ")&\"CBM\"");
+    }
+
+    private void fillCustomsItems(Sheet sheet, List<CustomsDeclarationItem> items)
+    {
+        for (int i = 0; i < items.size(); i++)
+        {
+            CustomsDeclarationItem item = items.get(i);
+            int rowIndex = CUSTOMS_START_ROW + i;
+            int contractExcelRow = CONTRACT_START_ROW + i + 1;
+            int packingExcelRow = PACKING_START_ROW + i + 1;
+            Row row = getRow(sheet, rowIndex);
             for (int c = 0; c < 13; c++)
             {
                 Cell cell = row.getCell(c);
                 if (cell == null) cell = row.createCell(c);
-                if (styles[c] != null) cell.setCellStyle(styles[c]);
-                else applyBorder(cell);
+                if (cell.getCellStyle() == null) applyBorder(cell);
             }
-            removeOverlappingMerge(sheet, rowIndex, 8, 9);
-            removeOverlappingMerge(sheet, rowIndex, 10, 11);
-            sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex, 8, 9));
-            sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex, 10, 11));
+            merge(sheet, rowIndex, 8, 9);
+            merge(sheet, rowIndex, 10, 11);
 
-            CustomsDeclarationItem item = items.get(i);
-            row.getCell(0).setCellValue(i + 1);
-            row.getCell(1).setCellValue((value(item.getHsCode()) + " " + value(item.getHsDescription())).trim());
-            row.getCell(2).setCellValue(value(item.getDescriptionCn()));
-            row.getCell(3).setCellValue(value(item.getSku()));
-            row.getCell(4).setCellValue(defaultValue(item.getModel(), "通用型"));
-            String qtyWeight = item.getQuantity() + defaultValue(item.getUnit(), "个");
-            if (item.getTotalWeight() != null && item.getTotalWeight().signum() > 0)
-                qtyWeight += "/" + item.getTotalWeight().stripTrailingZeros().toPlainString() + "千克";
-            row.getCell(5).setCellValue(qtyWeight);
-            row.getCell(6).setCellValue(decimalText(item.getUnitPriceUsd()) + "/"
-                    + decimalText(item.getTotalPrice()) + "/" + value(item.getCurrency()));
-            row.getCell(7).setCellValue(value(item.getOriginCountry()));
-            row.getCell(8).setCellValue(value(item.getDestinationCountry()));
-            row.getCell(10).setCellValue(value(item.getSourceLocation()));
-            row.getCell(12).setCellValue(value(item.getExemption()));
+            setNumber(sheet, rowIndex, 0, i + 1);
+            set(sheet, rowIndex, 1, (value(item.getHsCode()) + " " + value(item.getHsDescription())).trim());
+            setFormula(sheet, rowIndex, 2, "'Packing List '!B" + packingExcelRow);
+            setFormula(sheet, rowIndex, 3, "'Packing List '!C" + packingExcelRow);
+            setFormula(sheet, rowIndex, 4, "'Packing List '!D" + packingExcelRow);
+            set(sheet, rowIndex, 5, quantityWeightText(item));
+            setFormula(sheet, rowIndex, 6, "'合同'!G" + contractExcelRow + "&\"/\"&'合同'!H" + contractExcelRow + "&\"/\"&\"" + defaultValue(item.getCurrency(), "USD") + "\"");
+            set(sheet, rowIndex, 7, item.getOriginCountry());
+            set(sheet, rowIndex, 8, item.getDestinationCountry());
+            set(sheet, rowIndex, 10, item.getSourceLocation());
+            set(sheet, rowIndex, 12, defaultValue(item.getExemption(), "照章"));
         }
+    }
+
+    private void setPrintAreas(Workbook workbook, Sheet contract, Sheet invoice, Sheet packing, Sheet customs,
+                               int contractTotalRow, int invoiceTotalRow, int packingTotalRow, int customsFooterRow)
+    {
+        workbook.setPrintArea(workbook.getSheetIndex(contract), 0, 8, 0, Math.max(contractTotalRow + 12, contract.getLastRowNum()));
+        workbook.setPrintArea(workbook.getSheetIndex(invoice), 0, 7, 0, invoiceTotalRow);
+        workbook.setPrintArea(workbook.getSheetIndex(packing), 0, 11, 0, packingTotalRow);
+        workbook.setPrintArea(workbook.getSheetIndex(customs), 0, 12, 0, customsFooterRow + 2);
+    }
+
+    private String quantityWeightText(CustomsDeclarationItem item)
+    {
+        String text = item.getQuantity() + defaultValue(item.getUnit(), "个");
+        if (item.getTotalWeight() != null && item.getTotalWeight().signum() > 0)
+            text += "/" + item.getTotalWeight().stripTrailingZeros().toPlainString() + "千克";
+        return text;
+    }
+
+    private Row getRow(Sheet sheet, int rowIndex)
+    {
+        Row row = sheet.getRow(rowIndex);
+        if (row == null) row = sheet.createRow(rowIndex);
+        return row;
+    }
+
+    private void applyStyle(Row row, int column, CellStyle style)
+    {
+        Cell cell = row.getCell(column);
+        if (cell == null) cell = row.createCell(column);
+        if (style != null) cell.setCellStyle(style);
+        else applyBorder(cell);
     }
 
     private void set(Sheet sheet, int row, int column, String value)
     {
-        Row targetRow = sheet.getRow(row);
-        if (targetRow == null) targetRow = sheet.createRow(row);
-        Cell cell = targetRow.getCell(column);
-        if (cell == null) cell = targetRow.createCell(column);
+        Cell cell = getCell(sheet, row, column);
         cell.setCellValue(value(value));
     }
 
-    private void removeOverlappingMerge(Sheet sheet, int row, int firstColumn, int lastColumn)
+    private void setNumber(Sheet sheet, int row, int column, Number value)
+    {
+        Cell cell = getCell(sheet, row, column);
+        if (value == null) cell.setBlank();
+        else cell.setCellValue(value.doubleValue());
+    }
+
+    private void setNumber(Sheet sheet, int row, int column, BigDecimal value)
+    {
+        Cell cell = getCell(sheet, row, column);
+        if (value == null) cell.setBlank();
+        else cell.setCellValue(value.doubleValue());
+    }
+
+    private BigDecimal firstNonNull(BigDecimal first, BigDecimal fallback)
+    {
+        return first == null ? fallback : first;
+    }
+
+    private void setFormula(Sheet sheet, int row, int column, String formula)
+    {
+        Cell cell = getCell(sheet, row, column);
+        cell.setCellFormula(formula);
+    }
+
+    private Cell getCell(Sheet sheet, int row, int column)
+    {
+        Row targetRow = getRow(sheet, row);
+        Cell cell = targetRow.getCell(column);
+        if (cell == null) cell = targetRow.createCell(column);
+        return cell;
+    }
+
+    private void merge(Sheet sheet, int rowIndex, int firstColumn, int lastColumn)
     {
         for (int i = sheet.getNumMergedRegions() - 1; i >= 0; i--)
         {
             CellRangeAddress region = sheet.getMergedRegion(i);
-            if (region.getFirstRow() == row && region.getLastRow() == row
+            if (region.getFirstRow() == rowIndex && region.getLastRow() == rowIndex
                     && region.getFirstColumn() <= lastColumn && region.getLastColumn() >= firstColumn)
                 sheet.removeMergedRegion(i);
         }
+        sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex, firstColumn, lastColumn));
     }
 
     private void applyBorder(Cell cell)
@@ -246,11 +424,6 @@ public class CustomsDeclarationExportService
         style.setBorderLeft(BorderStyle.THIN);
         style.setBorderRight(BorderStyle.THIN);
         cell.setCellStyle(style);
-    }
-
-    private String decimalText(BigDecimal value)
-    {
-        return value == null ? "0" : value.stripTrailingZeros().toPlainString();
     }
 
     private String defaultValue(String value, String defaultValue)

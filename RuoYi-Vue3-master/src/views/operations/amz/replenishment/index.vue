@@ -204,6 +204,7 @@
         <el-table-column
           v-else-if="col.key === 'imageUrl'"
           :label="col.label" :align="col.align" :width="col.width"
+          :fixed="col.fixed || false"
         >
           <template #default="scope">
             <img v-if="scope.row.imageUrl" :src="scope.row.imageUrl" style="width:50px;height:50px;object-fit:contain" />
@@ -246,6 +247,7 @@
       v-model="showColumnDrawer"
       :columns="columnDefs"
       :fixed-keys="fixedColumnKeys"
+      :required-keys="requiredColumnKeys"
       :visible-keys="visibleKeys"
       @apply="handleColumnApply"
     />
@@ -382,11 +384,12 @@ async function onAmzCellBlur(row, field) {
 }
 function onAmzCellClear(row, field) { editCache[amzKey(row, field)] = ''; onAmzCellBlur(row, field) }
 
-const fixedColumnKeys = ['storeName', 'sellerSku']
+const fixedColumnKeys = ['storeName', 'sellerSku', 'imageUrl']
+const requiredColumnKeys = ['storeName', 'sellerSku']
 const columnDefs = [
   { key: 'storeName', label: '店铺', align: 'left', width: 160, fixed: true, sortable: true, tooltip: true },
-  { key: 'imageUrl', label: '图片', align: 'center', width: 80 },
   { key: 'sellerSku', label: 'Seller SKU', align: 'left', width: 180, fixed: true, sortable: true, tooltip: true },
+  { key: 'imageUrl', label: '图片', align: 'center', width: 80, fixed: true },
   { key: 'warehouseSku', label: '仓库SKU', align: 'left', width: 170, sortable: true, tooltip: true },
   { key: 'warehouseName', label: '仓库', align: 'left', width: 170, tooltip: true },
   { key: 'asin', label: 'ASIN', align: 'center', width: 130, sortable: true, tooltip: true },
@@ -430,7 +433,7 @@ const {
   openColumnConfig,
   initColumnConfig,
   applyColumnConfig
-} = useColumnConfig('operations:amz:replenishment', columnDefs, fixedColumnKeys)
+} = useColumnConfig('operations:amz:replenishment', columnDefs, fixedColumnKeys, requiredColumnKeys)
 const data = reactive({
   queryParams: {
     pageNum: 1,

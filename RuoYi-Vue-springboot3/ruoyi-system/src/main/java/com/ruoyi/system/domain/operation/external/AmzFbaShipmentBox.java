@@ -16,6 +16,7 @@ public class AmzFbaShipmentBox implements Serializable
     private String boxWidth;
     private String boxHeight;
     private String boxWeight;
+    private String boxVolume;
     private String boxDimensionsUnit;
     private String boxWeightUnit;
     private Integer boxNum;
@@ -42,6 +43,8 @@ public class AmzFbaShipmentBox implements Serializable
     public void setBoxHeight(String v) { this.boxHeight = v; }
     public String getBoxWeight() { return boxWeight; }
     public void setBoxWeight(String v) { this.boxWeight = v; }
+    public String getBoxVolume() { return boxVolume; }
+    public void setBoxVolume(String v) { this.boxVolume = v; }
     public String getBoxDimensionsUnit() { return boxDimensionsUnit; }
     public void setBoxDimensionsUnit(String v) { this.boxDimensionsUnit = v; }
     public String getBoxWeightUnit() { return boxWeightUnit; }

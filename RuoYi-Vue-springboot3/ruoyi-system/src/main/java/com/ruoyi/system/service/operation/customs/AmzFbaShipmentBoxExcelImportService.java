@@ -98,6 +98,7 @@ public class AmzFbaShipmentBoxExcelImportService
             row.setBoxWidth(source.boxWidth);
             row.setBoxHeight(source.boxHeight);
             row.setBoxWeight(source.boxWeight);
+            row.setBoxVolume(source.boxVolume);
             row.setBoxDimensionsUnit(defaultText(source.boxDimensionsUnit, "cm"));
             row.setBoxWeightUnit(defaultText(source.boxWeightUnit, "kg"));
             row.setBoxNum(source.boxNum);
@@ -177,10 +178,10 @@ public class AmzFbaShipmentBoxExcelImportService
             parsed.boxLength = cell(row, cols, "箱子长度", formatter);
             parsed.boxWidth = cell(row, cols, "箱子宽度", formatter);
             parsed.boxHeight = cell(row, cols, "箱子高度", formatter);
+            parsed.boxVolume = firstText(cell(row, cols, "总体积-箱子", formatter), cell(row, cols, "总体积", formatter));
             parsed.boxDimensionsUnit = firstText(cell(row, cols, "长度单位", formatter), cell(row, cols, "体积单位", formatter));
             parsed.boxWeightUnit = cell(row, cols, "重量单位", formatter);
-            parsed.boxNum = firstInt(cell(row, cols, "箱号", formatter), cell(row, cols, "箱号(箱库存)", formatter),
-                cell(row, cols, "箱数", formatter), "1");
+            parsed.boxNum = firstInt(cell(row, cols, "箱数", formatter), "1");
             rows.add(parsed);
         }
         return rows;
@@ -289,6 +290,7 @@ public class AmzFbaShipmentBoxExcelImportService
         String boxWidth;
         String boxHeight;
         String boxWeight;
+        String boxVolume;
         String boxDimensionsUnit;
         String boxWeightUnit;
         Integer boxNum;
