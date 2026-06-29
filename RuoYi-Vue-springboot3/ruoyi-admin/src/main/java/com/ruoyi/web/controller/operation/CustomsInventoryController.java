@@ -6,6 +6,7 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.system.domain.operation.customs.CustomsInventoryItem;
+import com.ruoyi.system.service.operation.customs.CustomsDeclarationElementsImportService;
 import com.ruoyi.system.service.operation.customs.CustomsInventoryService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
@@ -26,10 +27,13 @@ import org.springframework.web.multipart.MultipartFile;
 public class CustomsInventoryController extends BaseController
 {
     private final CustomsInventoryService inventoryService;
+    private final CustomsDeclarationElementsImportService declImportService;
 
-    public CustomsInventoryController(CustomsInventoryService inventoryService)
+    public CustomsInventoryController(CustomsInventoryService inventoryService,
+                                       CustomsDeclarationElementsImportService declImportService)
     {
         this.inventoryService = inventoryService;
+        this.declImportService = declImportService;
     }
 
     @PreAuthorize("@ss.hasPermi('customs:inventory:list')")
@@ -64,6 +68,15 @@ public class CustomsInventoryController extends BaseController
     public AjaxResult importFile(@RequestParam("file") MultipartFile file)
     {
         try { return success(inventoryService.importFile(file)); }
+        catch (Exception e) { return error(e.getMessage()); }
+    }
+
+    @Log(title = "报关申报要素导入", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('customs:inventory:import')")
+    @PostMapping("/import-declaration-elements")
+    public AjaxResult importDeclarationElements(@RequestParam("file") MultipartFile file)
+    {
+        try { return success(declImportService.importDeclarationElements(file)); }
         catch (Exception e) { return error(e.getMessage()); }
     }
 

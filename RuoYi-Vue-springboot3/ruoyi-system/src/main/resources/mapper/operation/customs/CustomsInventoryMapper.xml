@@ -192,4 +192,37 @@
              #{item.remark}, #{item.customsUnit}, #{item.declarationElements})
         </foreach>
     </insert>
+
+    <update id="batchUpdateDeclarationElements">
+        <foreach collection="list" item="item" separator=";">
+            UPDATE customs_inventory_list
+            SET declaration_elements = #{item.declarationElements},
+                customs_unit = #{item.customsUnit},
+                tax_included_price = #{item.taxIncludedPrice},
+                updated_at = NOW()
+            WHERE sku = #{item.sku}
+            <if test="item.sourceLocation != null and item.sourceLocation != ''">
+                AND product_code = #{item.sourceLocation}
+            </if>
+            <if test="item.sourceLocation == null or item.sourceLocation == ''">
+                AND (product_code IS NULL OR product_code = '')
+            </if>
+        </foreach>
+    </update>
+
+    <insert id="batchInsertDeclarationRows">
+        INSERT INTO customs_inventory_list (sku, product_code, declaration_elements, customs_unit, tax_included_price)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.sku}, #{item.sourceLocation}, #{item.declarationElements}, #{item.customsUnit}, #{item.taxIncludedPrice})
+        </foreach>
+    </insert>
+
+    <select id="selectExistingSkuSource" resultType="map">
+        SELECT sku, product_code AS sourceLocation FROM customs_inventory_list
+        WHERE (sku, COALESCE(product_code, '')) IN
+        <foreach collection="keys" item="k" open="(" separator="," close=")">
+            (#{k.sku}, #{k.sourceLocation})
+        </foreach>
+    </select>
 </mapper>
