@@ -218,19 +218,39 @@ public class CustomsProductService
         return result;
     }
 
+    public List<CustomsProduct> findExistingProducts(List<CustomsProduct> products)
+    {
+        List<CustomsProduct> values = normalizeSaveProducts(products);
+        if (values.isEmpty()) return List.of();
+        return productMapper.selectExistingBySkuSource(values);
+    }
+
     @Transactional(rollbackFor = Exception.class)
-    public int saveProducts(List<CustomsProduct> products)
+    public int saveProducts(List<CustomsProduct> products, boolean overwrite)
+    {
+        List<CustomsProduct> values = normalizeSaveProducts(products);
+        if (!overwrite)
+        {
+            List<CustomsProduct> existing = productMapper.selectExistingBySkuSource(values);
+            if (!existing.isEmpty()) throw new IllegalArgumentException("商品资料已存在，请确认覆盖后再保存");
+        }
+        if (overwrite) batchUpsert(values);
+        else batchInsert(values);
+        return values.size();
+    }
+
+    private List<CustomsProduct> normalizeSaveProducts(List<CustomsProduct> products)
     {
         if (products == null || products.isEmpty()) throw new IllegalArgumentException("请选择需要保存的商品");
         Map<String, CustomsProduct> unique = new LinkedHashMap<>();
         for (CustomsProduct product : products)
         {
             validateProduct(product);
-            unique.put(product.getSku().trim(), product);
+            product.setSku(product.getSku().trim());
+            product.setSourceLocation(trim(product.getSourceLocation()));
+            unique.put(product.getSku() + "\u0001" + product.getSourceLocation(), product);
         }
-        List<CustomsProduct> values = new ArrayList<>(unique.values());
-        batchUpsert(values);
-        return values.size();
+        return new ArrayList<>(unique.values());
     }
 
     private void batchUpsert(List<CustomsProduct> products)
@@ -240,6 +260,16 @@ public class CustomsProductService
         {
             int to = Math.min(from + 500, products.size());
             productMapper.batchUpsert(products.subList(from, to));
+        }
+    }
+
+    private void batchInsert(List<CustomsProduct> products)
+    {
+        if (products == null || products.isEmpty()) return;
+        for (int from = 0; from < products.size(); from += 500)
+        {
+            int to = Math.min(from + 500, products.size());
+            productMapper.batchInsert(products.subList(from, to));
         }
     }
 

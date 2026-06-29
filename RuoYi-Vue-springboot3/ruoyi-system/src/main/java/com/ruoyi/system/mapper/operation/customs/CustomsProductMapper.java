@@ -14,6 +14,8 @@ public interface CustomsProductMapper
 
     List<CustomsProduct> selectBySkus(@Param("skus") List<String> skus);
 
+    List<CustomsProduct> selectExistingBySkuSource(@Param("products") List<CustomsProduct> products);
+
     List<CustomsStockOrderOption> searchStockOrders(@Param("keyword") String keyword, @Param("limit") int limit);
 
     List<CustomsProduct> selectProductsByStockOrders(@Param("orders") List<String> orders);
@@ -25,6 +27,8 @@ public interface CustomsProductMapper
     List<CustomsProduct> selectProductsByFbaShipments(@Param("shipments") List<String> shipments);
 
     List<String> selectMissingSkusByFbaShipments(@Param("shipments") List<String> shipments);
+
+    int batchInsert(@Param("products") List<CustomsProduct> products);
 
     int batchUpsert(@Param("products") List<CustomsProduct> products);
 

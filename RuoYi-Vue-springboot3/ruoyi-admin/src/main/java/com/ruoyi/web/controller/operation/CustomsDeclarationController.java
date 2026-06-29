@@ -118,9 +118,18 @@ public class CustomsDeclarationController extends BaseController
     @Log(title = "报关商品-保存主数据", businessType = BusinessType.UPDATE)
     @PreAuthorize("@ss.hasPermi('customs:product:edit')")
     @PutMapping("/products")
-    public AjaxResult saveProducts(@RequestBody List<CustomsProduct> products)
+    public AjaxResult saveProducts(@RequestBody List<CustomsProduct> products,
+                                   @RequestParam(value = "overwrite", defaultValue = "false") boolean overwrite)
     {
-        try { return success(productService.saveProducts(products)); }
+        try { return success(productService.saveProducts(products, overwrite)); }
+        catch (Exception e) { return error(e.getMessage()); }
+    }
+
+    @PreAuthorize("@ss.hasPermi('customs:product:edit')")
+    @PostMapping("/products/existing")
+    public AjaxResult existingProducts(@RequestBody List<CustomsProduct> products)
+    {
+        try { return success(productService.findExistingProducts(products)); }
         catch (Exception e) { return error(e.getMessage()); }
     }
 

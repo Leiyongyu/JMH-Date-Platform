@@ -22,8 +22,6 @@
                 v-hasPermi="['customs:declaration:import']">批量导入 SKU</el-dropdown-item>
               <el-dropdown-item command="fbaBox" icon="Box" :disabled="fbaBoxImporting"
                 v-hasPermi="['customs:declaration:import']">导入 FBA 装箱明细</el-dropdown-item>
-              <el-dropdown-item command="save" icon="Finished" :disabled="saving"
-                v-hasPermi="['customs:product:edit']">保存至商品库</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -86,6 +84,8 @@
       <span>总价 {{ totalAmount }}</span>
       <span>毛重 {{ totalGrossWeight }} kg</span>
       <span>净重 {{ totalNetWeight }} kg</span>
+      <el-button type="primary" plain size="small" icon="Finished" :loading="saving" @click="handleSaveProducts"
+        v-hasPermi="['customs:product:edit']">保存商品</el-button>
       <el-button type="danger" plain size="small" icon="Delete" @click="handleClear">清空商品</el-button>
     </div>
 
@@ -288,6 +288,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { saveAs } from 'file-saver'
 import { blobValidate } from '@/utils/ruoyi'
 import {
+  checkCustomsProducts,
   exportCustomsDeclaration,
   importFbaShipmentBox,
   importCustomsHistory,
@@ -694,7 +695,6 @@ function handleToolbarCommand(command) {
     history: openHistoryFile,
     sku: openSkuFile,
     fbaBox: openFbaBoxFile,
-    save: handleSaveProducts,
   }
   actions[command]?.()
 }
@@ -788,11 +788,18 @@ function validateItems() {
 
 async function handleSaveProducts() {
   if (!validateItems()) return
-  await proxy.$modal.confirm('确认将当前商品资料保存至商品库吗？临时修改将覆盖同SKU主数据。')
+  const data = validItems.value.map(toProductPayload)
+  const checkResponse = await checkCustomsProducts(data)
+  const existing = checkResponse.data || []
+  if (existing.length) {
+    const preview = existing.slice(0, 8)
+      .map(item => `${item.sku || ''}${item.sourceLocation ? ` / ${item.sourceLocation}` : ''}`)
+      .join('、')
+    await proxy.$modal.confirm(`已有 ${existing.length} 条商品资料存在：${preview}${existing.length > 8 ? '...' : ''}，是否覆盖？`)
+  }
   saving.value = true
   try {
-    const data = validItems.value.map(toProductPayload)
-    const response = await saveCustomsProducts(data)
+    const response = await saveCustomsProducts(data, existing.length > 0)
     proxy.$modal.msgSuccess(`已保存 ${response.data || data.length} 条商品资料`)
   } finally {
     saving.value = false

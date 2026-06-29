@@ -64,6 +64,15 @@
         <foreach collection="skus" item="sku" open="(" separator="," close=")">#{sku}</foreach>
     </select>
 
+    <select id="selectExistingBySkuSource" resultMap="CustomsProductResult">
+        SELECT <include refid="columns"/>
+        FROM customs_products_list
+        WHERE
+        <foreach collection="products" item="p" open="(" separator=" OR " close=")">
+            (sku = #{p.sku} AND IFNULL(source_location, '') = IFNULL(#{p.sourceLocation}, ''))
+        </foreach>
+    </select>
+
     <select id="searchStockOrders" resultType="com.ruoyi.system.domain.operation.customs.CustomsStockOrderOption">
         SELECT
             od.overseas_order_no AS overseasOrderNo,
@@ -152,17 +161,34 @@
         ORDER BY b.sku
     </select>
 
-    <insert id="batchUpsert">
+    <sql id="productInsertColumns">
+        sku, description_cn, model, unit, unit_price_usd, currency, single_weight,
+        packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height,
+        hs_code, hs_description, origin_country, destination_country, source_location, exemption, is_tax
+    </sql>
+
+    <sql id="productInsertValues">
+        #{p.sku}, #{p.descriptionCn}, #{p.model}, #{p.unit}, #{p.unitPriceUsd}, #{p.currency},
+        #{p.singleWeight}, #{p.packingNetWeight}, #{p.packingGrossWeight}, #{p.packingCbm},
+        #{p.boxLength}, #{p.boxWidth}, #{p.boxHeight}, #{p.hsCode}, #{p.hsDescription}, #{p.originCountry},
+        #{p.destinationCountry}, #{p.sourceLocation}, #{p.exemption}, #{p.isTax}
+    </sql>
+
+    <insert id="batchInsert">
         INSERT INTO customs_products_list
-        (sku, description_cn, model, unit, unit_price_usd, currency, single_weight,
-         packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height,
-         hs_code, hs_description, origin_country, destination_country, source_location, exemption, is_tax)
+        (<include refid="productInsertColumns"/>)
         VALUES
         <foreach collection="products" item="p" separator=",">
-            (#{p.sku}, #{p.descriptionCn}, #{p.model}, #{p.unit}, #{p.unitPriceUsd}, #{p.currency},
-             #{p.singleWeight}, #{p.packingNetWeight}, #{p.packingGrossWeight}, #{p.packingCbm},
-             #{p.boxLength}, #{p.boxWidth}, #{p.boxHeight}, #{p.hsCode}, #{p.hsDescription}, #{p.originCountry},
-             #{p.destinationCountry}, #{p.sourceLocation}, #{p.exemption}, #{p.isTax})
+            (<include refid="productInsertValues"/>)
+        </foreach>
+    </insert>
+
+    <insert id="batchUpsert">
+        INSERT INTO customs_products_list
+        (<include refid="productInsertColumns"/>)
+        VALUES
+        <foreach collection="products" item="p" separator=",">
+            (<include refid="productInsertValues"/>)
         </foreach>
         ON DUPLICATE KEY UPDATE
             description_cn = VALUES(description_cn),
