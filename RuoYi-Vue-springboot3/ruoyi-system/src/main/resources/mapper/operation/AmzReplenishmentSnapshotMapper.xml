@@ -197,6 +197,10 @@
                     <otherwise>and s.store_name like concat('%', #{storeName}, '%')</otherwise>
                 </choose>
             </if>
+            <!-- 店铺排除模式 -->
+            <if test="storeNameExclude != null and storeNameExclude != ''">
+                and s.store_name not in <foreach collection='storeNameExclude.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach>
+            </if>
             <if test="sellerSku != null and sellerSku != ''">and s.seller_sku like concat('%', #{sellerSku}, '%')</if>
             <if test="warehouseSku != null and warehouseSku != ''">and s.warehouse_sku like concat('%', #{warehouseSku}, '%')</if>
             <if test="asin != null and asin != ''">and s.asin like concat('%', #{asin}, '%')</if>
