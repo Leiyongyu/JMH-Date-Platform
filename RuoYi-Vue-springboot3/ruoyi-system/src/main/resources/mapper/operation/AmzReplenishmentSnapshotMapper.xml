@@ -115,56 +115,117 @@
             region_group, image_url, calc_time, batch_no, current_flag
         )
         SELECT
-            COALESCE(pl.sid, 0) AS sid,
-            pl.seller_sku AS seller_sku,
-            wd.sku AS warehouse_sku,
-            ANY_VALUE(wh.name) AS warehouse_name,
-            ANY_VALUE(pl.asin) AS asin,
-            ANY_VALUE(COALESCE(pl.tag_name, '')) AS tag_name,
-            ANY_VALUE(pl.principal_name) AS principal_name,
-            ANY_VALUE(COALESCE(sl.store_name, '')) AS store_name,
-            ANY_VALUE(COALESCE(pc.category, '')) AS product_category,
-            ANY_VALUE(NULLIF(pl.last_star, '')) AS rating,
-            ANY_VALUE(pl.review_num) AS review_count,
-            ANY_VALUE(op.spend_rate * 100) AS ad_rate,
-            ANY_VALUE(op.gross_margin * 100) AS profit_rate_30d,
-            ANY_VALUE(op.refund_amount_rate * 100) AS refund_rate_90d,
-            CASE WHEN COALESCE(ANY_VALUE(fc.region_group), 'US') = 'EU'
-                 THEN COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)), 0) + COALESCE(MAX(wd.product_qc_num), 0)
-                 ELSE COALESCE(MAX(wd.product_valid_num), 0)
-            END AS purchased_qty,
-            COALESCE(MAX(wd.product_valid_num), 0) AS domestic_stock,
-            COALESCE(MAX(wd.product_lock_num), 0) AS pending_ship_qty,
-            COALESCE(MAX(rs.fba_sellable), 0) AS fba_stock,
-            COALESCE(MAX(rs.fba_inbound), 0) AS fba_inbound,
-            COALESCE(MAX(rs.fba_sellable), 0) + COALESCE(MAX(rs.fba_inbound), 0) AS total_inventory,
-            COALESCE(MAX(rs.sales_7d), 0) AS sales_7d,
-            COALESCE(MAX(rs.sales_14d), 0) AS sales_14d,
-            COALESCE(MAX(rs.sales_30d), 0) AS sales_30d,
-            COALESCE(MAX(rs.sales_60d), 0) AS sales_60d,
-            MAX(rs.avg_sales_14d) AS sales_speed_14d,
-            MAX(rs.avg_sales_30d) AS sales_speed_30d,
-            MAX(rs.avg_sales_60d) AS sales_speed_60d,
-            ROUND(<include refid="amzWeightedDailyExpr"/> * COALESCE(ANY_VALUE(fc.month_multiplier),30), 2) AS avg_monthly_sales,
-            ROUND(<include refid="amzWeightedDailyExpr"/> * COALESCE(ANY_VALUE(fc.safety_days),90), 2) AS safety_stock,
-            ROUND(<include refid="amzWeightedDailyExpr"/> * COALESCE(ANY_VALUE(fc.ship_days),90), 2) - <include refid="amzFbaDeductExpr"/> AS ship_qty,
-            <include refid="amzFinalReplenishExpr"/> AS replenish_qty,
-            ROUND(((COALESCE(MAX(rs.fba_sellable),0) + COALESCE(MAX(rs.fba_inbound),0)) - <include refid="amzFinalReplenishExpr"/>) / NULLIF(<include refid="amzWeightedDailyExpr"/>, 0), 2) AS restock_days,
-            ANY_VALUE(COALESCE(fc.region_group, 'US')) AS region_group,
-            ANY_VALUE(pl.small_image_url) AS image_url,
-            NOW() AS calc_time,
-            #{batchNo} AS batch_no,
-            0 AS current_flag
-        FROM amz_warehouse_inventory_detail wd
-        LEFT JOIN amz_product_listing pl ON pl.local_sku = wd.sku
-        LEFT JOIN shop_list sl ON sl.sid = pl.sid AND sl.platform_code = '10001'
-        LEFT JOIN amz_product_category pc ON pc.sid = pl.sid AND pc.seller_sku = pl.seller_sku
-        LEFT JOIN amz_order_profit op ON op.sid = pl.sid AND op.seller_sku = pl.seller_sku
-        LEFT JOIN amz_restock_summary rs ON rs.sid = pl.sid AND rs.msku = pl.seller_sku
-        LEFT JOIN warehouse wh ON wh.wid = wd.wid
-        LEFT JOIN amz_replenishment_formula_config fc ON fc.enabled = 1
-            AND FIND_IN_SET(wh.name, fc.marketplaces) > 0
-        GROUP BY COALESCE(pl.sid, 0), pl.seller_sku, wd.sku
+            final.sid, final.seller_sku, final.warehouse_sku, final.warehouse_name, final.asin,
+            final.tag_name, final.principal_name, final.store_name, final.product_category,
+            final.rating, final.review_count, final.ad_rate, final.profit_rate_30d, final.refund_rate_90d,
+            final.purchased_qty, final.domestic_stock, final.pending_ship_qty, final.fba_stock,
+            final.fba_inbound, final.total_inventory,
+            final.sales_7d, final.sales_14d, final.sales_30d, final.sales_60d,
+            final.sales_speed_14d, final.sales_speed_30d, final.sales_speed_60d,
+            final.avg_monthly_sales, final.safety_stock, final.ship_qty,
+            final.final_replenish AS replenish_qty,
+            ROUND((final.total_inventory - final.final_replenish) / NULLIF(final.weighted_daily_sales, 0), 2) AS restock_days,
+            final.region_group, final.image_url, NOW() AS calc_time, #{batchNo} AS batch_no, 0 AS current_flag
+        FROM (
+            SELECT limited.*,
+                   CASE COALESCE(limited.round_mode, 'NONE')
+                       WHEN 'CEIL' THEN CEIL(limited.limited_replenish)
+                       WHEN 'FLOOR' THEN FLOOR(limited.limited_replenish)
+                       WHEN 'ROUND' THEN ROUND(limited.limited_replenish, 0)
+                       ELSE limited.limited_replenish
+                   END AS final_replenish
+            FROM (
+                SELECT calc.*,
+                       CASE
+                           WHEN calc.min_replenish_qty IS NOT NULL AND calc.max_replenish_qty IS NOT NULL
+                               THEN LEAST(calc.max_replenish_qty, GREATEST(calc.min_replenish_qty, calc.base_replenish))
+                           WHEN calc.min_replenish_qty IS NOT NULL
+                               THEN GREATEST(calc.min_replenish_qty, calc.base_replenish)
+                           WHEN calc.max_replenish_qty IS NOT NULL
+                               THEN LEAST(calc.max_replenish_qty, calc.base_replenish)
+                           ELSE calc.base_replenish
+                       END AS limited_replenish
+                FROM (
+                    SELECT raw.*,
+                           CASE WHEN COALESCE(raw.allow_negative_replenish, 1) = 1
+                                THEN raw.raw_replenish
+                                ELSE GREATEST(raw.raw_replenish, 0)
+                           END AS base_replenish
+                    FROM (
+                        SELECT base.*,
+                               ROUND(base.weighted_daily_sales * base.month_multiplier, 2) AS avg_monthly_sales,
+                               ROUND(base.weighted_daily_sales * base.safety_days, 2) AS safety_stock,
+                               ROUND(base.weighted_daily_sales * base.ship_days, 2) - base.fba_deduct AS ship_qty,
+                               ROUND(base.weighted_daily_sales * base.replenish_days, 2)
+                                   - base.domestic_deduct
+                                   - base.purchased_deduct
+                                   - base.fba_deduct
+                                   - base.pending_deduct AS raw_replenish
+                        FROM (
+                            SELECT
+                                COALESCE(pl.sid, 0) AS sid,
+                                pl.seller_sku AS seller_sku,
+                                wd.sku AS warehouse_sku,
+                                ANY_VALUE(wh.name) AS warehouse_name,
+                                ANY_VALUE(pl.asin) AS asin,
+                                ANY_VALUE(COALESCE(pl.tag_name, '')) AS tag_name,
+                                ANY_VALUE(pl.principal_name) AS principal_name,
+                                ANY_VALUE(COALESCE(sl.store_name, '')) AS store_name,
+                                ANY_VALUE(COALESCE(pc.category, '')) AS product_category,
+                                ANY_VALUE(NULLIF(pl.last_star, '')) AS rating,
+                                ANY_VALUE(pl.review_num) AS review_count,
+                                ANY_VALUE(op.spend_rate * 100) AS ad_rate,
+                                ANY_VALUE(op.gross_margin * 100) AS profit_rate_30d,
+                                ANY_VALUE(op.refund_amount_rate * 100) AS refund_rate_90d,
+                                CASE WHEN COALESCE(ANY_VALUE(fc.region_group), 'US') = 'EU'
+                                     THEN COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)), 0) + COALESCE(MAX(wd.product_qc_num), 0)
+                                     ELSE COALESCE(MAX(wd.product_valid_num), 0)
+                                END AS purchased_qty,
+                                COALESCE(MAX(wd.product_valid_num), 0) AS domestic_stock,
+                                COALESCE(MAX(wd.product_lock_num), 0) AS pending_ship_qty,
+                                COALESCE(MAX(rs.fba_sellable), 0) AS fba_stock,
+                                COALESCE(MAX(rs.fba_inbound), 0) AS fba_inbound,
+                                COALESCE(MAX(rs.fba_sellable), 0) + COALESCE(MAX(rs.fba_inbound), 0) AS total_inventory,
+                                COALESCE(MAX(rs.sales_7d), 0) AS sales_7d,
+                                COALESCE(MAX(rs.sales_14d), 0) AS sales_14d,
+                                COALESCE(MAX(rs.sales_30d), 0) AS sales_30d,
+                                COALESCE(MAX(rs.sales_60d), 0) AS sales_60d,
+                                MAX(rs.avg_sales_14d) AS sales_speed_14d,
+                                MAX(rs.avg_sales_30d) AS sales_speed_30d,
+                                MAX(rs.avg_sales_60d) AS sales_speed_60d,
+                                (COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5)
+                                    + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4)
+                                    + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1)) AS weighted_daily_sales,
+                                COALESCE(ANY_VALUE(fc.month_multiplier), 30) AS month_multiplier,
+                                COALESCE(ANY_VALUE(fc.safety_days), 90) AS safety_days,
+                                COALESCE(ANY_VALUE(fc.ship_days), 90) AS ship_days,
+                                COALESCE(ANY_VALUE(fc.replenish_days), 120) AS replenish_days,
+                                COALESCE(ANY_VALUE(fc.allow_negative_replenish), 1) AS allow_negative_replenish,
+                                ANY_VALUE(fc.min_replenish_qty) AS min_replenish_qty,
+                                ANY_VALUE(fc.max_replenish_qty) AS max_replenish_qty,
+                                COALESCE(ANY_VALUE(fc.round_mode), 'NONE') AS round_mode,
+                                (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_domestic_stock),1) = 1 THEN COALESCE(MAX(wd.product_valid_num),0) ELSE 0 END) AS domestic_deduct,
+                                (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_purchased_qty),1) = 1 THEN COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) ELSE 0 END) AS purchased_deduct,
+                                (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_stock),1) = 1 THEN COALESCE(MAX(rs.fba_sellable),0) ELSE 0 END
+                                    + CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_inbound),1) = 1 THEN COALESCE(MAX(rs.fba_inbound),0) ELSE 0 END) AS fba_deduct,
+                                (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_pending_ship_qty),1) = 1 THEN COALESCE(MAX(wd.product_lock_num),0) ELSE 0 END) AS pending_deduct,
+                                ANY_VALUE(COALESCE(fc.region_group, 'US')) AS region_group,
+                                ANY_VALUE(pl.small_image_url) AS image_url
+                            FROM amz_warehouse_inventory_detail wd
+                            LEFT JOIN amz_product_listing pl ON pl.local_sku = wd.sku
+                            LEFT JOIN shop_list sl ON sl.sid = pl.sid AND sl.platform_code = '10001'
+                            LEFT JOIN amz_product_category pc ON pc.sid = pl.sid AND pc.seller_sku = pl.seller_sku
+                            LEFT JOIN amz_order_profit op ON op.sid = pl.sid AND op.seller_sku = pl.seller_sku
+                            LEFT JOIN amz_restock_summary rs ON rs.sid = pl.sid AND rs.msku = pl.seller_sku
+                            LEFT JOIN warehouse wh ON wh.wid = wd.wid
+                            LEFT JOIN amz_replenishment_formula_config fc ON fc.enabled = 1
+                                AND FIND_IN_SET(wh.name, fc.marketplaces) > 0
+                            GROUP BY COALESCE(pl.sid, 0), pl.seller_sku, wd.sku
+                        ) base
+                    ) raw
+                ) calc
+            ) limited
+        ) final
     </insert>
 
     <!-- ==================================================================== -->

@@ -8,10 +8,8 @@
       <div class="toolbar">
         <el-button type="primary" icon="Download" :loading="exporting" @click="handleExport"
           v-hasPermi="['customs:declaration:export']">导出报关单</el-button>
-        <el-button type="success" icon="Connection" @click="openStockOrderDialog"
-          v-hasPermi="['customs:declaration:query']">关联备货单</el-button>
-        <el-button type="warning" icon="Box" @click="openFbaShipmentDialog"
-          v-hasPermi="['customs:declaration:query']">关联FBA货件</el-button>
+        <el-button type="success" icon="Connection" @click="openDataSourceDialog"
+          v-hasPermi="['customs:declaration:query']">关联数据源</el-button>
         <el-dropdown trigger="click" @command="handleToolbarCommand" :disabled="fbaBoxImporting">
           <el-button :loading="fbaBoxImporting">
             {{ fbaBoxImporting ? '导入中' : '更多操作' }}<el-icon v-if="!fbaBoxImporting" class="dropdown-icon"><ArrowDown /></el-icon>
@@ -91,7 +89,7 @@
       <el-button type="danger" plain size="small" icon="Delete" @click="handleClear">清空商品</el-button>
     </div>
 
-    <el-table :data="items" border stripe row-key="_key" class="item-table">
+    <el-table ref="itemTableRef" :data="pagedItems" border stripe row-key="_key" height="620" class="item-table">
       <el-table-column type="index" label="项号" width="58" fixed="left" align="center" />
       <el-table-column label="商品信息" align="center">
         <el-table-column label="SKU" width="180" fixed="left">
@@ -198,88 +196,95 @@
       </el-table-column>
       <el-table-column label="操作" width="96" fixed="right" align="center">
         <template #default="{ $index }">
-          <el-button link type="primary" icon="Plus" title="在下方添加" @click="addRow($index)" />
-          <el-button link type="danger" icon="Minus" title="删除" @click="removeRow($index)" />
+          <el-button link type="primary" icon="Plus" title="在下方添加" @click="addRow(toActualIndex($index))" />
+          <el-button link type="danger" icon="Minus" title="删除" @click="removeRow(toActualIndex($index))" />
         </template>
       </el-table-column>
     </el-table>
+    <pagination
+      v-show="items.length > itemPage.pageSize"
+      :total="items.length"
+      :page-sizes="[50]"
+      v-model:page="itemPage.pageNum"
+      v-model:limit="itemPage.pageSize"
+      @pagination="handleItemPagination"
+    />
 
-    <el-dialog v-model="stockDialog.visible" title="关联备货单" width="980px" append-to-body class="stock-order-dialog">
-      <div class="stock-link-tip">保存关联后会将所选备货单对应商品添加到当前报关单，重复商品会按明细逐条添加。</div>
-      <div class="stock-search-row">
-        <el-input v-model="stockDialog.keyword" clearable placeholder="搜索备货单号" class="stock-search-input"
-          @keyup.enter="loadStockOrders">
-          <template #prepend>备货单号</template>
-          <template #append>
-            <el-button icon="Search" :loading="stockDialog.loading" @click="loadStockOrders" />
-          </template>
-        </el-input>
-      </div>
-      <el-table ref="stockOrderTableRef" v-loading="stockDialog.loading" :data="stockDialog.orders" border
-        row-key="overseasOrderNo" height="460" class="stock-order-table" @selection-change="handleStockOrderSelection">
-        <el-table-column type="selection" width="44" fixed="left" />
-        <el-table-column prop="overseasOrderNo" label="备货单号" min-width="170" fixed="left" />
-        <el-table-column prop="productCount" label="装箱商品数量" min-width="140" />
-        <el-table-column prop="totalBoxCount" label="总箱数" min-width="120" />
-        <el-table-column prop="totalQuantity" label="总装箱量" min-width="140" />
-        <el-table-column prop="totalGrossWeight" label="总毛重(kg)" min-width="140">
-          <template #default="{ row }">{{ formatNumber(row.totalGrossWeight, 2) }}</template>
-        </el-table-column>
-      </el-table>
-      <div class="stock-dialog-summary">
-        <span>共 {{ stockDialog.orders.length }} 条</span>
-        <span>已选 {{ stockDialog.selected.length }} 条</span>
-      </div>
-      <div v-if="stockDialog.missingSkus.length" class="missing-sku-box">
-        <div class="missing-sku-title">未匹配到商品库的 SKU（{{ stockDialog.missingSkus.length }}）</div>
-        <el-tag v-for="sku in stockDialog.missingSkus" :key="sku" type="danger" effect="plain">{{ sku }}</el-tag>
-      </div>
+    <el-dialog v-model="dataSourceDialog.visible" title="关联数据源" width="980px" append-to-body class="stock-order-dialog">
+      <el-tabs v-model="dataSourceDialog.platform" class="source-tabs" @tab-change="handleLinkPlatformChange">
+        <el-tab-pane label="eBay备货单" name="stock">
+          <div class="stock-link-tip">保存关联后会将所选备货单对应商品合并到当前报关单，重复 SKU 会合并并累加数量。</div>
+          <div class="stock-search-row">
+            <el-input v-model="stockDialog.keyword" clearable placeholder="搜索备货单号" class="stock-search-input"
+              @keyup.enter="loadStockOrders">
+              <template #prepend>备货单号</template>
+              <template #append>
+                <el-button icon="Search" :loading="stockDialog.loading" @click="loadStockOrders" />
+              </template>
+            </el-input>
+          </div>
+          <el-table ref="stockOrderTableRef" v-loading="stockDialog.loading" :data="stockDialog.orders" border
+            row-key="overseasOrderNo" height="460" class="stock-order-table" @selection-change="handleStockOrderSelection">
+            <el-table-column type="selection" width="44" fixed="left" :reserve-selection="true" />
+            <el-table-column prop="overseasOrderNo" label="备货单号" min-width="170" fixed="left" />
+            <el-table-column prop="productCount" label="装箱商品数量" min-width="140" />
+            <el-table-column prop="totalBoxCount" label="总箱数" min-width="120" />
+            <el-table-column prop="totalQuantity" label="总装箱量" min-width="140" />
+            <el-table-column prop="totalGrossWeight" label="总毛重(kg)" min-width="140">
+              <template #default="{ row }">{{ formatNumber(row.totalGrossWeight, 2) }}</template>
+            </el-table-column>
+          </el-table>
+          <div class="stock-dialog-summary">
+            <span>共 {{ stockDialog.orders.length }} 条</span>
+            <span>已选 {{ stockDialog.selectedOrderNos.length }} 条</span>
+          </div>
+          <div v-if="stockDialog.missingSkus.length" class="missing-sku-box">
+            <div class="missing-sku-title">未匹配到商品库的 SKU（{{ stockDialog.missingSkus.length }}）</div>
+            <el-tag v-for="sku in stockDialog.missingSkus" :key="sku" type="danger" effect="plain">{{ sku }}</el-tag>
+          </div>
+        </el-tab-pane>
+        <el-tab-pane label="AMZ FBA货件" name="fba">
+          <div class="stock-link-tip">保存关联后会将所选 FBA 货件对应商品合并到当前报关单，重复 SKU 会合并并累加数量。</div>
+          <div class="stock-search-row">
+            <el-input v-model="fbaDialog.keyword" clearable placeholder="搜索货件编号" class="stock-search-input"
+              @keyup.enter="loadFbaShipments">
+              <template #prepend>货件编号</template>
+              <template #append>
+                <el-button icon="Search" :loading="fbaDialog.loading" @click="loadFbaShipments" />
+              </template>
+            </el-input>
+          </div>
+          <el-table ref="fbaShipmentTableRef" v-loading="fbaDialog.loading" :data="fbaDialog.shipments" border
+            row-key="shipmentId" height="460" class="stock-order-table" @selection-change="handleFbaShipmentSelection">
+            <el-table-column type="selection" width="44" fixed="left" :reserve-selection="true" />
+            <el-table-column prop="shipmentId" label="货件编号" min-width="170" fixed="left" />
+            <el-table-column prop="productCount" label="装箱商品数量" min-width="140" />
+            <el-table-column prop="totalBoxCount" label="总箱数" min-width="120" />
+            <el-table-column prop="totalQuantity" label="总装箱量" min-width="140" />
+            <el-table-column prop="totalGrossWeight" label="总毛重(kg)" min-width="140">
+              <template #default="{ row }">{{ formatNumber(row.totalGrossWeight, 2) }}</template>
+            </el-table-column>
+          </el-table>
+          <div class="stock-dialog-summary">
+            <span>共 {{ fbaDialog.shipments.length }} 条</span>
+            <span>已选 {{ fbaDialog.selectedShipmentIds.length }} 条</span>
+          </div>
+          <div v-if="fbaDialog.missingSkus.length" class="missing-sku-box">
+            <div class="missing-sku-title">未匹配到商品库的 SKU（{{ fbaDialog.missingSkus.length }}）</div>
+            <el-tag v-for="sku in fbaDialog.missingSkus" :key="sku" type="danger" effect="plain">{{ sku }}</el-tag>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
       <template #footer>
-        <el-button @click="stockDialog.visible = false">取消</el-button>
-        <el-button type="primary" :loading="stockDialog.saving" @click="confirmStockOrderLink">保存</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="fbaDialog.visible" title="关联FBA货件" width="980px" append-to-body class="stock-order-dialog">
-      <div class="stock-link-tip">保存关联后会将所选 FBA 货件对应商品添加到当前报关单，重复 SKU 会按装箱明细逐条添加。</div>
-      <div class="stock-search-row">
-        <el-input v-model="fbaDialog.keyword" clearable placeholder="搜索货件编号" class="stock-search-input"
-          @keyup.enter="loadFbaShipments">
-          <template #prepend>货件编号</template>
-          <template #append>
-            <el-button icon="Search" :loading="fbaDialog.loading" @click="loadFbaShipments" />
-          </template>
-        </el-input>
-      </div>
-      <el-table ref="fbaShipmentTableRef" v-loading="fbaDialog.loading" :data="fbaDialog.shipments" border
-        row-key="shipmentId" height="460" class="stock-order-table" @selection-change="handleFbaShipmentSelection">
-        <el-table-column type="selection" width="44" fixed="left" />
-        <el-table-column prop="shipmentId" label="货件编号" min-width="170" fixed="left" />
-        <el-table-column prop="productCount" label="装箱商品数量" min-width="140" />
-        <el-table-column prop="totalBoxCount" label="总箱数" min-width="120" />
-        <el-table-column prop="totalQuantity" label="总装箱量" min-width="140" />
-        <el-table-column prop="totalGrossWeight" label="总毛重(kg)" min-width="140">
-          <template #default="{ row }">{{ formatNumber(row.totalGrossWeight, 2) }}</template>
-        </el-table-column>
-      </el-table>
-      <div class="stock-dialog-summary">
-        <span>共 {{ fbaDialog.shipments.length }} 条</span>
-        <span>已选 {{ fbaDialog.selected.length }} 条</span>
-      </div>
-      <div v-if="fbaDialog.missingSkus.length" class="missing-sku-box">
-        <div class="missing-sku-title">未匹配到商品库的 SKU（{{ fbaDialog.missingSkus.length }}）</div>
-        <el-tag v-for="sku in fbaDialog.missingSkus" :key="sku" type="danger" effect="plain">{{ sku }}</el-tag>
-      </div>
-      <template #footer>
-        <el-button @click="fbaDialog.visible = false">取消</el-button>
-        <el-button type="primary" :loading="fbaDialog.saving" @click="confirmFbaShipmentLink">保存</el-button>
+        <el-button @click="dataSourceDialog.visible = false">取消</el-button>
+        <el-button type="primary" :loading="activeLinkSaving" @click="confirmDataSourceLink">保存</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup name="CustomsDeclaration">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { saveAs } from 'file-saver'
 import { blobValidate } from '@/utils/ruoyi'
 import {
@@ -307,11 +312,17 @@ const headerExpanded = ref(false)
 const productOptions = ref([])
 const stockOrderTableRef = ref()
 const fbaShipmentTableRef = ref()
+const itemTableRef = ref()
 let keySeed = 0
 
 const defaultCompany = '成都玖马赫供应链管理有限公司   信用代码：91510106MACMNJMB6A'
 const header = reactive(createHeader())
 const items = ref([createEmptyItem()])
+const itemPage = reactive({ pageNum: 1, pageSize: 50 })
+const dataSourceDialog = reactive({
+  visible: false,
+  platform: 'stock'
+})
 const stockDialog = reactive({
   visible: false,
   keyword: '',
@@ -319,6 +330,8 @@ const stockDialog = reactive({
   saving: false,
   orders: [],
   selected: [],
+  selectedOrderNos: [],
+  restoring: false,
   missingSkus: []
 })
 const fbaDialog = reactive({
@@ -328,6 +341,8 @@ const fbaDialog = reactive({
   saving: false,
   shipments: [],
   selected: [],
+  selectedShipmentIds: [],
+  restoring: false,
   missingSkus: []
 })
 
@@ -356,10 +371,15 @@ function createEmptyItem() {
 }
 
 const validItems = computed(() => items.value.filter(item => item.sku && item.sku.trim()))
+const pagedItems = computed(() => {
+  const start = (itemPage.pageNum - 1) * itemPage.pageSize
+  return items.value.slice(start, start + itemPage.pageSize)
+})
 const totalQuantity = computed(() => validItems.value.reduce((sum, item) => sum + Number(item.quantity || 0), 0))
 const totalAmount = computed(() => validItems.value.reduce((sum, item) => sum + Number(calcAmount(item)), 0).toFixed(2))
 const totalNetWeight = computed(() => validItems.value.reduce((sum, item) => sum + Number(calcNetWeight(item)), 0).toFixed(4))
 const totalGrossWeight = computed(() => validItems.value.reduce((sum, item) => sum + Number(calcGrossWeight(item)), 0).toFixed(4))
+const activeLinkSaving = computed(() => dataSourceDialog.platform === 'stock' ? stockDialog.saving : fbaDialog.saving)
 
 watch(totalGrossWeight, v => { header.grossWt = v })
 watch(totalNetWeight, v => { header.netWt = v })
@@ -367,6 +387,17 @@ watch(
   () => validItems.value.map(item => item.sku),
   skus => { header.packQty = skus.length },
   { immediate: true }
+)
+watch(
+  () => items.value.length,
+  total => {
+    const maxPage = Math.max(1, Math.ceil(total / itemPage.pageSize))
+    if (itemPage.pageNum > maxPage) itemPage.pageNum = maxPage
+  }
+)
+watch(
+  () => [itemPage.pageNum, itemPage.pageSize],
+  () => scrollItemTableTop()
 )
 
 function calcAmount(row) {
@@ -422,10 +453,45 @@ function productToRow(product) {
   }
 }
 
+async function openDataSourceDialog() {
+  dataSourceDialog.visible = true
+  await loadActiveLinkOptions()
+  await restoreActiveLinkSelection()
+}
+
+async function handleLinkPlatformChange() {
+  await loadActiveLinkOptions()
+  await restoreActiveLinkSelection()
+}
+
+async function loadActiveLinkOptions() {
+  if (dataSourceDialog.platform === 'stock') await loadStockOrders()
+  else await loadFbaShipments()
+}
+
+async function confirmDataSourceLink() {
+  if (dataSourceDialog.platform === 'stock') await confirmStockOrderLink()
+  else await confirmFbaShipmentLink()
+}
+
+async function restoreActiveLinkSelection() {
+  if (dataSourceDialog.platform === 'stock') await restoreStockOrderSelection()
+  else await restoreFbaShipmentSelection()
+}
+
+function handleItemPagination() {
+  scrollItemTableTop()
+}
+
+async function scrollItemTableTop() {
+  await nextTick()
+  itemTableRef.value?.setScrollTop?.(0)
+}
+
 async function openStockOrderDialog() {
-  stockDialog.visible = true
+  dataSourceDialog.visible = true
+  dataSourceDialog.platform = 'stock'
   stockDialog.keyword = ''
-  stockDialog.selected = []
   stockDialog.missingSkus = []
   await loadStockOrders()
 }
@@ -435,27 +501,44 @@ async function loadStockOrders() {
   try {
     const response = await searchStockOrders({ keyword: stockDialog.keyword, limit: 100 })
     stockDialog.orders = response.data || []
-    stockDialog.selected = []
     stockDialog.missingSkus = []
-    stockOrderTableRef.value?.clearSelection()
+    await restoreStockOrderSelection()
   } finally {
     stockDialog.loading = false
   }
 }
 
 function handleStockOrderSelection(selection) {
+  if (stockDialog.restoring) return
   stockDialog.selected = selection
+  stockDialog.selectedOrderNos = mergeVisibleSelection(
+    stockDialog.selectedOrderNos,
+    stockDialog.orders,
+    selection,
+    'overseasOrderNo'
+  )
+}
+
+async function restoreStockOrderSelection() {
+  await nextTick()
+  await delay(0)
+  stockDialog.restoring = true
+  const selected = new Set(stockDialog.selectedOrderNos)
+  stockDialog.orders.forEach(row => {
+    stockOrderTableRef.value?.toggleRowSelection(row, selected.has(row.overseasOrderNo))
+  })
+  await nextTick()
+  stockDialog.restoring = false
 }
 
 async function confirmStockOrderLink() {
-  if (!stockDialog.selected.length) {
+  if (!stockDialog.selectedOrderNos.length) {
     proxy.$modal.msgWarning('请先选择备货单')
     return
   }
   stockDialog.saving = true
   try {
-    const overseasOrderNos = stockDialog.selected.map(item => item.overseasOrderNo)
-    const response = await loadStockOrderProducts({ overseasOrderNos })
+    const response = await loadStockOrderProducts({ overseasOrderNos: stockDialog.selectedOrderNos })
     const result = normalizeLinkResult(response.data)
     const rows = result.products.map(productToRow)
     stockDialog.missingSkus = result.missingSkus
@@ -466,7 +549,7 @@ async function confirmStockOrderLink() {
     appendLinkedRows(rows)
     if (result.missingSkus.length) proxy.$modal.msgWarning(`已关联 ${rows.length} 个商品，${result.missingSkus.length} 个SKU未匹配`)
     else {
-      stockDialog.visible = false
+      dataSourceDialog.visible = false
       proxy.$modal.msgSuccess(`已关联 ${rows.length} 个商品`)
     }
   } finally {
@@ -475,9 +558,9 @@ async function confirmStockOrderLink() {
 }
 
 async function openFbaShipmentDialog() {
-  fbaDialog.visible = true
+  dataSourceDialog.visible = true
+  dataSourceDialog.platform = 'fba'
   fbaDialog.keyword = ''
-  fbaDialog.selected = []
   fbaDialog.missingSkus = []
   await loadFbaShipments()
 }
@@ -487,27 +570,60 @@ async function loadFbaShipments() {
   try {
     const response = await searchFbaShipments({ keyword: fbaDialog.keyword, limit: 100 })
     fbaDialog.shipments = response.data || []
-    fbaDialog.selected = []
     fbaDialog.missingSkus = []
-    fbaShipmentTableRef.value?.clearSelection()
+    await restoreFbaShipmentSelection()
   } finally {
     fbaDialog.loading = false
   }
 }
 
 function handleFbaShipmentSelection(selection) {
+  if (fbaDialog.restoring) return
   fbaDialog.selected = selection
+  fbaDialog.selectedShipmentIds = mergeVisibleSelection(
+    fbaDialog.selectedShipmentIds,
+    fbaDialog.shipments,
+    selection,
+    'shipmentId'
+  )
+}
+
+async function restoreFbaShipmentSelection() {
+  await nextTick()
+  await delay(0)
+  fbaDialog.restoring = true
+  const selected = new Set(fbaDialog.selectedShipmentIds)
+  fbaDialog.shipments.forEach(row => {
+    fbaShipmentTableRef.value?.toggleRowSelection(row, selected.has(row.shipmentId))
+  })
+  await nextTick()
+  fbaDialog.restoring = false
+}
+
+function mergeVisibleSelection(existingIds, visibleRows, selection, key) {
+  const next = new Set(existingIds)
+  const selected = new Set(selection.map(item => item[key]).filter(Boolean))
+  visibleRows.forEach(row => {
+    const id = row[key]
+    if (!id) return
+    if (selected.has(id)) next.add(id)
+    else next.delete(id)
+  })
+  return Array.from(next)
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 async function confirmFbaShipmentLink() {
-  if (!fbaDialog.selected.length) {
+  if (!fbaDialog.selectedShipmentIds.length) {
     proxy.$modal.msgWarning('请先选择FBA货件')
     return
   }
   fbaDialog.saving = true
   try {
-    const shipmentIds = fbaDialog.selected.map(item => item.shipmentId)
-    const response = await loadFbaShipmentProducts({ shipmentIds })
+    const response = await loadFbaShipmentProducts({ shipmentIds: fbaDialog.selectedShipmentIds })
     const result = normalizeLinkResult(response.data)
     const rows = result.products.map(productToRow)
     fbaDialog.missingSkus = result.missingSkus
@@ -518,7 +634,7 @@ async function confirmFbaShipmentLink() {
     appendLinkedRows(rows)
     if (result.missingSkus.length) proxy.$modal.msgWarning(`已关联 ${rows.length} 个商品，${result.missingSkus.length} 个SKU未匹配`)
     else {
-      fbaDialog.visible = false
+      dataSourceDialog.visible = false
       proxy.$modal.msgSuccess(`已关联 ${rows.length} 个商品`)
     }
   } finally {
@@ -549,10 +665,12 @@ function appendLinkedRows(rows) {
     }
   }
   if (!items.value.length) items.value = [createEmptyItem()]
+  itemPage.pageNum = Math.max(1, Math.ceil(items.value.length / itemPage.pageSize))
 }
 
 function addRow(index) {
   items.value.splice(index + 1, 0, createEmptyItem())
+  itemPage.pageNum = Math.max(1, Math.ceil((index + 2) / itemPage.pageSize))
 }
 
 function removeRow(index) {
@@ -561,6 +679,10 @@ function removeRow(index) {
     return
   }
   items.value.splice(index, 1)
+}
+
+function toActualIndex(pageIndex) {
+  return (itemPage.pageNum - 1) * itemPage.pageSize + pageIndex
 }
 
 function openHistoryFile() { historyFileRef.value?.click() }
@@ -726,6 +848,7 @@ async function handleExport() {
 async function handleClear() {
   await proxy.$modal.confirm('清空全部商品行？')
   items.value = [createEmptyItem()]
+  itemPage.pageNum = 1
   proxy.$modal.msgSuccess('已清空')
 }
 </script>
