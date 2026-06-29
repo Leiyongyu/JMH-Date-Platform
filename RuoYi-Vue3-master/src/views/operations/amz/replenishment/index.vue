@@ -1,6 +1,18 @@
 <template>
   <div class="app-container amz-replenishment-page">
     <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" label-width="82px">
+      <el-form-item label="国家代码" prop="countryCode">
+        <el-select
+          v-model="queryParams.countryCode"
+          filterable
+          clearable
+          placeholder="全部代码"
+          style="width: 150px"
+          @change="handleCountryCodeChange"
+        >
+          <el-option v-for="code in countryCodeOptions" :key="code" :label="code" :value="code" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="店铺" prop="storeName">
         <el-select
           v-model="queryParams.storeName"
@@ -18,7 +30,7 @@
             <el-button type="primary" link size="small" @click="invertStoreSelection">反选</el-button>
             <el-button type="primary" link size="small" @click="deselectAllStores">取消</el-button>
           </div>
-          <el-option v-for="store in storeOptions" :key="store" :label="store" :value="store" />
+          <el-option v-for="store in filteredStoreOptions" :key="store" :label="store" :value="store" />
         </el-select>
       </el-form-item>
       <el-form-item label="Seller SKU" prop="sellerSku">
@@ -288,6 +300,17 @@ const total = ref(0)
 const replenishmentList = ref([])
 const checkedRows = ref([])
 const storeOptions = ref([])
+const countryCodeOptions = computed(() => {
+  return [...new Set(storeOptions.value.map(getStoreCountryCode).filter(Boolean))].sort()
+})
+const filteredStoreOptions = computed(() => {
+  const code = queryParams.value.countryCode
+  if (!code) return storeOptions.value
+  return storeOptions.value.filter(store => getStoreCountryCode(store) === code)
+})
+function getStoreCountryCode(store) {
+  return String(store || '').split('-')[0]?.trim()
+}
 
 // ---- 销量弹窗 ----
 const salesColKeys = new Set(['sales7d','sales14d','sales30d','sales60d','salesSpeed14d','salesSpeed30d','salesSpeed60d','avgMonthlySales'])
@@ -297,21 +320,17 @@ const bdTotal = computed(() => Number(bdList.value.reduce((s, i) => s + Number(i
 let bdCache = {}
 function isSalesColumn(key) { return salesColKeys.has(key) }
 async function loadBreakdown(row, field) {
-  const cacheKey = row.warehouseSku + '|' + field + '|' + (queryParams.value.storeName || []).join(',') + '|' + regionGroup.value
+  const filters = buildFilters()
+  const cacheKey = row.warehouseSku + '|' + field + '|' + JSON.stringify(filters)
   if (bdCache[cacheKey]) { bdList.value = bdCache[cacheKey]; return }
   bdLoading.value = true; bdList.value = []
   try {
-    const params = { warehouseSku: row.warehouseSku, field }
-    if (queryParams.value.storeName && queryParams.value.storeName.length) {
-      params.storeNames = queryParams.value.storeName.join(',')
-    }
-    const res = await request({ url: '/operations/amz/replenishment/sales-breakdown', method: 'get', params })
-    bdList.value = (res.data || []).filter(item => {
-      const sn = item.storeName || ''
-      if (regionGroup.value === 'EU') return sn.startsWith('EU-')
-      if (regionGroup.value === 'US') return !sn.startsWith('EU-')
-      return true
+    const res = await request({
+      url: '/operations/amz/replenishment/sales-breakdown/search',
+      method: 'post',
+      data: { warehouseSku: row.warehouseSku, field, filters }
     })
+    bdList.value = res.data || []
     bdCache[cacheKey] = bdList.value
   } finally { bdLoading.value = false }
 }
@@ -322,13 +341,18 @@ function loadStoreOptions() {
   })
 }
 function selectAllStores() {
-  queryParams.value.storeName = [...storeOptions.value]
+  queryParams.value.storeName = [...filteredStoreOptions.value]
 }
 function invertStoreSelection() {
-  queryParams.value.storeName = storeOptions.value.filter(s => !queryParams.value.storeName.includes(s))
+  queryParams.value.storeName = filteredStoreOptions.value.filter(s => !queryParams.value.storeName.includes(s))
 }
 function deselectAllStores() {
   queryParams.value.storeName = []
+}
+function handleCountryCodeChange() {
+  const allowed = new Set(filteredStoreOptions.value)
+  queryParams.value.storeName = queryParams.value.storeName.filter(store => allowed.has(store))
+  handleQuery()
 }
 const editCache = reactive({})
 function amzKey(row, field) { return (row.sid || '') + '|' + (row.sellerSku || '') + '_' + field }
@@ -411,6 +435,7 @@ const data = reactive({
   queryParams: {
     pageNum: 1,
     pageSize: 50,
+    countryCode: undefined,
     storeName: [],
     sellerSku: undefined,
     warehouseSku: undefined,
@@ -425,7 +450,7 @@ const data = reactive({
 const { queryParams } = toRefs(data)
 const regionGroup = ref('')
 
-function handleRegionChange() { queryParams.value.pageNum = 1; getList() }
+function handleRegionChange() { bdCache = {}; queryParams.value.pageNum = 1; getList() }
 
 const summaryFields = ['reviewCount','sales7d','sales14d','sales30d','sales60d']
 function getSummaries({ columns, data }) {
@@ -488,6 +513,7 @@ function buildFilters() {
   const filters = []; const p = queryParams.value
   if (regionGroup.value) filters.push({ field: 'regionGroup', value: regionGroup.value })
   if (p.storeName && p.storeName.length) filters.push({ field: 'storeName', value: p.storeName.join(',') })
+  else if (p.countryCode) filters.push({ field: 'storeName', value: filteredStoreOptions.value.join(',') })
   if (p.sellerSku) filters.push({ field: 'sellerSku', value: p.sellerSku })
   if (p.warehouseSku) filters.push({ field: 'warehouseSku', value: p.warehouseSku })
   if (p.asin) filters.push({ field: 'asin', value: p.asin })

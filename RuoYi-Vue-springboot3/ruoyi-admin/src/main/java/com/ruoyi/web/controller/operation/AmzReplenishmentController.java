@@ -24,6 +24,7 @@ import java.math.BigDecimal;
 import java.util.Map;
 
 import com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot;
+import com.ruoyi.system.domain.operation.AmzSalesBreakdownRequest;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.domain.operation.ExportRequest;
 import com.ruoyi.system.domain.operation.external.AmzReplenishmentOverride;
@@ -96,6 +97,14 @@ public class AmzReplenishmentController extends BaseController
         List<String> stores = storeNames != null && !storeNames.isEmpty()
                 ? java.util.Arrays.asList(storeNames.split(",")) : null;
         return AjaxResult.success(snapshotService.salesBreakdown(warehouseSku, field, stores));
+    }
+
+    /** 按当前AMZ列表筛选条件查询各店铺销量明细 */
+    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
+    @PostMapping("/sales-breakdown/search")
+    public AjaxResult salesBreakdownByFilters(@RequestBody AmzSalesBreakdownRequest req)
+    {
+        return AjaxResult.success(snapshotService.salesBreakdown(req));
     }
 
     // ====== 刷新 ======

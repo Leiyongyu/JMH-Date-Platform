@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot;
+import com.ruoyi.system.domain.operation.AmzSalesBreakdownRequest;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.mapper.operation.AmzReplenishmentSnapshotMapper;
 import com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService;
@@ -25,8 +26,8 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         "storeName", "sellerSku", "warehouseSku", "asin", "rating", "reviewCount",
         "adRate", "profitRate30d", "refundRate90d", "domesticStock", "pendingShipQty",
         "fbaStock", "fbaInbound", "totalInventory", "sales7d", "sales14d",
-        "sales30d", "sales60d", "avgMonthlySales", "safetyStock", "shipQty",
-        "replenishQty", "restockDays"
+        "sales30d", "sales60d", "salesSpeed14d", "salesSpeed30d", "salesSpeed60d",
+        "avgMonthlySales", "safetyStock", "shipQty", "replenishQty", "restockDays"
     );
     private static final Set<String> TEXT_FIELDS = Set.of(
         "storeName", "sellerSku", "warehouseSku", "asin", "principalName", "productCategory", "warehouseName",
@@ -41,7 +42,9 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         NUM_MAP.put("fbaStock","fba_stock"); NUM_MAP.put("fbaInbound","fba_inbound");
         NUM_MAP.put("totalInventory","total_inventory"); NUM_MAP.put("sales7d","sales_7d");
         NUM_MAP.put("sales14d","sales_14d"); NUM_MAP.put("sales30d","sales_30d");
-        NUM_MAP.put("sales60d","sales_60d"); NUM_MAP.put("avgMonthlySales","avg_monthly_sales");
+        NUM_MAP.put("sales60d","sales_60d"); NUM_MAP.put("salesSpeed14d","sales_speed_14d");
+        NUM_MAP.put("salesSpeed30d","sales_speed_30d"); NUM_MAP.put("salesSpeed60d","sales_speed_60d");
+        NUM_MAP.put("avgMonthlySales","avg_monthly_sales");
         NUM_MAP.put("safetyStock","safety_stock"); NUM_MAP.put("shipQty","ship_qty");
         NUM_MAP.put("replenishQty","replenish_qty"); NUM_MAP.put("restockDays","restock_days");
     }
@@ -88,6 +91,18 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         String col = FIELD_TO_COL.get(field);
         if (col == null) return Collections.emptyList();
         return mapper.selectSalesBreakdown(warehouseSku, col, storeNames);
+    }
+
+    @Override
+    public List<Map<String, Object>> salesBreakdown(AmzSalesBreakdownRequest req)
+    {
+        if (req == null || !StringUtils.hasText(req.getWarehouseSku())) return Collections.emptyList();
+        String col = FIELD_TO_COL.get(req.getField());
+        if (col == null) return Collections.emptyList();
+        Map<String, Object> params = buildParams(req);
+        params.put("warehouseSkuExact", req.getWarehouseSku().trim());
+        params.put("breakdownColumn", col);
+        return mapper.selectSalesBreakdownByFilters(params);
     }
 
     @Override

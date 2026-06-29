@@ -18,6 +18,9 @@ public interface AmzReplenishmentSnapshotMapper
                                                     @Param("column") String column,
                                                     @Param("storeNames") List<String> storeNames);
 
+    /** 按当前筛选条件查询各店铺销量明细 */
+    List<Map<String, Object>> selectSalesBreakdownByFilters(Map<String, Object> params);
+
     int insertByListing(@Param("batchNo") String batchNo);
 
     int deleteAll();
