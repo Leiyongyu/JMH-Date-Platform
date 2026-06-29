@@ -16,8 +16,6 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="history" icon="Upload"
-                v-hasPermi="['customs:declaration:import']">导入历史报关单</el-dropdown-item>
               <el-dropdown-item command="sku" icon="DocumentAdd"
                 v-hasPermi="['customs:declaration:import']">批量导入 SKU</el-dropdown-item>
               <el-dropdown-item command="fbaBox" icon="Box" :disabled="fbaBoxImporting"
@@ -26,7 +24,6 @@
           </template>
         </el-dropdown>
       </div>
-      <input ref="historyFileRef" class="file-input" type="file" accept=".xlsx" multiple @change="handleHistoryFile">
       <input ref="skuFileRef" class="file-input" type="file" accept=".xlsx" @change="handleSkuFile">
       <input ref="fbaBoxFileRef" class="file-input" type="file" accept=".xlsx" @change="handleFbaBoxFile">
     </div>
@@ -291,7 +288,6 @@ import {
   checkCustomsProducts,
   exportCustomsDeclaration,
   importFbaShipmentBox,
-  importCustomsHistory,
   importCustomsSkus,
   loadFbaShipmentProducts,
   loadStockOrderProducts,
@@ -302,7 +298,6 @@ import {
 } from '@/api/operations/customs/declaration'
 
 const { proxy } = getCurrentInstance()
-const historyFileRef = ref()
 const skuFileRef = ref()
 const fbaBoxFileRef = ref()
 const searching = ref(false)
@@ -686,46 +681,15 @@ function toActualIndex(pageIndex) {
   return (itemPage.pageNum - 1) * itemPage.pageSize + pageIndex
 }
 
-function openHistoryFile() { historyFileRef.value?.click() }
 function openSkuFile() { skuFileRef.value?.click() }
 function openFbaBoxFile() { fbaBoxFileRef.value?.click() }
 
 function handleToolbarCommand(command) {
   const actions = {
-    history: openHistoryFile,
     sku: openSkuFile,
     fbaBox: openFbaBoxFile,
   }
   actions[command]?.()
-}
-
-async function handleHistoryFile(event) {
-  const files = Array.from(event.target.files || [])
-  if (!files.length) return
-  try {
-    let inserted = 0
-    let updated = 0
-    let failed = 0
-    const errorFiles = []
-    for (const file of files) {
-      try {
-        const response = await importCustomsHistory(file)
-        const result = response.data || {}
-        inserted += result.inserted || 0
-        updated += result.updated || 0
-        failed += result.failed || 0
-      } catch {
-        errorFiles.push(file.name)
-      }
-    }
-    const message = `新增 ${inserted} 条，更新 ${updated} 条`
-      + (failed ? `，失败 ${failed} 条` : '')
-      + (errorFiles.length ? `，${errorFiles.length} 个文件出错` : '')
-    if (failed || errorFiles.length) proxy.$modal.msgWarning(message)
-    else proxy.$modal.msgSuccess(message)
-  } finally {
-    event.target.value = ''
-  }
 }
 
 async function handleSkuFile(event) {
