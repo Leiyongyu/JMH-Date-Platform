@@ -2,13 +2,11 @@ package com.ruoyi.web.controller.operation;
 
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
-import com.ruoyi.system.service.operation.external.lingxing.LingxingGatewayService;
 import com.ruoyi.system.service.operation.external.lingxing.OverseasStockOrderSyncService;
 import com.ruoyi.system.service.operation.sync.AmzUnifiedSyncService;
 import com.ruoyi.system.service.operation.sync.EbayUnifiedSyncService;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,15 +21,13 @@ public class ManualSyncController extends BaseController
     private final EbayUnifiedSyncService ebaySyncService;
     private final AmzUnifiedSyncService amzSyncService;
     private final OverseasStockOrderSyncService stockOrderSyncService;
-    private final LingxingGatewayService gw;
 
     public ManualSyncController(EbayUnifiedSyncService ebaySyncService, AmzUnifiedSyncService amzSyncService,
-                                OverseasStockOrderSyncService stockOrderSyncService, LingxingGatewayService gw)
+                                OverseasStockOrderSyncService stockOrderSyncService)
     {
         this.ebaySyncService = ebaySyncService;
         this.amzSyncService = amzSyncService;
         this.stockOrderSyncService = stockOrderSyncService;
-        this.gw = gw;
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:sync')")
@@ -60,15 +56,6 @@ public class ManualSyncController extends BaseController
     public AjaxResult refreshAmzOnly()
     {
         return handle(amzSyncService.refreshOnly("MANUAL", getUsername()), "AMZ");
-    }
-
-    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:sync')")
-    @PostMapping("/stock-order-detail-test")
-    public AjaxResult stockOrderDetailTest() throws Exception
-    {
-        Map<String, Object> body = new java.util.LinkedHashMap<>();
-        body.put("overseas_order_no", "OWS260422005");
-        return AjaxResult.success(gw.post("basicOpen/overSeaWarehouse/stockOrder/detail", body));
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:sync')")
