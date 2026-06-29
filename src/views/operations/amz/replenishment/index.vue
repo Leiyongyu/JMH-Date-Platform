@@ -26,10 +26,11 @@
           clearable
           style="width: 260px"
         >
-          <div style="padding: 6px 12px; border-bottom: 1px solid #e4e7ed; display:flex; gap:8px">
+          <div style="padding: 6px 12px; border-bottom: 1px solid #e4e7ed; display:flex; gap:8px; position:sticky; top:0; background:#fff; z-index:1">
             <el-button type="primary" link size="small" @click="selectAllStores">全选</el-button>
             <el-button type="primary" link size="small" @click="invertStoreSelection">反选</el-button>
             <el-button type="primary" link size="small" @click="deselectAllStores">取消</el-button>
+            <el-checkbox v-model="storeExcludeMode" size="small" style="margin-left:6px" @change="handleQuery">排除</el-checkbox>
           </div>
           <el-option v-for="store in filteredStoreOptions" :key="store" :label="store" :value="store" />
         </el-select>
@@ -307,6 +308,7 @@ const countryCodeOptions = computed(() => {
   return [...new Set(storeOptions.value.map(getStoreCountryCode).filter(Boolean))].sort()
 })
 const storeSearchText = ref('')
+const storeExcludeMode = ref(false)
 const filteredStoreOptions = computed(() => {
   let list = storeOptions.value
   const code = queryParams.value.countryCode
@@ -521,7 +523,13 @@ const activeFilterTags = computed(() => {
 function buildFilters() {
   const filters = []; const p = queryParams.value
   if (regionGroup.value) filters.push({ field: 'regionGroup', value: regionGroup.value })
-  if (p.storeName && p.storeName.length) filters.push({ field: 'storeName', value: p.storeName.join(',') })
+  if (p.storeName && p.storeName.length) {
+    if (storeExcludeMode.value) {
+      filters.push({ field: 'storeNameExclude', value: p.storeName.join(',') })
+    } else {
+      filters.push({ field: 'storeName', value: p.storeName.join(',') })
+    }
+  }
   else if (p.countryCode) filters.push({ field: 'storeName', value: filteredStoreOptions.value.join(',') })
   if (p.sellerSku) filters.push({ field: 'sellerSku', value: p.sellerSku })
   if (p.warehouseSku) filters.push({ field: 'warehouseSku', value: p.warehouseSku })
@@ -595,6 +603,8 @@ function handleQuery() {
 function resetQuery() {
   proxy.resetForm('queryRef')
   queryParams.value.storeName = []
+  queryParams.value.countryCode = undefined
+  storeExcludeMode.value = false
   queryParams.value.sortField = undefined
   queryParams.value.sortOrder = undefined
   regionGroup.value = ''
