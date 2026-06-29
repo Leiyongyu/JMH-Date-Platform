@@ -30,7 +30,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         "avgMonthlySales", "safetyStock", "shipQty", "replenishQty", "restockDays"
     );
     private static final Set<String> TEXT_FIELDS = Set.of(
-        "storeName", "sellerSku", "warehouseSku", "asin", "principalName", "productCategory", "warehouseName",
+        "storeName", "storeNameExclude", "sellerSku", "warehouseSku", "asin", "principalName", "productCategory", "warehouseName",
         "regionGroup"
     );
     private static final Map<String, String> NUM_MAP = new LinkedHashMap<>();

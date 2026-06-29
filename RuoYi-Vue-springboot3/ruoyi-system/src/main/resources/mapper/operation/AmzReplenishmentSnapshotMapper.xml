@@ -497,6 +497,9 @@
                     <otherwise>and s.store_name like concat('%', #{storeName}, '%')</otherwise>
                 </choose>
             </if>
+            <if test="storeNameExclude != null and storeNameExclude != ''">
+                and s.store_name not in <foreach collection='storeNameExclude.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach>
+            </if>
             <if test="sellerSku != null and sellerSku != ''">and s.seller_sku like concat('%', #{sellerSku}, '%')</if>
             <if test="asin != null and asin != ''">and s.asin like concat('%', #{asin}, '%')</if>
             <if test="principalName != null and principalName != ''">and s.principal_name like concat('%', #{principalName}, '%')</if>
