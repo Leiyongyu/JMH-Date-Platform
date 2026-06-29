@@ -6,6 +6,7 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.system.domain.operation.customs.CustomsDeclarationRequest;
 import com.ruoyi.system.domain.operation.customs.CustomsProduct;
+import com.ruoyi.system.domain.operation.customs.CustomsStockOrderLinkRequest;
 import com.ruoyi.system.service.operation.customs.AmzFbaShipmentBoxExcelImportService;
 import com.ruoyi.system.service.operation.customs.CustomsDeclarationExportService;
 import com.ruoyi.system.service.operation.customs.CustomsProductService;
@@ -53,6 +54,38 @@ public class CustomsDeclarationController extends BaseController
     public AjaxResult batchQuery(@RequestBody Map<String, List<String>> request)
     {
         return success(productService.batchQuery(request.get("skus"), null));
+    }
+
+    @PreAuthorize("@ss.hasPermi('customs:declaration:query')")
+    @GetMapping("/stock-orders/search")
+    public AjaxResult searchStockOrders(@RequestParam(required = false) String keyword,
+                                        @RequestParam(required = false) Integer limit)
+    {
+        return success(productService.searchStockOrders(keyword, limit));
+    }
+
+    @PreAuthorize("@ss.hasPermi('customs:declaration:query')")
+    @PostMapping("/stock-orders/products")
+    public AjaxResult linkStockOrders(@RequestBody CustomsStockOrderLinkRequest request)
+    {
+        try { return success(productService.linkStockOrders(request == null ? null : request.getOverseasOrderNos())); }
+        catch (Exception e) { return error(e.getMessage()); }
+    }
+
+    @PreAuthorize("@ss.hasPermi('customs:declaration:query')")
+    @GetMapping("/fba-shipments/search")
+    public AjaxResult searchFbaShipments(@RequestParam(required = false) String keyword,
+                                         @RequestParam(required = false) Integer limit)
+    {
+        return success(productService.searchFbaShipments(keyword, limit));
+    }
+
+    @PreAuthorize("@ss.hasPermi('customs:declaration:query')")
+    @PostMapping("/fba-shipments/products")
+    public AjaxResult linkFbaShipments(@RequestBody CustomsStockOrderLinkRequest request)
+    {
+        try { return success(productService.linkFbaShipments(request == null ? null : request.getShipmentIds())); }
+        catch (Exception e) { return error(e.getMessage()); }
     }
 
     @Log(title = "报关单-SKU批量导入", businessType = BusinessType.IMPORT)

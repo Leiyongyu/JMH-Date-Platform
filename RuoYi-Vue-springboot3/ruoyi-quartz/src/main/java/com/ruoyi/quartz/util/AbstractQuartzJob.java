@@ -96,8 +96,11 @@ public abstract class AbstractQuartzJob implements Job
             sysJobLog.setStatus(Constants.FAIL);
             String errorMsg = StringUtils.substring(ExceptionUtil.getExceptionMessage(e), 0, 2000);
             sysJobLog.setExceptionInfo(errorMsg);
-            // ★ 方案A：失败时创建系统通知
             createFailureNotice(sysJob.getJobName(), errorMsg, runMs);
+        }
+        else if (isContextFailed())
+        {
+            sysJobLog.setStatus(Constants.FAIL);
         }
         else
         {
@@ -197,6 +200,24 @@ public abstract class AbstractQuartzJob implements Job
             catch (Exception ignored) {}
         }
         return null;
+    }
+
+    /** 检查 OperationSyncContext 中是否有失败结果 */
+    private boolean isContextFailed()
+    {
+        try
+        {
+            Class<?> ctxClass = Class.forName(
+                    "com.ruoyi.system.service.operation.sync.OperationSyncContext");
+            Object result = ctxClass.getMethod("get").invoke(null);
+            if (result != null)
+            {
+                Object status = result.getClass().getMethod("getStatus").invoke(result);
+                return "FAILED".equals(status);
+            }
+        }
+        catch (Exception ignored) {}
+        return false;
     }
 
     /**

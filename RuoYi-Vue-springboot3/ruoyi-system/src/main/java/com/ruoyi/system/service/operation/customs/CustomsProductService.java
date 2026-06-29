@@ -1,7 +1,9 @@
 package com.ruoyi.system.service.operation.customs;
 
+import com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentOption;
 import com.ruoyi.system.domain.operation.customs.CustomsDeclarationItem;
 import com.ruoyi.system.domain.operation.customs.CustomsProduct;
+import com.ruoyi.system.domain.operation.customs.CustomsStockOrderOption;
 import com.ruoyi.system.mapper.operation.customs.CustomsProductMapper;
 import java.io.InputStream;
 import java.math.BigDecimal;
@@ -44,6 +46,51 @@ public class CustomsProductService
     {
         String value = trim(keyword);
         return value.isEmpty() ? List.of() : productMapper.search(value, 20);
+    }
+
+    public List<CustomsStockOrderOption> searchStockOrders(String keyword, Integer limit)
+    {
+        int size = limit == null ? 50 : Math.max(1, Math.min(limit, 200));
+        return productMapper.searchStockOrders(trim(keyword), size);
+    }
+
+    public List<CustomsFbaShipmentOption> searchFbaShipments(String keyword, Integer limit)
+    {
+        int size = limit == null ? 50 : Math.max(1, Math.min(limit, 200));
+        return productMapper.searchFbaShipments(trim(keyword), size);
+    }
+
+    public Map<String, Object> linkStockOrders(List<String> orderNos)
+    {
+        List<String> orders = normalizeSkus(orderNos);
+        if (orders.isEmpty()) throw new IllegalArgumentException("请选择需要关联的备货单");
+        List<CustomsProduct> products = productMapper.selectProductsByStockOrders(orders);
+        List<String> missingSkus = productMapper.selectMissingSkusByStockOrders(orders);
+        return buildLinkResult(products, missingSkus);
+    }
+
+    public Map<String, Object> linkFbaShipments(List<String> shipmentIds)
+    {
+        List<String> shipments = normalizeSkus(shipmentIds);
+        if (shipments.isEmpty()) throw new IllegalArgumentException("请选择需要关联的FBA货件");
+        List<CustomsProduct> products = productMapper.selectProductsByFbaShipments(shipments);
+        List<String> missingSkus = productMapper.selectMissingSkusByFbaShipments(shipments);
+        return buildLinkResult(products, missingSkus);
+    }
+
+    private Map<String, Object> buildLinkResult(List<CustomsProduct> products, List<String> missingSkus)
+    {
+        List<CustomsDeclarationItem> items = new ArrayList<>();
+        for (CustomsProduct product : products)
+        {
+            CustomsDeclarationItem item = copyToItem(product);
+            item.setQuantity(1);
+            items.add(item);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("products", items);
+        result.put("missingSkus", missingSkus == null ? List.of() : missingSkus);
+        return result;
     }
 
     public Map<String, Object> batchQuery(List<String> sourceSkus, Map<String, Integer> quantities)
@@ -261,6 +308,12 @@ public class CustomsProductService
         item.setUnitPriceUsd(product.getUnitPriceUsd());
         item.setCurrency(product.getCurrency());
         item.setSingleWeight(product.getSingleWeight());
+        item.setPackingNetWeight(product.getPackingNetWeight());
+        item.setPackingGrossWeight(product.getPackingGrossWeight());
+        item.setPackingCbm(product.getPackingCbm());
+        item.setBoxLength(product.getBoxLength());
+        item.setBoxWidth(product.getBoxWidth());
+        item.setBoxHeight(product.getBoxHeight());
         item.setHsCode(product.getHsCode());
         item.setHsDescription(product.getHsDescription());
         item.setOriginCountry(product.getOriginCountry());

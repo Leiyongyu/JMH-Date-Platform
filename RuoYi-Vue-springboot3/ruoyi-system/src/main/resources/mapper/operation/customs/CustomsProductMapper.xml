@@ -34,6 +34,13 @@
         exemption, created_at, updated_at
     </sql>
 
+    <sql id="pColumns">
+        p.id, p.sku, p.description_cn, p.model, p.unit, p.unit_price_usd, p.currency, p.single_weight,
+        p.packing_net_weight, p.packing_gross_weight, p.packing_cbm, p.box_length, p.box_width, p.box_height,
+        p.hs_code, p.hs_description, p.origin_country, p.destination_country, p.source_location,
+        p.exemption, p.created_at, p.updated_at
+    </sql>
+
     <select id="search" resultMap="CustomsProductResult">
         SELECT <include refid="columns"/>
         FROM customs_products_list
@@ -55,6 +62,94 @@
         SELECT <include refid="columns"/> FROM customs_products_list
         WHERE sku IN
         <foreach collection="skus" item="sku" open="(" separator="," close=")">#{sku}</foreach>
+    </select>
+
+    <select id="searchStockOrders" resultType="com.ruoyi.system.domain.operation.customs.CustomsStockOrderOption">
+        SELECT
+            od.overseas_order_no AS overseasOrderNo,
+            COUNT(DISTINCT od.sku) AS productCount,
+            CAST(SUM(GREATEST(IFNULL(od.package_num, 0), 0)) AS SIGNED) AS totalBoxCount,
+            SUM(GREATEST(IFNULL(od.package_num, 0), 0) * GREATEST(IFNULL(od.quantity_in_case, 1), 1)) AS totalQuantity,
+            SUM(IFNULL(od.total_box_weight, IFNULL(od.cg_box_weight, 0) * GREATEST(IFNULL(od.package_num, 1), 1))) AS totalGrossWeight
+        FROM overseas_stock_order_detail od
+        WHERE od.overseas_order_no IS NOT NULL AND od.overseas_order_no != ''
+        <if test="keyword != null and keyword != ''">
+            AND od.overseas_order_no LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+        GROUP BY od.overseas_order_no
+        ORDER BY od.overseas_order_no DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectProductsByStockOrders" resultMap="CustomsProductResult">
+        SELECT <include refid="pColumns"/>
+        FROM overseas_stock_order_detail od
+        INNER JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = od.sku COLLATE utf8mb4_unicode_ci
+        WHERE od.overseas_order_no IN
+        <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
+        ORDER BY FIELD(od.overseas_order_no,
+        <foreach collection="orders" item="order" separator=",">#{order}</foreach>
+        ), od.id
+    </select>
+
+    <select id="selectMissingSkusByStockOrders" resultType="string">
+        SELECT DISTINCT od.sku
+        FROM overseas_stock_order_detail od
+        LEFT JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = od.sku COLLATE utf8mb4_unicode_ci
+        WHERE od.overseas_order_no IN
+        <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
+          AND od.sku IS NOT NULL AND od.sku != ''
+          AND p.sku IS NULL
+        ORDER BY od.sku
+    </select>
+
+    <select id="searchFbaShipments" resultType="com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentOption">
+        SELECT
+            b.shipment_id AS shipmentId,
+            COUNT(DISTINCT b.sku) AS productCount,
+            CAST(SUM(GREATEST(IFNULL(b.box_num, 1), 1)) AS SIGNED) AS totalBoxCount,
+            SUM(
+                IF(b.quantity_in_case IS NOT NULL AND b.quantity_in_case REGEXP '^[0-9.]+$',
+                   CAST(b.quantity_in_case AS DECIMAL(12,4)),
+                   1) * GREATEST(IFNULL(b.box_num, 1), 1)
+            ) AS totalQuantity,
+            SUM(
+                IF(b.box_weight IS NOT NULL AND b.box_weight REGEXP '^[0-9.]+$',
+                   CAST(b.box_weight AS DECIMAL(12,4)) *
+                       IF(UPPER(IFNULL(b.box_weight_unit, 'KG')) IN ('LB', 'LBS'), 0.45359237, 1) *
+                       GREATEST(IFNULL(b.box_num, 1), 1),
+                   0)
+            ) AS totalGrossWeight
+        FROM amz_fba_shipment_box b
+        WHERE b.shipment_id IS NOT NULL AND b.shipment_id != ''
+        <if test="keyword != null and keyword != ''">
+            AND b.shipment_id LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+        GROUP BY b.shipment_id
+        ORDER BY MAX(b.id) DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectProductsByFbaShipments" resultMap="CustomsProductResult">
+        SELECT <include refid="pColumns"/>
+        FROM amz_fba_shipment_box b
+        INNER JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = b.sku COLLATE utf8mb4_unicode_ci
+        WHERE b.shipment_id IN
+        <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
+        ORDER BY FIELD(b.shipment_id,
+        <foreach collection="shipments" item="shipment" separator=",">#{shipment}</foreach>
+        ), b.id
+    </select>
+
+    <select id="selectMissingSkusByFbaShipments" resultType="string">
+        SELECT DISTINCT b.sku
+        FROM amz_fba_shipment_box b
+        LEFT JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = b.sku COLLATE utf8mb4_unicode_ci
+        WHERE b.shipment_id IN
+        <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
+          AND b.sku IS NOT NULL AND b.sku != ''
+          AND p.sku IS NULL
+        ORDER BY b.sku
     </select>
 
     <insert id="batchUpsert">

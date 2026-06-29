@@ -1,6 +1,8 @@
 package com.ruoyi.system.mapper.operation.customs;
 
+import com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentOption;
 import com.ruoyi.system.domain.operation.customs.CustomsProduct;
+import com.ruoyi.system.domain.operation.customs.CustomsStockOrderOption;
 import java.util.List;
 import org.apache.ibatis.annotations.Param;
 
@@ -11,6 +13,18 @@ public interface CustomsProductMapper
     CustomsProduct selectBySku(@Param("sku") String sku);
 
     List<CustomsProduct> selectBySkus(@Param("skus") List<String> skus);
+
+    List<CustomsStockOrderOption> searchStockOrders(@Param("keyword") String keyword, @Param("limit") int limit);
+
+    List<CustomsProduct> selectProductsByStockOrders(@Param("orders") List<String> orders);
+
+    List<String> selectMissingSkusByStockOrders(@Param("orders") List<String> orders);
+
+    List<CustomsFbaShipmentOption> searchFbaShipments(@Param("keyword") String keyword, @Param("limit") int limit);
+
+    List<CustomsProduct> selectProductsByFbaShipments(@Param("shipments") List<String> shipments);
+
+    List<String> selectMissingSkusByFbaShipments(@Param("shipments") List<String> shipments);
 
     int batchUpsert(@Param("products") List<CustomsProduct> products);
 

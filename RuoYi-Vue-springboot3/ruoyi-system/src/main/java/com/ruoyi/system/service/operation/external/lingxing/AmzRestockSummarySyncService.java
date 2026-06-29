@@ -54,7 +54,7 @@ public class AmzRestockSummarySyncService
                 body.put("sid_list", batch);
                 Map<String, Object> resp = gw.post(API, body);
                 List<Map<String, Object>> data = getList(resp, "data");
-                if (data.isEmpty()) break;
+                if (data == null || data.isEmpty()) break;
 
                 List<AmzRestockSummary> list = new ArrayList<>();
                 for (Map<String, Object> item : data)
