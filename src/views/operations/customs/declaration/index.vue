@@ -8,6 +8,10 @@
       <div class="toolbar">
         <el-button type="primary" icon="Download" :loading="exporting" @click="handleExport"
           v-hasPermi="['customs:declaration:export']">导出报关单</el-button>
+        <el-button type="success" icon="Connection" @click="openStockOrderDialog"
+          v-hasPermi="['customs:declaration:query']">关联备货单</el-button>
+        <el-button type="warning" icon="Box" @click="openFbaShipmentDialog"
+          v-hasPermi="['customs:declaration:query']">关联FBA货件</el-button>
         <el-dropdown trigger="click" @command="handleToolbarCommand" :disabled="fbaBoxImporting">
           <el-button :loading="fbaBoxImporting">
             {{ fbaBoxImporting ? '导入中' : '更多操作' }}<el-icon v-if="!fbaBoxImporting" class="dropdown-icon"><ArrowDown /></el-icon>
@@ -199,6 +203,78 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <el-dialog v-model="stockDialog.visible" title="关联备货单" width="980px" append-to-body class="stock-order-dialog">
+      <div class="stock-link-tip">保存关联后会将所选备货单对应商品添加到当前报关单，重复商品会按明细逐条添加。</div>
+      <div class="stock-search-row">
+        <el-input v-model="stockDialog.keyword" clearable placeholder="搜索备货单号" class="stock-search-input"
+          @keyup.enter="loadStockOrders">
+          <template #prepend>备货单号</template>
+          <template #append>
+            <el-button icon="Search" :loading="stockDialog.loading" @click="loadStockOrders" />
+          </template>
+        </el-input>
+      </div>
+      <el-table ref="stockOrderTableRef" v-loading="stockDialog.loading" :data="stockDialog.orders" border
+        row-key="overseasOrderNo" height="460" class="stock-order-table" @selection-change="handleStockOrderSelection">
+        <el-table-column type="selection" width="44" fixed="left" />
+        <el-table-column prop="overseasOrderNo" label="备货单号" min-width="170" fixed="left" />
+        <el-table-column prop="productCount" label="装箱商品数量" min-width="140" />
+        <el-table-column prop="totalBoxCount" label="总箱数" min-width="120" />
+        <el-table-column prop="totalQuantity" label="总装箱量" min-width="140" />
+        <el-table-column prop="totalGrossWeight" label="总毛重(kg)" min-width="140">
+          <template #default="{ row }">{{ formatNumber(row.totalGrossWeight, 2) }}</template>
+        </el-table-column>
+      </el-table>
+      <div class="stock-dialog-summary">
+        <span>共 {{ stockDialog.orders.length }} 条</span>
+        <span>已选 {{ stockDialog.selected.length }} 条</span>
+      </div>
+      <div v-if="stockDialog.missingSkus.length" class="missing-sku-box">
+        <div class="missing-sku-title">未匹配到商品库的 SKU（{{ stockDialog.missingSkus.length }}）</div>
+        <el-tag v-for="sku in stockDialog.missingSkus" :key="sku" type="danger" effect="plain">{{ sku }}</el-tag>
+      </div>
+      <template #footer>
+        <el-button @click="stockDialog.visible = false">取消</el-button>
+        <el-button type="primary" :loading="stockDialog.saving" @click="confirmStockOrderLink">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="fbaDialog.visible" title="关联FBA货件" width="980px" append-to-body class="stock-order-dialog">
+      <div class="stock-link-tip">保存关联后会将所选 FBA 货件对应商品添加到当前报关单，重复 SKU 会按装箱明细逐条添加。</div>
+      <div class="stock-search-row">
+        <el-input v-model="fbaDialog.keyword" clearable placeholder="搜索货件编号" class="stock-search-input"
+          @keyup.enter="loadFbaShipments">
+          <template #prepend>货件编号</template>
+          <template #append>
+            <el-button icon="Search" :loading="fbaDialog.loading" @click="loadFbaShipments" />
+          </template>
+        </el-input>
+      </div>
+      <el-table ref="fbaShipmentTableRef" v-loading="fbaDialog.loading" :data="fbaDialog.shipments" border
+        row-key="shipmentId" height="460" class="stock-order-table" @selection-change="handleFbaShipmentSelection">
+        <el-table-column type="selection" width="44" fixed="left" />
+        <el-table-column prop="shipmentId" label="货件编号" min-width="170" fixed="left" />
+        <el-table-column prop="productCount" label="装箱商品数量" min-width="140" />
+        <el-table-column prop="totalBoxCount" label="总箱数" min-width="120" />
+        <el-table-column prop="totalQuantity" label="总装箱量" min-width="140" />
+        <el-table-column prop="totalGrossWeight" label="总毛重(kg)" min-width="140">
+          <template #default="{ row }">{{ formatNumber(row.totalGrossWeight, 2) }}</template>
+        </el-table-column>
+      </el-table>
+      <div class="stock-dialog-summary">
+        <span>共 {{ fbaDialog.shipments.length }} 条</span>
+        <span>已选 {{ fbaDialog.selected.length }} 条</span>
+      </div>
+      <div v-if="fbaDialog.missingSkus.length" class="missing-sku-box">
+        <div class="missing-sku-title">未匹配到商品库的 SKU（{{ fbaDialog.missingSkus.length }}）</div>
+        <el-tag v-for="sku in fbaDialog.missingSkus" :key="sku" type="danger" effect="plain">{{ sku }}</el-tag>
+      </div>
+      <template #footer>
+        <el-button @click="fbaDialog.visible = false">取消</el-button>
+        <el-button type="primary" :loading="fbaDialog.saving" @click="confirmFbaShipmentLink">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -211,8 +287,12 @@ import {
   importFbaShipmentBox,
   importCustomsHistory,
   importCustomsSkus,
+  loadFbaShipmentProducts,
+  loadStockOrderProducts,
   saveCustomsProducts,
-  searchCustomsProducts
+  searchCustomsProducts,
+  searchFbaShipments,
+  searchStockOrders
 } from '@/api/operations/customs/declaration'
 
 const { proxy } = getCurrentInstance()
@@ -225,11 +305,31 @@ const exporting = ref(false)
 const fbaBoxImporting = ref(false)
 const headerExpanded = ref(false)
 const productOptions = ref([])
+const stockOrderTableRef = ref()
+const fbaShipmentTableRef = ref()
 let keySeed = 0
 
 const defaultCompany = '成都玖马赫供应链管理有限公司   信用代码：91510106MACMNJMB6A'
 const header = reactive(createHeader())
 const items = ref([createEmptyItem()])
+const stockDialog = reactive({
+  visible: false,
+  keyword: '',
+  loading: false,
+  saving: false,
+  orders: [],
+  selected: [],
+  missingSkus: []
+})
+const fbaDialog = reactive({
+  visible: false,
+  keyword: '',
+  loading: false,
+  saving: false,
+  shipments: [],
+  selected: [],
+  missingSkus: []
+})
 
 function createHeader() {
   return {
@@ -285,6 +385,11 @@ function calcGrossWeight(row) {
   return Number(row.packingGrossWeight || 0) > 0 ? Number(row.packingGrossWeight).toFixed(4) : calcNetWeight(row)
 }
 
+function formatNumber(value, precision = 0) {
+  const number = Number(value || 0)
+  return precision > 0 ? number.toFixed(precision) : number.toString()
+}
+
 async function searchProducts(keyword) {
   if (!keyword || !keyword.trim()) {
     productOptions.value = []
@@ -306,6 +411,144 @@ function selectProduct(row, sku) {
   const key = row._key
   Object.assign(row, JSON.parse(JSON.stringify(product)), { quantity, _key: key })
   if (!row.productCode) row.productCode = product.hsCode || ''
+}
+
+function productToRow(product) {
+  return {
+    ...JSON.parse(JSON.stringify(product)),
+    quantity: 1,
+    _key: ++keySeed,
+    productCode: product.productCode || product.hsCode || ''
+  }
+}
+
+async function openStockOrderDialog() {
+  stockDialog.visible = true
+  stockDialog.keyword = ''
+  stockDialog.selected = []
+  stockDialog.missingSkus = []
+  await loadStockOrders()
+}
+
+async function loadStockOrders() {
+  stockDialog.loading = true
+  try {
+    const response = await searchStockOrders({ keyword: stockDialog.keyword, limit: 100 })
+    stockDialog.orders = response.data || []
+    stockDialog.selected = []
+    stockDialog.missingSkus = []
+    stockOrderTableRef.value?.clearSelection()
+  } finally {
+    stockDialog.loading = false
+  }
+}
+
+function handleStockOrderSelection(selection) {
+  stockDialog.selected = selection
+}
+
+async function confirmStockOrderLink() {
+  if (!stockDialog.selected.length) {
+    proxy.$modal.msgWarning('请先选择备货单')
+    return
+  }
+  stockDialog.saving = true
+  try {
+    const overseasOrderNos = stockDialog.selected.map(item => item.overseasOrderNo)
+    const response = await loadStockOrderProducts({ overseasOrderNos })
+    const result = normalizeLinkResult(response.data)
+    const rows = result.products.map(productToRow)
+    stockDialog.missingSkus = result.missingSkus
+    if (!rows.length && !result.missingSkus.length) {
+      proxy.$modal.msgWarning('未匹配到报关产品库商品，请先同步或维护商品库')
+      return
+    }
+    appendLinkedRows(rows)
+    if (result.missingSkus.length) proxy.$modal.msgWarning(`已关联 ${rows.length} 个商品，${result.missingSkus.length} 个SKU未匹配`)
+    else {
+      stockDialog.visible = false
+      proxy.$modal.msgSuccess(`已关联 ${rows.length} 个商品`)
+    }
+  } finally {
+    stockDialog.saving = false
+  }
+}
+
+async function openFbaShipmentDialog() {
+  fbaDialog.visible = true
+  fbaDialog.keyword = ''
+  fbaDialog.selected = []
+  fbaDialog.missingSkus = []
+  await loadFbaShipments()
+}
+
+async function loadFbaShipments() {
+  fbaDialog.loading = true
+  try {
+    const response = await searchFbaShipments({ keyword: fbaDialog.keyword, limit: 100 })
+    fbaDialog.shipments = response.data || []
+    fbaDialog.selected = []
+    fbaDialog.missingSkus = []
+    fbaShipmentTableRef.value?.clearSelection()
+  } finally {
+    fbaDialog.loading = false
+  }
+}
+
+function handleFbaShipmentSelection(selection) {
+  fbaDialog.selected = selection
+}
+
+async function confirmFbaShipmentLink() {
+  if (!fbaDialog.selected.length) {
+    proxy.$modal.msgWarning('请先选择FBA货件')
+    return
+  }
+  fbaDialog.saving = true
+  try {
+    const shipmentIds = fbaDialog.selected.map(item => item.shipmentId)
+    const response = await loadFbaShipmentProducts({ shipmentIds })
+    const result = normalizeLinkResult(response.data)
+    const rows = result.products.map(productToRow)
+    fbaDialog.missingSkus = result.missingSkus
+    if (!rows.length && !result.missingSkus.length) {
+      proxy.$modal.msgWarning('未匹配到报关产品库商品，请先同步或维护商品库')
+      return
+    }
+    appendLinkedRows(rows)
+    if (result.missingSkus.length) proxy.$modal.msgWarning(`已关联 ${rows.length} 个商品，${result.missingSkus.length} 个SKU未匹配`)
+    else {
+      fbaDialog.visible = false
+      proxy.$modal.msgSuccess(`已关联 ${rows.length} 个商品`)
+    }
+  } finally {
+    fbaDialog.saving = false
+  }
+}
+
+function normalizeLinkResult(data) {
+  if (Array.isArray(data)) return { products: data, missingSkus: [] }
+  return {
+    products: data?.products || [],
+    missingSkus: data?.missingSkus || []
+  }
+}
+
+function appendLinkedRows(rows) {
+  if (!rows.length) return
+  const onlyEmptyRow = items.value.length === 1 && !items.value[0].sku
+  if (onlyEmptyRow) items.value = []
+  for (const row of rows) {
+    const sku = row.sku?.trim()
+    if (!sku) continue
+    const existed = items.value.find(item => item.sku?.trim() === sku)
+    if (existed) {
+      existed.quantity = Number(existed.quantity || 0) + Number(row.quantity || 1)
+    } else {
+      items.value.push(row)
+    }
+  }
+  if (!items.value.length) items.value = [createEmptyItem()]
 }
 
 function addRow(index) {
@@ -369,7 +612,7 @@ async function handleSkuFile(event) {
   try {
     const response = await importCustomsSkus(file)
     const result = response.data || {}
-    const loaded = (result.products || []).map(product => ({ ...product, _key: ++keySeed }))
+    const loaded = (result.products || []).map(productToRow)
     const missing = result.missingSkus || []
     if (!loaded.length) {
       proxy.$modal.msgError('未找到任何匹配商品')
@@ -670,6 +913,57 @@ async function handleClear() {
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.stock-link-tip {
+  margin-bottom: 10px;
+  padding: 11px 14px;
+  border-radius: 4px;
+  background: #fff4dc;
+  color: #303133;
+  font-size: 13px;
+}
+
+.stock-search-row {
+  display: flex;
+  margin-bottom: 12px;
+}
+
+.stock-search-input {
+  width: 320px;
+}
+
+.stock-order-table {
+  width: 100%;
+}
+
+.stock-dialog-summary {
+  display: flex;
+  justify-content: flex-end;
+  gap: 18px;
+  padding-top: 10px;
+  color: #606266;
+  font-size: 13px;
+}
+
+.missing-sku-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 110px;
+  padding: 10px;
+  margin-top: 10px;
+  overflow-y: auto;
+  border: 1px solid #f3d0d0;
+  border-radius: 4px;
+  background: #fff7f7;
+}
+
+.missing-sku-title {
+  width: 100%;
+  color: #c45656;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 @media (max-width: 1280px) {

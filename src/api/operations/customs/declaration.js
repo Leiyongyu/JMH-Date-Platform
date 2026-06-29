@@ -10,6 +10,38 @@ export function searchCustomsProducts(keyword) {
   })
 }
 
+export function searchStockOrders(params) {
+  return request({
+    url: '/operations/customs/declaration/stock-orders/search',
+    method: 'get',
+    params
+  })
+}
+
+export function loadStockOrderProducts(data) {
+  return request({
+    url: '/operations/customs/declaration/stock-orders/products',
+    method: 'post',
+    data
+  })
+}
+
+export function searchFbaShipments(params) {
+  return request({
+    url: '/operations/customs/declaration/fba-shipments/search',
+    method: 'get',
+    params
+  })
+}
+
+export function loadFbaShipmentProducts(data) {
+  return request({
+    url: '/operations/customs/declaration/fba-shipments/products',
+    method: 'post',
+    data
+  })
+}
+
 export function importCustomsSkus(file) {
   const data = new FormData()
   data.append('file', file)
