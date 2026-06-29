@@ -65,7 +65,7 @@
           <el-form-item label="离境口岸"><el-input v-model="header.entryPort" /></el-form-item>
           <el-form-item label="包装种类"><el-input v-model="header.packType" /></el-form-item>
           <el-form-item label="件数"><el-input-number v-model="header.packQty" :min="0" controls-position="right" /></el-form-item>
-          <el-form-item label="毛重（千克）"><el-input :model-value="totalWeight" readonly /></el-form-item>
+          <el-form-item label="毛重（千克）"><el-input :model-value="totalGrossWeight" readonly /></el-form-item>
           <el-form-item label="净重（千克）"><el-input v-model="header.netWt" /></el-form-item>
           <el-form-item label="成交方式"><el-input v-model="header.tradeTerm" /></el-form-item>
           <el-form-item label="运费"><el-input v-model="header.freight" /></el-form-item>
@@ -82,72 +82,115 @@
       <span>商品 {{ validItems.length }} 项</span>
       <span>数量 {{ totalQuantity }}</span>
       <span>总价 {{ totalAmount }}</span>
-      <span>总重 {{ totalWeight }} kg</span>
+      <span>毛重 {{ totalGrossWeight }} kg</span>
+      <span>净重 {{ totalNetWeight }} kg</span>
       <el-button type="danger" plain size="small" icon="Delete" @click="handleClear">清空商品</el-button>
     </div>
 
     <el-table :data="items" border stripe row-key="_key" class="item-table">
       <el-table-column type="index" label="项号" width="58" fixed="left" align="center" />
-      <el-table-column label="商品编码" width="130">
-        <template #default="{ row }"><el-input v-model="row.productCode" /></template>
+      <el-table-column label="商品信息" align="center">
+        <el-table-column label="SKU" width="180" fixed="left">
+          <template #default="{ row }">
+            <el-select v-model="row.sku" filterable remote clearable placeholder="输入SKU或品名"
+              :remote-method="searchProducts" :loading="searching" @change="value => selectProduct(row, value)">
+              <el-option v-for="product in productOptions" :key="product.sku"
+                :label="product.sku"
+                :value="product.sku" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="商品编码" width="130">
+          <template #default="{ row }"><el-input v-model="row.productCode" placeholder="商品编码" /></template>
+        </el-table-column>
+        <el-table-column label="商品中文名称" width="150">
+          <template #default="{ row }"><el-input v-model="row.descriptionCn" placeholder="商品名称" /></template>
+        </el-table-column>
+        <el-table-column label="规格型号" width="110">
+          <template #default="{ row }"><el-input v-model="row.model" placeholder="规格型号" /></template>
+        </el-table-column>
+        <el-table-column label="申报要素说明" width="210">
+          <template #default="{ row }">
+            <el-input v-model="row.hsDescription" type="textarea" :rows="2" size="small" placeholder="申报要素" />
+          </template>
+        </el-table-column>
       </el-table-column>
-      <el-table-column label="商品申报要素" width="200">
-        <template #default="{ row }">
-          <el-input v-model="row.hsDescription" type="textarea" :rows="2" size="small" style="font-size:12px" />
-        </template>
+      <el-table-column label="数量重量" align="center">
+        <el-table-column label="申报数量" width="96">
+          <template #default="{ row }">
+            <el-input-number v-model="row.quantity" :min="1" :controls="false" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="申报单位" width="86">
+          <template #default="{ row }"><el-input v-model="row.unit" size="small" placeholder="单位" /></template>
+        </el-table-column>
+        <el-table-column label="单件重量(kg)" width="112">
+          <template #default="{ row }">
+            <el-input-number v-model="row.singleWeight" :min="0" :precision="4" :controls="false" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="总重量(kg)" width="100" align="right">
+          <template #default="{ row }"><span class="calculated-value">{{ calcWeight(row) }}</span></template>
+        </el-table-column>
       </el-table-column>
-      <el-table-column label="商品名称" width="140">
-        <template #default="{ row }"><el-input v-model="row.descriptionCn" /></template>
+      <el-table-column label="装箱资料" align="center">
+        <el-table-column label="装箱净重(kg)" width="112">
+          <template #default="{ row }">
+            <el-input-number v-model="row.packingNetWeight" :min="0" :precision="4" :controls="false" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="装箱毛重(kg)" width="112">
+          <template #default="{ row }">
+            <el-input-number v-model="row.packingGrossWeight" :min="0" :precision="4" :controls="false" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="体积(CBM)" width="104">
+          <template #default="{ row }">
+            <el-input-number v-model="row.packingCbm" :min="0" :precision="6" :controls="false" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="箱长(cm)" width="92">
+          <template #default="{ row }">
+            <el-input-number v-model="row.boxLength" :min="0" :precision="2" :controls="false" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="箱宽(cm)" width="92">
+          <template #default="{ row }">
+            <el-input-number v-model="row.boxWidth" :min="0" :precision="2" :controls="false" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="箱高(cm)" width="92">
+          <template #default="{ row }">
+            <el-input-number v-model="row.boxHeight" :min="0" :precision="2" :controls="false" size="small" />
+          </template>
+        </el-table-column>
       </el-table-column>
-      <el-table-column label="SKU" width="180" fixed="left">
-        <template #default="{ row }">
-          <el-select v-model="row.sku" filterable remote clearable placeholder="输入SKU或品名"
-            :remote-method="searchProducts" :loading="searching" @change="value => selectProduct(row, value)">
-            <el-option v-for="product in productOptions" :key="product.sku"
-              :label="product.sku"
-              :value="product.sku" />
-          </el-select>
-        </template>
+      <el-table-column label="价格信息" align="center">
+        <el-table-column label="成交单价" width="96">
+          <template #default="{ row }">
+            <el-input-number v-model="row.unitPriceUsd" :min="0" :precision="2" :controls="false" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="成交总价" width="96" align="right">
+          <template #default="{ row }"><span class="calculated-value">{{ calcAmount(row) }}</span></template>
+        </el-table-column>
+        <el-table-column label="币制" width="76">
+          <template #default="{ row }"><el-input v-model="row.currency" size="small" placeholder="币制" /></template>
+        </el-table-column>
       </el-table-column>
-      <el-table-column label="规格型号" width="110">
-        <template #default="{ row }"><el-input v-model="row.model" /></template>
-      </el-table-column>
-      <el-table-column label="数量及单位" width="148">
-        <template #default="{ row }">
-          <div style="display:flex;gap:4px;align-items:center">
-            <el-input-number v-model="row.quantity" :min="1" :controls="false" size="small" style="width:70px" />
-            <el-input v-model="row.unit" size="small" style="width:60px" placeholder="单位" />
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column label="单重(kg)" width="94">
-        <template #default="{ row }">
-          <el-input-number v-model="row.singleWeight" :min="0" :precision="4" :controls="false" />
-        </template>
-      </el-table-column>
-      <el-table-column label="总重(kg)" width="92" align="right">
-        <template #default="{ row }"><span class="calculated-value">{{ calcWeight(row) }}</span></template>
-      </el-table-column>
-      <el-table-column label="单价/总价/币制" width="230">
-        <template #default="{ row }">
-          <div style="display:flex;gap:4px;align-items:center">
-            <el-input-number v-model="row.unitPriceUsd" :min="0" :precision="2" :controls="false" size="small" style="width:80px" placeholder="单价" />
-            <span class="calculated-value" style="min-width:70px;text-align:right">{{ calcAmount(row) }}</span>
-            <el-input v-model="row.currency" size="small" style="width:60px" placeholder="币制" />
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column label="原产国" width="100">
-        <template #default="{ row }"><el-input v-model="row.originCountry" /></template>
-      </el-table-column>
-      <el-table-column label="最终目的国" width="115">
-        <template #default="{ row }"><el-input v-model="row.destinationCountry" /></template>
-      </el-table-column>
-      <el-table-column label="境内货源地" width="135">
-        <template #default="{ row }"><el-input v-model="row.sourceLocation" /></template>
-      </el-table-column>
-      <el-table-column label="征免" width="90">
-        <template #default="{ row }"><el-input v-model="row.exemption" /></template>
+      <el-table-column label="报关地区" align="center">
+        <el-table-column label="原产国" width="100">
+          <template #default="{ row }"><el-input v-model="row.originCountry" placeholder="原产国" /></template>
+        </el-table-column>
+        <el-table-column label="最终目的国" width="115">
+          <template #default="{ row }"><el-input v-model="row.destinationCountry" placeholder="目的国" /></template>
+        </el-table-column>
+        <el-table-column label="境内货源地" width="135">
+          <template #default="{ row }"><el-input v-model="row.sourceLocation" placeholder="货源地" /></template>
+        </el-table-column>
+        <el-table-column label="征免方式" width="96">
+          <template #default="{ row }"><el-input v-model="row.exemption" placeholder="征免" /></template>
+        </el-table-column>
       </el-table-column>
       <el-table-column label="操作" width="96" fixed="right" align="center">
         <template #default="{ $index }">
@@ -206,16 +249,20 @@ function createEmptyItem() {
     _key: ++keySeed, productCode: '', sku: '', descriptionCn: '', model: '', unit: '个',
     unitPriceUsd: 0, currency: 'USD', singleWeight: 0, quantity: 1,
     hsCode: '', hsDescription: '', originCountry: '', destinationCountry: '',
-    sourceLocation: '', exemption: ''
+    sourceLocation: '', exemption: '',
+    packingNetWeight: null, packingGrossWeight: null, packingCbm: null,
+    boxLength: null, boxWidth: null, boxHeight: null
   }
 }
 
 const validItems = computed(() => items.value.filter(item => item.sku && item.sku.trim()))
 const totalQuantity = computed(() => validItems.value.reduce((sum, item) => sum + Number(item.quantity || 0), 0))
 const totalAmount = computed(() => validItems.value.reduce((sum, item) => sum + Number(calcAmount(item)), 0).toFixed(2))
-const totalWeight = computed(() => validItems.value.reduce((sum, item) => sum + Number(calcWeight(item)), 0).toFixed(4))
+const totalNetWeight = computed(() => validItems.value.reduce((sum, item) => sum + Number(calcNetWeight(item)), 0).toFixed(4))
+const totalGrossWeight = computed(() => validItems.value.reduce((sum, item) => sum + Number(calcGrossWeight(item)), 0).toFixed(4))
 
-watch(totalWeight, v => { header.grossWt = v })
+watch(totalGrossWeight, v => { header.grossWt = v })
+watch(totalNetWeight, v => { header.netWt = v })
 watch(
   () => validItems.value.map(item => item.sku),
   skus => { header.packQty = skus.length },
@@ -228,6 +275,14 @@ function calcAmount(row) {
 
 function calcWeight(row) {
   return (Number(row.singleWeight || 0) * Number(row.quantity || 0)).toFixed(4)
+}
+
+function calcNetWeight(row) {
+  return Number(row.packingNetWeight || 0) > 0 ? Number(row.packingNetWeight).toFixed(4) : calcWeight(row)
+}
+
+function calcGrossWeight(row) {
+  return Number(row.packingGrossWeight || 0) > 0 ? Number(row.packingGrossWeight).toFixed(4) : calcNetWeight(row)
 }
 
 async function searchProducts(keyword) {
@@ -371,11 +426,36 @@ async function handleSaveProducts() {
   await proxy.$modal.confirm('确认将当前商品资料保存至商品库吗？临时修改将覆盖同SKU主数据。')
   saving.value = true
   try {
-    const data = validItems.value.map(({ _key, quantity, ...product }) => product)
+    const data = validItems.value.map(toProductPayload)
     const response = await saveCustomsProducts(data)
     proxy.$modal.msgSuccess(`已保存 ${response.data || data.length} 条商品资料`)
   } finally {
     saving.value = false
+  }
+}
+
+function toProductPayload(item) {
+  return {
+    id: item.id,
+    sku: item.sku,
+    descriptionCn: item.descriptionCn,
+    model: item.model,
+    unit: item.unit,
+    unitPriceUsd: item.unitPriceUsd,
+    currency: item.currency,
+    singleWeight: item.singleWeight,
+    packingNetWeight: item.packingNetWeight,
+    packingGrossWeight: item.packingGrossWeight,
+    packingCbm: item.packingCbm,
+    boxLength: item.boxLength,
+    boxWidth: item.boxWidth,
+    boxHeight: item.boxHeight,
+    hsCode: item.hsCode,
+    hsDescription: item.hsDescription,
+    originCountry: item.originCountry,
+    destinationCountry: item.destinationCountry,
+    sourceLocation: item.sourceLocation,
+    exemption: item.exemption
   }
 }
 
@@ -573,6 +653,16 @@ async function handleClear() {
 
 .item-table :deep(.el-input__wrapper) {
   padding: 1px 7px;
+}
+
+.packing-inputs {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.packing-inputs :deep(.el-input-number) {
+  width: 100%;
 }
 
 .calculated-value {
