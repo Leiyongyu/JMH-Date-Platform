@@ -78,10 +78,19 @@ export function importFbaShipmentBox(file) {
   })
 }
 
-export function saveCustomsProducts(data) {
+export function checkCustomsProducts(data) {
+  return request({
+    url: '/operations/customs/declaration/products/existing',
+    method: 'post',
+    data
+  })
+}
+
+export function saveCustomsProducts(data, overwrite = false) {
   return request({
     url: '/operations/customs/declaration/products',
     method: 'put',
+    params: { overwrite },
     data
   })
 }
