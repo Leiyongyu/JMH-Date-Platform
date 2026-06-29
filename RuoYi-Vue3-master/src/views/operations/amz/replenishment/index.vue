@@ -18,6 +18,7 @@
           v-model="queryParams.storeName"
           multiple
           filterable
+          :filter-method="onStoreFilter"
           @change="handleQuery"
           collapse-tags
           collapse-tags-tooltip
@@ -305,10 +306,14 @@ const storeOptions = ref([])
 const countryCodeOptions = computed(() => {
   return [...new Set(storeOptions.value.map(getStoreCountryCode).filter(Boolean))].sort()
 })
+const storeSearchText = ref('')
 const filteredStoreOptions = computed(() => {
+  let list = storeOptions.value
   const code = queryParams.value.countryCode
-  if (!code) return storeOptions.value
-  return storeOptions.value.filter(store => getStoreCountryCode(store) === code)
+  if (code) list = list.filter(store => getStoreCountryCode(store) === code)
+  const kw = storeSearchText.value.trim().toLowerCase()
+  if (kw) list = list.filter(store => String(store || '').toLowerCase().includes(kw))
+  return list
 })
 function getStoreCountryCode(store) {
   return String(store || '').split('-')[0]?.trim()
@@ -342,6 +347,7 @@ function loadStoreOptions() {
     storeOptions.value = res.data || []
   })
 }
+function onStoreFilter(v) { storeSearchText.value = v; return true }
 function selectAllStores() {
   queryParams.value.storeName = [...filteredStoreOptions.value]
 }
