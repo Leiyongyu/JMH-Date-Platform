@@ -35,7 +35,7 @@
           <el-option v-for="store in filteredStoreOptions" :key="store" :label="store" :value="store" />
         </el-select>
       </el-form-item>
-      <el-form-item label="Seller SKU" prop="sellerSku">
+      <el-form-item label="MSKU" prop="sellerSku">
         <el-input
           v-model="queryParams.sellerSku"
           placeholder="请输入Seller SKU"
@@ -43,6 +43,21 @@
           style="width: 220px"
           @keyup.enter="handleQuery"
         />
+      </el-form-item>
+      <el-form-item label="仓库" prop="warehouseName">
+        <el-select
+          v-model="queryParams.warehouseName"
+          multiple
+          filterable
+          collapse-tags
+          collapse-tags-tooltip
+          placeholder="全部仓库"
+          clearable
+          style="width: 220px"
+          @change="handleQuery"
+        >
+          <el-option v-for="w in warehouseOptions" :key="w" :label="w" :value="w" />
+        </el-select>
       </el-form-item>
       <el-form-item label="仓库SKU" prop="warehouseSku">
         <el-input
@@ -124,7 +139,7 @@
       :data="replenishmentList"
       border stripe height="640"
       show-summary :summary-method="getSummaries"
-      :row-key="(row) => (row.sid||'') + '|' + (row.sellerSku||'') + '|' + (row.warehouseSku||'')"
+      :row-key="(row) => (row.sid||'') + '|' + (row.sellerSku||'') + '|' + (row.warehouseSku||'') + '|' + (row.warehouseName||'')"
       @selection-change="handleSelectionChange"
       @sort-change="handleSortChange"
     >
@@ -304,6 +319,7 @@ const total = ref(0)
 const replenishmentList = ref([])
 const checkedRows = ref([])
 const storeOptions = ref([])
+const warehouseOptions = ref([])
 const countryCodeOptions = computed(() => {
   return [...new Set(storeOptions.value.map(getStoreCountryCode).filter(Boolean))].sort()
 })
@@ -349,6 +365,11 @@ function loadStoreOptions() {
     storeOptions.value = res.data || []
   })
 }
+function loadWarehouseOptions() {
+  request({ url: '/operations/amz/replenishment/warehouse-names', method: 'get' }).then(res => {
+    warehouseOptions.value = (res.data || []).filter(Boolean)
+  })
+}
 function onStoreFilter(v) { storeSearchText.value = v; return true }
 function selectAllStores() {
   queryParams.value.storeName = [...filteredStoreOptions.value]
@@ -365,7 +386,7 @@ function handleCountryCodeChange() {
   handleQuery()
 }
 const editCache = reactive({})
-function amzKey(row, field) { return (row.sid || '') + '|' + (row.sellerSku || '') + '_' + field }
+function amzKey(row, field) { return (row.sid || '') + '|' + (row.sellerSku || '') + '|' + (row.warehouseName || '') + '_' + field }
 function initAmzEditCache() {
   for (const row of replenishmentList.value) {
     const cat = amzKey(row, 'cat'); if (!(cat in editCache)) editCache[cat] = row.productCategory ?? ''
@@ -448,6 +469,7 @@ const data = reactive({
     pageSize: 50,
     countryCode: undefined,
     storeName: [],
+    warehouseName: [],
     sellerSku: undefined,
     warehouseSku: undefined,
     asin: undefined,
@@ -536,6 +558,7 @@ function buildFilters() {
   if (p.asin) filters.push({ field: 'asin', value: p.asin })
   if (p.principalName) filters.push({ field: 'principalName', value: p.principalName })
   if (p.productCategory) filters.push({ field: 'productCategory', value: p.productCategory })
+  if (p.warehouseName && p.warehouseName.length) filters.push({ field: 'warehouseName', value: p.warehouseName.join(',') })
   Object.entries(columnFilters).forEach(([field, f]) => {
     if (hasActiveFilter(field)) { filters.push({ field, type: 'number', operator: f.operator, value: f.value != null ? String(f.value) : undefined, value2: f.value2 != null ? String(f.value2) : undefined }) }
   })
@@ -603,6 +626,7 @@ function handleQuery() {
 function resetQuery() {
   proxy.resetForm('queryRef')
   queryParams.value.storeName = []
+  queryParams.value.warehouseName = []
   queryParams.value.countryCode = undefined
   storeExcludeMode.value = false
   queryParams.value.sortField = undefined
@@ -630,7 +654,7 @@ async function handleColumnApply(keys) {
 function handleExport() {
   const sel = checkedRows.value.length > 0
   const body = { scope: sel ? 'SELECTED' : 'FILTERED',
-    rowKeys: sel ? checkedRows.value.map(r => (r.sid||'') + '|' + (r.sellerSku||'') + '|' + (r.warehouseSku||'')) : undefined,
+    rowKeys: sel ? checkedRows.value.map(r => (r.sid||'') + '|' + (r.sellerSku||'') + '|' + (r.warehouseSku||'') + '|' + (r.warehouseName||'')) : undefined,
     columns: exportColumns.value }
   if (!sel) {
     body.filters = buildFilters()
@@ -661,6 +685,7 @@ function formatNumber(value) {
 
 async function initPage() {
   loadStoreOptions()
+  loadWarehouseOptions()
   await initColumnConfig()
   getList()
 }
