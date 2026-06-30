@@ -21,4 +21,7 @@ public interface IEbayReplenishmentSnapshotService
 
     /** 全量重算并批量写入快照表 */
     int refreshSnapshot();
+
+    /** 更新产品性质 */
+    void updateProductNature(Long id, Integer productNature);
 }

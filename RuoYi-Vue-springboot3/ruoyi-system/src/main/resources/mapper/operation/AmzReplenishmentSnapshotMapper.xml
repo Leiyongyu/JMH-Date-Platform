@@ -177,10 +177,7 @@
                                 ANY_VALUE(op.spend_rate * 100) AS ad_rate,
                                 ANY_VALUE(op.gross_margin * 100) AS profit_rate_30d,
                                 ANY_VALUE(op.refund_amount_rate * 100) AS refund_rate_90d,
-                                CASE WHEN COALESCE(ANY_VALUE(fc.region_group), 'US') = 'EU'
-                                     THEN COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)), 0) + COALESCE(MAX(wd.product_qc_num), 0)
-                                     ELSE COALESCE(MAX(wd.product_valid_num), 0)
-                                END AS purchased_qty,
+                                COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)), 0) + COALESCE(MAX(wd.product_qc_num), 0) AS purchased_qty,
                                 COALESCE(MAX(wd.product_valid_num), 0) AS domestic_stock,
                                 COALESCE(MAX(wd.product_lock_num), 0) AS pending_ship_qty,
                                 COALESCE(MAX(rs.fba_sellable), 0) AS fba_stock,
@@ -220,7 +217,7 @@
                             LEFT JOIN warehouse wh ON wh.wid = wd.wid
                             LEFT JOIN amz_replenishment_formula_config fc ON fc.enabled = 1
                                 AND FIND_IN_SET(wh.name, fc.marketplaces) > 0
-                            GROUP BY COALESCE(pl.sid, 0), pl.seller_sku, wd.sku
+                            GROUP BY COALESCE(pl.sid, 0), pl.seller_sku, wd.sku, wd.wid
                         ) base
                     ) raw
                 ) calc
@@ -267,7 +264,12 @@
             <if test="asin != null and asin != ''">and s.asin like concat('%', #{asin}, '%')</if>
             <if test="principalName != null and principalName != ''">and s.principal_name like concat('%', #{principalName}, '%')</if>
             <if test="productCategory != null and productCategory != ''">and COALESCE(o.product_category, s.product_category) like concat('%', #{productCategory}, '%')</if>
-            <if test="warehouseName != null and warehouseName != ''">and s.warehouse_name like concat('%', #{warehouseName}, '%')</if>
+            <if test="warehouseName != null and warehouseName != ''">
+                <choose>
+                    <when test='warehouseName.contains(",")'>and s.warehouse_name in <foreach collection='warehouseName.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <otherwise>and s.warehouse_name like concat('%', #{warehouseName}, '%')</otherwise>
+                </choose>
+            </if>
             <!-- 数值字段 -->
             <if test="rating_op != null">
                 <choose>
@@ -565,7 +567,12 @@
             <if test="asin != null and asin != ''">and s.asin like concat('%', #{asin}, '%')</if>
             <if test="principalName != null and principalName != ''">and s.principal_name like concat('%', #{principalName}, '%')</if>
             <if test="productCategory != null and productCategory != ''">and COALESCE(o.product_category, s.product_category) like concat('%', #{productCategory}, '%')</if>
-            <if test="warehouseName != null and warehouseName != ''">and s.warehouse_name like concat('%', #{warehouseName}, '%')</if>
+            <if test="warehouseName != null and warehouseName != ''">
+                <choose>
+                    <when test='warehouseName.contains(",")'>and s.warehouse_name in <foreach collection='warehouseName.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <otherwise>and s.warehouse_name like concat('%', #{warehouseName}, '%')</otherwise>
+                </choose>
+            </if>
             <if test="rating_op != null"><choose><when test="rating_op == 'between' and rating_val != null and rating_val2 != null">and rating between #{rating_val} and #{rating_val2}</when><when test="rating_op == 'isNull'"> and rating is null </when><when test="rating_op == 'isNotNull'"> and rating is not null </when><when test="rating_val != null"> and rating ${rating_op} #{rating_val} </when></choose></if>
             <if test="review_count_op != null"><choose><when test="review_count_op == 'between' and review_count_val != null and review_count_val2 != null">and review_count between #{review_count_val} and #{review_count_val2}</when><when test="review_count_op == 'isNull'"> and review_count is null </when><when test="review_count_op == 'isNotNull'"> and review_count is not null </when><when test="review_count_val != null"> and review_count ${review_count_op} #{review_count_val} </when></choose></if>
             <if test="ad_rate_op != null"><choose><when test="ad_rate_op == 'between' and ad_rate_val != null and ad_rate_val2 != null">and ad_rate between #{ad_rate_val} and #{ad_rate_val2}</when><when test="ad_rate_op == 'isNull'"> and ad_rate is null </when><when test="ad_rate_op == 'isNotNull'"> and ad_rate is not null </when><when test="ad_rate_val != null"> and ad_rate ${ad_rate_op} #{ad_rate_val} </when></choose></if>

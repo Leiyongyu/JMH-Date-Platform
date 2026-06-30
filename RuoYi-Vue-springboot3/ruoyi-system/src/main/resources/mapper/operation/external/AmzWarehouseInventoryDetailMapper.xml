@@ -33,4 +33,10 @@
     <update id="updateQuantityReceive">
         UPDATE amz_warehouse_inventory_detail SET quantity_receive = #{val} WHERE sku = #{sku}
     </update>
+
+    <select id="selectWarehouseNamesForAmz" resultType="string">
+        SELECT name FROM warehouse
+        WHERE wid IN (18677, 19561, 18678, 18679, 18680)
+        ORDER BY wid
+    </select>
 </mapper>

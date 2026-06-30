@@ -24,6 +24,8 @@ public class EbayReplenishmentSnapshot extends BaseEntity
     @Excel(name = "等级")
     private String skuLevel;
 
+    private Integer productNature;
+
     @Excel(name = "近30天利润")
     private BigDecimal profitRate30d;
 
@@ -59,6 +61,9 @@ public class EbayReplenishmentSnapshot extends BaseEntity
 
     @Excel(name = "近7天销量")
     private Integer sales7d;
+
+    @Excel(name = "近15天销量")
+    private Integer sales15d;
 
     @Excel(name = "近30天销量")
     private Integer sales30d;
@@ -112,6 +117,8 @@ public class EbayReplenishmentSnapshot extends BaseEntity
     public void setProductName(String productName) { this.productName = productName; }
     public String getSkuLevel() { return skuLevel; }
     public void setSkuLevel(String skuLevel) { this.skuLevel = skuLevel; }
+    public Integer getProductNature() { return productNature; }
+    public void setProductNature(Integer v) { this.productNature = v; }
     public BigDecimal getProfitRate30d() { return profitRate30d; }
     public void setProfitRate30d(BigDecimal profitRate30d) { this.profitRate30d = profitRate30d; }
     public BigDecimal getReturnRate() { return returnRate; }
@@ -136,6 +143,8 @@ public class EbayReplenishmentSnapshot extends BaseEntity
     public void setTotalInventory(Integer totalInventory) { this.totalInventory = totalInventory; }
     public Integer getSales7d() { return sales7d; }
     public void setSales7d(Integer sales7d) { this.sales7d = sales7d; }
+    public Integer getSales15d() { return sales15d; }
+    public void setSales15d(Integer v) { this.sales15d = v; }
     public Integer getSales30d() { return sales30d; }
     public void setSales30d(Integer sales30d) { this.sales30d = sales30d; }
     public Integer getSales90d() { return sales90d; }

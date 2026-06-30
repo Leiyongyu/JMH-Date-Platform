@@ -88,6 +88,14 @@ public class AmzReplenishmentController extends BaseController
         return AjaxResult.success(shopListMapper.selectStoreNamesByPlatform("10001"));
     }
 
+    /** AMZ中转仓仓库名称列表 (wid 18677/19561/18678/18679/18680) */
+    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
+    @GetMapping("/warehouse-names")
+    public AjaxResult warehouseNames()
+    {
+        return AjaxResult.success(inventoryMapper.selectWarehouseNamesForAmz());
+    }
+
     /** 按仓库SKU查询各店铺销量明细 */
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
     @GetMapping("/sales-breakdown")

@@ -1,6 +1,7 @@
 package com.ruoyi.web.controller.operation;
 
 import java.util.List;
+import java.util.Map;
 
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -25,6 +26,8 @@ import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot;
 import com.ruoyi.system.domain.operation.ExportRequest;
+import com.ruoyi.system.mapper.operation.external.EbayReplenishFormulaMapper;
+import com.ruoyi.system.domain.operation.external.EbayReplenishFormula;
 import com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService;
 import com.ruoyi.system.service.operation.OperationImportService;
 import com.ruoyi.system.service.operation.UnifiedExportService;
@@ -42,6 +45,8 @@ public class EbayReplenishmentController extends BaseController
     private OperationImportService importService;
     @Autowired
     private UnifiedExportService exportService;
+    @Autowired
+    private EbayReplenishFormulaMapper formulaMapper;
     @Autowired
     private RedisCache redisCache;
 
@@ -141,6 +146,34 @@ public class EbayReplenishmentController extends BaseController
             try { return AjaxResult.success(importService.importReturnRate(file, SecurityUtils.getUsername())); }
             catch (Exception e) { return error(e.getMessage()); }
         });
+    }
+
+    // ====== 产品性质更新 ======
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:list')")
+    @PostMapping("/update-product-nature")
+    public AjaxResult updateProductNature(@RequestBody Map<String, Object> body)
+    {
+        Long id = body.get("id") != null ? Long.valueOf(body.get("id").toString()) : null;
+        Integer nature = body.get("productNature") != null ? Integer.valueOf(body.get("productNature").toString()) : null;
+        if (id == null) return error("id不能为空");
+        snapshotService.updateProductNature(id, nature);
+        return success();
+    }
+
+    // ====== 公式管理 ======
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:formula:edit')")
+    @GetMapping("/formula/list")
+    public AjaxResult formulaList()
+    {
+        return AjaxResult.success(formulaMapper.selectAll());
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:formula:edit')")
+    @PostMapping("/formula/update")
+    public AjaxResult formulaUpdate(@RequestBody EbayReplenishFormula formula)
+    {
+        formulaMapper.update(formula);
+        return success();
     }
 
     // ==================== 锁工具 ====================

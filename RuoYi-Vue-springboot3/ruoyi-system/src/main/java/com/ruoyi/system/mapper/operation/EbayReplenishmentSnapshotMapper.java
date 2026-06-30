@@ -22,4 +22,6 @@ public interface EbayReplenishmentSnapshotMapper
     int activateBatch(@Param("batchNo") String batchNo);
 
     int deleteNonCurrent();
+
+    int updateProductNature(@Param("id") Long id, @Param("productNature") Integer productNature);
 }

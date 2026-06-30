@@ -305,4 +305,9 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
         // 尝试映射数值字段的前端名 → DB 列名
         return NUMERIC_FIELD_MAP.get(field);
     }
+
+    @Override
+    public void updateProductNature(Long id, Integer productNature) {
+        snapshotMapper.updateProductNature(id, productNature);
+    }
 }

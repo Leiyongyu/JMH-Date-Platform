@@ -48,6 +48,7 @@ public class EbayReplenishmentComputeService
     private final PurchasePlanMapper purchasePlanMapper;
     private final WarehouseStatementMapper warehouseStatementMapper;
     private final BrandOwnerMapper brandOwnerMapper;
+    private final com.ruoyi.system.mapper.operation.external.EbayReplenishFormulaMapper formulaMapper;
 
     public EbayReplenishmentComputeService(
             LingxingProperties lingxingProperties,
@@ -61,7 +62,8 @@ public class EbayReplenishmentComputeService
             PurchaseOrderMapper purchaseOrderMapper,
             PurchasePlanMapper purchasePlanMapper,
             WarehouseStatementMapper warehouseStatementMapper,
-            BrandOwnerMapper brandOwnerMapper)
+            BrandOwnerMapper brandOwnerMapper,
+            com.ruoyi.system.mapper.operation.external.EbayReplenishFormulaMapper formulaMapper)
     {
         this.lingxingProperties = lingxingProperties;
         this.warehouseMapper = warehouseMapper;
@@ -75,6 +77,7 @@ public class EbayReplenishmentComputeService
         this.purchasePlanMapper = purchasePlanMapper;
         this.warehouseStatementMapper = warehouseStatementMapper;
         this.brandOwnerMapper = brandOwnerMapper;
+        this.formulaMapper = formulaMapper;
     }
 
     // ========================================================================
@@ -446,6 +449,7 @@ public class EbayReplenishmentComputeService
         SalesAgg agg = new SalesAgg();
         LocalDate today = LocalDate.now();
         LocalDate cutoff7d = today.minusDays(7);
+        LocalDate cutoff15d = today.minusDays(15);
         LocalDate cutoff30d = today.minusDays(30);
         LocalDate cutoff90d = today.minusDays(90);
 
@@ -468,6 +472,7 @@ public class EbayReplenishmentComputeService
             String key = site + "|" + mid;
 
             if (!pd.isBefore(cutoff7d)) agg.sales7d.merge(key, qty, Integer::sum);
+            if (!pd.isBefore(cutoff15d)) agg.sales15d.merge(key, qty, Integer::sum);
             if (!pd.isBefore(cutoff30d)) agg.sales30d.merge(key, qty, Integer::sum);
             if (!pd.isBefore(cutoff90d)) agg.sales90d.merge(key, qty, Integer::sum);
 
@@ -490,6 +495,7 @@ public class EbayReplenishmentComputeService
     private static class SalesAgg
     {
         final Map<String, Integer> sales7d = new LinkedHashMap<>();
+        final Map<String, Integer> sales15d = new LinkedHashMap<>();
         final Map<String, Integer> sales30d = new LinkedHashMap<>();
         final Map<String, Integer> sales90d = new LinkedHashMap<>();
         final Map<String, Map<String, Integer>> monthlySales = new LinkedHashMap<>();
