@@ -303,6 +303,19 @@ public class EbayReplenishmentComputeService
                 Integer pn = productNatureMap.get(row.site + "|" + baseSku);
                 snap.setProductNature(pn);
 
+                // ---- 月动销率 = sales30d / totalInventory * 100 ----
+                if (totalInv > 0 && snap.getSales30d() != null && snap.getSales30d() > 0) {
+                    snap.setMonthlyTurnoverRate(
+                            BigDecimal.valueOf(snap.getSales30d())
+                                    .divide(BigDecimal.valueOf(totalInv), 4, RoundingMode.HALF_UP)
+                                    .multiply(BigDecimal.valueOf(100))
+                                    .setScale(2, RoundingMode.HALF_UP));
+                }
+
+                // ---- 退货等级 ----
+                snap.setReturnLevel(calcReturnLevel(snap.getReturnRate(), snap.getProfitRate30d(),
+                        snap.getMonthlyTurnoverRate()));
+
                 // ---- SKU 等级 ----
                 snap.setSkuLevel(InventoryUtils.calcProductLevel(
                         snap.getSales30d(),
@@ -665,6 +678,36 @@ public class EbayReplenishmentComputeService
     }
 
     private static int nvl(Integer v) { return v == null ? 0 : v; }
+    private static double nvl(BigDecimal v) { return v == null ? 0 : v.doubleValue(); }
+
+    /** 退货等级 (按顺序命中第一条) */
+    static String calcReturnLevel(BigDecimal returnRate, BigDecimal roi, BigDecimal monthlyTurnoverRate)
+    {
+        double rr = nvl(returnRate) * 100;  // 退货率转百分比: 0.1250 → 12.5
+        double r = nvl(roi);                 // ROI 已是百分比: 18.00 = 18%
+        double turnover = nvl(monthlyTurnoverRate);  // 月动销率 已是百分比
+
+        // 1
+        if (rr > 6) return "问题产品";
+        // 2
+        if (rr >= 3 && r < 18) return "问题产品";
+        // 3
+        if (rr < 3 && r < 12 && turnover <= 12) return "问题产品";
+        // 4
+        if (rr >= 3 && r >= 18) return "长尾产品";
+        // 5
+        if (rr < 3 && r < 12 && turnover > 12) return "长尾产品";
+        // 6
+        if (rr < 3 && r >= 12 && r < 22 && turnover < 12) return "长尾产品";
+        // 7
+        if (rr < 3 && r >= 22 && turnover < 15) return "长尾产品";
+        // 8
+        if (rr < 3 && r >= 12 && r < 22 && turnover >= 12) return "主力产品";
+        // 9
+        if (rr < 3 && r >= 22 && turnover >= 15) return "明星产品";
+
+        return "未分类";
+    }
 
     /** 内部库存行 */
     private static class SkuSiteRow

@@ -98,6 +98,12 @@ public class EbayReplenishmentSnapshot extends BaseEntity
     @Excel(name = "最大月销补货量")
     private Integer maxMonthlyReplenishQty;
 
+    @Excel(name = "退货等级")
+    private String returnLevel;
+
+    @Excel(name = "月动销率")
+    private BigDecimal monthlyTurnoverRate;
+
     @Excel(name = "负责人")
     private String ownerName;
 
@@ -167,6 +173,10 @@ public class EbayReplenishmentSnapshot extends BaseEntity
     public void setSuggestPurchaseQty(BigDecimal suggestPurchaseQty) { this.suggestPurchaseQty = suggestPurchaseQty; }
     public Integer getMaxMonthlyReplenishQty() { return maxMonthlyReplenishQty; }
     public void setMaxMonthlyReplenishQty(Integer maxMonthlyReplenishQty) { this.maxMonthlyReplenishQty = maxMonthlyReplenishQty; }
+    public String getReturnLevel() { return returnLevel; }
+    public void setReturnLevel(String returnLevel) { this.returnLevel = returnLevel; }
+    public BigDecimal getMonthlyTurnoverRate() { return monthlyTurnoverRate; }
+    public void setMonthlyTurnoverRate(BigDecimal v) { this.monthlyTurnoverRate = v; }
     public String getOwnerName() { return ownerName; }
     public void setOwnerName(String ownerName) { this.ownerName = ownerName; }
     public Date getCalcTime() { return calcTime; }

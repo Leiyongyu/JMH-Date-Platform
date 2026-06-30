@@ -35,6 +35,21 @@
           <el-option label="E" value="E" />
         </el-select>
       </el-form-item>
+      <el-form-item label="产品性质" prop="productNature">
+        <el-select v-model="queryParams.productNature" placeholder="全部" clearable style="width: 110px" @change="handleQuery">
+          <el-option label="新品" value="0" />
+          <el-option label="老品" value="1" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="退货等级" prop="returnLevel">
+        <el-select v-model="queryParams.returnLevel" placeholder="全部" clearable style="width: 120px" @change="handleQuery">
+          <el-option label="问题产品" value="问题产品" />
+          <el-option label="长尾产品" value="长尾产品" />
+          <el-option label="主力产品" value="主力产品" />
+          <el-option label="明星产品" value="明星产品" />
+          <el-option label="未分类" value="未分类" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="负责人" prop="ownerName">
         <el-input
           v-model="queryParams.ownerName"
@@ -305,8 +320,9 @@ const columnDefs = [
   { key: 'purchaseCycleDays', label: '采购周期', align: 'right', width: 115, sortable: true, filterType: 'number' },
   { key: 'suggestPurchaseQty', label: '采购数量', align: 'right', width: 120, sortable: true, filterType: 'number' },
   { key: 'maxMonthlyReplenishQty', label: '最大月销补货量', align: 'right', width: 145, sortable: true, filterType: 'number' },
-  { key: 'ownerName', label: '负责人', align: 'center', width: 110, tooltip: true },
-  { key: 'calcTime', label: '计算时间', align: 'center', width: 170, format: 'time' }
+  { key: 'returnLevel', label: '退货等级', align: 'center', width: 110 },
+  { key: 'monthlyTurnoverRate', label: '月动销率', align: 'right', width: 110, sortable: true, format: 'percentNumber', filterType: 'number' },
+  { key: 'ownerName', label: '负责人', align: 'center', width: 110, tooltip: true }
 ]
 const {
   showColumnDrawer,
@@ -327,6 +343,8 @@ const data = reactive({
     sku: undefined,
     productName: undefined,
     skuLevel: undefined,
+    productNature: undefined,
+    returnLevel: undefined,
     ownerName: undefined,
     sortField: undefined,
     sortOrder: undefined
@@ -455,6 +473,8 @@ function buildFilters() {
   if (p.sku) filters.push({ field: 'sku', value: p.sku })
   if (p.productName) filters.push({ field: 'productName', value: p.productName })
   if (p.skuLevel) filters.push({ field: 'skuLevel', value: p.skuLevel })
+  if (p.productNature) filters.push({ field: 'productNature', value: p.productNature })
+  if (p.returnLevel) filters.push({ field: 'returnLevel', value: p.returnLevel })
   if (p.ownerName) filters.push({ field: 'ownerName', value: p.ownerName })
   // Column numeric filters
   Object.entries(columnFilters).forEach(([field, f]) => {

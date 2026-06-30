@@ -33,7 +33,8 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
 
     /** 允许文本筛选的列 */
     private static final Set<String> TEXT_FIELDS = Set.of(
-        "site", "sku", "productName", "skuLevel", "ownerName", "lastLocalOutboundTime"
+        "site", "sku", "productName", "skuLevel", "ownerName", "lastLocalOutboundTime",
+        "productNature", "returnLevel"
     );
 
     /** 允许的操作符白名单 */
@@ -63,6 +64,7 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
         NUMERIC_FIELD_MAP.put("maxMonthlyReplenishQty", "max_monthly_replenish_qty");
         NUMERIC_FIELD_MAP.put("profitRate30d",          "profit_rate_30d");
         NUMERIC_FIELD_MAP.put("returnRate",             "return_rate");
+        NUMERIC_FIELD_MAP.put("monthlyTurnoverRate",   "monthly_turnover_rate");
         NUMERIC_FIELD_MAP.put("overseasSellableSalesRatio", "overseas_sellable_sales_ratio");
         NUMERIC_FIELD_MAP.put("overseasTotalSalesRatio",    "overseas_total_sales_ratio");
         NUMERIC_FIELD_MAP.put("totalInventorySalesRatio",   "total_inventory_sales_ratio");
