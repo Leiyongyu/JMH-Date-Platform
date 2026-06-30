@@ -207,6 +207,7 @@ public class EbayReplenishmentComputeService
                 // ---- 销量 ----
                 String salesKey = row.site + "|" + InventoryUtils.extractMiddleCodeForInventory(baseSku);
                 snap.setSales7d(sa.sales7d.getOrDefault(salesKey, 0));
+                snap.setSales15d(sa.sales15d.getOrDefault(salesKey, 0));
                 snap.setSales30d(sa.sales30d.getOrDefault(salesKey, 0));
                 snap.setSales90d(sa.sales90d.getOrDefault(salesKey, 0));
                 snap.setMaxMonthlySales(sa.monthlyMax.getOrDefault(salesKey, null));
@@ -292,6 +293,10 @@ public class EbayReplenishmentComputeService
                     BigDecimal rr = returnRateMap.get(row.site + "|" + mid);
                     if (rr != null) snap.setReturnRate(rr);
                 }
+
+                // ---- 产品性质（从 dedup 读取，持久化保存） ----
+                Integer pn = dedup.getProductNature();
+                snap.setProductNature(pn);
 
                 // ---- SKU 等级 ----
                 snap.setSkuLevel(InventoryUtils.calcProductLevel(

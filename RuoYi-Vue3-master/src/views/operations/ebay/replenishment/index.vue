@@ -539,7 +539,7 @@ async function handleSyncAll() {
 }
 
 function updateProductNature(row, val) {
-  request({ url: '/operations/ebay/replenishment/update-product-nature', method: 'post', data: { id: row.id, productNature: val } })
+  request({ url: '/operations/ebay/replenishment/update-product-nature', method: 'post', data: { site: row.site, sku: row.sku, productNature: val } })
 }
 function handleQuery() {
   queryParams.value.pageNum = 1

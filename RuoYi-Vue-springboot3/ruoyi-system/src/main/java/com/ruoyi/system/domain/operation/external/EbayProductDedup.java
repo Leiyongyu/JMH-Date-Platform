@@ -27,6 +27,7 @@ public class EbayProductDedup implements Serializable
     private Date lowestUploadTime;
     private Date createTime;
     private Date updateTime;
+    private Integer productNature;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -60,4 +61,6 @@ public class EbayProductDedup implements Serializable
     public void setCreateTime(Date createTime) { this.createTime = createTime; }
     public Date getUpdateTime() { return updateTime; }
     public void setUpdateTime(Date updateTime) { this.updateTime = updateTime; }
+    public Integer getProductNature() { return productNature; }
+    public void setProductNature(Integer v) { this.productNature = v; }
 }

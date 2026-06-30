@@ -24,4 +24,6 @@ public interface EbayProductDedupMapper
 
     /** 从 ebay_product_listing 重建去重表 */
     int rebuildFromListing();
+
+    int updateProductNature(@Param("site") String site, @Param("sku") String sku, @Param("productNature") Integer productNature);
 }

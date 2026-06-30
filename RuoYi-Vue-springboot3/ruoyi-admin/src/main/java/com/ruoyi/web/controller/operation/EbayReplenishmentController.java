@@ -26,6 +26,7 @@ import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot;
 import com.ruoyi.system.domain.operation.ExportRequest;
+import com.ruoyi.system.mapper.operation.external.EbayProductDedupMapper;
 import com.ruoyi.system.mapper.operation.external.EbayReplenishFormulaMapper;
 import com.ruoyi.system.domain.operation.external.EbayReplenishFormula;
 import com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService;
@@ -47,6 +48,8 @@ public class EbayReplenishmentController extends BaseController
     private UnifiedExportService exportService;
     @Autowired
     private EbayReplenishFormulaMapper formulaMapper;
+    @Autowired
+    private EbayProductDedupMapper dedupMapper;
     @Autowired
     private RedisCache redisCache;
 
@@ -153,10 +156,11 @@ public class EbayReplenishmentController extends BaseController
     @PostMapping("/update-product-nature")
     public AjaxResult updateProductNature(@RequestBody Map<String, Object> body)
     {
-        Long id = body.get("id") != null ? Long.valueOf(body.get("id").toString()) : null;
+        String site = (String) body.get("site");
+        String sku = (String) body.get("sku");
         Integer nature = body.get("productNature") != null ? Integer.valueOf(body.get("productNature").toString()) : null;
-        if (id == null) return error("id不能为空");
-        snapshotService.updateProductNature(id, nature);
+        if (site == null || sku == null) return error("site和sku不能为空");
+        dedupMapper.updateProductNature(site, sku, nature);
         return success();
     }
 

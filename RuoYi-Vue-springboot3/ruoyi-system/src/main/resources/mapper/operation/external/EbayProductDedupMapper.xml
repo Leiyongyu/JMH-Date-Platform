@@ -77,4 +77,8 @@
         ON DUPLICATE KEY UPDATE product_name = VALUES(product_name), site = VALUES(site)
     </insert>
 
+    <update id="updateProductNature">
+        UPDATE ebay_product_dedup SET product_nature = #{productNature} WHERE site = #{site} AND sku = #{sku}
+    </update>
+
 </mapper>
