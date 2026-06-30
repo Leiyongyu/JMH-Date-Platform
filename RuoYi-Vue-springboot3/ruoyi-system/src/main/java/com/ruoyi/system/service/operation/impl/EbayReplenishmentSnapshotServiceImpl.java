@@ -62,6 +62,7 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
         NUMERIC_FIELD_MAP.put("purchaseCycleDays",      "purchase_cycle_days");
         NUMERIC_FIELD_MAP.put("suggestPurchaseQty",     "suggest_purchase_qty");
         NUMERIC_FIELD_MAP.put("maxMonthlyReplenishQty", "max_monthly_replenish_qty");
+        NUMERIC_FIELD_MAP.put("monthlySalesForecast",  "monthly_sales_forecast");
         NUMERIC_FIELD_MAP.put("profitRate30d",          "profit_rate_30d");
         NUMERIC_FIELD_MAP.put("returnRate",             "return_rate");
         NUMERIC_FIELD_MAP.put("monthlyTurnoverRate",   "monthly_turnover_rate");

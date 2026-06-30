@@ -222,6 +222,7 @@ public class CustomsDeclarationExportService
 
     private void fillContractItems(Sheet sheet, List<CustomsDeclarationItem> items, int totalRow)
     {
+        CellStyle numberStyle = createNumberStyle(sheet, "#,##0.00");
         for (int i = 0; i < items.size(); i++)
         {
             CustomsDeclarationItem item = items.get(i);
@@ -234,7 +235,9 @@ public class CustomsDeclarationExportService
             set(sheet, rowIndex, 4, defaultValue(item.getUnit(), "PIECE"));
             setNumber(sheet, rowIndex, 5, item.getQuantity());
             setNumber(sheet, rowIndex, 6, item.getUnitPriceUsd());
+            getCell(sheet, rowIndex, 6).setCellStyle(numberStyle);
             setFormula(sheet, rowIndex, 7, "ROUND(F" + excelRow + "*G" + excelRow + ",2)");
+            getCell(sheet, rowIndex, 7).setCellStyle(numberStyle);
             set(sheet, rowIndex, 8, defaultValue(item.getCurrency(), "USD"));
         }
         setFormula(sheet, 10, 6, "H" + (totalRow + 1));
@@ -313,15 +316,7 @@ public class CustomsDeclarationExportService
         setFormula(sheet, totalRow, 4, "SUM(F" + (PACKING_START_ROW + 1) + ":F" + totalRow + ")&\"PCS\"");
         setFormula(sheet, totalRow, 6, "SUM(G" + (PACKING_START_ROW + 1) + ":G" + totalRow + ")");
         setFormula(sheet, totalRow, 7, "SUM(H" + (PACKING_START_ROW + 1) + ":H" + totalRow + ")");
-        BigDecimal totalCbm = packingTotalCbm(items);
-        if (totalCbm != null)
-        {
-            set(sheet, totalRow, 8, formatCbm(totalCbm) + "CBM");
-        }
-        else
-        {
-            setFormula(sheet, totalRow, 8, "SUM(I" + (PACKING_START_ROW + 1) + ":I" + totalRow + ")&\"CBM\"");
-        }
+        setFormula(sheet, totalRow, 8, "SUM(I" + (PACKING_START_ROW + 1) + ":I" + totalRow + ")&\"CBM\"");
     }
 
     private String packingBoxKey(CustomsDeclarationItem item, int index)
@@ -521,6 +516,13 @@ public class CustomsDeclarationExportService
                 sheet.removeMergedRegion(i);
         }
         sheet.addMergedRegion(new CellRangeAddress(firstRow, lastRow, column, column));
+    }
+
+    private CellStyle createNumberStyle(Sheet sheet, String format)
+    {
+        CellStyle style = sheet.getWorkbook().createCellStyle();
+        style.setDataFormat(sheet.getWorkbook().createDataFormat().getFormat(format));
+        return style;
     }
 
     private void applyBorder(Cell cell)

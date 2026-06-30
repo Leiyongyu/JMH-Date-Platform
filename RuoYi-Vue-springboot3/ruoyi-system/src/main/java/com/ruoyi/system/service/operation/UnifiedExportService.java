@@ -24,9 +24,10 @@ public class UnifiedExportService
     {
         List<String> allowed = Arrays.asList("site","sku","productName","skuLevel","profitRate30d","returnRate",
             "overseasOnway","overseasSellable","overseasTotal","purchasePendingDelivery","localSellable","localOnway",
-            "purchasePlanQty","lockedQty","totalInventory","sales7d","sales30d","sales90d","maxMonthlySales",
+            "purchasePlanQty","lockedQty","totalInventory","sales7d","sales15d","sales30d","sales90d","maxMonthlySales",
+            "monthlySalesForecast",
             "overseasSellableSalesRatio","overseasTotalSalesRatio","totalInventorySalesRatio","lastLocalOutboundTime",
-            "outboundDays","purchaseCycleDays","suggestPurchaseQty","maxMonthlyReplenishQty","ownerName","calcTime");
+            "outboundDays","purchaseCycleDays","suggestPurchaseQty","maxMonthlyReplenishQty","returnLevel","ownerName");
         List<String> keys = resolveKeys(req, allowed);
         List<Map<String, Object>> data = fetchEbayReplenishmentData(req, keys);
         writeExcel(response, "eBay补货数据", data, resolveColumns(req, keys, allowed, ebayReplenishmentTitles()));
@@ -215,13 +216,14 @@ public class UnifiedExportService
         m.put("localSellable", s.getLocalSellable()); m.put("localOnway", s.getLocalOnway());
         m.put("purchasePlanQty", s.getPurchasePlanQty()); m.put("lockedQty", s.getLockedQty());
         m.put("totalInventory", s.getTotalInventory()); m.put("sales7d", s.getSales7d());
-        m.put("sales30d", s.getSales30d()); m.put("sales90d", s.getSales90d()); m.put("maxMonthlySales", s.getMaxMonthlySales());
+        m.put("sales15d", s.getSales15d()); m.put("sales30d", s.getSales30d()); m.put("sales90d", s.getSales90d());
+        m.put("maxMonthlySales", s.getMaxMonthlySales()); m.put("monthlySalesForecast", s.getMonthlySalesForecast());
         m.put("overseasSellableSalesRatio", s.getOverseasSellableSalesRatio());
         m.put("overseasTotalSalesRatio", s.getOverseasTotalSalesRatio());
         m.put("totalInventorySalesRatio", s.getTotalInventorySalesRatio());
         m.put("lastLocalOutboundTime", s.getLastLocalOutboundTime()); m.put("outboundDays", s.getOutboundDays());
         m.put("purchaseCycleDays", s.getPurchaseCycleDays()); m.put("suggestPurchaseQty", s.getSuggestPurchaseQty());
-        m.put("maxMonthlyReplenishQty", s.getMaxMonthlyReplenishQty()); m.put("ownerName", s.getOwnerName());
+        m.put("maxMonthlyReplenishQty", s.getMaxMonthlyReplenishQty()); m.put("returnLevel", s.getReturnLevel()); m.put("ownerName", s.getOwnerName());
         m.put("calcTime", s.getCalcTime());
         return filterMap(m, keys);
     }
@@ -280,10 +282,11 @@ public class UnifiedExportService
         t.put("localSellable","成都可售"); t.put("localOnway","成都在途"); t.put("purchasePlanQty","采购计划");
         t.put("lockedQty","待出库"); t.put("totalInventory","总库存"); t.put("sales7d","近7天销量");
         t.put("sales30d","近30天销量"); t.put("sales90d","近90天销量"); t.put("maxMonthlySales","历史最大月销");
+        t.put("monthlySalesForecast","月销预测");
         t.put("overseasSellableSalesRatio","海外在库库销比"); t.put("overseasTotalSalesRatio","海外总库销比");
         t.put("totalInventorySalesRatio","总库存库销比"); t.put("lastLocalOutboundTime","最近本地出库");
         t.put("outboundDays","出库天数"); t.put("purchaseCycleDays","采购周期"); t.put("suggestPurchaseQty","采购数量");
-        t.put("maxMonthlyReplenishQty","最大月销补货量"); t.put("ownerName","负责人"); t.put("calcTime","计算时间");
+        t.put("maxMonthlyReplenishQty","最大月销补货量"); t.put("returnLevel","退货等级"); t.put("ownerName","负责人");
         return t;
     }
 
@@ -293,7 +296,7 @@ public class UnifiedExportService
         t.put("site","站点"); t.put("sku","SKU"); t.put("productName","产品名称"); t.put("skuLevel","等级");
         t.put("ourLowestPrice","最低价"); t.put("trackingPrice","跟卖价"); t.put("trackingProfitMargin","跟卖利润率");
         t.put("floorPrice","底线价"); t.put("returnRate","退货率"); t.put("sales3d","近3天销量");
-        t.put("sales7d","近7天销量"); t.put("sales30d","近30天销量"); t.put("sales90d","近90天销量");
+        t.put("sales7d","近7天销量"); t.put("sales15d","近15天销量"); t.put("sales30d","近30天销量"); t.put("sales90d","近90天销量");
         t.put("maxMonthlySales","历史最大月销"); t.put("overseasStock","海外仓库存");
         t.put("overseasStockAgeDays","海外仓库龄"); t.put("stockSalesRatio","库销比");
         t.put("estimatedReplenishQty","预估补货量"); t.put("brandCode","品牌"); t.put("operatorName","操作员");

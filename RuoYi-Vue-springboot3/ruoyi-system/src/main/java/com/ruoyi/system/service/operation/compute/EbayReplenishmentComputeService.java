@@ -278,8 +278,12 @@ public class EbayReplenishmentComputeService
                                     .setScale(0, RoundingMode.HALF_UP));
                 }
 
-                // ---- 最大月销补货量 (公式配置化) ----
-                snap.setMaxMonthlyReplenishQty(calcMaxMonthlyReplenish(snap, formulas));
+                // ---- 最大月销补货量 = maxMonthlySales * 4.03 - totalInventory ----
+                int mm = snap.getMaxMonthlySales() != null ? snap.getMaxMonthlySales() : 0;
+                snap.setMaxMonthlyReplenishQty(Math.max(0, (int) Math.round(mm * 4.03 - totalInv)));
+
+                // ---- 月销预测 (13条公式配置化) ----
+                snap.setMonthlySalesForecast(calcMonthlySalesForecast(snap, formulas));
 
                 // ---- 库销比 ----
                 int d30 = snap.getSales30d();
@@ -555,10 +559,10 @@ public class EbayReplenishmentComputeService
     }
 
     // ========================================================================
-    // 最大月销补货量公式 (配置化, 13条规则)
+    // 月销预测公式 (配置化, 13条规则)
     // ========================================================================
 
-    private static int calcMaxMonthlyReplenish(EbayReplenishmentSnapshot snap, List<EbayReplenishFormula> formulas)
+    private static int calcMonthlySalesForecast(EbayReplenishmentSnapshot snap, List<EbayReplenishFormula> formulas)
     {
         int d7 = nvl(snap.getSales7d());
         int d15 = nvl(snap.getSales15d());

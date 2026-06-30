@@ -312,6 +312,7 @@ const columnDefs = [
   { key: 'sales30d', label: '近30天销量', align: 'right', width: 120, sortable: true, filterType: 'number' },
   { key: 'sales90d', label: '近90天销量', align: 'right', width: 120, sortable: true, filterType: 'number' },
   { key: 'maxMonthlySales', label: '历史最大月销', align: 'right', width: 130, sortable: true, filterType: 'number' },
+  { key: 'monthlySalesForecast', label: '月销预测', align: 'right', width: 115, sortable: true, filterType: 'number' },
   { key: 'overseasSellableSalesRatio', label: '海外在库库销比', align: 'right', width: 145, sortable: true, format: 'ratio', filterType: 'number' },
   { key: 'overseasTotalSalesRatio', label: '海外总库销比', align: 'right', width: 135, sortable: true, format: 'ratio', filterType: 'number' },
   { key: 'totalInventorySalesRatio', label: '总库存库销比', align: 'right', width: 135, sortable: true, format: 'ratio', filterType: 'number' },

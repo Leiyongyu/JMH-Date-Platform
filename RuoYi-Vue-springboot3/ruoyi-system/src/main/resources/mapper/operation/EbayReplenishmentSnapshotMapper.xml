@@ -25,6 +25,7 @@
         <result property="sales30d" column="sales_30d" />
         <result property="sales90d" column="sales_90d" />
         <result property="maxMonthlySales" column="max_monthly_sales" />
+        <result property="monthlySalesForecast" column="monthly_sales_forecast" />
         <result property="overseasSellableSalesRatio" column="overseas_sellable_sales_ratio" />
         <result property="overseasTotalSalesRatio" column="overseas_total_sales_ratio" />
         <result property="totalInventorySalesRatio" column="total_inventory_sales_ratio" />
@@ -43,7 +44,7 @@
         id, site, sku, product_name, sku_level, product_nature, profit_rate_30d, return_rate,
         overseas_onway, overseas_sellable, overseas_total, purchase_pending_delivery,
         local_sellable, local_onway, purchase_plan_qty, locked_qty, total_inventory,
-        sales_7d, sales_15d, sales_30d, sales_90d, max_monthly_sales,
+        sales_7d, sales_15d, sales_30d, sales_90d, max_monthly_sales, monthly_sales_forecast,
         overseas_sellable_sales_ratio, overseas_total_sales_ratio, total_inventory_sales_ratio,
         last_local_outbound_time, outbound_days, purchase_cycle_days, suggest_purchase_qty,
         max_monthly_replenish_qty, return_level, monthly_turnover_rate, owner_name, calc_time
@@ -352,6 +353,7 @@
             <when test="sortField == 'purchaseCycleDays'">order by purchase_cycle_days</when>
             <when test="sortField == 'suggestPurchaseQty'">order by suggest_purchase_qty</when>
             <when test="sortField == 'maxMonthlyReplenishQty'">order by max_monthly_replenish_qty</when>
+            <when test="sortField == 'monthlySalesForecast'">order by monthly_sales_forecast</when>
             <otherwise>order by site asc, sku asc</otherwise>
         </choose>
         <if test="sortField != null and sortField != ''">
@@ -399,7 +401,7 @@
             site, sku, product_name, sku_level, product_nature, profit_rate_30d, return_rate,
             overseas_onway, overseas_sellable, overseas_total, purchase_pending_delivery,
             local_sellable, local_onway, purchase_plan_qty, locked_qty, total_inventory,
-            sales_7d, sales_15d, sales_30d, sales_90d, max_monthly_sales,
+            sales_7d, sales_15d, sales_30d, sales_90d, max_monthly_sales, monthly_sales_forecast,
             overseas_sellable_sales_ratio, overseas_total_sales_ratio, total_inventory_sales_ratio,
             last_local_outbound_time, outbound_days, purchase_cycle_days, suggest_purchase_qty,
             max_monthly_replenish_qty, return_level, monthly_turnover_rate, owner_name, calc_time
@@ -407,7 +409,7 @@
             #{site}, #{sku}, #{productName}, #{skuLevel}, #{productNature}, #{profitRate30d}, #{returnRate},
             #{overseasOnway}, #{overseasSellable}, #{overseasTotal}, #{purchasePendingDelivery},
             #{localSellable}, #{localOnway}, #{purchasePlanQty}, #{lockedQty}, #{totalInventory},
-            #{sales7d}, #{sales15d}, #{sales30d}, #{sales90d}, #{maxMonthlySales},
+            #{sales7d}, #{sales15d}, #{sales30d}, #{sales90d}, #{maxMonthlySales}, #{monthlySalesForecast},
             #{overseasSellableSalesRatio}, #{overseasTotalSalesRatio}, #{totalInventorySalesRatio},
             #{lastLocalOutboundTime}, #{outboundDays}, #{purchaseCycleDays}, #{suggestPurchaseQty},
             #{maxMonthlyReplenishQty}, #{returnLevel}, #{monthlyTurnoverRate}, #{ownerName}, NOW()
@@ -419,7 +421,7 @@
             site, sku, product_name, sku_level, product_nature, profit_rate_30d, return_rate,
             overseas_onway, overseas_sellable, overseas_total, purchase_pending_delivery,
             local_sellable, local_onway, purchase_plan_qty, locked_qty, total_inventory,
-            sales_7d, sales_15d, sales_30d, sales_90d, max_monthly_sales,
+            sales_7d, sales_15d, sales_30d, sales_90d, max_monthly_sales, monthly_sales_forecast,
             overseas_sellable_sales_ratio, overseas_total_sales_ratio, total_inventory_sales_ratio,
             last_local_outbound_time, outbound_days, purchase_cycle_days, suggest_purchase_qty,
             max_monthly_replenish_qty, return_level, monthly_turnover_rate, owner_name, calc_time, batch_no, current_flag
@@ -432,7 +434,7 @@
             #{item.purchasePendingDelivery},
             #{item.localSellable}, #{item.localOnway}, #{item.purchasePlanQty},
             #{item.lockedQty}, #{item.totalInventory},
-            #{item.sales7d}, #{item.sales15d}, #{item.sales30d}, #{item.sales90d}, #{item.maxMonthlySales},
+            #{item.sales7d}, #{item.sales15d}, #{item.sales30d}, #{item.sales90d}, #{item.maxMonthlySales}, #{item.monthlySalesForecast},
             #{item.overseasSellableSalesRatio}, #{item.overseasTotalSalesRatio},
             #{item.totalInventorySalesRatio},
             #{item.lastLocalOutboundTime}, #{item.outboundDays}, #{item.purchaseCycleDays},
