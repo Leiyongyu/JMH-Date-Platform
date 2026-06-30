@@ -103,6 +103,7 @@ public class EbayReplenishmentComputeService
         Map<String, String> skuProductNameMap = new LinkedHashMap<>();
         Map<String, BigDecimal> profitRateMap = new LinkedHashMap<>();  // key = site|middleCode
         Map<String, BigDecimal> returnRateMap = new LinkedHashMap<>();  // key = site|middleCode
+        Map<String, Integer> productNatureMap = new LinkedHashMap<>();  // key = site|sku → productNature
 
         for (EbayProductDedup dedup : dedupMapper.selectAll())
         {
@@ -118,6 +119,10 @@ public class EbayReplenishmentComputeService
 
             siteRowsBySku.computeIfAbsent(groupKey, k -> new LinkedHashMap<>())
                     .put(site, new SkuSiteRow(groupKey, site));
+
+            // 产品性质 — 按 site|groupKey 保存
+            if (dedup.getProductNature() != null)
+                productNatureMap.put(site + "|" + groupKey, dedup.getProductNature());
 
             // 利润率 & 退货率 — 用数字键匹配，跨品牌
             String numKey = InventoryUtils.extractNumericKey(rawSku);
@@ -174,7 +179,11 @@ public class EbayReplenishmentComputeService
         // ---- 6. 品牌负责人 ----
         Map<String, String> ownerByBrand = loadBrandOwners();
 
-        // ---- 7. 组装结果 ----
+        // ---- 7. 加载公式配置 ----
+        List<EbayReplenishFormula> formulas = formulaMapper.selectActive();
+        log.info("eBay补货公式配置 加载 {} 条", formulas.size());
+
+        // ---- 8. 组装结果 ----
         LocalDate today = LocalDate.now();
         List<EbayReplenishmentSnapshot> result = new ArrayList<>();
         Set<String> seen = new HashSet<>();
@@ -269,12 +278,8 @@ public class EbayReplenishmentComputeService
                                     .setScale(0, RoundingMode.HALF_UP));
                 }
 
-                // ---- 最大月销补货量 = round(maxMonthlySales * 4.03 - totalInventory) ----
-                Integer mm = snap.getMaxMonthlySales();
-                if (mm != null && mm > 0)
-                {
-                    snap.setMaxMonthlyReplenishQty((int) Math.round(mm * 4.03 - totalInv));
-                }
+                // ---- 最大月销补货量 (公式配置化) ----
+                snap.setMaxMonthlyReplenishQty(calcMaxMonthlyReplenish(snap, formulas));
 
                 // ---- 库销比 ----
                 int d30 = snap.getSales30d();
@@ -295,7 +300,7 @@ public class EbayReplenishmentComputeService
                 }
 
                 // ---- 产品性质（从 dedup 读取，持久化保存） ----
-                Integer pn = dedup.getProductNature();
+                Integer pn = productNatureMap.get(row.site + "|" + baseSku);
                 snap.setProductNature(pn);
 
                 // ---- SKU 等级 ----
@@ -535,6 +540,131 @@ public class EbayReplenishmentComputeService
     {
         return InventoryUtils.safeDivide(a, b);
     }
+
+    // ========================================================================
+    // 最大月销补货量公式 (配置化, 13条规则)
+    // ========================================================================
+
+    private static int calcMaxMonthlyReplenish(EbayReplenishmentSnapshot snap, List<EbayReplenishFormula> formulas)
+    {
+        int d7 = nvl(snap.getSales7d());
+        int d15 = nvl(snap.getSales15d());
+        int d30 = nvl(snap.getSales30d());
+        int age = nvl(snap.getOutboundDays());
+
+        // 产品性质: null 视为 1 (老品)
+        int nature = snap.getProductNature() != null ? snap.getProductNature() : 1;
+
+        // ---- 新品规则: result = d30 * 30 / age ----
+        if (nature == 0)
+        {
+            if (d30 > 0 && age > 0)
+            {
+                return (int) Math.max(0, Math.round((double) d30 * 30.0 / age));
+            }
+            return 0;
+        }
+
+        // ---- 老品规则 ----
+        double d7Avg = d7 > 0 ? (double) d7 / 7.0 : 0;
+        double d15Avg = d15 > 0 ? (double) d15 / 15.0 : 0;
+        double d30Avg = d30 > 0 ? (double) d30 / 30.0 : 0;
+
+        // 优先级: OLD_D7_POSITIVE → OLD_D7_ZERO_D15_POSITIVE → OLD_NO_SALES
+        List<EbayReplenishFormula> d7Rules = new ArrayList<>();
+        List<EbayReplenishFormula> d15Rules = new ArrayList<>();
+        List<EbayReplenishFormula> noSalesRules = new ArrayList<>();
+
+        for (EbayReplenishFormula f : formulas)
+        {
+            String g = f.getRuleGroup();
+            if (g == null) continue;
+            if (g.contains("D7_POSITIVE")) d7Rules.add(f);
+            else if (g.contains("D15_POSITIVE")) d15Rules.add(f);
+            else if (g.contains("NO_SALES")) noSalesRules.add(f);
+        }
+
+        // 按 scenario_order 排序
+        d7Rules.sort((a, b) -> Integer.compare(a.getScenarioOrder(), b.getScenarioOrder()));
+        d15Rules.sort((a, b) -> Integer.compare(a.getScenarioOrder(), b.getScenarioOrder()));
+        noSalesRules.sort((a, b) -> Integer.compare(a.getScenarioOrder(), b.getScenarioOrder()));
+
+        EbayReplenishFormula matched = null;
+
+        if (d7 > 0)
+        {
+            matched = matchRule(d7Avg, d30Avg, d7Rules);
+        }
+        else if (d15 > 0)
+        {
+            matched = matchRule(d15Avg, d30Avg, d15Rules);
+        }
+
+        if (matched != null)
+        {
+            return applyWeightedFormula(d7, d15, d30, matched);
+        }
+
+        // fallback: noSalesRules 的最后一条(规则12/13)
+        if (d30 > 0 && !noSalesRules.isEmpty())
+        {
+            EbayReplenishFormula f = noSalesRules.get(0); // d30>0 规则
+            return applyWeightedFormula(d7, d15, d30, f);
+        }
+
+        return 0;
+    }
+
+    private static EbayReplenishFormula matchRule(double metricAvg, double d30Avg, List<EbayReplenishFormula> rules)
+    {
+        for (EbayReplenishFormula f : rules)
+        {
+            if (f.getCompareMetric() == null || "NONE".equals(f.getCompareMetric())) continue;
+            BigDecimal lb = f.getLowerBound();
+            BigDecimal ub = f.getUpperBound();
+
+            double thresholdLower = lb != null ? d30Avg * lb.doubleValue() : 0;
+            double thresholdUpper = ub != null ? d30Avg * ub.doubleValue() : -1;
+
+            if (lb != null && ub != null)
+            {
+                // 区间匹配: lowerBound <= metricAvg/d30Avg < upperBound
+                if (metricAvg >= thresholdLower && metricAvg < thresholdUpper) return f;
+            }
+            else if (lb != null)
+            {
+                // 仅下限: metricAvg >= d30Avg * lowerBound
+                if (metricAvg >= thresholdLower) return f;
+            }
+            else if (ub != null)
+            {
+                // 仅上限: metricAvg < d30Avg * upperBound
+                if (metricAvg < thresholdUpper) return f;
+            }
+        }
+        return null;
+    }
+
+    private static int applyWeightedFormula(int d7, int d15, int d30, EbayReplenishFormula f)
+    {
+        double w7 = f.getWeight7d() != null ? f.getWeight7d().doubleValue() : 0;
+        double w15 = f.getWeight15d() != null ? f.getWeight15d().doubleValue() : 0;
+        double w30 = f.getWeight30d() != null ? f.getWeight30d().doubleValue() : 0;
+        double m = f.getMultiplier() != null ? f.getMultiplier().doubleValue() : 1;
+        boolean mul30 = f.getMultiply30() == null || f.getMultiply30() == 1;
+
+        double d7p = d7 > 0 ? (double) d7 / 7.0 : 0;
+        double d15p = d15 > 0 ? (double) d15 / 15.0 : 0;
+        double d30p = d30 > 0 ? (double) d30 / 30.0 : 0;
+
+        double weighted = d7p * w7 + d15p * w15 + d30p * w30;
+        double raw = weighted * m;
+        if (mul30) raw = raw * 30.0;
+
+        return Math.max(0, (int) Math.round(raw));
+    }
+
+    private static int nvl(Integer v) { return v == null ? 0 : v; }
 
     /** 内部库存行 */
     private static class SkuSiteRow

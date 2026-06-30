@@ -7,12 +7,18 @@
         <result property="name" column="name"/>
         <result property="scenarioOrder" column="scenario_order"/>
         <result property="productNature" column="product_nature"/>
+        <result property="ruleGroup" column="rule_group"/>
         <result property="conditionDesc" column="condition_desc"/>
+        <result property="compareMetric" column="compare_metric"/>
+        <result property="lowerBound" column="lower_bound"/>
+        <result property="upperBound" column="upper_bound"/>
         <result property="weight7d" column="weight_7d"/>
         <result property="weight15d" column="weight_15d"/>
         <result property="weight30d" column="weight_30d"/>
         <result property="multiplier" column="multiplier"/>
+        <result property="multiply30" column="multiply_30"/>
         <result property="status" column="status"/>
+        <result property="remark" column="remark"/>
         <result property="createTime" column="create_time"/>
         <result property="updateTime" column="update_time"/>
     </resultMap>
@@ -31,8 +37,17 @@
 
     <update id="update">
         UPDATE ebay_replenish_formula SET
-            name = #{name}, weight_7d = #{weight7d}, weight_15d = #{weight15d},
-            weight_30d = #{weight30d}, multiplier = #{multiplier}, status = #{status}
+            name = #{name},
+            scenario_order = #{scenarioOrder},
+            weight_7d = #{weight7d},
+            weight_15d = #{weight15d},
+            weight_30d = #{weight30d},
+            multiplier = #{multiplier},
+            multiply_30 = #{multiply30},
+            lower_bound = #{lowerBound},
+            upper_bound = #{upperBound},
+            product_nature = #{productNature},
+            status = #{status}
         WHERE id = #{id}
     </update>
 
