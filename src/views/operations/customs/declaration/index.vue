@@ -135,7 +135,7 @@
               <strong>{{ group.boxCount }}</strong>
             </div>
             <div class="box-actions">
-              <el-button link type="primary" icon="Plus" title="添加商品" @click="addRow(group.lastIndex)" />
+              <el-button link type="primary" icon="Plus" title="新增箱子" @click="addBoxAfterGroup(group)" />
             </div>
           </div>
 
@@ -180,7 +180,7 @@
                 <el-input v-model="entry.row.sourceLocation" size="small" placeholder="货源地" />
               </div>
               <div class="item-actions">
-                <el-button link type="primary" icon="Plus" title="在下方添加" @click="addRow(entry.index)" />
+                <el-button link type="primary" icon="Plus" title="在当前箱组添加商品" @click="addItemInBox(entry.index, entry.row)" />
                 <el-button link type="danger" icon="Minus" title="删除" @click="removeRow(entry.index)" />
               </div>
             </div>
@@ -766,9 +766,36 @@ function appendLinkedRows(rows) {
   itemPage.pageNum = Math.max(1, Math.ceil(items.value.length / itemPage.pageSize))
 }
 
-function addRow(index) {
-  items.value.splice(index + 1, 0, createEmptyItem())
+function addBoxAfterGroup(group) {
+  const row = createEmptyItem()
+  row.boxNo = nextBoxNo()
+  row.boxCount = 1
+  items.value.splice(group.lastIndex + 1, 0, row)
+  itemPage.pageNum = Math.max(1, Math.ceil((group.lastIndex + 2) / itemPage.pageSize))
+}
+
+function addItemInBox(index, sourceRow) {
+  const row = createEmptyItem()
+  row.boxNo = sourceRow.boxNo
+  row.boxCount = sourceRow.boxCount || 1
+  row.sourceOrderNo = sourceRow.sourceOrderNo || ''
+  row.orderTotalCbm = sourceRow.orderTotalCbm || null
+  row.packingGrossWeight = sourceRow.packingGrossWeight
+  row.packingCbm = sourceRow.packingCbm
+  row.boxLength = sourceRow.boxLength
+  row.boxWidth = sourceRow.boxWidth
+  row.boxHeight = sourceRow.boxHeight
+  row.destinationCountry = sourceRow.destinationCountry || ''
+  row.sourceLocation = sourceRow.sourceLocation || ''
+  items.value.splice(index + 1, 0, row)
   itemPage.pageNum = Math.max(1, Math.ceil((index + 2) / itemPage.pageSize))
+}
+
+function nextBoxNo() {
+  const used = items.value
+    .map(item => Number(item.boxNo))
+    .filter(value => Number.isInteger(value) && value > 0)
+  return used.length ? String(Math.max(...used) + 1) : '1'
 }
 
 function removeRow(index) {

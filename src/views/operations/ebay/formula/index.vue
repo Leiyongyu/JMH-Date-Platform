@@ -2,6 +2,7 @@
   <div class="app-container">
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
+        <span style="font-size:14px;font-weight:600;line-height:32px;margin-right:16px">月销预测公式配置</span>
         <el-button type="primary" icon="Refresh" @click="loadList">刷新</el-button>
       </el-col>
     </el-row>
