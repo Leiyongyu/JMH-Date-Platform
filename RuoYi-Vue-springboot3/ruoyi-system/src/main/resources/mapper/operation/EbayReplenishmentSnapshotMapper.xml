@@ -152,6 +152,16 @@
                     <when test="sales7d_val != null"> and sales_7d ${sales7d_op} #{sales7d_val} </when>
                 </choose>
             </if>
+            <if test="sales15d_op != null">
+                <choose>
+                    <when test="sales15d_op == 'between' and sales15d_val != null and sales15d_val2 != null">
+                        and sales_15d between #{sales15d_val} and #{sales15d_val2}
+                    </when>
+                    <when test="sales15d_op == 'isNull'"> and sales_15d is null </when>
+                    <when test="sales15d_op == 'isNotNull'"> and sales_15d is not null </when>
+                    <when test="sales15d_val != null"> and sales_15d ${sales15d_op} #{sales15d_val} </when>
+                </choose>
+            </if>
             <if test="sales30d_op != null">
                 <choose>
                     <when test="sales30d_op == 'between' and sales30d_val != null and sales30d_val2 != null">
@@ -343,6 +353,7 @@
             <when test="sortField == 'lockedQty'">order by locked_qty</when>
             <when test="sortField == 'totalInventory'">order by total_inventory</when>
             <when test="sortField == 'sales7d'">order by sales_7d</when>
+            <when test="sortField == 'sales15d'">order by sales_15d</when>
             <when test="sortField == 'sales30d'">order by sales_30d</when>
             <when test="sortField == 'sales90d'">order by sales_90d</when>
             <when test="sortField == 'maxMonthlySales'">order by max_monthly_sales</when>

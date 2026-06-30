@@ -26,9 +26,9 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
         "site", "sku", "skuLevel", "profitRate30d", "returnRate",
         "overseasOnway", "overseasSellable", "overseasTotal", "purchasePendingDelivery",
         "localSellable", "localOnway", "purchasePlanQty", "lockedQty", "totalInventory",
-        "sales7d", "sales30d", "sales90d", "maxMonthlySales",
+        "sales7d", "sales15d", "sales30d", "sales90d", "maxMonthlySales", "monthlySalesForecast",
         "overseasSellableSalesRatio", "overseasTotalSalesRatio", "totalInventorySalesRatio",
-        "outboundDays", "purchaseCycleDays", "suggestPurchaseQty", "maxMonthlyReplenishQty"
+        "outboundDays", "purchaseCycleDays", "suggestPurchaseQty", "maxMonthlyReplenishQty", "monthlyTurnoverRate"
     );
 
     /** 允许文本筛选的列 */
@@ -50,6 +50,7 @@ public class EbayReplenishmentSnapshotServiceImpl implements IEbayReplenishmentS
         NUMERIC_FIELD_MAP.put("overseasTotal",          "overseas_total");
         NUMERIC_FIELD_MAP.put("totalInventory",         "total_inventory");
         NUMERIC_FIELD_MAP.put("sales7d",                "sales_7d");
+        NUMERIC_FIELD_MAP.put("sales15d",               "sales_15d");
         NUMERIC_FIELD_MAP.put("sales30d",               "sales_30d");
         NUMERIC_FIELD_MAP.put("sales90d",               "sales_90d");
         NUMERIC_FIELD_MAP.put("maxMonthlySales",        "max_monthly_sales");
