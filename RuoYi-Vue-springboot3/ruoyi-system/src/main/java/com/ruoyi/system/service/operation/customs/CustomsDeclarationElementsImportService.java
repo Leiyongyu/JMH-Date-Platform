@@ -100,22 +100,28 @@ public class CustomsDeclarationElementsImportService
             }
             if (dataMap.isEmpty()) throw new IllegalArgumentException("Excel 中没有可导入数据");
 
-            // 5. 查询已存在记录
+            // 5. 查询已存在记录（全格式匹配 + 短格式兼容）
             List<Map<String, Object>> keys = new ArrayList<>();
-            for (Map.Entry<String, String[]> entry : dataMap.entrySet())
+            Set<String> seenSkus = new HashSet<>();
+            for (String key : dataMap.keySet())
             {
-                String[] parts = entry.getKey().split("\\|", 2);
-                Map<String, Object> m = new HashMap<>();
-                m.put("sku", parts[0]);
-                m.put("sourceLocation", parts.length > 1 ? parts[1] : "");
-                keys.add(m);
+                String sku = key.split("\\|")[0];
+                if (seenSkus.add(sku)) {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("sku", sku);
+                    keys.add(m);
+                }
             }
             List<Map<String, Object>> existing = mapper.selectExistingSkuSource(keys);
-            Set<String> existingSet = new HashSet<>();
+            Set<String> existingSkus = new HashSet<>();
+            Map<String, String> shortToFull = new HashMap<>(); // 短格式→全格式映射
             for (Map<String, Object> e : existing)
             {
-                String src = e.get("sourceLocation") != null ? e.get("sourceLocation").toString() : "";
-                existingSet.add(e.get("sku").toString() + "|" + src);
+                String dbSku = e.get("sku").toString();
+                existingSkus.add(dbSku);
+                // 提取短格式: JMH170044-0741 → 170044-0741, DAS-10623-0557 → 10623-0557
+                String shortSku = dbSku.replaceFirst("^[A-Z]+-?", "");
+                if (!shortSku.equals(dbSku)) shortToFull.put(shortSku, dbSku);
             }
 
             // 6. 分类：更新 vs 新增
@@ -132,15 +138,24 @@ public class CustomsDeclarationElementsImportService
                 String srcLoc = parts.length > 1 ? parts[1] : "";
                 String sku = parts[0];
 
+                // 全格式匹配或短格式匹配
+                String matchedSku = sku;
+                boolean exists = existingSkus.contains(sku);
+                if (!exists) {
+                    String shortForm = sku.replaceFirst("^[A-Z]+-?", "");
+                    if (shortToFull.containsKey(shortForm)) {
+                        matchedSku = shortToFull.get(shortForm);
+                        exists = true;
+                    }
+                }
+
                 Map<String, Object> row = new HashMap<>();
-                row.put("sku", sku);
+                row.put("sku", matchedSku);
                 row.put("sourceLocation", srcLoc);
                 row.put("declarationElements", declElements);
-                // vals[3] = customsUnit, vals[4] = taxPrice
                 row.put("customsUnit", vals[3]);
                 row.put("taxIncludedPrice", vals[4]);
-
-                if (existingSet.contains(entry.getKey()))
+                if (exists)
                 {
                     toUpdate.add(row);
                 }
@@ -152,7 +167,13 @@ public class CustomsDeclarationElementsImportService
 
             // 7. 执行更新
             int updatedRows = 0, insertedRows = 0;
-            if (!toUpdate.isEmpty()) updatedRows = mapper.batchUpdateDeclarationElements(toUpdate);
+            for (Map<String, Object> item : toUpdate) {
+                int rowCount = mapper.updateDeclarationElements(item);
+                if (rowCount == 0) {
+                    LOG.warn("更新申报要素未匹配: sku={}", item.get("sku"));
+                }
+                updatedRows += rowCount;
+            }
             if (!toInsert.isEmpty()) insertedRows = mapper.batchInsertDeclarationRows(toInsert);
 
             result.put("readRows", readRows);

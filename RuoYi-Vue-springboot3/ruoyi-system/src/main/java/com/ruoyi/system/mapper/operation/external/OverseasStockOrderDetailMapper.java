@@ -8,4 +8,5 @@ public interface OverseasStockOrderDetailMapper
 {
     int deleteByOrderNo(@Param("overseasOrderNo") String overseasOrderNo);
     int batchInsert(@Param("list") List<OverseasStockOrderDetail> list);
+    List<String> selectDistinctSku();
 }

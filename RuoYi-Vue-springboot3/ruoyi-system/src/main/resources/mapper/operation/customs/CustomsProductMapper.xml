@@ -17,28 +17,37 @@
         <result property="boxLength" column="box_length"/>
         <result property="boxWidth" column="box_width"/>
         <result property="boxHeight" column="box_height"/>
+        <result property="boxNo" column="box_no"/>
         <result property="hsCode" column="hs_code"/>
         <result property="hsDescription" column="hs_description"/>
         <result property="originCountry" column="origin_country"/>
         <result property="destinationCountry" column="destination_country"/>
         <result property="sourceLocation" column="source_location"/>
         <result property="exemption" column="exemption"/>
+        <result property="isTax" column="is_tax"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
 
+    <resultMap id="CustomsDeclarationItemResult" type="com.ruoyi.system.domain.operation.customs.CustomsDeclarationItem" extends="CustomsProductResult">
+        <result property="quantity" column="quantity"/>
+        <result property="boxCount" column="box_count"/>
+        <result property="sourceOrderNo" column="source_order_no"/>
+        <result property="orderTotalCbm" column="order_total_cbm"/>
+    </resultMap>
+
     <sql id="columns">
         id, sku, description_cn, model, unit, unit_price_usd, currency, single_weight,
-        packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height,
+        packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height, box_no,
         hs_code, hs_description, origin_country, destination_country, source_location,
-        exemption, created_at, updated_at
+        exemption, is_tax, created_at, updated_at
     </sql>
 
     <sql id="pColumns">
         p.id, p.sku, p.description_cn, p.model, p.unit, p.unit_price_usd, p.currency, p.single_weight,
-        p.packing_net_weight, p.packing_gross_weight, p.packing_cbm, p.box_length, p.box_width, p.box_height,
+        p.packing_net_weight, p.packing_gross_weight, p.packing_cbm, p.box_length, p.box_width, p.box_height, p.box_no,
         p.hs_code, p.hs_description, p.origin_country, p.destination_country, p.source_location,
-        p.exemption, p.created_at, p.updated_at
+        p.exemption, p.is_tax, p.created_at, p.updated_at
     </sql>
 
     <select id="search" resultMap="CustomsProductResult">
@@ -77,9 +86,9 @@
         SELECT
             od.overseas_order_no AS overseasOrderNo,
             COUNT(DISTINCT od.sku) AS productCount,
-            CAST(SUM(GREATEST(IFNULL(od.package_num, 0), 0)) AS SIGNED) AS totalBoxCount,
-            SUM(GREATEST(IFNULL(od.package_num, 0), 0) * GREATEST(IFNULL(od.quantity_in_case, 1), 1)) AS totalQuantity,
-            SUM(IFNULL(od.total_box_weight, IFNULL(od.cg_box_weight, 0) * GREATEST(IFNULL(od.package_num, 1), 1))) AS totalGrossWeight
+            CAST(IFNULL(MAX(od.order_total_box_num), SUM(GREATEST(IFNULL(od.box_number, 0), 0))) AS SIGNED) AS totalBoxCount,
+            SUM(GREATEST(IFNULL(od.quantity_in_case, 1), 1) * GREATEST(IFNULL(od.box_number, 1), 1)) AS totalQuantity,
+            IFNULL(MAX(od.order_total_box_weight), SUM(IFNULL(od.cg_box_weight, 0) * GREATEST(IFNULL(od.box_number, 1), 1))) AS totalGrossWeight
         FROM overseas_stock_order_detail od
         WHERE od.overseas_order_no IS NOT NULL AND od.overseas_order_no != ''
         <if test="keyword != null and keyword != ''">
@@ -90,8 +99,22 @@
         LIMIT #{limit}
     </select>
 
-    <select id="selectProductsByStockOrders" resultMap="CustomsProductResult">
-        SELECT <include refid="pColumns"/>
+    <select id="selectProductsByStockOrders" resultMap="CustomsDeclarationItemResult">
+        SELECT
+            p.id, p.sku, p.description_cn, p.model, p.unit, p.unit_price_usd, p.currency, p.single_weight,
+            ROUND(IFNULL(p.single_weight, 0) * GREATEST(IFNULL(od.quantity_in_case, 1), 1) * GREATEST(IFNULL(od.box_number, 1), 1), 4) AS packing_net_weight,
+            od.cg_box_weight AS packing_gross_weight,
+            od.box_cbm AS packing_cbm,
+            od.cg_box_length AS box_length,
+            od.cg_box_width AS box_width,
+            od.cg_box_height AS box_height,
+            od.box_range AS box_no,
+            p.hs_code, p.hs_description, p.origin_country, p.destination_country, p.source_location,
+            p.exemption, p.is_tax, p.created_at, p.updated_at,
+            CAST(GREATEST(IFNULL(od.quantity_in_case, 1), 1) * GREATEST(IFNULL(od.box_number, 1), 1) AS SIGNED) AS quantity,
+            CAST(GREATEST(IFNULL(od.box_number, 1), 1) AS SIGNED) AS box_count,
+            od.overseas_order_no AS source_order_no,
+            od.order_total_box_volume AS order_total_cbm
         FROM overseas_stock_order_detail od
         INNER JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = od.sku COLLATE utf8mb4_unicode_ci
         WHERE od.overseas_order_no IN
@@ -163,14 +186,14 @@
 
     <sql id="productInsertColumns">
         sku, description_cn, model, unit, unit_price_usd, currency, single_weight,
-        packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height,
+        packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height, box_no,
         hs_code, hs_description, origin_country, destination_country, source_location, exemption, is_tax
     </sql>
 
     <sql id="productInsertValues">
         #{p.sku}, #{p.descriptionCn}, #{p.model}, #{p.unit}, #{p.unitPriceUsd}, #{p.currency},
         #{p.singleWeight}, #{p.packingNetWeight}, #{p.packingGrossWeight}, #{p.packingCbm},
-        #{p.boxLength}, #{p.boxWidth}, #{p.boxHeight}, #{p.hsCode}, #{p.hsDescription}, #{p.originCountry},
+        #{p.boxLength}, #{p.boxWidth}, #{p.boxHeight}, #{p.boxNo}, #{p.hsCode}, #{p.hsDescription}, #{p.originCountry},
         #{p.destinationCountry}, #{p.sourceLocation}, #{p.exemption}, #{p.isTax}
     </sql>
 
@@ -203,6 +226,7 @@
             box_length = VALUES(box_length),
             box_width = VALUES(box_width),
             box_height = VALUES(box_height),
+            box_no = VALUES(box_no),
             hs_code = VALUES(hs_code),
             hs_description = VALUES(hs_description),
             origin_country = VALUES(origin_country),
@@ -215,7 +239,7 @@
 
     <insert id="refreshFromJoin">
         INSERT INTO customs_products_list (sku, source_location, description_cn, model, unit, unit_price_usd, currency, single_weight,
-            packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height,
+            packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height, box_no,
             origin_country, destination_country, hs_code, hs_description, exemption, is_tax)
         SELECT
             od.sku,
@@ -232,15 +256,24 @@
                CAST(SUBSTRING_INDEX(il.tax_included_price, '/', -1) AS DECIMAL(10,2)),
                0),
             IFNULL(NULLIF(od.tariffs_currency_unit, ''), 'USD'),
-            IFNULL(ROUND(od.calc_net_weight / NULLIF(od.calc_product_qty, 0), 4), 0),
-            od.calc_net_weight,
+            IFNULL(ROUND(IFNULL(lpw.gross_weight / 1000, od.calc_net_weight / NULLIF(od.calc_product_qty, 0)), 4), 0),
+            ROUND(IFNULL(lpw.gross_weight / 1000, od.calc_net_weight / NULLIF(od.calc_product_qty, 0)), 4),
             od.calc_gross_weight,
             od.calc_cbm,
             od.cg_box_length,
             od.cg_box_width,
             od.cg_box_height,
+            od.box_range,
             '中国',
-            IFNULL(w.name, ''),
+            CASE TRIM(IFNULL(w.name, ''))
+                WHEN '谷仓 德国区' THEN '德国'
+                WHEN '谷仓 英国区' THEN '英国'
+                WHEN '谷仓 新泽西区' THEN '美国'
+                WHEN '谷仓 加州区' THEN '美国'
+                WHEN '德国' THEN '德国'
+                WHEN '美国' THEN '美国'
+                ELSE IFNULL(w.name, '')
+            END,
             IFNULL(REGEXP_SUBSTR(TRIM(IFNULL(il.declaration_elements, '')), '^[0-9]+'), ''),
             TRIM(REGEXP_REPLACE(TRIM(IFNULL(il.declaration_elements, '')), '^[0-9]+[[:space:]]*', '')),
             '照章', IFNULL(po.is_tax, 0)
@@ -265,6 +298,7 @@
             ) calc
         ) od
         LEFT JOIN customs_inventory_list il ON REPLACE(od.product_code, 'JMH-', '') COLLATE utf8mb4_unicode_ci = REPLACE(il.sku, 'JMH', '')
+        LEFT JOIN lingxing_product_weight lpw ON od.sku COLLATE utf8mb4_unicode_ci = lpw.sku COLLATE utf8mb4_unicode_ci
         LEFT JOIN warehouse w ON od.r_wid = w.wid
         LEFT JOIN purchase_order po ON od.sku COLLATE utf8mb4_unicode_ci = po.item_sku
         WHERE od.product_code LIKE 'JMH-%'
@@ -282,6 +316,7 @@
             box_length = VALUES(box_length),
             box_width = VALUES(box_width),
             box_height = VALUES(box_height),
+            box_no = VALUES(box_no),
             destination_country = VALUES(destination_country),
             exemption = VALUES(exemption),
             is_tax = VALUES(is_tax),
@@ -291,7 +326,7 @@
     <insert id="insertMissingFromAmzShipmentBox">
         INSERT IGNORE INTO customs_products_list
         (sku, source_location, description_cn, model, unit, unit_price_usd, currency, single_weight,
-         packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height,
+         packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height, box_no,
          origin_country, destination_country, hs_code, hs_description, exemption, is_tax)
         SELECT
             src.sku,
@@ -303,13 +338,14 @@
                CAST(SUBSTRING_INDEX(src.tax_included_price, '/', -1) AS DECIMAL(10,2)),
                0),
             'USD',
-            IFNULL(ROUND(src.group_net_weight / NULLIF(src.group_qty, 0), 4), 0),
-            ROUND(src.group_net_weight / NULLIF(src.group_qty, 0) * src.product_qty, 4),
+            IFNULL(ROUND(IFNULL(src.product_gross_weight / 1000, src.group_net_weight / NULLIF(src.group_qty, 0)), 4), 0),
+            ROUND(IFNULL(src.product_gross_weight / 1000, src.group_net_weight / NULLIF(src.group_qty, 0)), 4),
             ROUND(src.group_gross_weight / NULLIF(src.group_qty, 0) * src.product_qty, 4),
             ROUND(src.group_cbm / NULLIF(src.group_qty, 0) * src.product_qty, 6),
             src.box_length,
             src.box_width,
             src.box_height,
+            src.box_no,
             '中国',
             src.country_name,
             IFNULL(REGEXP_SUBSTR(TRIM(IFNULL(src.declaration_elements, '')), '^[0-9]+'), ''),
@@ -333,9 +369,11 @@
                 GREATEST(weighted.group_gross_weight - weighted.group_box_count * 0.5, 0) AS group_net_weight,
                 weighted.group_gross_weight,
                 weighted.group_cbm,
+                lpw.gross_weight AS product_gross_weight,
                 weighted.box_length,
                 weighted.box_width,
                 weighted.box_height,
+                weighted.box_no,
                 CASE UPPER(IFNULL(s.ship_to_country_code, ''))
                     WHEN 'DE' THEN '德国'
                     WHEN 'US' THEN '美国'
@@ -372,6 +410,7 @@
                         b.box_dimensions_unit,
                         b.box_weight_unit,
                         b.box_num,
+                        b.box_no,
                         b.msku,
                         b.sku,
                         b.product_name,
@@ -437,6 +476,7 @@
                     GROUP BY sku
                 ) il_pick ON il1.id = il_pick.id
             ) il ON weighted.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
+            LEFT JOIN lingxing_product_weight lpw ON weighted.sku COLLATE utf8mb4_unicode_ci = lpw.sku COLLATE utf8mb4_unicode_ci
             LEFT JOIN amz_fba_shipment s
                 ON weighted.shipment_id COLLATE utf8mb4_unicode_ci = s.shipment_id COLLATE utf8mb4_unicode_ci
         ) src

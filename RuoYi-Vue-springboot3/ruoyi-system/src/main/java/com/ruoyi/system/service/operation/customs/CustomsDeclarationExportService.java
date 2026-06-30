@@ -11,7 +11,9 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
@@ -66,6 +68,8 @@ public class CustomsDeclarationExportService
 
             setPrintAreas(workbook, contract, invoice, packing, customs, contractTotalRow, invoiceTotalRow,
                     packingTotalRow, customsFooterRow);
+            workbook.setForceFormulaRecalculation(true);
+            workbook.getCreationHelper().createFormulaEvaluator().evaluateAll();
 
             String filename = "报关单_" + LocalDate.now().format(DateTimeFormatter.ofPattern("yyMMdd")) + ".xlsx";
             response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -269,6 +273,7 @@ public class CustomsDeclarationExportService
     {
         Row styleRow = sheet.getRow(PACKING_START_ROW - 1);
         CellStyle[] styles = copyStyles(styleRow, 12);
+        Set<String> exportedBoxes = new HashSet<>();
         for (int i = 0; i < items.size(); i++)
         {
             CustomsDeclarationItem item = items.get(i);
@@ -282,12 +287,22 @@ public class CustomsDeclarationExportService
             setFormula(sheet, rowIndex, 4, "'INVOICE'!E" + (INVOICE_START_ROW + i + 1));
             setFormula(sheet, rowIndex, 5, "'INVOICE'!F" + (INVOICE_START_ROW + i + 1));
             setNumber(sheet, rowIndex, 6, firstNonNull(item.getPackingNetWeight(), item.getTotalWeight()));
-            setNumber(sheet, rowIndex, 7, firstNonNull(item.getPackingGrossWeight(), item.getTotalWeight()));
-            setNumber(sheet, rowIndex, 8, item.getPackingCbm());
+            if (exportedBoxes.add(packingBoxKey(item, i)))
+            {
+                int boxCount = item.getBoxCount() == null || item.getBoxCount() < 1 ? 1 : item.getBoxCount();
+                setNumber(sheet, rowIndex, 7, multiply(firstNonNull(item.getPackingGrossWeight(), item.getTotalWeight()), boxCount));
+                setNumber(sheet, rowIndex, 8, multiply(item.getPackingCbm(), boxCount));
+            }
+            else
+            {
+                getCell(sheet, rowIndex, 7).setBlank();
+                getCell(sheet, rowIndex, 8).setBlank();
+            }
             setNumber(sheet, rowIndex, 9, item.getBoxLength());
             setNumber(sheet, rowIndex, 10, item.getBoxWidth());
             setNumber(sheet, rowIndex, 11, item.getBoxHeight());
         }
+        mergeSharedPackingBoxColumns(sheet, items);
         Row total = getRow(sheet, totalRow);
         for (int c = 0; c < 12; c++) applyStyle(total, c, styles[c]);
         merge(sheet, totalRow, 0, 1);
@@ -298,7 +313,87 @@ public class CustomsDeclarationExportService
         setFormula(sheet, totalRow, 4, "SUM(F" + (PACKING_START_ROW + 1) + ":F" + totalRow + ")&\"PCS\"");
         setFormula(sheet, totalRow, 6, "SUM(G" + (PACKING_START_ROW + 1) + ":G" + totalRow + ")");
         setFormula(sheet, totalRow, 7, "SUM(H" + (PACKING_START_ROW + 1) + ":H" + totalRow + ")");
-        setFormula(sheet, totalRow, 8, "SUM(I" + (PACKING_START_ROW + 1) + ":I" + totalRow + ")&\"CBM\"");
+        BigDecimal totalCbm = packingTotalCbm(items);
+        if (totalCbm != null)
+        {
+            set(sheet, totalRow, 8, formatCbm(totalCbm) + "CBM");
+        }
+        else
+        {
+            setFormula(sheet, totalRow, 8, "SUM(I" + (PACKING_START_ROW + 1) + ":I" + totalRow + ")&\"CBM\"");
+        }
+    }
+
+    private String packingBoxKey(CustomsDeclarationItem item, int index)
+    {
+        if (!blank(item.getBoxNo()))
+        {
+            return defaultValue(item.getSourceOrderNo(), "MANUAL") + "|" + item.getBoxNo();
+        }
+        return "ROW|" + index;
+    }
+
+    private void mergeSharedPackingBoxColumns(Sheet sheet, List<CustomsDeclarationItem> items)
+    {
+        int start = 0;
+        while (start < items.size())
+        {
+            String key = packingBoxKey(items.get(start), start);
+            int end = start;
+            while (end + 1 < items.size() && key.equals(packingBoxKey(items.get(end + 1), end + 1)))
+            {
+                end++;
+            }
+            if (end > start && !key.startsWith("ROW|"))
+            {
+                int firstRow = PACKING_START_ROW + start;
+                int lastRow = PACKING_START_ROW + end;
+                for (int column = 7; column <= 11; column++)
+                {
+                    mergeVertical(sheet, firstRow, lastRow, column);
+                }
+            }
+            start = end + 1;
+        }
+    }
+
+    private BigDecimal multiply(BigDecimal value, int count)
+    {
+        if (value == null) return null;
+        return value.multiply(BigDecimal.valueOf(count)).setScale(6, RoundingMode.HALF_UP).stripTrailingZeros();
+    }
+
+    private BigDecimal packingTotalCbm(List<CustomsDeclarationItem> items)
+    {
+        BigDecimal total = BigDecimal.ZERO;
+        Set<String> exportedOrders = new HashSet<>();
+        Set<String> exportedBoxes = new HashSet<>();
+        boolean hasCbm = false;
+        for (int i = 0; i < items.size(); i++)
+        {
+            CustomsDeclarationItem item = items.get(i);
+            if (!blank(item.getSourceOrderNo()) && item.getOrderTotalCbm() != null)
+            {
+                if (exportedOrders.add(item.getSourceOrderNo()))
+                {
+                    total = total.add(item.getOrderTotalCbm());
+                    hasCbm = true;
+                }
+                continue;
+            }
+            if (item.getPackingCbm() != null && exportedBoxes.add(packingBoxKey(item, i)))
+            {
+                int boxCount = item.getBoxCount() == null || item.getBoxCount() < 1 ? 1 : item.getBoxCount();
+                total = total.add(multiply(item.getPackingCbm(), boxCount));
+                hasCbm = true;
+            }
+        }
+        return hasCbm ? total : null;
+    }
+
+    private String formatCbm(BigDecimal value)
+    {
+        return value.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
     }
 
     private void fillCustomsItems(Sheet sheet, List<CustomsDeclarationItem> items)
@@ -414,6 +509,18 @@ public class CustomsDeclarationExportService
                 sheet.removeMergedRegion(i);
         }
         sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex, firstColumn, lastColumn));
+    }
+
+    private void mergeVertical(Sheet sheet, int firstRow, int lastRow, int column)
+    {
+        for (int i = sheet.getNumMergedRegions() - 1; i >= 0; i--)
+        {
+            CellRangeAddress region = sheet.getMergedRegion(i);
+            if (region.getFirstColumn() <= column && region.getLastColumn() >= column
+                    && region.getFirstRow() <= lastRow && region.getLastRow() >= firstRow)
+                sheet.removeMergedRegion(i);
+        }
+        sheet.addMergedRegion(new CellRangeAddress(firstRow, lastRow, column, column));
     }
 
     private void applyBorder(Cell cell)

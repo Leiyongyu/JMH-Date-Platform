@@ -27,8 +27,8 @@ public interface CustomsInventoryMapper
 
     int batchInsert(@Param("items") List<CustomsInventoryItem> items);
 
-    /** 按 (sku, source_location) 批量更新申报要素 */
-    int batchUpdateDeclarationElements(@Param("list") List<Map<String, Object>> list);
+    /** 按 sku 更新申报要素 */
+    int updateDeclarationElements(@Param("item") Map<String, Object> item);
 
     /** 批量新增（只填 sku, source_location, declaration_elements） */
     int batchInsertDeclarationRows(@Param("list") List<Map<String, Object>> list);

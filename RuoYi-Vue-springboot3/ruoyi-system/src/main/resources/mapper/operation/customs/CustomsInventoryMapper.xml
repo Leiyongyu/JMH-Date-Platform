@@ -193,21 +193,14 @@
         </foreach>
     </insert>
 
-    <update id="batchUpdateDeclarationElements">
-        <foreach collection="list" item="item" separator=";">
-            UPDATE customs_inventory_list
-            SET declaration_elements = #{item.declarationElements},
-                customs_unit = #{item.customsUnit},
-                tax_included_price = #{item.taxIncludedPrice},
-                updated_at = NOW()
-            WHERE sku = #{item.sku}
-            <if test="item.sourceLocation != null and item.sourceLocation != ''">
-                AND product_code = #{item.sourceLocation}
-            </if>
-            <if test="item.sourceLocation == null or item.sourceLocation == ''">
-                AND (product_code IS NULL OR product_code = '')
-            </if>
-        </foreach>
+    <update id="updateDeclarationElements">
+        UPDATE customs_inventory_list
+        SET declaration_elements = #{item.declarationElements},
+            customs_unit = #{item.customsUnit},
+            tax_included_price = #{item.taxIncludedPrice},
+            product_code = #{item.sourceLocation},
+            updated_at = NOW()
+        WHERE sku = #{item.sku}
     </update>
 
     <insert id="batchInsertDeclarationRows">
@@ -220,9 +213,9 @@
 
     <select id="selectExistingSkuSource" resultType="map">
         SELECT sku, product_code AS sourceLocation FROM customs_inventory_list
-        WHERE (sku, COALESCE(product_code, '')) IN
+        WHERE sku IN
         <foreach collection="keys" item="k" open="(" separator="," close=")">
-            (#{k.sku}, #{k.sourceLocation})
+            #{k.sku}
         </foreach>
     </select>
 </mapper>

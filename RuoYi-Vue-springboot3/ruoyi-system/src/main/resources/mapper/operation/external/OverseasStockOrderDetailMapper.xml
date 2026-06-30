@@ -31,4 +31,9 @@
         </foreach>
     </insert>
 
+    <select id="selectDistinctSku" resultType="String">
+        SELECT DISTINCT sku FROM overseas_stock_order_detail
+        WHERE sku IS NOT NULL AND sku != '' AND sku REGEXP '^[A-Z]+'
+    </select>
+
 </mapper>

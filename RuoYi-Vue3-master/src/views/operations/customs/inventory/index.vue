@@ -354,12 +354,14 @@ async function handleDeclFileChange(event) {
     const fd = new FormData(); fd.append('file', file)
     const res = await request({ url: '/operations/customs/inventory/import-declaration-elements', method: 'post', data: fd, headers: { 'Content-Type': 'multipart/form-data' } })
     const d = res.data || res
-    const msg = `读取 ${d.readRows || 0} 行，新增 ${d.insertedRows || 0} 行，更新 ${d.updatedRows || 0} 行，跳过 ${d.skippedRows || 0} 行`
-    proxy.$modal.msgSuccess(msg)
-    if (d.errors && d.errors.length) {
-      proxy.$modal.alert(`以下异常（前50条）：\n${d.errors.join('\n')}`, '导入详情', { confirmButtonText: '确定' })
+    if (d && d.readRows !== undefined) {
+      const msg = `读取 ${d.readRows || 0} 行，新增 ${d.insertedRows || 0} 行，更新 ${d.updatedRows || 0} 行，跳过 ${d.skippedRows || 0} 行`
+      proxy.$modal.msgSuccess(msg)
+      if (d.errors && d.errors.length) {
+        proxy.$modal.alert(`以下异常（前50条）：\n${d.errors.join('\n')}`, '导入详情', { confirmButtonText: '确定' })
+      }
+      getList()
     }
-    getList()
   } catch (e) {
     proxy.$modal.msgError(e.message || '导入失败')
   } finally {

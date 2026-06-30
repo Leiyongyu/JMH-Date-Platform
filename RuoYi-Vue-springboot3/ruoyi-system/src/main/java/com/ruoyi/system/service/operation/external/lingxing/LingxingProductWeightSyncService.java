@@ -2,8 +2,8 @@ package com.ruoyi.system.service.operation.external.lingxing;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.system.domain.operation.external.LingxingProductWeight;
-import com.ruoyi.system.mapper.operation.customs.CustomsInventoryMapper;
 import com.ruoyi.system.mapper.operation.external.LingxingProductWeightMapper;
+import com.ruoyi.system.mapper.operation.external.OverseasStockOrderDetailMapper;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
 import java.math.BigDecimal;
 import java.util.*;
@@ -20,24 +20,19 @@ public class LingxingProductWeightSyncService
 
     private final LingxingGatewayService gw;
     private final LingxingProductWeightMapper mapper;
-    private final CustomsInventoryMapper inventoryMapper;
+    private final OverseasStockOrderDetailMapper detailMapper;
     private final ObjectMapper om;
 
     public LingxingProductWeightSyncService(LingxingGatewayService gw, LingxingProductWeightMapper mapper,
-                                             CustomsInventoryMapper inventoryMapper, ObjectMapper om)
-    { this.gw = gw; this.mapper = mapper; this.inventoryMapper = inventoryMapper; this.om = om; }
+                                             OverseasStockOrderDetailMapper detailMapper, ObjectMapper om)
+    { this.gw = gw; this.mapper = mapper; this.detailMapper = detailMapper; this.om = om; }
 
     public OperationSyncResult sync() throws Exception
     {
         long start = System.currentTimeMillis();
-        // 获取所有 SKU
-        List<String> skus = new ArrayList<>();
-        for (var item : inventoryMapper.selectList(null))
-        {
-            String sku = item.getSku();
-            if (sku != null && !sku.trim().isEmpty()) skus.add(sku.trim());
-        }
-        LOG.info("产品毛重同步 共 {} 个SKU", skus.size());
+        // 获取所有 SKU（完整格式）
+        List<String> skus = detailMapper.selectDistinctSku();
+        LOG.info("产品管理同步 共 {} 个SKU", skus.size());
 
         int total = 0;
         for (String sku : skus)
@@ -48,14 +43,18 @@ public class LingxingProductWeightSyncService
                 body.put("sku", sku);
                 Map<String, Object> resp = gw.post(API, body);
                 Map<String, Object> dd = getMap(resp, "data");
-                if (dd == null) continue;
+                if (dd == null || (dd.get("cg_product_gross_weight") == null && dd.get("cg_product_net_weight") == null)) {
+                    if (total < 3) LOG.warn("产品管理 SKU={} 无数据, respKeys={}", sku, resp.keySet());
+                    continue;
+                }
 
                 Object weightObj = dd.get("cg_product_gross_weight");
-                if (weightObj == null) continue;
+                Object netWeightObj = dd.get("cg_product_net_weight");
 
                 LingxingProductWeight w = new LingxingProductWeight();
                 w.setSku(sku);
-                w.setGrossWeight(new BigDecimal(weightObj.toString()));
+                w.setGrossWeight(decimal(weightObj));
+                w.setNetWeight(decimal(netWeightObj));
                 mapper.upsert(w);
                 total++;
             }
@@ -68,4 +67,12 @@ public class LingxingProductWeightSyncService
     @SuppressWarnings("unchecked")
     private Map<String, Object> getMap(Map<String, Object> r, String k)
     { Object o = r.get(k); return o instanceof Map ? (Map<String, Object>) o : null; }
+
+    private BigDecimal decimal(Object value)
+    {
+        if (value == null) return null;
+        String text = value.toString().trim();
+        if (text.isEmpty()) return null;
+        return new BigDecimal(text);
+    }
 }

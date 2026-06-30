@@ -20,6 +20,7 @@ public class AmzFbaShipmentBox implements Serializable
     private String boxDimensionsUnit;
     private String boxWeightUnit;
     private Integer boxNum;
+    private String boxNo;
     private String msku;
     private String sku;
     private String productName;
@@ -51,6 +52,8 @@ public class AmzFbaShipmentBox implements Serializable
     public void setBoxWeightUnit(String v) { this.boxWeightUnit = v; }
     public Integer getBoxNum() { return boxNum; }
     public void setBoxNum(Integer v) { this.boxNum = v; }
+    public String getBoxNo() { return boxNo; }
+    public void setBoxNo(String v) { this.boxNo = v; }
     public String getMsku() { return msku; }
     public void setMsku(String v) { this.msku = v; }
     public String getSku() { return sku; }

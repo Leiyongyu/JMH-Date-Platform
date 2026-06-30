@@ -22,12 +22,14 @@ public class CustomsProduct implements Serializable
     private BigDecimal boxLength;
     private BigDecimal boxWidth;
     private BigDecimal boxHeight;
+    private String boxNo;
     private String hsCode;
     private String hsDescription;
     private String originCountry;
     private String destinationCountry;
     private String sourceLocation;
     private String exemption;
+    private Integer isTax;
     private Date createdAt;
     private Date updatedAt;
 
@@ -59,6 +61,8 @@ public class CustomsProduct implements Serializable
     public void setBoxWidth(BigDecimal boxWidth) { this.boxWidth = boxWidth; }
     public BigDecimal getBoxHeight() { return boxHeight; }
     public void setBoxHeight(BigDecimal boxHeight) { this.boxHeight = boxHeight; }
+    public String getBoxNo() { return boxNo; }
+    public void setBoxNo(String boxNo) { this.boxNo = boxNo; }
     public String getHsCode() { return hsCode; }
     public void setHsCode(String hsCode) { this.hsCode = hsCode; }
     public String getHsDescription() { return hsDescription; }
@@ -71,6 +75,8 @@ public class CustomsProduct implements Serializable
     public void setSourceLocation(String sourceLocation) { this.sourceLocation = sourceLocation; }
     public String getExemption() { return exemption; }
     public void setExemption(String exemption) { this.exemption = exemption; }
+    public Integer getIsTax() { return isTax; }
+    public void setIsTax(Integer isTax) { this.isTax = isTax; }
     public Date getCreatedAt() { return createdAt; }
     public void setCreatedAt(Date createdAt) { this.createdAt = createdAt; }
     public Date getUpdatedAt() { return updatedAt; }

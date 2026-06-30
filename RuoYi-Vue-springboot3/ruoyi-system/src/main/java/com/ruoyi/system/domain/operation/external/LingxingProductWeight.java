@@ -11,6 +11,7 @@ public class LingxingProductWeight implements Serializable
     private Long id;
     private String sku;
     private BigDecimal grossWeight;
+    private BigDecimal netWeight;
     private Date createTime;
     private Date updateTime;
 
@@ -20,6 +21,8 @@ public class LingxingProductWeight implements Serializable
     public void setSku(String v) { this.sku = v; }
     public BigDecimal getGrossWeight() { return grossWeight; }
     public void setGrossWeight(BigDecimal v) { this.grossWeight = v; }
+    public BigDecimal getNetWeight() { return netWeight; }
+    public void setNetWeight(BigDecimal v) { this.netWeight = v; }
     public Date getCreateTime() { return createTime; }
     public void setCreateTime(Date v) { this.createTime = v; }
     public Date getUpdateTime() { return updateTime; }

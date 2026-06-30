@@ -64,7 +64,7 @@ public class CustomsProductService
     {
         List<String> orders = normalizeSkus(orderNos);
         if (orders.isEmpty()) throw new IllegalArgumentException("请选择需要关联的备货单");
-        List<CustomsProduct> products = productMapper.selectProductsByStockOrders(orders);
+        List<CustomsDeclarationItem> products = productMapper.selectProductsByStockOrders(orders);
         List<String> missingSkus = productMapper.selectMissingSkusByStockOrders(orders);
         return buildLinkResult(products, missingSkus);
     }
@@ -78,15 +78,43 @@ public class CustomsProductService
         return buildLinkResult(products, missingSkus);
     }
 
-    private Map<String, Object> buildLinkResult(List<CustomsProduct> products, List<String> missingSkus)
+    private Map<String, Object> buildLinkResult(List<? extends CustomsProduct> products, List<String> missingSkus)
     {
         List<CustomsDeclarationItem> items = new ArrayList<>();
+        Map<String, CustomsDeclarationItem> merged = new LinkedHashMap<>();
+
         for (CustomsProduct product : products)
         {
             CustomsDeclarationItem item = copyToItem(product);
-            item.setQuantity(1);
-            items.add(item);
+            item.setQuantity(Math.max(1, item.getQuantity() == null ? 1 : item.getQuantity()));
+            item.setBoxCount(Math.max(1, item.getBoxCount() == null ? 1 : item.getBoxCount()));
+
+            if (product.getIsTax() != null && product.getIsTax() == 1)
+            {
+                String key = trim(product.getSku()) + "|"
+                        + trim(product.getSourceLocation()) + "|"
+                        + trim(product.getBoxNo()) + "|"
+                        + trim(product.getDestinationCountry());
+                CustomsDeclarationItem existing = merged.get(key);
+                if (existing != null)
+                {
+                    existing.setQuantity(existing.getQuantity() + item.getQuantity());
+                    existing.setBoxCount(Math.max(
+                            existing.getBoxCount() == null ? 1 : existing.getBoxCount(),
+                            item.getBoxCount() == null ? 1 : item.getBoxCount()));
+                }
+                else
+                {
+                    merged.put(key, item);
+                    items.add(item);
+                }
+            }
+            else
+            {
+                items.add(item);
+            }
         }
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("products", items);
         result.put("missingSkus", missingSkus == null ? List.of() : missingSkus);
@@ -350,6 +378,15 @@ public class CustomsProductService
         item.setDestinationCountry(product.getDestinationCountry());
         item.setSourceLocation(product.getSourceLocation());
         item.setExemption(product.getExemption());
+        item.setBoxNo(product.getBoxNo());
+        item.setIsTax(product.getIsTax());
+        if (product instanceof CustomsDeclarationItem declarationItem)
+        {
+            item.setQuantity(declarationItem.getQuantity());
+            item.setBoxCount(declarationItem.getBoxCount());
+            item.setSourceOrderNo(declarationItem.getSourceOrderNo());
+            item.setOrderTotalCbm(declarationItem.getOrderTotalCbm());
+        }
         return item;
     }
 

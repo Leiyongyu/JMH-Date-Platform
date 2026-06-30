@@ -1,6 +1,7 @@
 package com.ruoyi.system.mapper.operation.customs;
 
 import com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentOption;
+import com.ruoyi.system.domain.operation.customs.CustomsDeclarationItem;
 import com.ruoyi.system.domain.operation.customs.CustomsProduct;
 import com.ruoyi.system.domain.operation.customs.CustomsStockOrderOption;
 import java.util.List;
@@ -18,7 +19,7 @@ public interface CustomsProductMapper
 
     List<CustomsStockOrderOption> searchStockOrders(@Param("keyword") String keyword, @Param("limit") int limit);
 
-    List<CustomsProduct> selectProductsByStockOrders(@Param("orders") List<String> orders);
+    List<CustomsDeclarationItem> selectProductsByStockOrders(@Param("orders") List<String> orders);
 
     List<String> selectMissingSkusByStockOrders(@Param("orders") List<String> orders);
 

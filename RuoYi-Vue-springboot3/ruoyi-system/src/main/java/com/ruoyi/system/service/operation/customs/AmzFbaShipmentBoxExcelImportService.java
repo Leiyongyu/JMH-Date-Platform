@@ -102,6 +102,7 @@ public class AmzFbaShipmentBoxExcelImportService
             row.setBoxDimensionsUnit(defaultText(source.boxDimensionsUnit, "cm"));
             row.setBoxWeightUnit(defaultText(source.boxWeightUnit, "kg"));
             row.setBoxNum(source.boxNum);
+            row.setBoxNo(source.boxNo);
             row.setMsku(source.msku);
             row.setSku(source.sku);
             row.setProductName(source.productName);
@@ -182,6 +183,7 @@ public class AmzFbaShipmentBoxExcelImportService
             parsed.boxDimensionsUnit = firstText(cell(row, cols, "长度单位", formatter), cell(row, cols, "体积单位", formatter));
             parsed.boxWeightUnit = cell(row, cols, "重量单位", formatter);
             parsed.boxNum = firstInt(cell(row, cols, "箱数", formatter), "1");
+            parsed.boxNo = cell(row, cols, "箱号", formatter);
             rows.add(parsed);
         }
         return rows;
@@ -294,6 +296,7 @@ public class AmzFbaShipmentBoxExcelImportService
         String boxDimensionsUnit;
         String boxWeightUnit;
         Integer boxNum;
+        String boxNo;
         String msku;
         String sku;
         String fnsku;
