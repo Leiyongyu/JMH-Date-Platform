@@ -86,126 +86,108 @@
       <el-button type="danger" plain size="small" icon="Delete" @click="handleClear">清空商品</el-button>
     </div>
 
-    <el-table ref="itemTableRef" :data="pagedItems" border stripe row-key="_key" height="620" class="item-table">
-      <el-table-column type="index" label="项号" width="58" fixed="left" align="center" />
-      <el-table-column label="商品信息" align="center">
-        <el-table-column label="SKU" width="180" fixed="left">
-          <template #default="{ row }">
-            <el-select v-model="row.sku" filterable remote clearable placeholder="输入SKU或品名"
-              :remote-method="searchProducts" :loading="searching" @change="value => selectProduct(row, value)">
-              <el-option v-for="product in productOptions" :key="product.sku"
-                :label="product.sku"
-                :value="product.sku" />
-            </el-select>
-          </template>
-        </el-table-column>
-        <el-table-column label="商品编码" width="130">
-          <template #default="{ row }"><el-input v-model="row.productCode" placeholder="商品编码" /></template>
-        </el-table-column>
-        <el-table-column label="商品中文名称" width="150">
-          <template #default="{ row }"><el-input v-model="row.descriptionCn" placeholder="商品名称" /></template>
-        </el-table-column>
-        <el-table-column label="规格型号" width="110">
-          <template #default="{ row }"><el-input v-model="row.model" placeholder="规格型号" /></template>
-        </el-table-column>
-        <el-table-column label="申报要素说明" width="210">
-          <template #default="{ row }">
-            <el-input v-model="row.hsDescription" type="textarea" :rows="2" size="small" placeholder="申报要素" />
-          </template>
-        </el-table-column>
-      </el-table-column>
-      <el-table-column label="数量重量" align="center">
-        <el-table-column label="申报数量" width="96">
-          <template #default="{ row }">
-            <el-input-number v-model="row.quantity" :min="1" :controls="false" size="small" />
-          </template>
-        </el-table-column>
-        <el-table-column label="申报单位" width="86">
-          <template #default="{ row }"><el-input v-model="row.unit" size="small" placeholder="单位" /></template>
-        </el-table-column>
-        <el-table-column label="单件重量(kg)" width="112">
-          <template #default="{ row }">
-            <el-input-number v-model="row.singleWeight" :min="0" :precision="4" :controls="false" size="small" />
-          </template>
-        </el-table-column>
-        <el-table-column label="总重量(kg)" width="100" align="right">
-          <template #default="{ row }"><span class="calculated-value">{{ calcWeight(row) }}</span></template>
-        </el-table-column>
-      </el-table-column>
-      <el-table-column label="装箱资料" align="center">
-        <el-table-column label="装箱净重(kg)" width="112">
-          <template #default="{ row }">
-            <el-input-number v-model="row.packingNetWeight" :min="0" :precision="4" :controls="false" size="small" />
-          </template>
-        </el-table-column>
-        <el-table-column label="装箱毛重(kg)" width="112">
-          <template #default="{ row }">
-            <el-input-number v-model="row.packingGrossWeight" :min="0" :precision="4" :controls="false" size="small" />
-          </template>
-        </el-table-column>
-        <el-table-column label="体积(CBM)" width="104">
-          <template #default="{ row }">
-            <el-input-number v-model="row.packingCbm" :min="0" :precision="6" :controls="false" size="small" />
-          </template>
-        </el-table-column>
-        <el-table-column label="箱长(cm)" width="92">
-          <template #default="{ row }">
-            <el-input-number v-model="row.boxLength" :min="0" :precision="2" :controls="false" size="small" />
-          </template>
-        </el-table-column>
-        <el-table-column label="箱宽(cm)" width="92">
-          <template #default="{ row }">
-            <el-input-number v-model="row.boxWidth" :min="0" :precision="2" :controls="false" size="small" />
-          </template>
-        </el-table-column>
-        <el-table-column label="箱高(cm)" width="92">
-          <template #default="{ row }">
-            <el-input-number v-model="row.boxHeight" :min="0" :precision="2" :controls="false" size="small" />
-          </template>
-        </el-table-column>
-      </el-table-column>
-      <el-table-column label="价格信息" align="center">
-        <el-table-column label="成交单价" width="96">
-          <template #default="{ row }">
-            <el-input-number v-model="row.unitPriceUsd" :min="0" :precision="2" :controls="false" size="small" />
-          </template>
-        </el-table-column>
-        <el-table-column label="成交总价" width="96" align="right">
-          <template #default="{ row }"><span class="calculated-value">{{ calcAmount(row) }}</span></template>
-        </el-table-column>
-        <el-table-column label="币制" width="76">
-          <template #default="{ row }"><el-input v-model="row.currency" size="small" placeholder="币制" /></template>
-        </el-table-column>
-      </el-table-column>
-      <el-table-column label="报关地区" align="center">
-        <el-table-column label="原产国" width="100">
-          <template #default="{ row }"><el-input v-model="row.originCountry" placeholder="原产国" /></template>
-        </el-table-column>
-        <el-table-column label="最终目的国" width="115">
-          <template #default="{ row }"><el-input v-model="row.destinationCountry" placeholder="目的国" /></template>
-        </el-table-column>
-        <el-table-column label="境内货源地" width="135">
-          <template #default="{ row }"><el-input v-model="row.sourceLocation" placeholder="货源地" /></template>
-        </el-table-column>
-        <el-table-column label="征免方式" width="96">
-          <template #default="{ row }"><el-input v-model="row.exemption" placeholder="征免" /></template>
-        </el-table-column>
-      </el-table-column>
-      <el-table-column label="操作" width="96" fixed="right" align="center">
-        <template #default="{ $index }">
-          <el-button link type="primary" icon="Plus" title="在下方添加" @click="addRow(toActualIndex($index))" />
-          <el-button link type="danger" icon="Minus" title="删除" @click="removeRow(toActualIndex($index))" />
-        </template>
-      </el-table-column>
-    </el-table>
-    <pagination
-      v-show="items.length > itemPage.pageSize"
-      :total="items.length"
-      :page-sizes="[50]"
-      v-model:page="itemPage.pageNum"
-      v-model:limit="itemPage.pageSize"
-      @pagination="handleItemPagination"
-    />
+    <section ref="itemTableRef" class="packing-workbench">
+      <div class="packing-head">
+        <div class="packing-head__title">
+          <el-icon><Box /></el-icon>
+          装箱商品
+        </div>
+        <div class="packing-head__meta">
+          <span>箱组 {{ boxGroups.length }}</span>
+          <span>总箱数 {{ totalBoxCount }}</span>
+          <span>总体积 {{ totalCbm }} m³</span>
+          <span>箱毛重 {{ totalBoxGrossWeight }} kg</span>
+        </div>
+      </div>
+
+      <div class="box-list">
+        <div v-for="(group, groupIndex) in boxGroups" :key="group.key" class="box-panel">
+          <div class="box-panel__summary">
+            <div class="box-check">
+              <el-checkbox v-model="group.checked" disabled />
+            </div>
+            <div class="box-no">
+              <span class="box-chip"><el-icon><Box /></el-icon>{{ group.label }}</span>
+              <span class="box-sub">{{ group.items.length }} 个SKU</span>
+            </div>
+            <div class="box-stat">
+              <span>商品数量</span>
+              <strong>{{ group.quantity }}</strong>
+            </div>
+            <div class="box-stat">
+              <span>箱子毛重(kg)</span>
+              <strong>{{ group.grossWeight }}</strong>
+            </div>
+            <div class="box-stat box-stat--wide">
+              <span>箱子尺寸(cm)</span>
+              <strong>{{ group.dimensionText }}</strong>
+            </div>
+            <div class="box-stat">
+              <span>单箱体积(m³)</span>
+              <strong>{{ group.cbm }}</strong>
+            </div>
+            <div class="box-stat">
+              <span>商品净重(kg)</span>
+              <strong>{{ group.netWeight }}</strong>
+            </div>
+            <div class="box-stat">
+              <span>箱数</span>
+              <strong>{{ group.boxCount }}</strong>
+            </div>
+            <div class="box-actions">
+              <el-button link type="primary" icon="Plus" title="添加商品" @click="addRow(group.lastIndex)" />
+            </div>
+          </div>
+
+          <div class="box-items">
+            <div class="box-items__head">
+              <span>品名 / SKU</span>
+              <span>申报信息</span>
+              <span>数量</span>
+              <span>单价</span>
+              <span>净重</span>
+              <span>地区</span>
+              <span>操作</span>
+            </div>
+            <div v-for="entry in group.items" :key="entry.row._key" class="box-item-row">
+              <div class="item-product">
+                <div class="item-main">
+                  <el-input v-model="entry.row.descriptionCn" size="small" placeholder="商品名称" />
+                  <el-select v-model="entry.row.sku" filterable remote clearable size="small" placeholder="输入SKU或品名"
+                    :remote-method="searchProducts" :loading="searching" @change="value => selectProduct(entry.row, value)">
+                    <el-option v-for="product in productOptions" :key="product.sku" :label="product.sku" :value="product.sku" />
+                  </el-select>
+                </div>
+              </div>
+              <div class="item-declare">
+                <el-input v-model="entry.row.productCode" size="small" placeholder="商品编码" />
+                <el-input v-model="entry.row.hsDescription" size="small" placeholder="申报要素" />
+              </div>
+              <div class="item-qty">
+                <el-input-number v-model="entry.row.quantity" :min="1" :controls="false" size="small" />
+                <el-input v-model="entry.row.unit" size="small" placeholder="单位" />
+              </div>
+              <div class="item-price">
+                <el-input-number v-model="entry.row.unitPriceUsd" :min="0" :precision="2" :controls="false" size="small" />
+                <span>{{ calcAmount(entry.row) }} {{ entry.row.currency || 'USD' }}</span>
+              </div>
+              <div class="item-weight">
+                <el-input-number v-model="entry.row.singleWeight" :min="0" :precision="2" :controls="false" size="small" />
+                <span>{{ calcNetWeight(entry.row) }} kg</span>
+              </div>
+              <div class="item-country">
+                <el-input v-model="entry.row.destinationCountry" size="small" placeholder="目的国" />
+                <el-input v-model="entry.row.sourceLocation" size="small" placeholder="货源地" />
+              </div>
+              <div class="item-actions">
+                <el-button link type="primary" icon="Plus" title="在下方添加" @click="addRow(entry.index)" />
+                <el-button link type="danger" icon="Minus" title="删除" @click="removeRow(entry.index)" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <el-dialog v-model="dataSourceDialog.visible" title="关联数据源" width="980px" append-to-body class="stock-order-dialog">
       <el-tabs v-model="dataSourceDialog.platform" class="source-tabs" @tab-change="handleLinkPlatformChange">
@@ -360,7 +342,7 @@ function createEmptyItem() {
     _key: ++keySeed, productCode: '', sku: '', descriptionCn: '', model: '', unit: '个',
     unitPriceUsd: 0, currency: 'USD', singleWeight: 0, quantity: 1,
     hsCode: '', hsDescription: '', originCountry: '', destinationCountry: '',
-    sourceLocation: '', exemption: '',
+    sourceLocation: '', exemption: '', boxNo: null, boxCount: 1, sourceOrderNo: '', orderTotalCbm: null, isTax: null,
     packingNetWeight: null, packingGrossWeight: null, packingCbm: null,
     boxLength: null, boxWidth: null, boxHeight: null
   }
@@ -373,15 +355,19 @@ const pagedItems = computed(() => {
 })
 const totalQuantity = computed(() => validItems.value.reduce((sum, item) => sum + Number(item.quantity || 0), 0))
 const totalAmount = computed(() => validItems.value.reduce((sum, item) => sum + Number(calcAmount(item)), 0).toFixed(2))
-const totalNetWeight = computed(() => validItems.value.reduce((sum, item) => sum + Number(calcNetWeight(item)), 0).toFixed(4))
-const totalGrossWeight = computed(() => validItems.value.reduce((sum, item) => sum + Number(calcGrossWeight(item)), 0).toFixed(4))
+const totalNetWeight = computed(() => validItems.value.reduce((sum, item) => sum + Number(calcNetWeight(item)), 0).toFixed(2))
+const boxGroups = computed(() => buildBoxGroups(items.value))
+const totalBoxCount = computed(() => boxGroups.value.reduce((sum, group) => sum + Number(group.boxCount || 0), 0))
+const totalCbm = computed(() => calcTotalCbm())
+const totalBoxGrossWeight = computed(() => boxGroups.value.reduce((sum, group) => sum + Number(group.totalGrossWeight || 0), 0).toFixed(2))
+const totalGrossWeight = computed(() => totalBoxGrossWeight.value)
 const activeLinkSaving = computed(() => dataSourceDialog.platform === 'stock' ? stockDialog.saving : fbaDialog.saving)
 
 watch(totalGrossWeight, v => { header.grossWt = v })
 watch(totalNetWeight, v => { header.netWt = v })
 watch(
-  () => validItems.value.map(item => item.sku),
-  skus => { header.packQty = skus.length },
+  totalBoxCount,
+  value => { header.packQty = value },
   { immediate: true }
 )
 watch(
@@ -401,15 +387,18 @@ function calcAmount(row) {
 }
 
 function calcWeight(row) {
-  return (Number(row.singleWeight || 0) * Number(row.quantity || 0)).toFixed(4)
+  return (Number(row.singleWeight || 0) * Number(row.quantity || 0)).toFixed(2)
 }
 
 function calcNetWeight(row) {
-  return Number(row.packingNetWeight || 0) > 0 ? Number(row.packingNetWeight).toFixed(4) : calcWeight(row)
+  if (Number(row.packingNetWeight || 0) > 0) {
+    return (Number(row.packingNetWeight) * Number(row.quantity || 1)).toFixed(2)
+  }
+  return calcWeight(row)
 }
 
 function calcGrossWeight(row) {
-  return Number(row.packingGrossWeight || 0) > 0 ? Number(row.packingGrossWeight).toFixed(4) : calcNetWeight(row)
+  return Number(row.packingGrossWeight || 0) > 0 ? Number(row.packingGrossWeight).toFixed(2) : calcNetWeight(row)
 }
 
 function formatNumber(value, precision = 0) {
@@ -443,9 +432,14 @@ function selectProduct(row, sku) {
 function productToRow(product) {
   return {
     ...JSON.parse(JSON.stringify(product)),
-    quantity: 1,
+    quantity: Number(product.quantity || 1),
+    boxCount: Number(product.boxCount || 1),
+    orderTotalCbm: product.orderTotalCbm ?? null,
+    sourceOrderNo: product.sourceOrderNo || '',
     _key: ++keySeed,
-    productCode: product.productCode || product.hsCode || ''
+    productCode: product.productCode || product.hsCode || '',
+    boxNo: product.boxNo || null,
+    isTax: product.isTax != null ? product.isTax : null
   }
 }
 
@@ -482,6 +476,97 @@ function handleItemPagination() {
 async function scrollItemTableTop() {
   await nextTick()
   itemTableRef.value?.setScrollTop?.(0)
+  if (itemTableRef.value?.scrollTo) itemTableRef.value.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function buildBoxGroups(sourceItems) {
+  const groups = new Map()
+  sourceItems.forEach((row, index) => {
+    const key = boxGroupKey(row)
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        checked: true,
+        label: row.boxNo ? String(row.boxNo) : '',
+        boxCount: inferBoxCount(row),
+        grossWeight: boxGrossWeight(row),
+        totalGrossWeight: key === 'unboxed' ? 0 : boxGrossWeight(row) * inferBoxCount(row),
+        cbm: boxCbm(row),
+        totalCbm: key === 'unboxed' ? 0 : boxCbm(row) * inferBoxCount(row),
+        dimensionText: dimensionText(row),
+        quantity: 0,
+        netWeight: 0,
+        items: [],
+        lastIndex: index
+      })
+    }
+    const group = groups.get(key)
+    group.boxCount = Math.max(Number(group.boxCount || 1), inferBoxCount(row))
+    group.items.push({ row, index })
+    group.quantity += Number(row.quantity || 0)
+    group.netWeight += Number(calcNetWeight(row))
+    if (key === 'unboxed') group.totalGrossWeight += Number(calcGrossWeight(row))
+    if (key === 'unboxed') group.grossWeight = group.totalGrossWeight
+    group.lastIndex = index
+  })
+  return Array.from(groups.values()).map((group, index) => ({
+    ...group,
+    label: group.key === 'unboxed' ? '未分箱' : (group.label || String(index + 1)),
+    grossWeight: formatNumber(group.grossWeight, 2),
+    totalGrossWeight: Number(group.totalGrossWeight || 0),
+    cbm: formatNumber(group.cbm, 2),
+    totalCbm: Number(group.totalCbm || 0),
+    netWeight: formatNumber(group.netWeight, 2),
+    quantity: formatNumber(group.quantity, 0)
+  }))
+}
+
+function boxGroupKey(row) {
+  if (row.boxNo) return row.boxNo
+  const values = [row.packingGrossWeight, row.boxLength, row.boxWidth, row.boxHeight, row.packingCbm]
+    .map(value => Number(value || 0).toFixed(2))
+  return values.some(value => Number(value) > 0) ? values.join('|') : 'unboxed'
+}
+
+function inferBoxCount(row) {
+  const count = Number(row.boxCount || 0)
+  return count > 0 ? count : 1
+}
+
+function calcTotalCbm() {
+  const orderTotals = new Map()
+  boxGroups.value.forEach(group => {
+    const orderItem = group.items.find(entry => Number(entry.row.orderTotalCbm || 0) > 0 && entry.row.sourceOrderNo)
+    if (orderItem) {
+      orderTotals.set(orderItem.row.sourceOrderNo, Number(orderItem.row.orderTotalCbm))
+    }
+  })
+  const orderCbm = Array.from(orderTotals.values()).reduce((sum, value) => sum + value, 0)
+  const manualCbm = boxGroups.value
+    .filter(group => !group.items.some(entry => Number(entry.row.orderTotalCbm || 0) > 0 && entry.row.sourceOrderNo))
+    .reduce((sum, group) => sum + Number(group.totalCbm || 0), 0)
+  return (orderCbm + manualCbm).toFixed(2)
+}
+
+function boxGrossWeight(row) {
+  return Number(row.packingGrossWeight || 0) > 0 ? Number(row.packingGrossWeight || 0) : 0
+}
+
+function boxCbm(row) {
+  if (Number(row.packingCbm || 0) > 0) return Number(row.packingCbm || 0)
+  const length = Number(row.boxLength || 0)
+  const width = Number(row.boxWidth || 0)
+  const height = Number(row.boxHeight || 0)
+  return length && width && height ? length * width * height / 1000000 : 0
+}
+
+function dimensionText(row) {
+  const length = Number(row.boxLength || 0)
+  const width = Number(row.boxWidth || 0)
+  const height = Number(row.boxHeight || 0)
+  return length && width && height
+    ? `${formatNumber(length, 2)}*${formatNumber(width, 2)}*${formatNumber(height, 2)}`
+    : '-'
 }
 
 async function openStockOrderDialog() {
@@ -646,20 +731,37 @@ function normalizeLinkResult(data) {
   }
 }
 
+function canMergeCustomsProduct(existing, incoming) {
+  const isTax = Number(incoming.isTax || existing.isTax || 0) === 1
+  if (!isTax) return false
+  return normalize(existing.sku) === normalize(incoming.sku)
+    && normalize(existing.sourceLocation) === normalize(incoming.sourceLocation)
+    && normalize(existing.boxNo) === normalize(incoming.boxNo)
+    && normalize(existing.destinationCountry) === normalize(incoming.destinationCountry)
+}
+
+function normalize(v) { return (v || '').trim() }
+
+function mergeCustomsProductRows(currentRows, incomingRows) {
+  const result = [...currentRows]
+  incomingRows.forEach(incoming => {
+    if (!incoming.sku?.trim()) return
+    const match = result.find(existing => canMergeCustomsProduct(existing, incoming))
+    if (match) {
+      match.quantity = Number(match.quantity || 0) + Number(incoming.quantity || 1)
+      match.boxCount = Math.max(Number(match.boxCount || 1), Number(incoming.boxCount || 1))
+    } else {
+      result.push({ ...incoming, quantity: Number(incoming.quantity || 1), boxCount: Number(incoming.boxCount || 1) })
+    }
+  })
+  return result
+}
+
 function appendLinkedRows(rows) {
   if (!rows.length) return
   const onlyEmptyRow = items.value.length === 1 && !items.value[0].sku
   if (onlyEmptyRow) items.value = []
-  for (const row of rows) {
-    const sku = row.sku?.trim()
-    if (!sku) continue
-    const existed = items.value.find(item => item.sku?.trim() === sku)
-    if (existed) {
-      existed.quantity = Number(existed.quantity || 0) + Number(row.quantity || 1)
-    } else {
-      items.value.push(row)
-    }
-  }
+  items.value = mergeCustomsProductRows(items.value, rows)
   if (!items.value.length) items.value = [createEmptyItem()]
   itemPage.pageNum = Math.max(1, Math.ceil(items.value.length / itemPage.pageSize))
 }
@@ -786,12 +888,14 @@ function toProductPayload(item) {
     boxLength: item.boxLength,
     boxWidth: item.boxWidth,
     boxHeight: item.boxHeight,
+    boxNo: item.boxNo,
     hsCode: item.hsCode,
     hsDescription: item.hsDescription,
     originCountry: item.originCountry,
     destinationCountry: item.destinationCountry,
     sourceLocation: item.sourceLocation,
-    exemption: item.exemption
+    exemption: item.exemption,
+    isTax: item.isTax
   }
 }
 
@@ -799,7 +903,13 @@ async function handleExport() {
   if (!validateItems()) return
   exporting.value = true
   try {
-    const response = await exportCustomsDeclaration({ header, items: validItems.value })
+    const exportHeader = {
+      ...header,
+      packQty: totalBoxCount.value,
+      grossWt: totalGrossWeight.value,
+      netWt: totalNetWeight.value
+    }
+    const response = await exportCustomsDeclaration({ header: exportHeader, items: validItems.value })
     const blob = response instanceof Blob ? response : new Blob([response])
     if (!blobValidate(blob)) {
       const error = JSON.parse(await blob.text())
@@ -989,6 +1099,196 @@ async function handleClear() {
 }
 
 .item-table :deep(.el-input__wrapper) {
+  padding: 1px 7px;
+}
+
+.packing-workbench {
+  height: 620px;
+  overflow: auto;
+  border: 1px solid #dcdfe6;
+  background: #f7f9fc;
+}
+
+.packing-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  min-width: 1320px;
+  height: 42px;
+  padding: 0 12px;
+  border-bottom: 1px solid #dcdfe6;
+  background: #fff;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.packing-head__title,
+.packing-head__meta {
+  display: flex;
+  align-items: center;
+}
+
+.packing-head__title {
+  gap: 7px;
+  color: #303133;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.packing-head__meta {
+  gap: 18px;
+  color: #606266;
+  font-size: 13px;
+}
+
+.box-list {
+  min-width: 1320px;
+}
+
+.box-panel {
+  border-bottom: 1px solid #e4e7ed;
+  background: #fff;
+}
+
+.box-panel__summary {
+  display: grid;
+  grid-template-columns: 38px 150px 78px 130px 180px 120px 120px 90px 58px;
+  min-height: 52px;
+  background: #f8fbff;
+  align-items: center;
+}
+
+.box-panel:nth-child(even) .box-panel__summary {
+  background: #eef5ff;
+}
+
+.box-check,
+.box-actions {
+  text-align: center;
+}
+
+.box-no {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.box-chip {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 5px;
+  color: #1f4f7a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.box-chip .el-icon {
+  color: #e6b95c;
+}
+
+.box-sub {
+  color: #909399;
+  font-size: 12px;
+}
+
+.box-stat {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px;
+  border-left: 1px solid #e4e7ed;
+}
+
+.box-stat span {
+  overflow: hidden;
+  color: #909399;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.box-stat strong {
+  overflow: hidden;
+  color: #111827;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.box-stat--wide strong {
+  font-family: Consolas, monospace;
+}
+
+.box-items {
+  border-top: 1px solid #ebeef5;
+  background: #fff;
+}
+
+.box-items__head,
+.box-item-row {
+  display: grid;
+  grid-template-columns: 280px 260px 130px 130px 130px 190px 72px;
+  column-gap: 10px;
+  align-items: center;
+}
+
+.box-items__head {
+  height: 32px;
+  padding: 0 12px 0 188px;
+  color: #909399;
+  font-size: 12px;
+}
+
+.box-item-row {
+  min-height: 76px;
+  padding: 8px 12px 8px 188px;
+  border-top: 1px solid #edf0f5;
+}
+
+.item-product {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.item-main,
+.item-declare,
+.item-qty,
+.item-price,
+.item-weight,
+.item-country {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.item-qty {
+  grid-template-columns: minmax(0, 1fr) 42px;
+}
+
+.item-price span,
+.item-weight span {
+  color: #606266;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.item-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.packing-workbench :deep(.el-input-number),
+.packing-workbench :deep(.el-select) {
+  width: 100%;
+}
+
+.packing-workbench :deep(.el-input__wrapper) {
   padding: 1px 7px;
 }
 
