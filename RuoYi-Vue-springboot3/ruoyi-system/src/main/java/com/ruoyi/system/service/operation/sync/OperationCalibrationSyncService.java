@@ -19,27 +19,31 @@ public class OperationCalibrationSyncService
 {
     private static final Logger LOG = LoggerFactory.getLogger(OperationCalibrationSyncService.class);
     private static final String API = "/operations/sync/calibration/full";
-    private static final String LOCK_GLOBAL = "lock:sync:operation";
-    private static final String LOCK_EBAY = "lock:sync:ebay";
-    private static final String LOCK_AMZ = "lock:sync:amz";
+    private static final String LOCK_LINGXING_BASE = "lock:sync:lingxing:base";
+    private static final String LOCK_LINGXING_EBAY = "lock:sync:lingxing:ebay";
+    private static final String LOCK_LINGXING_AMZ = "lock:sync:lingxing:amz";
+    private static final String LOCK_GOODCANG = "lock:sync:goodcang";
     private static final int LOCK_TIMEOUT_SECONDS = 3600;
 
     public Map<String, Object> runFullCalibration(LocalDate startDate, LocalDate endDate,
                                                    boolean ebay, boolean amz, boolean inventoryPurchase, boolean goodcang)
     {
         RedisCache redis = SpringUtils.getBean(RedisCache.class);
-        if (!redis.tryLock(LOCK_GLOBAL, LOCK_TIMEOUT_SECONDS))
-            return busy("运营数据同步正在执行中，请稍后再试");
-        if (!redis.tryLock(LOCK_EBAY, LOCK_TIMEOUT_SECONDS))
+        List<String> locks = new ArrayList<>();
+        locks.add(LOCK_LINGXING_BASE);
+        if (ebay || inventoryPurchase) locks.add(LOCK_LINGXING_EBAY);
+        if (amz) locks.add(LOCK_LINGXING_AMZ);
+        if (goodcang) locks.add(LOCK_GOODCANG);
+
+        List<String> acquired = new ArrayList<>();
+        for (String lock : locks)
         {
-            redis.unlock(LOCK_GLOBAL);
-            return busy("eBay数据同步正在执行中，请稍后再试");
-        }
-        if (!redis.tryLock(LOCK_AMZ, LOCK_TIMEOUT_SECONDS))
-        {
-            redis.unlock(LOCK_EBAY);
-            redis.unlock(LOCK_GLOBAL);
-            return busy("AMZ数据同步正在执行中，请稍后再试");
+            if (!redis.tryLock(lock, LOCK_TIMEOUT_SECONDS))
+            {
+                for (int i = acquired.size() - 1; i >= 0; i--) redis.unlock(acquired.get(i));
+                return busy("数据校准涉及的分组正在执行中，请稍后再试: " + lock);
+            }
+            acquired.add(lock);
         }
         try
         {
@@ -47,9 +51,7 @@ public class OperationCalibrationSyncService
         }
         finally
         {
-            redis.unlock(LOCK_AMZ);
-            redis.unlock(LOCK_EBAY);
-            redis.unlock(LOCK_GLOBAL);
+            for (int i = acquired.size() - 1; i >= 0; i--) redis.unlock(acquired.get(i));
         }
     }
 

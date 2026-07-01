@@ -21,9 +21,8 @@ import org.springframework.stereotype.Service;
 public class AmzUnifiedSyncService
 {
     private static final Logger LOG = LoggerFactory.getLogger(AmzUnifiedSyncService.class);
-    private static final String LOCK_GLOBAL = "lock:sync:operation";
-    private static final String LOCK_AMZ = "lock:sync:amz";
-    private static final int LOCK_TIMEOUT_SECONDS = 1800;
+    private static final String LOCK_AMZ = "lock:sync:lingxing:amz";
+    private static final int LOCK_TIMEOUT_SECONDS = 2700;
 
     private static final StepDef[] STEPS = {
         new StepDef("shop_list", "领星-店铺列表", "pb/mp/shop/v2/getSellerList"),
@@ -55,16 +54,8 @@ public class AmzUnifiedSyncService
                                          String operator, String busyMessage)
     {
         RedisCache redis = SpringUtils.getBean(RedisCache.class);
-        if (!redis.tryLock(LOCK_GLOBAL, LOCK_TIMEOUT_SECONDS))
-        {
-            Map<String, Object> busy = new LinkedHashMap<>();
-            busy.put("parentStatus", "BUSY");
-            busy.put("msg", "运营数据同步正在执行中，请稍后再试");
-            return busy;
-        }
         if (!redis.tryLock(LOCK_AMZ, LOCK_TIMEOUT_SECONDS))
         {
-            redis.unlock(LOCK_GLOBAL);
             Map<String, Object> busy = new LinkedHashMap<>();
             busy.put("parentStatus", "BUSY");
             busy.put("msg", busyMessage);
@@ -77,7 +68,6 @@ public class AmzUnifiedSyncService
         finally
         {
             redis.unlock(LOCK_AMZ);
-            redis.unlock(LOCK_GLOBAL);
         }
     }
 

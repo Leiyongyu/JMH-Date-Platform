@@ -19,8 +19,6 @@ import com.ruoyi.system.service.operation.external.lingxing.LingxingStatementSyn
 import com.ruoyi.system.service.operation.external.lingxing.AmzFbaShipmentSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingWarehouseSyncService;
 import com.ruoyi.system.service.operation.sync.OperationSyncContext;
-import com.ruoyi.system.service.operation.IOperationSyncLogService;
-import com.ruoyi.system.service.operation.sync.OperationSyncContext;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -135,10 +133,9 @@ public class OperationSyncTask
         RedisCache redis = SpringUtils.getBean(RedisCache.class);
         if (!redis.tryLock(lockKey, LOCK_TIMEOUT_SECONDS)) {
             LOG.info("[SKIP] {} - {} is occupied, skip this schedule", name, lockKey);
-            OperationSyncResult skipped = OperationSyncResult.skipped(type, name, api, "分组锁被占用: " + lockKey);
+            OperationSyncResult skipped = OperationSyncResult.skipped(type, name, api, "分组锁被占用: " + lockKey, 0);
             IOperationSyncLogService logSvc = SpringUtils.getBean(IOperationSyncLogService.class);
             Long logId = logSvc.start(type, name, api, "JOB", "SYSTEM", null, null);
-            skipped.setElapsedMs(0);
             logSvc.finish(logId, skipped);
             OperationSyncContext.set(skipped);
             return;

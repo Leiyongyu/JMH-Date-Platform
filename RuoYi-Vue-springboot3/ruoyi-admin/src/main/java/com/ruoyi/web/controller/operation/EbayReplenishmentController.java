@@ -111,7 +111,7 @@ public class EbayReplenishmentController extends BaseController
     @PostMapping("/refresh")
     public AjaxResult refresh()
     {
-        return withLock("lock:sync:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
+        return withLock("lock:sync:lingxing:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
             snapshotService.refreshSnapshot();
             return success();
         });
@@ -123,7 +123,7 @@ public class EbayReplenishmentController extends BaseController
     @PostMapping("/import-sales")
     public AjaxResult importSales(@RequestParam("file") MultipartFile file)
     {
-        return withLock("lock:sync:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
+        return withLock("lock:sync:lingxing:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
             try { return AjaxResult.success(importService.importEbaySales(file, SecurityUtils.getUsername())); }
             catch (Exception e) { return error(e.getMessage()); }
         });
@@ -134,7 +134,7 @@ public class EbayReplenishmentController extends BaseController
     @PostMapping("/import-profit-rate")
     public AjaxResult importProfitRate(@RequestParam("file") MultipartFile file)
     {
-        return withLock("lock:sync:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
+        return withLock("lock:sync:lingxing:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
             try { return AjaxResult.success(importService.importProfitRate(file, SecurityUtils.getUsername())); }
             catch (Exception e) { return error(e.getMessage()); }
         });
@@ -145,7 +145,7 @@ public class EbayReplenishmentController extends BaseController
     @PostMapping("/import-return-rate")
     public AjaxResult importReturnRate(@RequestParam("file") MultipartFile file)
     {
-        return withLock("lock:sync:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
+        return withLock("lock:sync:lingxing:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
             try { return AjaxResult.success(importService.importReturnRate(file, SecurityUtils.getUsername())); }
             catch (Exception e) { return error(e.getMessage()); }
         });

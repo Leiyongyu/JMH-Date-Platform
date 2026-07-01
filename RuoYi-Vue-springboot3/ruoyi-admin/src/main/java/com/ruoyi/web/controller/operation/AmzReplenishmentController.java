@@ -121,7 +121,7 @@ public class AmzReplenishmentController extends BaseController
     @PostMapping("/refresh")
     public AjaxResult refresh()
     {
-        return withLock("lock:sync:amz", 1800, "AMZ数据同步或刷新正在执行中，请稍后再试", () -> {
+        return withLock("lock:sync:lingxing:amz", 1800, "AMZ数据同步或刷新正在执行中，请稍后再试", () -> {
             snapshotService.refreshSnapshot();
             return success();
         });
