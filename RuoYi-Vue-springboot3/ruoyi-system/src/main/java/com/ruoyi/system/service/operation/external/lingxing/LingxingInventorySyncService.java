@@ -46,7 +46,7 @@ public class LingxingInventorySyncService
                 body.put("length", length);
                 Map<String, Object> resp = gw.post(API, body);
                 List<Map<String, Object>> list = getList(resp, "data");
-                if (list.isEmpty()) break;
+                if (list == null || list.isEmpty()) break;
                 List<WarehouseInventoryDetail> batch = new ArrayList<>();
                 for (Map<String, Object> row : list)
                 {
