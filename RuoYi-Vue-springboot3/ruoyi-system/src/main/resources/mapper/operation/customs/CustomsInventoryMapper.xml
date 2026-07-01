@@ -196,26 +196,28 @@
     <update id="updateDeclarationElements">
         UPDATE customs_inventory_list
         SET declaration_elements = #{item.declarationElements},
+            product_name = #{item.productName},
             customs_unit = #{item.customsUnit},
             tax_included_price = #{item.taxIncludedPrice},
             product_code = #{item.sourceLocation},
             updated_at = NOW()
         WHERE sku = #{item.sku}
+          AND IFNULL(product_code, '') = IFNULL(#{item.sourceLocation}, '')
     </update>
 
     <insert id="batchInsertDeclarationRows">
-        INSERT INTO customs_inventory_list (sku, product_code, declaration_elements, customs_unit, tax_included_price)
+        INSERT INTO customs_inventory_list (sku, product_code, product_name, declaration_elements, customs_unit, tax_included_price)
         VALUES
         <foreach collection="list" item="item" separator=",">
-            (#{item.sku}, #{item.sourceLocation}, #{item.declarationElements}, #{item.customsUnit}, #{item.taxIncludedPrice})
+            (#{item.sku}, #{item.sourceLocation}, #{item.productName}, #{item.declarationElements}, #{item.customsUnit}, #{item.taxIncludedPrice})
         </foreach>
     </insert>
 
     <select id="selectExistingSkuSource" resultType="map">
         SELECT sku, product_code AS sourceLocation FROM customs_inventory_list
-        WHERE sku IN
-        <foreach collection="keys" item="k" open="(" separator="," close=")">
-            #{k.sku}
+        WHERE
+        <foreach collection="keys" item="k" open="(" separator=" OR " close=")">
+            sku = #{k.sku} OR sku LIKE CONCAT('%', #{k.sku})
         </foreach>
     </select>
 </mapper>
