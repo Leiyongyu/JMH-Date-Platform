@@ -286,9 +286,6 @@ public class EbayReplenishmentComputeService
                 int mm = snap.getMaxMonthlySales() != null ? snap.getMaxMonthlySales() : 0;
                 snap.setMaxMonthlyReplenishQty(Math.max(0, (int) Math.round(mm * 4.03 - totalInv)));
 
-                // ---- 月销预测 (13条公式配置化) ----
-                snap.setMonthlySalesForecast(calcMonthlySalesForecast(snap, formulas));
-
                 // ---- 库销比 ----
                 int d30 = snap.getSales30d();
                 snap.setOverseasSellableSalesRatio(safeDivide(snap.getOverseasSellable(), d30));
@@ -575,7 +572,7 @@ public class EbayReplenishmentComputeService
         if (pn != null && pn == 2) {
             if (age > 0 && d30 > 0)
                 return Math.max(0, (int) Math.round((double) d30 * 30 / age));
-            return d30; // 出库天数为空，降级为老品场景12
+            return 0;
         }
 
         // 老品：13场景

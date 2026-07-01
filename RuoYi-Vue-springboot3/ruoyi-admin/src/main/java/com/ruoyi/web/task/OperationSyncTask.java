@@ -49,26 +49,25 @@ public class OperationSyncTask
     private static final int LOCK_TIMEOUT_SECONDS = 2700;
 
     // ==================== 低频基础同步 ====================
-    public void syncGoodcangWarehouse() { exec("goodcang_warehouse", "谷仓-仓库信息", "/base_data/get_warehouse", LOCK_LINGXING_EBAY,
-            () -> SpringUtils.getBean(GoodcangWarehouseSyncService.class).syncWarehouses()); }  // LOCK_GOODCANG 行52
+    public void syncGoodcangWarehouse() { exec("goodcang_warehouse", "谷仓-仓库信息", "/base_data/get_warehouse", LOCK_GOODCANG,
+            () -> SpringUtils.getBean(GoodcangWarehouseSyncService.class).syncWarehouses()); }
     public void syncLingxingWarehouse() { exec("warehouse", "领星-仓库信息", "erp/sc/data/local_inventory/warehouse", LOCK_LINGXING_BASE,
             () -> SpringUtils.getBean(LingxingWarehouseSyncService.class).syncWarehouses()); }
-    public void syncLingxingShop() { exec("shop_list", "领星-店铺列表", "pb/mp/shop/v2/getSellerList", LOCK_LINGXING_EBAY,
+    public void syncLingxingShop() { exec("shop_list", "领星-店铺列表", "pb/mp/shop/v2/getSellerList", LOCK_LINGXING_BASE,
             () -> SpringUtils.getBean(LingxingShopSyncService.class).syncShops()); }
     public void syncEbayListing() { exec("ebay_listing", "领星-eBay商品刊登", "basicOpen/multiplatform/ebay/list", LOCK_LINGXING_EBAY,
             () -> SpringUtils.getBean(LingxingEbaySyncService.class).syncAll()); }
-    public void syncGoodcangProduct() { exec("goodcang_product", "谷仓-商品信息", "/product/get_product_sku_list", LOCK_LINGXING_EBAY,
+    public void syncGoodcangProduct() { exec("goodcang_product", "谷仓-商品信息", "/product/get_product_sku_list", LOCK_GOODCANG,
             () -> SpringUtils.getBean(GoodcangProductSyncService.class).syncFromApi()); }
-    // ---- 谷仓组结束 ----
     public void syncAmzListing() { exec("amz_listing", "领星-Amazon商品刊登", "erp/sc/data/mws/listing", LOCK_LINGXING_AMZ,
             () -> SpringUtils.getBean(LingxingAmzListingSyncService.class).syncAll()); }
 
     // ==================== 每日高频同步 ====================
     public void syncLingxingInventory() { exec("lingxing_inventory", "领星-库存明细", "erp/sc/routing/data/local_inventory/inventoryDetails", LOCK_LINGXING_EBAY,
             () -> SpringUtils.getBean(LingxingInventorySyncService.class).syncAll()); }
-    public void syncGoodcangGrnList() { exec("goodcang_grn_list", "谷仓-入库单", "/inbound_order/get_grn_list", LOCK_LINGXING_EBAY,
+    public void syncGoodcangGrnList() { exec("goodcang_grn_list", "谷仓-入库单", "/inbound_order/get_grn_list", LOCK_GOODCANG,
             () -> SpringUtils.getBean(GoodcangGrnSyncService.class).syncGrnListSmart()); }
-    public void syncGoodcangGrnDetail() { exec("goodcang_grn_detail", "谷仓-入库单详情", "/inbound_order/get_grn_detail", LOCK_LINGXING_EBAY,
+    public void syncGoodcangGrnDetail() { exec("goodcang_grn_detail", "谷仓-入库单详情", "/inbound_order/get_grn_detail", LOCK_GOODCANG,
             () -> SpringUtils.getBean(GoodcangGrnSyncService.class).syncAllGrnDetails()); }
     public void syncLingxingStatement() { exec("warehouse_statement", "领星-库存流水", "erp/sc/routing/inventoryLog/WareHouseInventory/wareHouseCenterStatement", LOCK_LINGXING_EBAY,
             () -> SpringUtils.getBean(LingxingStatementSyncService.class).sync()); }
@@ -101,13 +100,13 @@ public class OperationSyncTask
             () -> SpringUtils.getBean(AmzFbaShipmentSyncService.class).sync()); }
 
     // ==================== 备货单号 ====================
-    public void syncOverseasStockOrder() { exec("stock_order", "领星-备货单号", "erp/sc/routing/owms/inbound/listInbound", null,
+    public void syncOverseasStockOrder() { exec("stock_order", "领星-备货单号", "erp/sc/routing/owms/inbound/listInbound", LOCK_STOCK_ORDER,
             () -> SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.OverseasStockOrderSyncService.class).sync()); }
-    public void syncOverseasStockOrderDetail() { exec("stock_order_detail", "领星-备货单详情", "basicOpen/overSeaWarehouse/stockOrder/detail", null,
+    public void syncOverseasStockOrderDetail() { exec("stock_order_detail", "领星-备货单详情", "basicOpen/overSeaWarehouse/stockOrder/detail", LOCK_STOCK_ORDER,
             () -> SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.OverseasStockOrderDetailSyncService.class).sync()); }
 
     // ==================== 报关产品库 ====================
-    public void syncCustomsProduct() { exec("customs_product", "报关产品库同步", "sql/join", null,
+    public void syncCustomsProduct() { exec("customs_product", "报关产品库同步", "sql/join", LOCK_CUSTOMS,
             () -> SpringUtils.getBean(com.ruoyi.system.service.operation.sync.CustomsProductSyncService.class).sync()); }
 
     // ==================== FBA装箱 ====================
@@ -115,7 +114,7 @@ public class OperationSyncTask
             () -> SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.AmzFbaShipmentBoxSyncService.class).sync()); }
 
     // ==================== 产品管理 ====================
-    public void syncProductWeight() { exec("product_weight", "领星-产品管理", "erp/sc/routing/data/local_inventory/productInfo", null,
+    public void syncProductWeight() { exec("product_weight", "领星-产品管理", "erp/sc/routing/data/local_inventory/productInfo", LOCK_LINGXING_BASE,
             () -> SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.LingxingProductWeightSyncService.class).sync()); }
 
     // ==================== 内部方法 ====================
