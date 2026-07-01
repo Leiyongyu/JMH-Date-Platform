@@ -602,8 +602,8 @@ public class EbayReplenishmentComputeService
             if (r15 >= d30 * 0.9 / 30)
                 return (int) Math.round((r15 * 0.4 + r30 * 0.6) * 30);
             if (r15 >= d30 * 0.6 / 30)
-                return (int) Math.round((r15 * 0.3 + r30 * 0.7));
-            return (int) Math.round((r15 * 0.2 + r30 * 0.8));
+                return (int) Math.round((r15 * 0.3 + r30 * 0.7) * 30);
+            return (int) Math.round((r15 * 0.2 + r30 * 0.8) * 30);
         }
         return d30; // 场景11/12
     }
