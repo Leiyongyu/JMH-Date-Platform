@@ -37,7 +37,7 @@
       </el-form-item>
       <el-form-item label="产品性质" prop="productNature">
         <el-select v-model="queryParams.productNature" placeholder="全部" clearable style="width: 110px" @change="handleQuery">
-          <el-option label="新品" value="0" />
+          <el-option label="新品" value="2" />
           <el-option label="老品" value="1" />
         </el-select>
       </el-form-item>
