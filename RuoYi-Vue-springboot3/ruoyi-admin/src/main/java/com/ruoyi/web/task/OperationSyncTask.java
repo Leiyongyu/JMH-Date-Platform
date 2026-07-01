@@ -50,7 +50,7 @@ public class OperationSyncTask
 
     // ==================== 低频基础同步 ====================
     public void syncGoodcangWarehouse() { exec("goodcang_warehouse", "谷仓-仓库信息", "/base_data/get_warehouse", LOCK_LINGXING_EBAY,
-            () -> SpringUtils.getBean(GoodcangWarehouseSyncService.class).syncWarehouses()); }
+            () -> SpringUtils.getBean(GoodcangWarehouseSyncService.class).syncWarehouses()); }  // LOCK_GOODCANG 行52
     public void syncLingxingWarehouse() { exec("warehouse", "领星-仓库信息", "erp/sc/data/local_inventory/warehouse", LOCK_LINGXING_BASE,
             () -> SpringUtils.getBean(LingxingWarehouseSyncService.class).syncWarehouses()); }
     public void syncLingxingShop() { exec("shop_list", "领星-店铺列表", "pb/mp/shop/v2/getSellerList", LOCK_LINGXING_EBAY,
