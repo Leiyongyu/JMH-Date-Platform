@@ -1,5 +1,6 @@
 package com.ruoyi.system.domain.operation.external;
 
+import java.math.BigDecimal;
 import java.io.Serializable;
 
 public class AmzProductListing implements Serializable
@@ -18,6 +19,7 @@ public class AmzProductListing implements Serializable
     private String principalName;
     private String tagName;
     private String smallImageUrl;
+    private BigDecimal price;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -45,4 +47,6 @@ public class AmzProductListing implements Serializable
     public void setTagName(String tagName) { this.tagName = tagName; }
     public String getSmallImageUrl() { return smallImageUrl; }
     public void setSmallImageUrl(String v) { this.smallImageUrl = v; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
 }

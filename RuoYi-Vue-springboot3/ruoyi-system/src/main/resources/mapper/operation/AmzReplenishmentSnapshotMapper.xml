@@ -9,6 +9,7 @@
         <result property="warehouseSku" column="warehouse_sku" />
         <result property="warehouseName" column="warehouse_name" />
         <result property="asin" column="asin" />
+        <result property="price" column="price" />
         <result property="tagName" column="tag_name" />
         <result property="principalName" column="principal_name" />
         <result property="storeName" column="store_name" />
@@ -107,7 +108,7 @@
     <insert id="insertByListing">
         INSERT INTO amz_replenishment_snapshot (
             sid, seller_sku, warehouse_sku, warehouse_name, asin, tag_name, principal_name, store_name,
-            product_category, rating, review_count, ad_rate, profit_rate_30d, refund_rate_90d,
+            price, product_category, rating, review_count, ad_rate, profit_rate_30d, refund_rate_90d,
             purchased_qty, domestic_stock, pending_ship_qty, fba_stock, fba_inbound, total_inventory,
             sales_7d, sales_14d, sales_30d, sales_60d,
             sales_speed_14d, sales_speed_30d, sales_speed_60d,
@@ -116,8 +117,8 @@
         )
         SELECT
             final.sid, final.seller_sku, final.warehouse_sku, final.warehouse_name, final.asin,
-            final.tag_name, final.principal_name, final.store_name, final.product_category,
-            final.rating, final.review_count, final.ad_rate, final.profit_rate_30d, final.refund_rate_90d,
+            final.tag_name, final.principal_name, final.store_name, final.price,
+            final.product_category, final.rating, final.review_count, final.ad_rate, final.profit_rate_30d, final.refund_rate_90d,
             final.purchased_qty, final.domestic_stock, final.pending_ship_qty, final.fba_stock,
             final.fba_inbound, final.total_inventory,
             final.sales_7d, final.sales_14d, final.sales_30d, final.sales_60d,
@@ -165,9 +166,10 @@
                             SELECT
                                 COALESCE(pl.sid, 0) AS sid,
                                 pl.seller_sku AS seller_sku,
-                                wd.sku AS warehouse_sku,
+                                COALESCE(wd.sku, pl.local_sku, '') AS warehouse_sku,
                                 ANY_VALUE(wh.name) AS warehouse_name,
                                 ANY_VALUE(pl.asin) AS asin,
+                                ANY_VALUE(pl.price) AS price,
                                 ANY_VALUE(COALESCE(pl.tag_name, '')) AS tag_name,
                                 ANY_VALUE(pl.principal_name) AS principal_name,
                                 ANY_VALUE(COALESCE(sl.store_name, '')) AS store_name,
@@ -208,8 +210,8 @@
                                 (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_pending_ship_qty),1) = 1 THEN COALESCE(MAX(wd.product_lock_num),0) ELSE 0 END) AS pending_deduct,
                                 ANY_VALUE(COALESCE(fc.region_group, 'US')) AS region_group,
                                 ANY_VALUE(pl.small_image_url) AS image_url
-                            FROM amz_warehouse_inventory_detail wd
-                            LEFT JOIN amz_product_listing pl ON pl.local_sku = wd.sku
+                            FROM amz_product_listing pl
+                            LEFT JOIN amz_warehouse_inventory_detail wd ON wd.sku = pl.local_sku
                             LEFT JOIN shop_list sl ON sl.sid = pl.sid AND sl.platform_code = '10001'
                             LEFT JOIN amz_product_category pc ON pc.sid = pl.sid AND pc.seller_sku = pl.seller_sku
                             LEFT JOIN amz_order_profit op ON op.sid = pl.sid AND op.seller_sku = pl.seller_sku
@@ -217,7 +219,7 @@
                             LEFT JOIN warehouse wh ON wh.wid = wd.wid
                             LEFT JOIN amz_replenishment_formula_config fc ON fc.enabled = 1
                                 AND FIND_IN_SET(wh.name, fc.marketplaces) > 0
-                            GROUP BY COALESCE(pl.sid, 0), pl.seller_sku, wd.sku, wd.wid
+                            GROUP BY COALESCE(pl.sid, 0), pl.seller_sku, COALESCE(wd.sku, pl.local_sku, ''), COALESCE(wd.wid, 0)
                         ) base
                     ) raw
                 ) calc
@@ -229,7 +231,7 @@
     <!-- 增强搜索：全部筛选下推 SQL，支持列头筛选 + 数值比较                      -->
     <!-- ==================================================================== -->
     <select id="search" parameterType="map" resultMap="AmzReplenishmentSnapshotResult">
-        SELECT s.id, s.sid, s.seller_sku, s.warehouse_sku, s.warehouse_name, s.asin, s.principal_name,
+        SELECT s.id, s.sid, s.seller_sku, s.warehouse_sku, s.warehouse_name, s.asin, s.price, s.principal_name,
                s.store_name, s.image_url,
                COALESCE(o.product_category, s.product_category) AS product_category,
                COALESCE(o.remark, '') AS remark,
@@ -271,6 +273,16 @@
                 </choose>
             </if>
             <!-- 数值字段 -->
+            <if test="price_op != null">
+                <choose>
+                    <when test="price_op == 'between' and price_val != null and price_val2 != null">
+                        and s.price between #{price_val} and #{price_val2}
+                    </when>
+                    <when test="price_op == 'isNull'"> and s.price is null </when>
+                    <when test="price_op == 'isNotNull'"> and s.price is not null </when>
+                    <when test="price_val != null"> and s.price ${price_op} #{price_val} </when>
+                </choose>
+            </if>
             <if test="rating_op != null">
                 <choose>
                     <when test="rating_op == 'between' and rating_val != null and rating_val2 != null">
@@ -573,6 +585,7 @@
                     <otherwise>and s.warehouse_name like concat('%', #{warehouseName}, '%')</otherwise>
                 </choose>
             </if>
+            <if test="price_op != null"><choose><when test="price_op == 'between' and price_val != null and price_val2 != null">and s.price between #{price_val} and #{price_val2}</when><when test="price_op == 'isNull'"> and s.price is null </when><when test="price_op == 'isNotNull'"> and s.price is not null </when><when test="price_val != null"> and s.price ${price_op} #{price_val} </when></choose></if>
             <if test="rating_op != null"><choose><when test="rating_op == 'between' and rating_val != null and rating_val2 != null">and rating between #{rating_val} and #{rating_val2}</when><when test="rating_op == 'isNull'"> and rating is null </when><when test="rating_op == 'isNotNull'"> and rating is not null </when><when test="rating_val != null"> and rating ${rating_op} #{rating_val} </when></choose></if>
             <if test="review_count_op != null"><choose><when test="review_count_op == 'between' and review_count_val != null and review_count_val2 != null">and review_count between #{review_count_val} and #{review_count_val2}</when><when test="review_count_op == 'isNull'"> and review_count is null </when><when test="review_count_op == 'isNotNull'"> and review_count is not null </when><when test="review_count_val != null"> and review_count ${review_count_op} #{review_count_val} </when></choose></if>
             <if test="ad_rate_op != null"><choose><when test="ad_rate_op == 'between' and ad_rate_val != null and ad_rate_val2 != null">and ad_rate between #{ad_rate_val} and #{ad_rate_val2}</when><when test="ad_rate_op == 'isNull'"> and ad_rate is null </when><when test="ad_rate_op == 'isNotNull'"> and ad_rate is not null </when><when test="ad_rate_val != null"> and ad_rate ${ad_rate_op} #{ad_rate_val} </when></choose></if>
@@ -605,7 +618,7 @@
     <!-- 基础查询（保留若依兼容）                                              -->
     <!-- ==================================================================== -->
     <select id="selectAmzReplenishmentSnapshotList" parameterType="com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot" resultMap="AmzReplenishmentSnapshotResult">
-        SELECT s.id, s.sid, s.seller_sku, s.warehouse_sku, s.warehouse_name, s.asin, s.principal_name,
+        SELECT s.id, s.sid, s.seller_sku, s.warehouse_sku, s.warehouse_name, s.asin, s.price, s.principal_name,
                s.store_name, s.image_url,
                COALESCE(o.product_category, s.product_category) AS product_category,
                COALESCE(o.remark, '') AS remark,
@@ -636,6 +649,7 @@
             <when test="sortField == 'sellerSku'">order by s.seller_sku</when>
             <when test="sortField == 'warehouseSku'">order by warehouse_sku</when>
             <when test="sortField == 'asin'">order by asin</when>
+            <when test="sortField == 'price'">order by s.price</when>
             <when test="sortField == 'rating'">order by rating</when>
             <when test="sortField == 'reviewCount'">order by review_count</when>
             <when test="sortField == 'adRate'">order by ad_rate</when>

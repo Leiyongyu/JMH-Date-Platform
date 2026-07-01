@@ -59,6 +59,17 @@ public final class InventoryUtils
         }
     }
 
+    /**
+     * 统一站点标签，兼容历史数据中的 eBay 站点代码。
+     */
+    public static String normalizeSite(String site)
+    {
+        if (site == null) return "";
+        String s = site.trim();
+        if (s.isEmpty()) return "";
+        return siteCodeToSite(s);
+    }
+
     public static String currencyToSite(String currency)
     {
         if (currency == null) return "";

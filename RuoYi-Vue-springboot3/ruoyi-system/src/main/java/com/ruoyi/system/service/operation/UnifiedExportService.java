@@ -47,7 +47,7 @@ public class UnifiedExportService
     public void exportAmzReplenishment(ExportRequest req, HttpServletResponse response) throws Exception
     {
         List<String> allowed = Arrays.asList("sid","sellerSku","warehouseSku","warehouseName","asin","principalName",
-            "storeName","productCategory","rating","reviewCount","adRate","profitRate30d","refundRate90d",
+            "price","storeName","productCategory","rating","reviewCount","adRate","profitRate30d","refundRate90d",
             "purchasedQty","domesticStock","pendingShipQty","fbaStock","fbaInbound","totalInventory",
             "sales7d","sales14d","sales30d","sales60d","salesSpeed14d","salesSpeed30d","salesSpeed60d",
             "avgMonthlySales","safetyStock","shipQty","replenishQty","restockDays","calcTime");
@@ -250,7 +250,7 @@ public class UnifiedExportService
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("sid", s.getSid()); m.put("sellerSku", s.getSellerSku()); m.put("warehouseSku", s.getWarehouseSku());
         m.put("warehouseName", s.getWarehouseName()); m.put("asin", s.getAsin()); m.put("principalName", s.getPrincipalName());
-        m.put("storeName", s.getStoreName()); m.put("productCategory", s.getProductCategory());
+        m.put("price", s.getPrice()); m.put("storeName", s.getStoreName()); m.put("productCategory", s.getProductCategory());
         m.put("rating", s.getRating()); m.put("reviewCount", s.getReviewCount()); m.put("adRate", s.getAdRate());
         m.put("profitRate30d", s.getProfitRate30d()); m.put("refundRate90d", s.getRefundRate90d());
         m.put("purchasedQty", s.getPurchasedQty()); m.put("domesticStock", s.getDomesticStock());
@@ -309,7 +309,7 @@ public class UnifiedExportService
     {
         Map<String, String> t = new LinkedHashMap<>();
         t.put("sid","SID"); t.put("sellerSku","Seller SKU"); t.put("warehouseSku","仓库SKU");
-        t.put("warehouseName","仓库"); t.put("asin","ASIN"); t.put("principalName","负责人"); t.put("storeName","店铺");
+        t.put("warehouseName","仓库"); t.put("asin","ASIN"); t.put("price","价格"); t.put("principalName","负责人"); t.put("storeName","店铺");
         t.put("productCategory","产品分类"); t.put("rating","评分"); t.put("reviewCount","评论数");
         t.put("adRate","广告费率"); t.put("profitRate30d","30天利润率"); t.put("refundRate90d","90天退款率");
         t.put("purchasedQty","已采购"); t.put("domesticStock","国内仓库存"); t.put("pendingShipQty","待出库");

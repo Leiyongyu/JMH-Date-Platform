@@ -135,8 +135,8 @@ public class LingxingEbaySyncService
             e.setStoreName(getString(item, "store_name", "storeName"));
             String rawSite = stripPlatformPrefix(getString(item, "site_code", "siteCode"));
             e.setSiteCode(rawSite);
-            e.setSiteName(InventoryUtils.siteCodeToSite(rawSite));
-            e.setSiteName(getString(item, "site_name", "siteName"));
+            String siteName = getString(item, "site_name", "siteName");
+            e.setSiteName(InventoryUtils.normalizeSite(StringUtils.hasText(rawSite) ? rawSite : siteName));
 
             if (isNew) { toInsert.add(e); existing.put(itemId, e); inserted++; }
             else { toUpdate.add(e); updated++; }

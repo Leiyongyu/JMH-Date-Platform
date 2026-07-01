@@ -9,6 +9,7 @@
         <result property="productName" column="product_name" />
         <result property="skuLevel" column="sku_level" />
         <result property="productNature" column="product_nature" />
+        <result property="monthlySalesForecast" column="monthly_sales_forecast" />
         <result property="profitRate30d" column="profit_rate_30d" />
         <result property="returnRate" column="return_rate" />
         <result property="overseasOnway" column="overseas_onway" />

@@ -69,11 +69,30 @@
 
     <insert id="rebuildFromListing">
         INSERT INTO ebay_product_dedup (site, sku, product_name)
-        SELECT COALESCE(NULLIF(l.site_name, ''), l.site_code), l.sku, MAX(l.title)
+        SELECT
+          CASE
+            WHEN l.site_name IN ('德国', '法国', '美国', '英国') THEN l.site_name
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) IN ('US', 'MOTO') THEN '美国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'DE' THEN '德国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'UK' THEN '英国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'FR' THEN '法国'
+            ELSE COALESCE(NULLIF(l.site_name, ''), l.site_code)
+          END,
+          l.sku,
+          MAX(l.title)
         FROM ebay_product_listing l
         WHERE l.sku IS NOT NULL AND l.sku != ''
           AND (l.site_name IS NOT NULL AND l.site_name != '' OR l.site_code IS NOT NULL AND l.site_code != '')
-        GROUP BY COALESCE(NULLIF(l.site_name, ''), l.site_code), l.sku
+        GROUP BY
+          CASE
+            WHEN l.site_name IN ('德国', '法国', '美国', '英国') THEN l.site_name
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) IN ('US', 'MOTO') THEN '美国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'DE' THEN '德国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'UK' THEN '英国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'FR' THEN '法国'
+            ELSE COALESCE(NULLIF(l.site_name, ''), l.site_code)
+          END,
+          l.sku
         ON DUPLICATE KEY UPDATE product_name = VALUES(product_name), site = VALUES(site)
     </insert>
 

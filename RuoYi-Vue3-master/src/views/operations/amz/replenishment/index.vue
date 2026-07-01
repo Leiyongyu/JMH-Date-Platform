@@ -422,6 +422,7 @@ const columnDefs = [
   { key: 'warehouseSku', label: '仓库SKU', align: 'left', width: 170, sortable: true, tooltip: true },
   { key: 'warehouseName', label: '仓库', align: 'left', width: 170, tooltip: true },
   { key: 'asin', label: 'ASIN', align: 'center', width: 130, sortable: true, tooltip: true },
+  { key: 'price', label: '价格', align: 'right', width: 95, sortable: true, format: 'number', filterType: 'number' },
   { key: 'tagName', label: '标签', align: 'left', width: 140, tooltip: true },
   { key: 'regionGroup', label: '区域组', align: 'center', width: 80 },
   { key: 'principalName', label: '负责人', align: 'center', width: 120, tooltip: true },
@@ -485,7 +486,7 @@ const regionGroup = ref('')
 
 function handleRegionChange() { bdCache = {}; queryParams.value.pageNum = 1; getList() }
 
-const summaryFields = ['reviewCount','sales7d','sales14d','sales30d','sales60d']
+const summaryFields = ['reviewCount','sales7d','sales14d','sales30d','sales60d','fbaStock','fbaInbound']
 function getSummaries({ columns, data }) {
   const sums = {}
   if (!data || !data.length) return []

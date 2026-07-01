@@ -177,11 +177,13 @@ ALTER TABLE `amz_fba_shipment`
 
 -- Missing columns on amz_product_listing
 ALTER TABLE `amz_product_listing`
-  ADD COLUMN `small_image_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '商品缩略图地址' AFTER `tag_name`;
+  ADD COLUMN `small_image_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '商品缩略图地址' AFTER `tag_name`,
+  ADD COLUMN `price` decimal(10, 2) NULL DEFAULT NULL COMMENT '价格' AFTER `small_image_url`;
 
 -- Missing columns on amz_replenishment_snapshot
 ALTER TABLE `amz_replenishment_snapshot`
-  ADD COLUMN `image_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '商品缩略图' AFTER `current_flag`;
+  ADD COLUMN `image_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '商品缩略图' AFTER `current_flag`,
+  ADD COLUMN `price` decimal(10, 2) NULL DEFAULT NULL COMMENT '价格' AFTER `asin`;
 
 -- Missing columns on goodcang_grn_list
 ALTER TABLE `goodcang_grn_list`

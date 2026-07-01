@@ -23,7 +23,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
     private static final Logger log = LoggerFactory.getLogger(AmzReplenishmentSnapshotServiceImpl.class);
 
     private static final Set<String> SORT_FIELDS = Set.of(
-        "storeName", "sellerSku", "warehouseSku", "asin", "rating", "reviewCount",
+        "storeName", "sellerSku", "warehouseSku", "asin", "price", "rating", "reviewCount",
         "adRate", "profitRate30d", "refundRate90d", "domesticStock", "pendingShipQty",
         "fbaStock", "fbaInbound", "totalInventory", "sales7d", "sales14d",
         "sales30d", "sales60d", "salesSpeed14d", "salesSpeed30d", "salesSpeed60d",
@@ -36,6 +36,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
     private static final Map<String, String> NUM_MAP = new LinkedHashMap<>();
     static {
         NUM_MAP.put("rating","rating"); NUM_MAP.put("reviewCount","review_count");
+        NUM_MAP.put("price","price");
         NUM_MAP.put("adRate","ad_rate"); NUM_MAP.put("profitRate30d","profit_rate_30d");
         NUM_MAP.put("refundRate90d","refund_rate_90d"); NUM_MAP.put("purchasedQty","purchased_qty");
         NUM_MAP.put("domesticStock","domestic_stock"); NUM_MAP.put("pendingShipQty","pending_ship_qty");

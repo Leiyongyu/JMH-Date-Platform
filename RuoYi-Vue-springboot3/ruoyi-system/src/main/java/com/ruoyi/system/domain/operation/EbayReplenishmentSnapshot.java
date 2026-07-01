@@ -26,6 +26,9 @@ public class EbayReplenishmentSnapshot extends BaseEntity
 
     private Integer productNature;
 
+    @Excel(name = "月销预测")
+    private Integer monthlySalesForecast;
+
     @Excel(name = "近30天利润")
     private BigDecimal profitRate30d;
 
@@ -73,9 +76,6 @@ public class EbayReplenishmentSnapshot extends BaseEntity
 
     @Excel(name = "历史最大月销")
     private Integer maxMonthlySales;
-
-    @Excel(name = "月销预测")
-    private Integer monthlySalesForecast;
 
     @Excel(name = "海外在库库销比")
     private BigDecimal overseasSellableSalesRatio;
@@ -128,6 +128,8 @@ public class EbayReplenishmentSnapshot extends BaseEntity
     public void setSkuLevel(String skuLevel) { this.skuLevel = skuLevel; }
     public Integer getProductNature() { return productNature; }
     public void setProductNature(Integer v) { this.productNature = v; }
+    public Integer getMonthlySalesForecast() { return monthlySalesForecast; }
+    public void setMonthlySalesForecast(Integer v) { this.monthlySalesForecast = v; }
     public BigDecimal getProfitRate30d() { return profitRate30d; }
     public void setProfitRate30d(BigDecimal profitRate30d) { this.profitRate30d = profitRate30d; }
     public BigDecimal getReturnRate() { return returnRate; }
@@ -160,8 +162,6 @@ public class EbayReplenishmentSnapshot extends BaseEntity
     public void setSales90d(Integer sales90d) { this.sales90d = sales90d; }
     public Integer getMaxMonthlySales() { return maxMonthlySales; }
     public void setMaxMonthlySales(Integer maxMonthlySales) { this.maxMonthlySales = maxMonthlySales; }
-    public Integer getMonthlySalesForecast() { return monthlySalesForecast; }
-    public void setMonthlySalesForecast(Integer v) { this.monthlySalesForecast = v; }
     public BigDecimal getOverseasSellableSalesRatio() { return overseasSellableSalesRatio; }
     public void setOverseasSellableSalesRatio(BigDecimal overseasSellableSalesRatio) { this.overseasSellableSalesRatio = overseasSellableSalesRatio; }
     public BigDecimal getOverseasTotalSalesRatio() { return overseasTotalSalesRatio; }

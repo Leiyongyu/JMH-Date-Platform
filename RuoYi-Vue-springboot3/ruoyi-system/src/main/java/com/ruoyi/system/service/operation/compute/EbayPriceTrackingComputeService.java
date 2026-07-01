@@ -7,6 +7,7 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -114,8 +115,8 @@ public class EbayPriceTrackingComputeService
 
         for (EbayProductDedup d : dedupMapper.selectAll())
         {
-            String sku = d.getSku(), site = d.getSite();
-            if (sku == null || sku.isEmpty() || site == null || site.isEmpty()) continue;
+            String sku = d.getSku() != null ? d.getSku().trim() : "", site = InventoryUtils.normalizeSite(d.getSite());
+            if (sku.isEmpty() || site == null || site.isEmpty()) continue;
             String key = site + "|" + sku;
             dedupByKey.put(key, d);
             skuProductName.putIfAbsent(sku, d.getProductName() != null ? d.getProductName().trim() : "");
@@ -132,6 +133,7 @@ public class EbayPriceTrackingComputeService
             if (baseSku.isEmpty()) continue;
             String site = widToSite.getOrDefault(parseIntOrNull(d.getWid()), "");
             if (site.isEmpty()) continue;
+            skuSites.computeIfAbsent(baseSku, k -> new LinkedHashSet<>()).add(site);
             overseasStockMap.merge(baseSku + "|" + site, d.getProductValidNum(), Integer::sum);
         }
 
@@ -159,12 +161,14 @@ public class EbayPriceTrackingComputeService
         // ---- 8. 组装跟价快照 ----
         LocalDate today = LocalDate.now();
         List<EbayPriceTrackingSnapshot> result = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
 
         for (Map.Entry<String, Set<String>> e : skuSites.entrySet())
         {
             String baseSku = e.getKey();
             for (String site : e.getValue())
             {
+                if (!seen.add(site + "|" + baseSku)) continue;
                 EbayPriceTrackingSnapshot s = new EbayPriceTrackingSnapshot();
                 s.setSite(site);
                 s.setSku(baseSku);

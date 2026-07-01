@@ -172,11 +172,9 @@
           :label="col.label" :align="col.align" :width="col.width"
         >
           <template #default="scope">
-            <el-select v-model="scope.row.productNature" size="small" placeholder="选择" clearable style="width:90px"
-              @change="(v) => updateProductNature(scope.row, v)">
-              <el-option label="老品" :value="1" />
-              <el-option label="新品" :value="2" />
-            </el-select>
+            <el-tag :type="scope.row.productNature === 2 ? 'success' : ''" size="small">
+              {{ scope.row.productNature === 2 ? '新品' : '老品' }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column
@@ -296,6 +294,7 @@ const columnDefs = [
   { key: 'productName', label: '产品名称', align: 'left', width: 260, tooltip: true },
   { key: 'skuLevel', label: '等级', align: 'center', width: 80, sortable: true },
   { key: 'productNature', label: '产品性质', align: 'center', width: 100 },
+  { key: 'monthlySalesForecast', label: '月销预测', align: 'right', width: 110, sortable: true, filterType: 'number' },
   { key: 'profitRate30d', label: '近30天利润', align: 'right', width: 120, sortable: true, format: 'percentNumber', filterType: 'number' },
   { key: 'returnRate', label: '退货率', align: 'right', width: 110, sortable: true, format: 'rate', filterType: 'number' },
   { key: 'overseasOnway', label: '海外在途', align: 'right', width: 115, sortable: true, filterType: 'number' },
@@ -559,9 +558,6 @@ async function handleSyncAll() {
   }
 }
 
-function updateProductNature(row, val) {
-  request({ url: '/operations/ebay/replenishment/update-product-nature', method: 'post', data: { site: row.site, sku: row.sku, productNature: val } })
-}
 function handleQuery() {
   queryParams.value.pageNum = 1
   getList()

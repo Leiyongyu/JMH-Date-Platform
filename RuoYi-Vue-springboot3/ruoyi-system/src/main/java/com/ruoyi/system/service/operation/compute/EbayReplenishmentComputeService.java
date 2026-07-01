@@ -103,7 +103,8 @@ public class EbayReplenishmentComputeService
         Map<String, String> skuProductNameMap = new LinkedHashMap<>();
         Map<String, BigDecimal> profitRateMap = new LinkedHashMap<>();  // key = site|middleCode
         Map<String, BigDecimal> returnRateMap = new LinkedHashMap<>();  // key = site|middleCode
-        Map<String, Integer> productNatureMap = new LinkedHashMap<>();  // key = site|sku → productNature
+        // 老品判断集合：dedup 中有则老品
+        Set<String> oldSkuSet = new HashSet<>();
 
         for (EbayProductDedup dedup : dedupMapper.selectAll())
         {
@@ -111,7 +112,7 @@ public class EbayReplenishmentComputeService
             if (rawSku == null || (rawSku = rawSku.trim()).isEmpty()) continue;
             String groupKey = InventoryUtils.extractInventoryGroupKey(rawSku);
             if (groupKey.isEmpty()) continue;
-            String site = dedup.getSite();
+            String site = InventoryUtils.normalizeSite(dedup.getSite());
             if (site == null || site.isEmpty()) continue;
 
             if (!skuProductNameMap.containsKey(groupKey) && dedup.getProductName() != null)
@@ -120,9 +121,7 @@ public class EbayReplenishmentComputeService
             siteRowsBySku.computeIfAbsent(groupKey, k -> new LinkedHashMap<>())
                     .put(site, new SkuSiteRow(groupKey, site));
 
-            // 产品性质 — 按 site|groupKey 保存
-            if (dedup.getProductNature() != null)
-                productNatureMap.put(site + "|" + groupKey, dedup.getProductNature());
+            oldSkuSet.add(site + "|" + groupKey);
 
             // 利润率 & 退货率 — 用数字键匹配，跨品牌
             String numKey = InventoryUtils.extractNumericKey(rawSku);
@@ -133,6 +132,9 @@ public class EbayReplenishmentComputeService
         }
 
         // ---- 2. 库存汇总 (按 groupKey 归并 PC/非PC) ----
+        // 新品判断集合：库存中但不在 dedup 中的为新品
+        Set<String> inventorySkuSet = new HashSet<>();
+
         for (WarehouseInventoryDetail d : inventoryMapper.selectAll())
         {
             String baseSku = InventoryUtils.extractInventoryGroupKey(d.getSku());
@@ -142,10 +144,12 @@ public class EbayReplenishmentComputeService
             String site = InventoryUtils.whNameToSite(wh.getName());
             if (site.isEmpty()) continue;
 
-            Map<String, SkuSiteRow> sm = siteRowsBySku.get(baseSku);
-            if (sm == null) continue;
-            SkuSiteRow row = sm.get(site);
-            if (row == null) { row = new SkuSiteRow(baseSku, site); sm.put(site, row); }
+            String siteSkuKey = site + "|" + baseSku;
+            inventorySkuSet.add(siteSkuKey);
+
+            // 自动补入缺失行（不在 dedup 的 SKU 也能进快照）
+            Map<String, SkuSiteRow> sm = siteRowsBySku.computeIfAbsent(baseSku, k -> new LinkedHashMap<>());
+            SkuSiteRow row = sm.computeIfAbsent(site, s -> new SkuSiteRow(baseSku, site));
 
             int validNum = d.getProductValidNum();
             int onwayNum = d.getProductOnway();
@@ -303,9 +307,15 @@ public class EbayReplenishmentComputeService
                     if (rr != null) snap.setReturnRate(rr);
                 }
 
-                // ---- 产品性质（从 dedup 读取，持久化保存） ----
-                Integer pn = productNatureMap.get(row.site + "|" + baseSku);
-                snap.setProductNature(pn);
+                // ---- 产品性质（自动判定：dedup有→老品(1)，仅库存有→新品(2)） ----
+                String siteSkuKey = row.site + "|" + baseSku;
+                Integer productNature = oldSkuSet.contains(siteSkuKey) ? 1 :
+                    (inventorySkuSet.contains(siteSkuKey) ? 2 : 1);
+                snap.setProductNature(productNature);
+
+                // ---- 月销预测 ----
+                Integer forecast = calcMonthlySalesForecast(snap);
+                snap.setMonthlySalesForecast(forecast);
 
                 // ---- 月动销率 = sales30d / totalInventory * 100 ----
                 if (totalInv > 0 && snap.getSales30d() != null && snap.getSales30d() > 0) {
@@ -551,6 +561,51 @@ public class EbayReplenishmentComputeService
         if (s == null || s.isEmpty()) return null;
         try { return Integer.parseInt(s); }
         catch (NumberFormatException e) { return null; }
+    }
+
+    /** 月销预测公式：按产品性质和老品13场景 */
+    private Integer calcMonthlySalesForecast(EbayReplenishmentSnapshot snap) {
+        int d7 = snap.getSales7d() != null ? snap.getSales7d() : 0;
+        int d15 = snap.getSales15d() != null ? snap.getSales15d() : 0;
+        int d30 = snap.getSales30d() != null ? snap.getSales30d() : 0;
+        int age = snap.getOutboundDays() != null ? snap.getOutboundDays() : 0;
+        Integer pn = snap.getProductNature();
+
+        // 新品：30天销量 × 30 / 出库天数
+        if (pn != null && pn == 2) {
+            if (age > 0 && d30 > 0)
+                return Math.max(0, (int) Math.round((double) d30 * 30 / age));
+            return d30; // 出库天数为空，降级为老品场景12
+        }
+
+        // 老品：13场景
+        double r7 = d7 > 0 ? (double) d7 / 7 : 0;
+        double r15 = d15 > 0 ? (double) d15 / 15 : 0;
+        double r30 = d30 > 0 ? (double) d30 / 30 : 0;
+
+        if (d7 > 0) {
+            if (r7 >= d30 * 1.2 / 30)
+                return (int) Math.round((r7 * 0.7  + r15 * 0.2  + r30 * 0.1 ) * 30);
+            if (r7 >= d30 * 1.0 / 30)
+                return (int) Math.round((r7 * 0.6  + r15 * 0.25 + r30 * 0.15) * 30);
+            if (r7 >= d30 * 0.8 / 30)
+                return (int) Math.round((r7 * 0.5  + r15 * 0.3  + r30 * 0.2 ) * 30);
+            if (r7 >= d30 * 0.5 / 30)
+                return (int) Math.round((r7 * 0.35 + r15 * 0.35 + r30 * 0.3 ) * 30);
+            return (int) Math.round((r7 * 0.2  + r15 * 0.3  + r30 * 0.5 ) * 30);
+        }
+        if (d15 > 0) {
+            if (r15 >= d30 * 1.3 / 30)
+                return (int) Math.round((r15 * 0.6 + r30 * 0.4) * 30);
+            if (r15 >= d30 * 1.1 / 30)
+                return (int) Math.round((r15 * 0.5 + r30 * 0.5) * 30);
+            if (r15 >= d30 * 0.9 / 30)
+                return (int) Math.round((r15 * 0.4 + r30 * 0.6) * 30);
+            if (r15 >= d30 * 0.6 / 30)
+                return (int) Math.round((r15 * 0.3 + r30 * 0.7));
+            return (int) Math.round((r15 * 0.2 + r30 * 0.8));
+        }
+        return d30; // 场景11/12
     }
 
     private static BigDecimal safeDivide(int a, int b)
