@@ -139,7 +139,7 @@
         SELECT
             t.shipment_id AS shipmentId,
             SUM(t.productCount) AS productCount,
-            SUM(t.totalBoxCount) AS totalBoxCount,
+            MAX(t.totalBoxCount) AS totalBoxCount,
             SUM(t.totalQuantity) AS totalQuantity,
             SUM(t.totalGrossWeight) AS totalGrossWeight
         FROM (
