@@ -289,7 +289,15 @@
                 </choose>
             </if>
             <if test="storeCountryCode != null and storeCountryCode != ''">
-                and UPPER(SUBSTRING_INDEX(TRIM(s.store_name), '-', -1)) = UPPER(#{storeCountryCode})
+                <choose>
+                    <when test='storeCountryCode.contains(",")'>
+                        and UPPER(SUBSTRING_INDEX(TRIM(s.store_name), '-', -1)) in
+                        <foreach collection='storeCountryCode.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach>
+                    </when>
+                    <otherwise>
+                        and UPPER(SUBSTRING_INDEX(TRIM(s.store_name), '-', -1)) = UPPER(#{storeCountryCode})
+                    </otherwise>
+                </choose>
             </if>
             <!-- 数值字段 -->
             <if test="price_op != null">
@@ -605,7 +613,15 @@
                 </choose>
             </if>
             <if test="storeCountryCode != null and storeCountryCode != ''">
-                and UPPER(SUBSTRING_INDEX(TRIM(s.store_name), '-', -1)) = UPPER(#{storeCountryCode})
+                <choose>
+                    <when test='storeCountryCode.contains(",")'>
+                        and UPPER(SUBSTRING_INDEX(TRIM(s.store_name), '-', -1)) in
+                        <foreach collection='storeCountryCode.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach>
+                    </when>
+                    <otherwise>
+                        and UPPER(SUBSTRING_INDEX(TRIM(s.store_name), '-', -1)) = UPPER(#{storeCountryCode})
+                    </otherwise>
+                </choose>
             </if>
             <if test="price_op != null"><choose><when test="price_op == 'between' and price_val != null and price_val2 != null">and s.price between #{price_val} and #{price_val2}</when><when test="price_op == 'isNull'"> and s.price is null </when><when test="price_op == 'isNotNull'"> and s.price is not null </when><when test="price_val != null"> and s.price ${price_op} #{price_val} </when></choose></if>
             <if test="rating_op != null"><choose><when test="rating_op == 'between' and rating_val != null and rating_val2 != null">and rating between #{rating_val} and #{rating_val2}</when><when test="rating_op == 'isNull'"> and rating is null </when><when test="rating_op == 'isNotNull'"> and rating is not null </when><when test="rating_val != null"> and rating ${rating_op} #{rating_val} </when></choose></if>
