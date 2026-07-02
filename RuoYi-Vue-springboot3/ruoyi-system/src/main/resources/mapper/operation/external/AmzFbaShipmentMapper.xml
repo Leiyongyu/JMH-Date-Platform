@@ -111,7 +111,12 @@
         <where>
             <if test="params.confirmed != null and params.confirmed != ''"> and COALESCE(m.confirmed, 0) = #{params.confirmed} </if>
             and s.username IS NOT NULL and s.username != ''
-            <if test="params.storeName != null and params.storeName != ''"> and sl.store_name like concat('%', #{params.storeName}, '%') </if>
+            <if test="params.storeName != null and params.storeName != ''">
+                <choose>
+                    <when test='params.storeName.contains(",")'>and sl.store_name in <foreach collection='params.storeName.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <otherwise>and sl.store_name like concat('%', #{params.storeName}, '%')</otherwise>
+                </choose>
+            </if>
             <if test="params.shipmentId != null and params.shipmentId != ''"> and s.shipment_id like concat('%', #{params.shipmentId}, '%') </if>
             <if test="params.sku != null and params.sku != ''"> and s.sku like concat('%', #{params.sku}, '%') </if>
             <if test="params.msku != null and params.msku != ''"> and s.msku like concat('%', #{params.msku}, '%') </if>
