@@ -4,10 +4,14 @@ import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.system.mapper.operation.external.AmzFbaShipmentMapper;
 
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.page.TableDataInfo;
@@ -24,6 +28,16 @@ public class AmzFbaShipmentController extends BaseController
 {
     @Autowired
     private IAmzFbaShipmentService fbaShipmentService;
+
+    @Autowired
+    private AmzFbaShipmentMapper fbaShipmentMapper;
+
+    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
+    @GetMapping("/store-names")
+    public AjaxResult storeNames()
+    {
+        return AjaxResult.success(fbaShipmentMapper.selectDistinctStoreNames());
+    }
 
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
     @PostMapping("/search")

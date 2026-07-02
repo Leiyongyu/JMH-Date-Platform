@@ -186,4 +186,11 @@
           AND working_time >= DATE_SUB(NOW(), INTERVAL #{days} DAY)
     </select>
 
+    <select id="selectDistinctStoreNames" resultType="String">
+        SELECT DISTINCT sl.store_name FROM amz_fba_shipment s
+        JOIN shop_list sl ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = sl.sid AND sl.platform_code = '10001'
+        WHERE sl.store_name IS NOT NULL AND sl.store_name != ''
+        ORDER BY sl.store_name
+    </select>
+
 </mapper>

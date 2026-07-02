@@ -29,4 +29,7 @@ public interface AmzFbaShipmentMapper
 
     /** 已完成货件的 sid + shipment_id，按最近N天筛选 */
     List<Map<String, Object>> selectClosedSidShipmentByDays(@Param("days") int days);
+
+    /** 去重店铺名称 */
+    List<String> selectDistinctStoreNames();
 }
