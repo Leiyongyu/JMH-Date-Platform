@@ -24,3 +24,5 @@ RuoYi-Vue-springboot3/**/target/
 RuoYi-Vue3-master/node_modules/
 RuoYi-Vue3-master/dist/
 .codex-backups/
+.agents/
+docs/
