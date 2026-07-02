@@ -137,28 +137,32 @@
 
     <select id="searchFbaShipments" resultType="com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentOption">
         SELECT
-            b.shipment_id AS shipmentId,
-            COUNT(DISTINCT b.sku) AS productCount,
-            CAST(SUM(GREATEST(IFNULL(b.box_num, 1), 1)) AS SIGNED) AS totalBoxCount,
-            SUM(
-                IF(b.quantity_in_case IS NOT NULL AND b.quantity_in_case REGEXP '^[0-9.]+$',
-                   CAST(b.quantity_in_case AS DECIMAL(12,4)),
-                   1) * GREATEST(IFNULL(b.box_num, 1), 1)
-            ) AS totalQuantity,
-            SUM(
-                IF(b.box_weight IS NOT NULL AND b.box_weight REGEXP '^[0-9.]+$',
-                   CAST(b.box_weight AS DECIMAL(12,4)) *
-                       IF(UPPER(IFNULL(b.box_weight_unit, 'KG')) IN ('LB', 'LBS'), 0.45359237, 1) *
-                       GREATEST(IFNULL(b.box_num, 1), 1),
-                   0)
-            ) AS totalGrossWeight
-        FROM amz_fba_shipment_box b
-        WHERE b.shipment_id IS NOT NULL AND b.shipment_id != ''
-        <if test="keyword != null and keyword != ''">
-            AND b.shipment_id LIKE CONCAT('%', #{keyword}, '%')
-        </if>
-        GROUP BY b.shipment_id
-        ORDER BY MAX(b.id) DESC
+            t.shipment_id AS shipmentId,
+            SUM(t.productCount) AS productCount,
+            SUM(t.totalBoxCount) AS totalBoxCount,
+            SUM(t.totalQuantity) AS totalQuantity,
+            SUM(t.totalGrossWeight) AS totalGrossWeight
+        FROM (
+            SELECT
+                b.shipment_id,
+                COUNT(DISTINCT b.sku) AS productCount,
+                MAX(b.box_num) AS totalBoxCount,
+                SUM(IF(b.quantity_in_case IS NOT NULL AND b.quantity_in_case REGEXP '^[0-9.]+$',
+                       CAST(b.quantity_in_case AS DECIMAL(12,4)),
+                       1)) * MAX(GREATEST(IFNULL(b.box_num, 1), 1)) AS totalQuantity,
+                MAX(IF(b.box_weight IS NOT NULL AND b.box_weight REGEXP '^[0-9.]+$',
+                       CAST(b.box_weight AS DECIMAL(12,4)) *
+                           IF(UPPER(IFNULL(b.box_weight_unit, 'KG')) IN ('LB', 'LBS'), 0.45359237, 1),
+                       0)) * MAX(GREATEST(IFNULL(b.box_num, 1), 1)) AS totalGrossWeight
+            FROM amz_fba_shipment_box b
+            WHERE b.shipment_id IS NOT NULL AND b.shipment_id != ''
+            <if test="keyword != null and keyword != ''">
+                AND b.shipment_id LIKE CONCAT('%', #{keyword}, '%')
+            </if>
+            GROUP BY b.shipment_id, b.box_num, b.box_weight, COALESCE(b.box_length,''), COALESCE(b.box_width,''), COALESCE(b.box_height,'')
+        ) t
+        GROUP BY t.shipment_id
+        ORDER BY MAX(t.shipment_id) DESC
         LIMIT #{limit}
     </select>
 
