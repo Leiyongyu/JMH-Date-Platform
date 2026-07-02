@@ -142,11 +142,6 @@
               <span>商品净重(kg)</span>
               <strong>{{ group.netWeight }}</strong>
             </div>
-            <div class="box-stat box-stat--input">
-              <span>箱数</span>
-              <el-input v-model="group.items[0].row.boxCount" size="small"
-                @change="syncBoxFieldToGroup(group, 'boxCount')" />
-            </div>
             <div class="box-actions">
               <el-button link type="primary" icon="Plus" title="新增箱子" @click="addBoxAfterGroup(group)" />
             </div>

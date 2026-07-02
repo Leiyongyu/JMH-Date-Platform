@@ -2,7 +2,9 @@
   <div class="app-container fba-shipment-page">
     <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" label-width="90px">
       <el-form-item label="店铺" prop="storeName">
-        <el-input v-model="queryParams.storeName" placeholder="搜索店铺名称" clearable style="width:180px" @keyup.enter="handleQuery" />
+        <el-select v-model="queryParams.storeName" multiple filterable collapse-tags collapse-tags-tooltip placeholder="全部店铺" clearable style="width:220px" @change="handleQuery">
+          <el-option v-for="s in storeOptions" :key="s" :label="s" :value="s" />
+        </el-select>
       </el-form-item>
       <el-form-item label="货件单号" prop="shipmentId">
         <el-input v-model="queryParams.shipmentId" placeholder="请输入" clearable style="width:200px" @keyup.enter="handleQuery" />
@@ -112,6 +114,7 @@ const tableRef = ref(null)
 const showSearch = ref(true)
 const total = ref(0)
 const records = ref([])
+const storeOptions = ref([])
 const gmtCreateRange = ref(null)
 const statusMap = {
   WORKING: '待发货', SHIPPED: '已发货', IN_TRANSIT: '运输中', DELIVERED: '已送达',
@@ -134,18 +137,23 @@ const statusOptions = [
 const data = reactive({
   queryParams: {
     pageNum: 1, pageSize: 50,
-    storeName: undefined, shipmentId: undefined, sku: undefined, msku: undefined, username: undefined, shipmentStatus: undefined, confirmed: undefined,
+    storeName: [], shipmentId: undefined, sku: undefined, msku: undefined, username: undefined, shipmentStatus: undefined, confirmed: undefined,
     sortField: undefined, sortOrder: undefined
   }
 })
 const { queryParams } = toRefs(data)
 
+function loadStoreOptions() {
+  request({ url: '/operations/amz/fba-shipment/store-names', method: 'get' }).then(res => {
+    storeOptions.value = res.data || []
+  })
+}
 function getList() {
   loading.value = true
   const body = { pageNum: queryParams.value.pageNum, pageSize: queryParams.value.pageSize, sortField: queryParams.value.sortField || undefined, sortOrder: queryParams.value.sortOrder || undefined }
   const filters = []
   const p = queryParams.value
-  if (p.storeName) filters.push({ field: 'storeName', value: p.storeName })
+  if (p.storeName && p.storeName.length) filters.push({ field: 'storeName', value: p.storeName.join(',') })
   if (p.shipmentId) filters.push({ field: 'shipmentId', value: p.shipmentId })
   if (p.sku) filters.push({ field: 'sku', value: p.sku })
   if (p.msku) filters.push({ field: 'msku', value: p.msku })
@@ -182,7 +190,7 @@ function handleConfirm(row) {
 function handleExport() {
   const filters = []
   const p = queryParams.value
-  if (p.storeName) filters.push({ field: 'storeName', value: p.storeName })
+  if (p.storeName && p.storeName.length) filters.push({ field: 'storeName', value: p.storeName.join(',') })
   if (p.shipmentId) filters.push({ field: 'shipmentId', value: p.shipmentId })
   if (p.sku) filters.push({ field: 'sku', value: p.sku })
   if (p.msku) filters.push({ field: 'msku', value: p.msku })
@@ -201,6 +209,7 @@ function handleExport() {
   })
 }
 
+loadStoreOptions()
 getList()
 </script>
 
