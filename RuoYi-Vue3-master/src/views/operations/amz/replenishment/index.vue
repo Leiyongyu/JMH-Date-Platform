@@ -13,6 +13,11 @@
           <el-option v-for="code in countryCodeOptions" :key="code" :label="code" :value="code" />
         </el-select>
       </el-form-item>
+      <el-form-item label="店铺国家" prop="storeCountryCode">
+        <el-select v-model="queryParams.storeCountryCode" placeholder="全部" clearable style="width: 120px" @change="handleQuery">
+          <el-option v-for="c in storeCountryOptions" :key="c.value" :label="c.label" :value="c.value" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="店铺" prop="storeName">
         <el-select
           v-model="queryParams.storeName"
@@ -320,6 +325,12 @@ const replenishmentList = ref([])
 const checkedRows = ref([])
 const storeOptions = ref([])
 const warehouseOptions = ref([])
+const storeCountryOptions = [
+  { label: '英国', value: 'UK' }, { label: '加拿大', value: 'CA' }, { label: '瑞典', value: 'SE' },
+  { label: '德国', value: 'DE' }, { label: '比利时', value: 'BE' }, { label: '荷兰', value: 'NL' },
+  { label: '波兰', value: 'PL' }, { label: '墨西哥', value: 'MX' }, { label: '意大利', value: 'IT' },
+  { label: '西班牙', value: 'ES' }, { label: '法国', value: 'FR' }, { label: '美国', value: 'US' }
+]
 const countryCodeOptions = computed(() => {
   return [...new Set(storeOptions.value.map(getStoreCountryCode).filter(Boolean))].sort()
 })
@@ -469,6 +480,7 @@ const data = reactive({
     pageNum: 1,
     pageSize: 50,
     countryCode: undefined,
+    storeCountryCode: undefined,
     storeName: [],
     warehouseName: [],
     sellerSku: undefined,
@@ -554,6 +566,7 @@ function buildFilters() {
     }
   }
   else if (p.countryCode) filters.push({ field: 'storeName', value: filteredStoreOptions.value.join(',') })
+  if (p.storeCountryCode) filters.push({ field: 'storeCountryCode', value: p.storeCountryCode })
   if (p.sellerSku) filters.push({ field: 'sellerSku', value: p.sellerSku })
   if (p.warehouseSku) filters.push({ field: 'warehouseSku', value: p.warehouseSku })
   if (p.asin) filters.push({ field: 'asin', value: p.asin })
@@ -629,6 +642,7 @@ function resetQuery() {
   queryParams.value.storeName = []
   queryParams.value.warehouseName = []
   queryParams.value.countryCode = undefined
+  queryParams.value.storeCountryCode = undefined
   storeExcludeMode.value = false
   queryParams.value.sortField = undefined
   queryParams.value.sortOrder = undefined

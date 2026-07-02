@@ -167,7 +167,17 @@
                                 COALESCE(pl.sid, 0) AS sid,
                                 pl.seller_sku AS seller_sku,
                                 COALESCE(wd.sku, pl.local_sku, '') AS warehouse_sku,
-                                ANY_VALUE(wh.name) AS warehouse_name,
+                                CASE
+                                    WHEN TRIM(ANY_VALUE(COALESCE(wh.name, ''))) != ''
+                                        THEN ANY_VALUE(wh.name)
+                                    WHEN TRIM(ANY_VALUE(COALESCE(store_wh.name, ''))) != ''
+                                        THEN ANY_VALUE(store_wh.name)
+                                    WHEN TRIM(ANY_VALUE(COALESCE(sl.store_name, ''))) != ''
+                                        THEN CONCAT('CTUAMZ-',
+                                                    SUBSTRING_INDEX(TRIM(ANY_VALUE(COALESCE(sl.store_name, ''))), '-', 1),
+                                                    '中转仓')
+                                    ELSE ''
+                                END AS warehouse_name,
                                 ANY_VALUE(pl.asin) AS asin,
                                 ANY_VALUE(pl.price) AS price,
                                 ANY_VALUE(COALESCE(pl.tag_name, '')) AS tag_name,
@@ -211,14 +221,20 @@
                                 ANY_VALUE(COALESCE(fc.region_group, 'US')) AS region_group,
                                 ANY_VALUE(pl.small_image_url) AS image_url
                             FROM amz_product_listing pl
-                            LEFT JOIN amz_warehouse_inventory_detail wd ON wd.sku = pl.local_sku
                             LEFT JOIN shop_list sl ON sl.sid = pl.sid AND sl.platform_code = '10001'
+                            LEFT JOIN warehouse store_wh
+                                ON store_wh.name = CONCAT('CTUAMZ-',
+                                    SUBSTRING_INDEX(TRIM(COALESCE(sl.store_name, '')), '-', 1),
+                                    '中转仓')
+                            LEFT JOIN amz_warehouse_inventory_detail wd
+                                ON wd.sku = pl.local_sku
+                               AND wd.wid = store_wh.wid
                             LEFT JOIN amz_product_category pc ON pc.sid = pl.sid AND pc.seller_sku = pl.seller_sku
                             LEFT JOIN amz_order_profit op ON op.sid = pl.sid AND op.seller_sku = pl.seller_sku
                             LEFT JOIN amz_restock_summary rs ON rs.sid = pl.sid AND rs.msku = pl.seller_sku
                             LEFT JOIN warehouse wh ON wh.wid = wd.wid
                             LEFT JOIN amz_replenishment_formula_config fc ON fc.enabled = 1
-                                AND FIND_IN_SET(wh.name, fc.marketplaces) > 0
+                                AND FIND_IN_SET(store_wh.name, fc.marketplaces) > 0
                             GROUP BY COALESCE(pl.sid, 0), pl.seller_sku, COALESCE(wd.sku, pl.local_sku, ''), COALESCE(wd.wid, 0)
                         ) base
                     ) raw
@@ -271,6 +287,9 @@
                     <when test='warehouseName.contains(",")'>and s.warehouse_name in <foreach collection='warehouseName.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
                     <otherwise>and s.warehouse_name like concat('%', #{warehouseName}, '%')</otherwise>
                 </choose>
+            </if>
+            <if test="storeCountryCode != null and storeCountryCode != ''">
+                and UPPER(SUBSTRING_INDEX(TRIM(s.store_name), '-', -1)) = UPPER(#{storeCountryCode})
             </if>
             <!-- 数值字段 -->
             <if test="price_op != null">
@@ -584,6 +603,9 @@
                     <when test='warehouseName.contains(",")'>and s.warehouse_name in <foreach collection='warehouseName.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
                     <otherwise>and s.warehouse_name like concat('%', #{warehouseName}, '%')</otherwise>
                 </choose>
+            </if>
+            <if test="storeCountryCode != null and storeCountryCode != ''">
+                and UPPER(SUBSTRING_INDEX(TRIM(s.store_name), '-', -1)) = UPPER(#{storeCountryCode})
             </if>
             <if test="price_op != null"><choose><when test="price_op == 'between' and price_val != null and price_val2 != null">and s.price between #{price_val} and #{price_val2}</when><when test="price_op == 'isNull'"> and s.price is null </when><when test="price_op == 'isNotNull'"> and s.price is not null </when><when test="price_val != null"> and s.price ${price_op} #{price_val} </when></choose></if>
             <if test="rating_op != null"><choose><when test="rating_op == 'between' and rating_val != null and rating_val2 != null">and rating between #{rating_val} and #{rating_val2}</when><when test="rating_op == 'isNull'"> and rating is null </when><when test="rating_op == 'isNotNull'"> and rating is not null </when><when test="rating_val != null"> and rating ${rating_op} #{rating_val} </when></choose></if>
