@@ -14,7 +14,7 @@
         </el-select>
       </el-form-item>
       <el-form-item label="店铺国家" prop="storeCountryCode">
-        <el-select v-model="queryParams.storeCountryCode" placeholder="全部" clearable style="width: 120px" @change="handleQuery">
+        <el-select v-model="queryParams.storeCountryCode" multiple filterable collapse-tags collapse-tags-tooltip placeholder="全部" clearable style="width: 160px" @change="handleQuery">
           <el-option v-for="c in storeCountryOptions" :key="c.value" :label="c.label" :value="c.value" />
         </el-select>
       </el-form-item>
@@ -480,7 +480,7 @@ const data = reactive({
     pageNum: 1,
     pageSize: 50,
     countryCode: undefined,
-    storeCountryCode: undefined,
+    storeCountryCode: [],
     storeName: [],
     warehouseName: [],
     sellerSku: undefined,
@@ -566,7 +566,7 @@ function buildFilters() {
     }
   }
   else if (p.countryCode) filters.push({ field: 'storeName', value: filteredStoreOptions.value.join(',') })
-  if (p.storeCountryCode) filters.push({ field: 'storeCountryCode', value: p.storeCountryCode })
+  if (p.storeCountryCode && p.storeCountryCode.length) filters.push({ field: 'storeCountryCode', value: p.storeCountryCode.join(',') })
   if (p.sellerSku) filters.push({ field: 'sellerSku', value: p.sellerSku })
   if (p.warehouseSku) filters.push({ field: 'warehouseSku', value: p.warehouseSku })
   if (p.asin) filters.push({ field: 'asin', value: p.asin })
@@ -642,7 +642,7 @@ function resetQuery() {
   queryParams.value.storeName = []
   queryParams.value.warehouseName = []
   queryParams.value.countryCode = undefined
-  queryParams.value.storeCountryCode = undefined
+  queryParams.value.storeCountryCode = []
   storeExcludeMode.value = false
   queryParams.value.sortField = undefined
   queryParams.value.sortOrder = undefined
