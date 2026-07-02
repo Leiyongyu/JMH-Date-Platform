@@ -101,38 +101,51 @@
       </div>
 
       <div class="box-list">
-        <div v-for="(group, groupIndex) in boxGroups" :key="group.key" class="box-panel">
+        <template v-for="(group, groupIndex) in boxGroups" :key="group.key">
+        <div v-if="group.items[0]" class="box-panel">
           <div class="box-panel__summary">
             <div class="box-check">
               <el-checkbox v-model="group.checked" disabled />
             </div>
             <div class="box-no">
               <span class="box-chip"><el-icon><Box /></el-icon>{{ group.label }}</span>
+              <el-input v-model="group.items[0].row.boxNo" size="small" placeholder="箱号"
+                @change="syncBoxFieldToGroup(group, 'boxNo')" />
               <span class="box-sub">{{ group.items.length }} 个SKU</span>
             </div>
             <div class="box-stat">
               <span>商品数量</span>
               <strong>{{ group.quantity }}</strong>
             </div>
-            <div class="box-stat">
+            <div class="box-stat box-stat--input">
               <span>箱子毛重(kg)</span>
-              <strong>{{ group.grossWeight }}</strong>
+              <el-input v-model="group.items[0].row.packingGrossWeight" size="small"
+                @change="syncBoxFieldToGroup(group, 'packingGrossWeight')" />
             </div>
-            <div class="box-stat box-stat--wide">
+            <div class="box-stat box-stat--wide box-stat--dims">
               <span>箱子尺寸(cm)</span>
-              <strong>{{ group.dimensionText }}</strong>
+              <div class="box-dim-inputs">
+                <el-input v-model="group.items[0].row.boxLength" size="small" placeholder="长"
+                  @change="syncBoxFieldToGroup(group, 'boxLength')" />
+                <el-input v-model="group.items[0].row.boxWidth" size="small" placeholder="宽"
+                  @change="syncBoxFieldToGroup(group, 'boxWidth')" />
+                <el-input v-model="group.items[0].row.boxHeight" size="small" placeholder="高"
+                  @change="syncBoxFieldToGroup(group, 'boxHeight')" />
+              </div>
             </div>
-            <div class="box-stat">
+            <div class="box-stat box-stat--input">
               <span>单箱体积(m³)</span>
-              <strong>{{ group.cbm }}</strong>
+              <el-input v-model="group.items[0].row.packingCbm" size="small"
+                @change="syncBoxFieldToGroup(group, 'packingCbm')" />
             </div>
             <div class="box-stat">
               <span>商品净重(kg)</span>
               <strong>{{ group.netWeight }}</strong>
             </div>
-            <div class="box-stat">
+            <div class="box-stat box-stat--input">
               <span>箱数</span>
-              <strong>{{ group.boxCount }}</strong>
+              <el-input v-model="group.items[0].row.boxCount" size="small"
+                @change="syncBoxFieldToGroup(group, 'boxCount')" />
             </div>
             <div class="box-actions">
               <el-button link type="primary" icon="Plus" title="新增箱子" @click="addBoxAfterGroup(group)" />
@@ -153,10 +166,16 @@
               <div class="item-product">
                 <div class="item-main">
                   <el-input v-model="entry.row.descriptionCn" size="small" placeholder="商品名称" />
-                  <el-select v-model="entry.row.sku" filterable remote clearable size="small" placeholder="输入SKU或品名"
-                    :remote-method="searchProducts" :loading="searching" @change="value => selectProduct(entry.row, value)">
-                    <el-option v-for="product in productOptions" :key="product.sku" :label="product.sku" :value="product.sku" />
-                  </el-select>
+                  <el-autocomplete v-model="entry.row.sku" clearable size="small" placeholder="输入或搜索SKU"
+                    :fetch-suggestions="queryProductSuggestions" value-key="sku" :trigger-on-focus="false"
+                    @select="option => selectProductOption(entry.row, option)">
+                    <template #default="{ item }">
+                      <div class="sku-option">
+                        <span>{{ item.sku }}</span>
+                        <small>{{ item.descriptionCn || item.productName || '-' }}</small>
+                      </div>
+                    </template>
+                  </el-autocomplete>
                 </div>
               </div>
               <div class="item-declare">
@@ -186,6 +205,7 @@
             </div>
           </div>
         </div>
+        </template>
       </div>
     </section>
 
@@ -292,6 +312,7 @@ const stockOrderTableRef = ref()
 const fbaShipmentTableRef = ref()
 const itemTableRef = ref()
 let keySeed = 0
+let boxKeySeed = 0
 
 const defaultCompany = '成都玖马赫供应链管理有限公司   信用代码：91510106MACMNJMB6A'
 const header = reactive(createHeader())
@@ -323,7 +344,6 @@ const fbaDialog = reactive({
   restoring: false,
   missingSkus: []
 })
-
 function createHeader() {
   return {
     preEntry: '', customsNo: '', consignor: defaultCompany, customsArea: '',
@@ -339,9 +359,9 @@ function createHeader() {
 
 function createEmptyItem() {
   return {
-    _key: ++keySeed, productCode: '', sku: '', descriptionCn: '', model: '', unit: '个',
+    _key: ++keySeed, _boxKey: `box-${++boxKeySeed}`, productCode: '', sku: '', descriptionCn: '', model: '', unit: '个',
     unitPriceUsd: 0, currency: 'USD', singleWeight: 0, quantity: 1,
-    hsCode: '', hsDescription: '', originCountry: '', destinationCountry: '',
+    hsCode: '', hsDescription: '', originCountry: '中国', destinationCountry: '',
     sourceLocation: '', exemption: '', boxNo: null, boxCount: 1, sourceOrderNo: '', orderTotalCbm: null, isTax: null,
     packingNetWeight: null, packingGrossWeight: null, packingCbm: null,
     boxLength: null, boxWidth: null, boxHeight: null
@@ -356,13 +376,14 @@ const pagedItems = computed(() => {
 const totalQuantity = computed(() => validItems.value.reduce((sum, item) => sum + Number(item.quantity || 0), 0))
 const totalAmount = computed(() => validItems.value.reduce((sum, item) => sum + Number(calcAmount(item)), 0).toFixed(2))
 const totalNetWeight = computed(() => validItems.value.reduce((sum, item) => sum + Number(calcNetWeight(item)), 0).toFixed(2))
-const boxGroups = computed(() => buildBoxGroups(items.value))
+const boxGroups = ref([])
 const totalBoxCount = computed(() => boxGroups.value.reduce((sum, group) => sum + Number(group.boxCount || 0), 0))
 const totalCbm = computed(() => calcTotalCbm())
 const totalBoxGrossWeight = computed(() => boxGroups.value.reduce((sum, group) => sum + Number(group.totalGrossWeight || 0), 0).toFixed(2))
 const totalGrossWeight = computed(() => totalBoxGrossWeight.value)
 const activeLinkSaving = computed(() => dataSourceDialog.platform === 'stock' ? stockDialog.saving : fbaDialog.saving)
 
+watch(items, refreshBoxGroups, { immediate: true })
 watch(totalGrossWeight, v => { header.grossWt = v })
 watch(totalNetWeight, v => { header.netWt = v })
 watch(
@@ -406,26 +427,42 @@ function formatNumber(value, precision = 0) {
   return precision > 0 ? number.toFixed(precision) : number.toString()
 }
 
-async function searchProducts(keyword) {
+async function queryProductSuggestions(keyword, callback) {
   if (!keyword || !keyword.trim()) {
-    productOptions.value = []
+    callback([])
     return
   }
   searching.value = true
   try {
     const response = await searchCustomsProducts(keyword.trim())
-    productOptions.value = response.data || []
+    const suggestions = (response.data || []).map(item => ({
+      ...item,
+      value: item.sku || item.descriptionCn || item.productName || ''
+    }))
+    productOptions.value = suggestions
+    callback(suggestions)
+  } catch (error) {
+    callback([])
   } finally {
     searching.value = false
   }
 }
 
-function selectProduct(row, sku) {
-  const product = productOptions.value.find(item => item.sku === sku)
+function selectProductOption(row, product) {
   if (!product) return
   const quantity = row.quantity || 1
   const key = row._key
+  const boxFields = ['boxNo', 'boxCount', 'packingGrossWeight', 'packingCbm', 'boxLength', 'boxWidth', 'boxHeight']
+  const currentBox = boxFields.reduce((result, field) => {
+    result[field] = row[field]
+    return result
+  }, {})
   Object.assign(row, JSON.parse(JSON.stringify(product)), { quantity, _key: key })
+  boxFields.forEach(field => {
+    if (currentBox[field] !== undefined && currentBox[field] !== null && currentBox[field] !== '') {
+      row[field] = currentBox[field]
+    }
+  })
   if (!row.productCode) row.productCode = product.hsCode || ''
 }
 
@@ -437,6 +474,7 @@ function productToRow(product) {
     orderTotalCbm: product.orderTotalCbm ?? null,
     sourceOrderNo: product.sourceOrderNo || '',
     _key: ++keySeed,
+    _boxKey: `box-${++boxKeySeed}`,
     productCode: product.productCode || product.hsCode || '',
     boxNo: product.boxNo || null,
     isTax: product.isTax != null ? product.isTax : null
@@ -488,12 +526,17 @@ function buildBoxGroups(sourceItems) {
         key,
         checked: true,
         label: row.boxNo ? String(row.boxNo) : '',
+        boxNo: row.boxNo || '',
         boxCount: inferBoxCount(row),
+        packingGrossWeight: Number(row.packingGrossWeight || 0),
+        packingCbm: Number(row.packingCbm || 0),
+        boxLength: Number(row.boxLength || 0),
+        boxWidth: Number(row.boxWidth || 0),
+        boxHeight: Number(row.boxHeight || 0),
         grossWeight: boxGrossWeight(row),
         totalGrossWeight: key === 'unboxed' ? 0 : boxGrossWeight(row) * inferBoxCount(row),
         cbm: boxCbm(row),
         totalCbm: key === 'unboxed' ? 0 : boxCbm(row) * inferBoxCount(row),
-        dimensionText: dimensionText(row),
         quantity: 0,
         netWeight: 0,
         items: [],
@@ -522,15 +565,51 @@ function buildBoxGroups(sourceItems) {
 }
 
 function boxGroupKey(row) {
-  if (row.boxNo) return row.boxNo
-  const values = [row.packingGrossWeight, row.boxLength, row.boxWidth, row.boxHeight, row.packingCbm]
-    .map(value => Number(value || 0).toFixed(2))
-  return values.some(value => Number(value) > 0) ? values.join('|') : 'unboxed'
+  if (row.boxNo) return `box-no:${row.boxNo}`
+  if (!row._boxKey) row._boxKey = `box-${++boxKeySeed}`
+  return row._boxKey
 }
 
 function inferBoxCount(row) {
   const count = Number(row.boxCount || 0)
   return count > 0 ? count : 1
+}
+
+function normalizeBoxValue(field, value) {
+  if (field === 'boxNo') return value || ''
+  if (value === '' || value === undefined || value === null) return null
+  const number = Number(value)
+  if (!Number.isFinite(number)) return null
+  if (field === 'boxCount') return Math.max(Math.floor(number), 1)
+  return Math.max(number, 0)
+}
+
+function refreshBoxGroups() {
+  boxGroups.value = buildBoxGroups(items.value)
+}
+
+function syncAllBoxGroups() {
+  boxGroups.value.forEach(group => syncBoxFieldToGroup(group, null, false))
+  refreshBoxGroups()
+}
+
+function syncBoxFieldToGroup(group, field) {
+  const first = group.items[0]?.row
+  if (!first) return
+  if (['boxLength', 'boxWidth', 'boxHeight'].includes(field) && !Number(first.packingCbm || 0)) {
+    const autoCbm = calcBoxCbmBySize(first)
+    if (autoCbm > 0) first.packingCbm = autoCbm.toFixed(4)
+  }
+  const fields = field ? [field] : ['boxNo', 'boxCount', 'packingGrossWeight', 'packingCbm', 'boxLength', 'boxWidth', 'boxHeight']
+  fields.forEach(currentField => {
+    const normalized = normalizeBoxValue(currentField, first[currentField])
+    group.items.forEach(({ row }) => {
+      row[currentField] = currentField === 'boxCount'
+        ? Math.max(Number(normalized || 1), 1)
+        : normalized
+    })
+  })
+  if (field !== null) refreshBoxGroups()
 }
 
 function calcTotalCbm() {
@@ -554,19 +633,14 @@ function boxGrossWeight(row) {
 
 function boxCbm(row) {
   if (Number(row.packingCbm || 0) > 0) return Number(row.packingCbm || 0)
+  return calcBoxCbmBySize(row)
+}
+
+function calcBoxCbmBySize(row) {
   const length = Number(row.boxLength || 0)
   const width = Number(row.boxWidth || 0)
   const height = Number(row.boxHeight || 0)
   return length && width && height ? length * width * height / 1000000 : 0
-}
-
-function dimensionText(row) {
-  const length = Number(row.boxLength || 0)
-  const width = Number(row.boxWidth || 0)
-  const height = Number(row.boxHeight || 0)
-  return length && width && height
-    ? `${formatNumber(length, 2)}*${formatNumber(width, 2)}*${formatNumber(height, 2)}`
-    : '-'
 }
 
 async function openStockOrderDialog() {
@@ -763,6 +837,7 @@ function appendLinkedRows(rows) {
   if (onlyEmptyRow) items.value = []
   items.value = mergeCustomsProductRows(items.value, rows)
   if (!items.value.length) items.value = [createEmptyItem()]
+  refreshBoxGroups()
   itemPage.pageNum = Math.max(1, Math.ceil(items.value.length / itemPage.pageSize))
 }
 
@@ -771,11 +846,13 @@ function addBoxAfterGroup(group) {
   row.boxNo = nextBoxNo()
   row.boxCount = 1
   items.value.splice(group.lastIndex + 1, 0, row)
+  refreshBoxGroups()
   itemPage.pageNum = Math.max(1, Math.ceil((group.lastIndex + 2) / itemPage.pageSize))
 }
 
 function addItemInBox(index, sourceRow) {
   const row = createEmptyItem()
+  row._boxKey = sourceRow._boxKey || row._boxKey
   row.boxNo = sourceRow.boxNo
   row.boxCount = sourceRow.boxCount || 1
   row.sourceOrderNo = sourceRow.sourceOrderNo || ''
@@ -788,6 +865,7 @@ function addItemInBox(index, sourceRow) {
   row.destinationCountry = sourceRow.destinationCountry || ''
   row.sourceLocation = sourceRow.sourceLocation || ''
   items.value.splice(index + 1, 0, row)
+  refreshBoxGroups()
   itemPage.pageNum = Math.max(1, Math.ceil((index + 2) / itemPage.pageSize))
 }
 
@@ -804,6 +882,7 @@ function removeRow(index) {
     return
   }
   items.value.splice(index, 1)
+  refreshBoxGroups()
 }
 
 function toActualIndex(pageIndex) {
@@ -834,6 +913,7 @@ async function handleSkuFile(event) {
       return
     }
     items.value = loaded
+    refreshBoxGroups()
     if (missing.length) proxy.$modal.msgWarning(`已加载 ${loaded.length} 个商品，${missing.length} 个未找到`)
     else proxy.$modal.msgSuccess(`已加载 ${loaded.length} 个商品`)
   } finally {
@@ -880,13 +960,14 @@ function validateItems() {
 }
 
 async function handleSaveProducts() {
+  syncAllBoxGroups()
   if (!validateItems()) return
   const data = validItems.value.map(toProductPayload)
   const checkResponse = await checkCustomsProducts(data)
   const existing = checkResponse.data || []
   if (existing.length) {
     const preview = existing.slice(0, 8)
-      .map(item => `${item.sku || ''}${item.sourceLocation ? ` / ${item.sourceLocation}` : ''}`)
+      .map(item => item.sku || '')
       .join('、')
     await proxy.$modal.confirm(`已有 ${existing.length} 条商品资料存在：${preview}${existing.length > 8 ? '...' : ''}，是否覆盖？`)
   }
@@ -916,9 +997,10 @@ function toProductPayload(item) {
     boxWidth: item.boxWidth,
     boxHeight: item.boxHeight,
     boxNo: item.boxNo,
+    boxCount: item.boxCount,
     hsCode: item.hsCode,
     hsDescription: item.hsDescription,
-    originCountry: item.originCountry,
+    originCountry: item.originCountry || '中国',
     destinationCountry: item.destinationCountry,
     sourceLocation: item.sourceLocation,
     exemption: item.exemption,
@@ -927,6 +1009,7 @@ function toProductPayload(item) {
 }
 
 async function handleExport() {
+  syncAllBoxGroups()
   if (!validateItems()) return
   exporting.value = true
   try {
@@ -957,6 +1040,11 @@ async function handleClear() {
   await proxy.$modal.confirm('清空全部商品行？')
   items.value = [createEmptyItem()]
   itemPage.pageNum = 1
+  refreshBoxGroups()
+  stockDialog.selectedOrderNos = []
+  stockDialog.selected = []
+  fbaDialog.selectedShipmentIds = []
+  fbaDialog.selected = []
   proxy.$modal.msgSuccess('已清空')
 }
 </script>
@@ -1170,7 +1258,7 @@ async function handleClear() {
 }
 
 .box-list {
-  min-width: 1320px;
+  min-width: 1380px;
 }
 
 .box-panel {
@@ -1180,8 +1268,8 @@ async function handleClear() {
 
 .box-panel__summary {
   display: grid;
-  grid-template-columns: 38px 150px 78px 130px 180px 120px 120px 90px 58px;
-  min-height: 52px;
+  grid-template-columns: 38px 160px 78px 140px 220px 140px 120px 96px 58px;
+  min-height: 72px;
   background: #f8fbff;
   align-items: center;
 }
@@ -1199,7 +1287,8 @@ async function handleClear() {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
+  padding-right: 8px;
 }
 
 .box-chip {
@@ -1249,6 +1338,21 @@ async function handleClear() {
 
 .box-stat--wide strong {
   font-family: Consolas, monospace;
+}
+
+.box-stat--input {
+  gap: 5px;
+}
+
+.box-stat--input :deep(.el-input),
+.box-stat--dims :deep(.el-input) {
+  width: 100%;
+}
+
+.box-dim-inputs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
 }
 
 .box-items {
@@ -1311,7 +1415,8 @@ async function handleClear() {
 }
 
 .packing-workbench :deep(.el-input-number),
-.packing-workbench :deep(.el-select) {
+.packing-workbench :deep(.el-select),
+.packing-workbench :deep(.el-autocomplete) {
   width: 100%;
 }
 
@@ -1334,6 +1439,18 @@ async function handleClear() {
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.sku-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.25;
+}
+
+.sku-option small {
+  color: #909399;
+  font-size: 12px;
 }
 
 .stock-link-tip {

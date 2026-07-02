@@ -276,7 +276,8 @@ public class CustomsProductService
             validateProduct(product);
             product.setSku(product.getSku().trim());
             product.setSourceLocation(trim(product.getSourceLocation()));
-            unique.put(product.getSku() + "\u0001" + product.getSourceLocation(), product);
+            product.setOriginCountry(defaultValue(product.getOriginCountry(), "中国"));
+            unique.put(product.getSku(), product);
         }
         return new ArrayList<>(unique.values());
     }

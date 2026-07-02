@@ -416,7 +416,7 @@ public class CustomsDeclarationExportService
             setFormula(sheet, rowIndex, 4, "'Packing List '!D" + packingExcelRow);
             set(sheet, rowIndex, 5, quantityWeightText(item));
             setFormula(sheet, rowIndex, 6, "'合同'!G" + contractExcelRow + "&\"/\"&'合同'!H" + contractExcelRow + "&\"/\"&\"" + defaultValue(item.getCurrency(), "USD") + "\"");
-            set(sheet, rowIndex, 7, item.getOriginCountry());
+            set(sheet, rowIndex, 7, defaultValue(item.getOriginCountry(), "中国"));
             set(sheet, rowIndex, 8, item.getDestinationCountry());
             set(sheet, rowIndex, 10, item.getSourceLocation());
             set(sheet, rowIndex, 12, defaultValue(item.getExemption(), "照章"));

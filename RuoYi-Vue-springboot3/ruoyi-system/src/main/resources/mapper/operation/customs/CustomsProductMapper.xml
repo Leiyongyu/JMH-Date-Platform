@@ -78,7 +78,7 @@
         FROM customs_products_list
         WHERE
         <foreach collection="products" item="p" open="(" separator=" OR " close=")">
-            (sku = #{p.sku} AND IFNULL(source_location, '') = IFNULL(#{p.sourceLocation}, ''))
+            sku = #{p.sku}
         </foreach>
     </select>
 
