@@ -44,8 +44,14 @@ public class AmzFbaShipmentController extends BaseController
     public TableDataInfo search(@RequestBody EbayReplenishmentSearchRequest req)
     {
         PageHelper.startPage(req.getPageNum() != null ? req.getPageNum() : 1,
-                             req.getPageSize() != null ? req.getPageSize() : 20);
+                             req.getPageSize() != null ? req.getPageSize() : 20,
+                             false);
         List<AmzFbaShipment> list = fbaShipmentService.search(req);
-        return getDataTable(list);
+        TableDataInfo rspData = new TableDataInfo();
+        rspData.setCode(com.ruoyi.common.constant.HttpStatus.SUCCESS);
+        rspData.setMsg("查询成功");
+        rspData.setRows(list);
+        rspData.setTotal(fbaShipmentService.count(req));
+        return rspData;
     }
 }

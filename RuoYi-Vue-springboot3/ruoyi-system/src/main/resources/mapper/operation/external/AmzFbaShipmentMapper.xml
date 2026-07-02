@@ -110,7 +110,7 @@
         LEFT JOIN amz_fba_shipment_mark m ON s.msku = m.msku AND s.shipment_id = m.shipment_id
         <where>
             <if test="params.confirmed != null and params.confirmed != ''"> and COALESCE(m.confirmed, 0) = #{params.confirmed} </if>
-            and s.username IS NOT NULL and s.username != ''
+            <if test="params.username != null and params.username != ''"> and s.username like concat('%', #{params.username}, '%') </if>
             <if test="params.storeName != null and params.storeName != ''">
                 <choose>
                     <when test='params.storeName.contains(",")'>and sl.store_name in <foreach collection='params.storeName.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
@@ -177,6 +177,71 @@
             <when test="params.sortOrder == 'ascending'">asc</when>
             <otherwise>desc</otherwise>
         </choose>
+    </select>
+
+    <select id="searchCount" resultType="long">
+        SELECT COUNT(1)
+        FROM amz_fba_shipment s
+        <if test="params.storeName != null and params.storeName != ''">
+            LEFT JOIN shop_list sl ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = sl.sid AND sl.platform_code = '10001'
+        </if>
+        <if test="params.confirmed != null and params.confirmed != ''">
+            LEFT JOIN amz_fba_shipment_mark m ON s.msku = m.msku AND s.shipment_id = m.shipment_id
+        </if>
+        <where>
+            <if test="params.confirmed != null and params.confirmed != ''"> and COALESCE(m.confirmed, 0) = #{params.confirmed} </if>
+            <if test="params.username != null and params.username != ''"> and s.username like concat('%', #{params.username}, '%') </if>
+            <if test="params.storeName != null and params.storeName != ''">
+                <choose>
+                    <when test='params.storeName.contains(",")'>and sl.store_name in <foreach collection='params.storeName.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <otherwise>and sl.store_name like concat('%', #{params.storeName}, '%')</otherwise>
+                </choose>
+            </if>
+            <if test="params.shipmentId != null and params.shipmentId != ''"> and s.shipment_id like concat('%', #{params.shipmentId}, '%') </if>
+            <if test="params.sku != null and params.sku != ''"> and s.sku like concat('%', #{params.sku}, '%') </if>
+            <if test="params.msku != null and params.msku != ''"> and s.msku like concat('%', #{params.msku}, '%') </if>
+            <if test="params.shipmentStatus != null and params.shipmentStatus != ''"> and s.shipment_status = #{params.shipmentStatus} </if>
+            <if test="params.gmtCreateStart != null"> and s.gmt_create &gt;= #{params.gmtCreateStart} </if>
+            <if test="params.gmtCreateEnd != null"> and s.gmt_create &lt;= #{params.gmtCreateEnd} </if>
+            <if test="params.gmtModifiedStart != null"> and s.gmt_modified &gt;= #{params.gmtModifiedStart} </if>
+            <if test="params.gmtModifiedEnd != null"> and s.gmt_modified &lt;= #{params.gmtModifiedEnd} </if>
+            <if test="params.sid_op != null"><choose>
+                <when test="params.sid_op == 'between' and params.sid_val != null and params.sid_val2 != null"> and s.sid between #{params.sid_val} and #{params.sid_val2} </when>
+                <when test="params.sid_op == 'isNull'"> and s.sid is null </when>
+                <when test="params.sid_op == 'isNotNull'"> and s.sid is not null </when>
+                <when test="params.sid_val != null"> and s.sid ${params.sid_op} #{params.sid_val} </when>
+            </choose></if>
+            <if test="params.quantity_shipped_op != null"><choose>
+                <when test="params.quantity_shipped_op == 'between' and params.quantity_shipped_val != null and params.quantity_shipped_val2 != null"> and s.quantity_shipped between #{params.quantity_shipped_val} and #{params.quantity_shipped_val2} </when>
+                <when test="params.quantity_shipped_op == 'isNull'"> and s.quantity_shipped is null </when>
+                <when test="params.quantity_shipped_op == 'isNotNull'"> and s.quantity_shipped is not null </when>
+                <when test="params.quantity_shipped_val != null"> and s.quantity_shipped ${params.quantity_shipped_op} #{params.quantity_shipped_val} </when>
+            </choose></if>
+            <if test="params.quantity_received_op != null"><choose>
+                <when test="params.quantity_received_op == 'between' and params.quantity_received_val != null and params.quantity_received_val2 != null"> and s.quantity_received between #{params.quantity_received_val} and #{params.quantity_received_val2} </when>
+                <when test="params.quantity_received_op == 'isNull'"> and s.quantity_received is null </when>
+                <when test="params.quantity_received_op == 'isNotNull'"> and s.quantity_received is not null </when>
+                <when test="params.quantity_received_val != null"> and s.quantity_received ${params.quantity_received_op} #{params.quantity_received_val} </when>
+            </choose></if>
+            <if test="params.quantity_shipped_local_op != null"><choose>
+                <when test="params.quantity_shipped_local_op == 'between' and params.quantity_shipped_local_val != null and params.quantity_shipped_local_val2 != null"> and s.quantity_shipped_local between #{params.quantity_shipped_local_val} and #{params.quantity_shipped_local_val2} </when>
+                <when test="params.quantity_shipped_local_op == 'isNull'"> and s.quantity_shipped_local is null </when>
+                <when test="params.quantity_shipped_local_op == 'isNotNull'"> and s.quantity_shipped_local is not null </when>
+                <when test="params.quantity_shipped_local_val != null"> and s.quantity_shipped_local ${params.quantity_shipped_local_op} #{params.quantity_shipped_local_val} </when>
+            </choose></if>
+            <if test="params.init_quantity_shipped_op != null"><choose>
+                <when test="params.init_quantity_shipped_op == 'between' and params.init_quantity_shipped_val != null and params.init_quantity_shipped_val2 != null"> and s.init_quantity_shipped between #{params.init_quantity_shipped_val} and #{params.init_quantity_shipped_val2} </when>
+                <when test="params.init_quantity_shipped_op == 'isNull'"> and s.init_quantity_shipped is null </when>
+                <when test="params.init_quantity_shipped_op == 'isNotNull'"> and s.init_quantity_shipped is not null </when>
+                <when test="params.init_quantity_shipped_val != null"> and s.init_quantity_shipped ${params.init_quantity_shipped_op} #{params.init_quantity_shipped_val} </when>
+            </choose></if>
+            <if test="params.declared_diff_op != null"><choose>
+                <when test="params.declared_diff_op == 'between' and params.declared_diff_val != null and params.declared_diff_val2 != null"> and s.declared_diff between #{params.declared_diff_val} and #{params.declared_diff_val2} </when>
+                <when test="params.declared_diff_op == 'isNull'"> and s.declared_diff is null </when>
+                <when test="params.declared_diff_op == 'isNotNull'"> and s.declared_diff is not null </when>
+                <when test="params.declared_diff_val != null"> and s.declared_diff ${params.declared_diff_op} #{params.declared_diff_val} </when>
+            </choose></if>
+        </where>
     </select>
 
     <select id="selectDistinctSidShipment" resultType="map">

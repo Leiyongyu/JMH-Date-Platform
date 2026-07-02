@@ -7,4 +7,6 @@ import java.util.List;
 public interface IAmzFbaShipmentService
 {
     List<AmzFbaShipment> search(EbayReplenishmentSearchRequest req);
+
+    long count(EbayReplenishmentSearchRequest req);
 }

@@ -41,6 +41,12 @@ public class AmzFbaShipmentServiceImpl implements IAmzFbaShipmentService
         return mapper.search(buildParams(req));
     }
 
+    @Override
+    public long count(EbayReplenishmentSearchRequest req)
+    {
+        return mapper.searchCount(buildParams(req));
+    }
+
     private Map<String, Object> buildParams(EbayReplenishmentSearchRequest req)
     {
         Map<String, Object> p = new HashMap<>();

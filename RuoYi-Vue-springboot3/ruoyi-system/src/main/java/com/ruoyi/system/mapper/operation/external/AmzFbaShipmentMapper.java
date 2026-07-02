@@ -24,6 +24,9 @@ public interface AmzFbaShipmentMapper
     /** 增强搜索 */
     List<AmzFbaShipment> search(@Param("params") Map<String, Object> params);
 
+    /** 增强搜索总数 */
+    long searchCount(@Param("params") Map<String, Object> params);
+
     /** 去重 sid + shipment_id（用于装箱信息同步） */
     List<Map<String, Object>> selectDistinctSidShipment();
 
