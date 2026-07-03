@@ -11,12 +11,19 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 @Service
 public class LingxingOpenApiClient
 {
+    private static final Logger LOG = LoggerFactory.getLogger(LingxingOpenApiClient.class);
+    private static final int MAX_RETRIES = 3;
+    private static final long RETRY_BASE_DELAY_MS = 1000;
+
     private final LingxingProperties properties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -76,42 +83,76 @@ public class LingxingOpenApiClient
         String jsonBody = body != null ? objectMapper.writeValueAsString(body) : "{}";
         URI uri = buildUri(path, queryParams);
 
-        HttpRequest request = HttpRequest.newBuilder(uri)
+        return execute(() -> HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofMillis(properties.getReadTimeout()))
                 .header("Content-Type", "application/json;charset=UTF-8")
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
-                .build();
-        return execute(request);
+                .build());
     }
 
     public Map<String, Object> postForm(String path, Map<String, String> query) throws Exception
     {
         URI uri = buildUri(path, query);
-        HttpRequest request = HttpRequest.newBuilder(uri)
+        return execute(() -> HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofMillis(properties.getReadTimeout()))
                 .POST(HttpRequest.BodyPublishers.noBody())
-                .build();
-        return execute(request);
+                .build());
     }
 
     public Map<String, Object> postJson(String path, Map<String, Object> body) throws Exception
     {
-        HttpRequest request = HttpRequest.newBuilder(buildUri(path, null))
+        URI uri = buildUri(path, null);
+        byte[] bodyBytes = objectMapper.writeValueAsBytes(body);
+        return execute(() -> HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofMillis(properties.getReadTimeout()))
                 .header("Content-Type", "application/json;charset=UTF-8")
-                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
-                .build();
-        return execute(request);
+                .POST(HttpRequest.BodyPublishers.ofByteArray(bodyBytes))
+                .build());
     }
 
-    private Map<String, Object> execute(HttpRequest request) throws Exception
+    /**
+     * Execute with retry on 5xx and I/O errors. {@code requestSupplier} is called
+     * on every retry to produce a fresh {@link HttpRequest} (BodyPublisher is single-use).
+     */
+    private Map<String, Object> execute(Supplier<HttpRequest> requestSupplier) throws Exception
     {
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (response.statusCode() < 200 || response.statusCode() >= 300)
+        Exception lastEx = null;
+        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++)
         {
-            throw new IllegalStateException("Lingxing HTTP " + response.statusCode() + ": " + response.body());
+            if (attempt > 0)
+            {
+                long delay = RETRY_BASE_DELAY_MS * (1L << (attempt - 1)); // 1s, 2s, 4s
+                LOG.warn("Lingxing API retry {}/{} after {}ms", attempt, MAX_RETRIES, delay);
+                Thread.sleep(delay);
+            }
+            HttpRequest request = requestSupplier.get();
+            try
+            {
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                int code = response.statusCode();
+                if (code >= 200 && code < 300)
+                {
+                    return objectMapper.readValue(response.body(), new TypeReference<Map<String, Object>>() {});
+                }
+                // 4xx = client error, don't retry
+                if (code >= 400 && code < 500)
+                {
+                    throw new IllegalStateException("Lingxing HTTP " + code + ": " + response.body());
+                }
+                lastEx = new IllegalStateException("Lingxing HTTP " + code + ": " + response.body());
+                LOG.warn("Lingxing API returned {} (attempt {}/{})", code, attempt + 1, MAX_RETRIES + 1);
+            }
+            catch (IllegalStateException e)
+            {
+                throw e; // 4xx — rethrow immediately
+            }
+            catch (Exception e)
+            {
+                lastEx = e;
+                LOG.warn("Lingxing API I/O error (attempt {}/{}): {}", attempt + 1, MAX_RETRIES + 1, e.getMessage());
+            }
         }
-        return objectMapper.readValue(response.body(), new TypeReference<Map<String, Object>>() {});
+        throw lastEx != null ? lastEx : new IllegalStateException("Lingxing API retry exhausted");
     }
 
     private URI buildUri(String path, Map<String, String> query)

@@ -72,11 +72,7 @@ public class LingxingInventorySyncService
 
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> getList(Map<String, Object> r, String k)
-    {
-        Object o = r.get(k);
-        if (o instanceof List) return (List<Map<String, Object>>) o;
-        try { return om.convertValue(o, new TypeReference<List<Map<String, Object>>>() {}); } catch (Exception e) { return new ArrayList<>(); }
-    }
+    { if (r == null) return new ArrayList<>(); Object o = r.get(k); if (o instanceof List) return (List<Map<String, Object>>) o; try { List<Map<String, Object>> result = om.convertValue(o, new TypeReference<List<Map<String, Object>>>() {}); return result != null ? result : new ArrayList<>(); } catch (Exception e) { return new ArrayList<>(); } }
     private String str(Map<String, Object> m, String... ks)
     { for (String k : ks) { Object v = m.get(k); if (v != null && StringUtils.hasText(v.toString())) return v.toString(); } return null; }
     private int intVal(Map<String, Object> m, String... ks)

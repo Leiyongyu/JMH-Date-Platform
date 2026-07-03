@@ -4,7 +4,10 @@ import com.ruoyi.common.utils.Threads;
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -15,6 +18,8 @@ import java.util.concurrent.ThreadPoolExecutor;
  * @author ruoyi
  **/
 @Configuration
+@EnableAsync
+@EnableScheduling
 public class ThreadPoolConfig
 {
     // 核心线程池大小
@@ -59,5 +64,20 @@ public class ThreadPoolConfig
                 Threads.printException(r, t);
             }
         };
+    }
+
+    /** Dedicated executor for long-running sync/import/export async tasks. */
+    @Bean(name = "syncTaskExecutor")
+    public Executor syncTaskExecutor()
+    {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(8);
+        executor.setQueueCapacity(50);
+        executor.setKeepAliveSeconds(120);
+        executor.setThreadNamePrefix("sync-task-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
     }
 }

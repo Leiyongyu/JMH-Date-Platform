@@ -166,13 +166,8 @@ public class LingxingEbaySyncService
     }
 
     @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> getList(Map<String, Object> resp, String key)
-    {
-        Object o = resp.get(key);
-        if (o instanceof List) return (List<Map<String, Object>>) o;
-        try { return objectMapper.convertValue(o, new TypeReference<List<Map<String, Object>>>() {}); }
-        catch (Exception e) { return new ArrayList<>(); }
-    }
+    private List<Map<String, Object>> getList(Map<String, Object> r, String k)
+    { if (r == null) return new ArrayList<>(); Object o = r.get(k); if (o instanceof List) return (List<Map<String, Object>>) o; try { List<Map<String, Object>> result = objectMapper.convertValue(o, new TypeReference<List<Map<String, Object>>>() {}); return result != null ? result : new ArrayList<>(); } catch (Exception e) { return new ArrayList<>(); } }
 
     private String getString(Map<String, Object> m, String... keys)
     {

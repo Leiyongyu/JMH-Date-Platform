@@ -275,6 +275,7 @@ import { ElMessageBox } from 'element-plus'
 import { Filter, Delete } from '@element-plus/icons-vue'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
+import { useTaskPoller } from '@/composables/useTaskPoller'
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
@@ -542,18 +543,30 @@ async function handleRefresh() {
 }
 
 const syncing = ref(false)
+const { startPolling } = useTaskPoller()
 
 async function handleSyncAll() {
   if (syncing.value) { proxy.$modal.msgWarning('eBay数据同步正在执行中，请稍后再试'); return }
   syncing.value = true
   try {
     const res = await syncEbayAll()
-    if (res.code === 200) proxy.$modal.msgSuccess('拉取完成')
-    else proxy.$modal.msgError(res.msg || '拉取失败')
-    await getList()
+    if (res.code !== 200) { proxy.$modal.msgError(res.msg || '提交失败'); syncing.value = false; return }
+    const sid = res.data?.submissionId || (res.data && res.data.submissionId)
+    if (!sid) { proxy.$modal.msgError('未获取到任务ID'); syncing.value = false; return }
+    proxy.$modal.msgSuccess('eBay同步任务已提交，正在后台执行…')
+    startPolling(sid, (result) => {
+      syncing.value = false
+      getList()
+      if (result.status === 'SUCCESS') {
+        proxy.$modal.msgSuccess(`eBay同步完成: ${result.successSteps || '?'}/${result.totalSteps || '?'} 步成功`)
+      } else if (result.status === 'PARTIAL') {
+        proxy.$modal.msgWarning(`eBay同步部分完成: ${result.successSteps || '?'}/${result.totalSteps || '?'} 步成功, 查看同步日志了解详情`)
+      } else {
+        proxy.$modal.msgError('eBay同步失败: ' + (result.errorMessage || '未知错误'))
+      }
+    })
   } catch (e) {
-    proxy.$modal.msgError('拉取失败: ' + (e.message || e))
-  } finally {
+    proxy.$modal.msgError('提交失败: ' + (e.message || e))
     syncing.value = false
   }
 }

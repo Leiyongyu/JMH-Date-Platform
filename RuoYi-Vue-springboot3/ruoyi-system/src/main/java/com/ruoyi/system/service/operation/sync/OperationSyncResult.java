@@ -1,5 +1,6 @@
 package com.ruoyi.system.service.operation.sync;
 
+import com.ruoyi.system.domain.operation.TaskStatus;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -8,14 +9,15 @@ import java.util.List;
  */
 public class OperationSyncResult
 {
-    public static final String STATUS_RUNNING = "RUNNING";
-    public static final String STATUS_SUCCESS = "SUCCESS";
-    public static final String STATUS_PARTIAL = "PARTIAL";
-    public static final String STATUS_PARTIAL_SUCCESS = "PARTIAL_SUCCESS";
-    public static final String STATUS_FAILED = "FAILED";
-    public static final String STATUS_TIMEOUT = "TIMEOUT";
-    public static final String STATUS_CANCELLED = "CANCELLED";
-    public static final String STATUS_SKIPPED = "SKIPPED";
+    // Backward-compatible string constants (mapped to TaskStatus)
+    public static final String STATUS_RUNNING = TaskStatus.RUNNING.getValue();
+    public static final String STATUS_SUCCESS = TaskStatus.SUCCESS.getValue();
+    public static final String STATUS_PARTIAL = TaskStatus.PARTIAL.getValue();
+    public static final String STATUS_PARTIAL_SUCCESS = TaskStatus.PARTIAL.getValue();
+    public static final String STATUS_FAILED = TaskStatus.FAILED.getValue();
+    public static final String STATUS_TIMEOUT = TaskStatus.FAILED.getValue();
+    public static final String STATUS_CANCELLED = TaskStatus.CANCELLED.getValue();
+    public static final String STATUS_SKIPPED = TaskStatus.SKIPPED.getValue();
 
     private String syncType;
     private String syncName;

@@ -7,7 +7,8 @@
       <el-form-item label="状态" prop="status">
         <el-select v-model="queryParams.status" clearable style="width:140px">
           <el-option label="成功" value="SUCCESS"/><el-option label="失败" value="FAILED"/>
-          <el-option label="部分成功" value="PARTIAL_SUCCESS"/><el-option label="执行中" value="RUNNING"/>
+          <el-option label="部分成功" value="PARTIAL"/><el-option label="部分成功(旧)" value="PARTIAL_SUCCESS"/>
+          <el-option label="执行中" value="RUNNING"/><el-option label="等待中" value="PENDING"/>
         </el-select>
       </el-form-item>
       <el-form-item label="触发方式" prop="triggerType">
@@ -21,7 +22,7 @@
       <el-table-column label="ID" prop="id" width="70"/>
       <el-table-column label="同步名称" prop="syncName" min-width="160"/>
       <el-table-column label="状态" width="100"><template #default="{row}">
-        <el-tag :type="row.status==='SUCCESS'?'success':row.status==='FAILED'?'danger':row.status==='RUNNING'?'warning':'info'">{{ row.status }}</el-tag>
+        <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
       </template></el-table-column>
       <el-table-column label="触发" prop="triggerType" width="60"/>
       <el-table-column label="成功/总数" width="100"><template #default="{row}">{{ row.successCount }}/{{ row.totalCount }}</template></el-table-column>
@@ -52,19 +53,46 @@
 </template>
 
 <script setup name="SyncLog">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onUnmounted } from 'vue'
 import { listSyncLog, getSyncLogDetail } from '@/api/operations/syncLog'
 const { proxy } = getCurrentInstance()
 const loading = ref(false); const showSearch = ref(true); const total = ref(0)
 const list = ref([]); const detailVisible = ref(false); const detail = ref({})
 const queryParams = reactive({ pageNum:1, pageSize:10, syncType:'', status:'', triggerType:'' })
+let autoRefreshTimer = null
+
+function statusTagType(status) {
+  const map = { SUCCESS: 'success', FAILED: 'danger', RUNNING: 'warning', PENDING: 'info', PARTIAL: '' }
+  if (status === 'PARTIAL' || status === 'PARTIAL_SUCCESS') return ''
+  return map[status] || 'info'
+}
+
 function getList() {
   loading.value = true
-  listSyncLog(queryParams).then(r => { list.value = r.rows; total.value = r.total }).finally(() => loading.value = false)
+  listSyncLog(queryParams).then(r => { list.value = r.rows; total.value = r.total; scheduleAutoRefresh(r.rows) })
+    .finally(() => loading.value = false)
 }
+
+/** Auto-refresh every 5s if any task is still running/pending. */
+function scheduleAutoRefresh(rows) {
+  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null }
+  const hasRunning = rows && rows.some(r => r.status === 'RUNNING' || r.status === 'PENDING')
+  if (hasRunning) {
+    autoRefreshTimer = setInterval(() => {
+      listSyncLog(queryParams).then(r => {
+        list.value = r.rows; total.value = r.total
+        if (!r.rows || !r.rows.some(row => row.status === 'RUNNING' || row.status === 'PENDING')) {
+          if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null }
+        }
+      }).catch(() => {})
+    }, 5000)
+  }
+}
+
 function handleQuery() { queryParams.pageNum = 1; getList() }
 function handleRowClick(row) {
   getSyncLogDetail(row.id).then(r => { detail.value = r.data; detailVisible.value = true })
 }
 getList()
+onUnmounted(() => { if (autoRefreshTimer) clearInterval(autoRefreshTimer) })
 </script>

@@ -4,18 +4,21 @@ import com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentOption;
 import com.ruoyi.system.domain.operation.customs.CustomsDeclarationItem;
 import com.ruoyi.system.domain.operation.customs.CustomsProduct;
 import com.ruoyi.system.domain.operation.customs.CustomsStockOrderOption;
+import com.ruoyi.common.utils.html.EscapeUtil;
 import com.ruoyi.system.mapper.operation.customs.CustomsProductMapper;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.Row;
@@ -24,6 +27,7 @@ import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
@@ -195,6 +199,7 @@ public class CustomsProductService
         return result;
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> importHistory(MultipartFile file) throws Exception
     {
         checkFile(file);
@@ -212,7 +217,9 @@ public class CustomsProductService
                 if (sku.isEmpty()) continue;
                 try
                 {
-                    parsed.add(parseHistoryRow(row, sku));
+                    CustomsProduct product = parseHistoryRow(row, sku);
+                    sanitizeProduct(product);
+                    parsed.add(product);
                 }
                 catch (Exception e)
                 {
@@ -222,21 +229,44 @@ public class CustomsProductService
         }
         if (parsed.isEmpty() && errors.isEmpty()) throw new IllegalArgumentException("未读取到可导入的商品数据");
 
+        // All rows failed parsing — return errors without touching the DB
+        if (parsed.isEmpty())
+        {
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("inserted", 0);
+            result.put("updated", 0);
+            result.put("failed", errors.size());
+            result.put("errors", errors);
+            return result;
+        }
+
+        // Batch-check existing SKUs (1 DB call instead of N)
+        Set<String> existingSkus = new HashSet<>();
+        List<String> allSkus = parsed.stream().map(CustomsProduct::getSku).distinct().collect(Collectors.toList());
+        if (!allSkus.isEmpty())
+        {
+            for (CustomsProduct p : productMapper.selectBySkus(allSkus))
+            {
+                existingSkus.add(p.getSku());
+            }
+        }
+
         int inserted = 0;
         int updated = 0;
-        for (CustomsProduct product : parsed)
+        try
         {
-            try
+            // Batch upsert (already internally split into 500-size chunks)
+            batchUpsert(parsed);
+            for (CustomsProduct product : parsed)
             {
-                boolean exists = productMapper.selectBySku(product.getSku()) != null;
-                productMapper.batchUpsert(List.of(product));
-                if (exists) updated++;
+                if (existingSkus.contains(product.getSku())) updated++;
                 else inserted++;
             }
-            catch (Exception e)
-            {
-                errors.add(product.getSku() + "：" + e.getMessage());
-            }
+        }
+        catch (Exception e)
+        {
+            errors.add("批量写入失败：" + e.getMessage());
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("inserted", inserted);
@@ -274,6 +304,7 @@ public class CustomsProductService
         for (CustomsProduct product : products)
         {
             validateProduct(product);
+            sanitizeProduct(product);
             product.setSku(product.getSku().trim());
             product.setSourceLocation(trim(product.getSourceLocation()));
             product.setOriginCountry(defaultValue(product.getOriginCountry(), "中国"));
@@ -407,6 +438,17 @@ public class CustomsProductService
             throw new IllegalArgumentException(product.getSku() + " 单价不能小于0");
         if (product.getSingleWeight() != null && product.getSingleWeight().signum() < 0)
             throw new IllegalArgumentException(product.getSku() + " 单重不能小于0");
+    }
+
+    /** Sanitize free-text fields against XSS before persisting. */
+    private void sanitizeProduct(CustomsProduct product)
+    {
+        if (product.getDescriptionCn() != null) product.setDescriptionCn(EscapeUtil.clean(product.getDescriptionCn()));
+        if (product.getHsDescription() != null) product.setHsDescription(EscapeUtil.clean(product.getHsDescription()));
+        if (product.getModel() != null) product.setModel(EscapeUtil.clean(product.getModel()));
+        if (product.getExemption() != null) product.setExemption(EscapeUtil.clean(product.getExemption()));
+        if (product.getSourceLocation() != null) product.setSourceLocation(EscapeUtil.clean(product.getSourceLocation()));
+        if (product.getUnit() != null) product.setUnit(EscapeUtil.clean(product.getUnit()));
     }
 
     private void checkFile(MultipartFile file)
