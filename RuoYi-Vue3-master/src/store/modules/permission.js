@@ -108,6 +108,9 @@ export function filterDynamicRoutes(routes) {
       if (auth.hasRoleOr(route.roles)) {
         res.push(route)
       }
+    } else {
+      // 无权限声明的路由直接放行
+      res.push(route)
     }
   })
   return res

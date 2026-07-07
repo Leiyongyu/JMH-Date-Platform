@@ -17,7 +17,8 @@ import com.ruoyi.system.mapper.operation.AmzReplenishmentSnapshotMapper;
  *   ship_qty           = ROUND(weightedDailySales * 90, 2) - (fba_stock + fba_inbound)
  *   replenish_qty      = ROUND(weightedDailySales * 120, 2) - purchased_qty - domestic_stock - (fba_stock + fba_inbound) - pending_ship
  *   restock_days       = ROUND((total_inventory - replenish_qty) / NULLIF(weightedDailySales, 0), 2)
- *   total_inventory    = fba_sellable + fba_inbound
+ *   fba_stock          = FBA可售 + 待调仓 + 入库中 + FBA预留
+ *   total_inventory    = fba_stock + fba_inbound
  */
 @Service
 public class AmzReplenishmentComputeService

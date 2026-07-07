@@ -17,8 +17,14 @@ node_modules/
 Thumbs.db
 
 *.local
+.env
 .env.local
 .env.*.local
+
+__pycache__/
+*.py[cod]
+.venv/
+logs/
 
 RuoYi-Vue-springboot3/**/target/
 RuoYi-Vue-springboot3/ruoyi-ui/
