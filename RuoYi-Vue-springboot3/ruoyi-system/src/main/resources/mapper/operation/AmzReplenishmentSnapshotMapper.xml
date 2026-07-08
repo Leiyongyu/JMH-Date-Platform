@@ -64,7 +64,8 @@
     </sql>
 
     <sql id="amzPendingDeductExpr">
-        (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_inbound_working),1) = 1 THEN COALESCE(MAX(pi.fba_inbound_working),0) ELSE 0 END)
+        (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_pending_ship_qty),1) = 1 THEN COALESCE(MAX(wd.product_lock_num),0) ELSE 0 END
+        + CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_inbound_working),0) = 1 THEN COALESCE(MAX(pi.fba_inbound_working),0) ELSE 0 END)
     </sql>
 
     <sql id="amzRawReplenishExpr">
@@ -219,7 +220,8 @@
                                 (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_purchased_qty),1) = 1 THEN COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) ELSE 0 END) AS purchased_deduct,
                                 (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_stock),1) = 1 THEN COALESCE(MAX(pi.fba_stock),0) ELSE 0 END
                                     + CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_inbound),1) = 1 THEN COALESCE(MAX(pi.fba_inbound),0) ELSE 0 END) AS fba_deduct,
-                                (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_inbound_working),1) = 1 THEN COALESCE(MAX(pi.fba_inbound_working),0) ELSE 0 END) AS pending_deduct,
+                                (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_pending_ship_qty),1) = 1 THEN COALESCE(MAX(wd.product_lock_num),0) ELSE 0 END
+                                    + CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_inbound_working),0) = 1 THEN COALESCE(MAX(pi.fba_inbound_working),0) ELSE 0 END) AS pending_deduct,
                                 ANY_VALUE(COALESCE(fc.region_group, 'US')) AS region_group,
                                 ANY_VALUE(pl.small_image_url) AS image_url
                             FROM amz_product_listing pl
