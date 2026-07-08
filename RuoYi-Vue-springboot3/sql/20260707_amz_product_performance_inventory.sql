@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS amz_product_performance_inventory (
   fba_receiving INT NOT NULL DEFAULT 0 COMMENT 'FBA入库中',
   fba_reserved INT NOT NULL DEFAULT 0 COMMENT 'FBA预留：待发货+调仓中',
   fba_inbound INT NOT NULL DEFAULT 0 COMMENT 'FBA在途',
+  fba_inbound_working INT NOT NULL DEFAULT 0 COMMENT 'FBA计划入库',
   fba_stock INT NOT NULL DEFAULT 0 COMMENT 'FBA在库：可售+待调仓+入库中+预留',
   sync_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '同步时间',
   PRIMARY KEY (id),

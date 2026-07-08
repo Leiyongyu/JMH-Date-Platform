@@ -72,6 +72,9 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     @Excel(name = "FBA在途")
     private Integer fbaInbound;
 
+    @Excel(name = "FBA计划入库")
+    private Integer fbaInboundWorking;
+
     @Excel(name = "总库存")
     private Integer totalInventory;
 
@@ -164,6 +167,8 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     public void setFbaStock(Integer fbaStock) { this.fbaStock = fbaStock; }
     public Integer getFbaInbound() { return fbaInbound; }
     public void setFbaInbound(Integer fbaInbound) { this.fbaInbound = fbaInbound; }
+    public Integer getFbaInboundWorking() { return fbaInboundWorking; }
+    public void setFbaInboundWorking(Integer fbaInboundWorking) { this.fbaInboundWorking = fbaInboundWorking; }
     public Integer getTotalInventory() { return totalInventory; }
     public void setTotalInventory(Integer totalInventory) { this.totalInventory = totalInventory; }
     public Integer getSales7d() { return sales7d; }

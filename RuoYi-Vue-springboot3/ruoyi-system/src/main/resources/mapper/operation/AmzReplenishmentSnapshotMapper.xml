@@ -25,6 +25,7 @@
         <result property="pendingShipQty" column="pending_ship_qty" />
         <result property="fbaStock" column="fba_stock" />
         <result property="fbaInbound" column="fba_inbound" />
+        <result property="fbaInboundWorking" column="fba_inbound_working" />
         <result property="totalInventory" column="total_inventory" />
         <result property="sales7d" column="sales_7d" />
         <result property="sales14d" column="sales_14d" />
@@ -63,7 +64,7 @@
     </sql>
 
     <sql id="amzPendingDeductExpr">
-        (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_pending_ship_qty),1) = 1 THEN COALESCE(MAX(wd.product_lock_num),0) ELSE 0 END)
+        (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_inbound_working),1) = 1 THEN COALESCE(MAX(pi.fba_inbound_working),0) ELSE 0 END)
     </sql>
 
     <sql id="amzRawReplenishExpr">
@@ -109,7 +110,7 @@
         INSERT INTO amz_replenishment_snapshot (
             sid, seller_sku, warehouse_sku, warehouse_name, asin, tag_name, principal_name, store_name,
             price, product_category, rating, review_count, ad_rate, profit_rate_30d, refund_rate_90d,
-            purchased_qty, domestic_stock, pending_ship_qty, fba_stock, fba_inbound, total_inventory,
+            purchased_qty, domestic_stock, pending_ship_qty, fba_stock, fba_inbound, fba_inbound_working, total_inventory,
             sales_7d, sales_14d, sales_30d, sales_60d,
             sales_speed_14d, sales_speed_30d, sales_speed_60d,
             avg_monthly_sales, safety_stock, ship_qty, replenish_qty, restock_days,
@@ -120,7 +121,7 @@
             final.tag_name, final.principal_name, final.store_name, final.price,
             final.product_category, final.rating, final.review_count, final.ad_rate, final.profit_rate_30d, final.refund_rate_90d,
             final.purchased_qty, final.domestic_stock, final.pending_ship_qty, final.fba_stock,
-            final.fba_inbound, final.total_inventory,
+            final.fba_inbound, final.fba_inbound_working, final.total_inventory,
             final.sales_7d, final.sales_14d, final.sales_30d, final.sales_60d,
             final.sales_speed_14d, final.sales_speed_30d, final.sales_speed_60d,
             final.avg_monthly_sales, final.safety_stock, final.ship_qty,
@@ -194,6 +195,7 @@
                                 COALESCE(MAX(wd.product_lock_num), 0) AS pending_ship_qty,
                                 COALESCE(MAX(pi.fba_stock), 0) AS fba_stock,
                                 COALESCE(MAX(pi.fba_inbound), 0) AS fba_inbound,
+                                COALESCE(MAX(pi.fba_inbound_working), 0) AS fba_inbound_working,
                                 COALESCE(MAX(pi.fba_stock), 0) + COALESCE(MAX(pi.fba_inbound), 0) AS total_inventory,
                                 COALESCE(MAX(rs.sales_7d), 0) AS sales_7d,
                                 COALESCE(MAX(rs.sales_14d), 0) AS sales_14d,
@@ -217,7 +219,7 @@
                                 (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_purchased_qty),1) = 1 THEN COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) ELSE 0 END) AS purchased_deduct,
                                 (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_stock),1) = 1 THEN COALESCE(MAX(pi.fba_stock),0) ELSE 0 END
                                     + CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_inbound),1) = 1 THEN COALESCE(MAX(pi.fba_inbound),0) ELSE 0 END) AS fba_deduct,
-                                (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_pending_ship_qty),1) = 1 THEN COALESCE(MAX(wd.product_lock_num),0) ELSE 0 END) AS pending_deduct,
+                                (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_inbound_working),1) = 1 THEN COALESCE(MAX(pi.fba_inbound_working),0) ELSE 0 END) AS pending_deduct,
                                 ANY_VALUE(COALESCE(fc.region_group, 'US')) AS region_group,
                                 ANY_VALUE(pl.small_image_url) AS image_url
                             FROM amz_product_listing pl
@@ -256,7 +258,7 @@
                s.refund_rate_90d, s.tag_name,
                s.purchased_qty AS purchased_qty,
                s.domestic_stock, s.pending_ship_qty, s.fba_stock,
-               s.fba_inbound, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,
+               s.fba_inbound, s.fba_inbound_working, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,
                s.sales_speed_14d, s.sales_speed_30d, s.sales_speed_60d, s.avg_monthly_sales,
                s.safety_stock, s.ship_qty, s.replenish_qty, s.restock_days,
                s.region_group, s.calc_time
@@ -409,6 +411,16 @@
                     <when test="fba_inbound_op == 'isNull'"> and fba_inbound is null </when>
                     <when test="fba_inbound_op == 'isNotNull'"> and fba_inbound is not null </when>
                     <when test="fba_inbound_val != null"> and fba_inbound ${fba_inbound_op} #{fba_inbound_val} </when>
+                </choose>
+            </if>
+            <if test="fba_inbound_working_op != null">
+                <choose>
+                    <when test="fba_inbound_working_op == 'between' and fba_inbound_working_val != null and fba_inbound_working_val2 != null">
+                        and fba_inbound_working between #{fba_inbound_working_val} and #{fba_inbound_working_val2}
+                    </when>
+                    <when test="fba_inbound_working_op == 'isNull'"> and fba_inbound_working is null </when>
+                    <when test="fba_inbound_working_op == 'isNotNull'"> and fba_inbound_working is not null </when>
+                    <when test="fba_inbound_working_val != null"> and fba_inbound_working ${fba_inbound_working_op} #{fba_inbound_working_val} </when>
                 </choose>
             </if>
             <if test="total_inventory_op != null">
@@ -635,6 +647,7 @@
             <if test="pending_ship_qty_op != null"><choose><when test="pending_ship_qty_op == 'between' and pending_ship_qty_val != null and pending_ship_qty_val2 != null">and pending_ship_qty between #{pending_ship_qty_val} and #{pending_ship_qty_val2}</when><when test="pending_ship_qty_op == 'isNull'"> and pending_ship_qty is null </when><when test="pending_ship_qty_op == 'isNotNull'"> and pending_ship_qty is not null </when><when test="pending_ship_qty_val != null"> and pending_ship_qty ${pending_ship_qty_op} #{pending_ship_qty_val} </when></choose></if>
             <if test="fba_stock_op != null"><choose><when test="fba_stock_op == 'between' and fba_stock_val != null and fba_stock_val2 != null">and fba_stock between #{fba_stock_val} and #{fba_stock_val2}</when><when test="fba_stock_op == 'isNull'"> and fba_stock is null </when><when test="fba_stock_op == 'isNotNull'"> and fba_stock is not null </when><when test="fba_stock_val != null"> and fba_stock ${fba_stock_op} #{fba_stock_val} </when></choose></if>
             <if test="fba_inbound_op != null"><choose><when test="fba_inbound_op == 'between' and fba_inbound_val != null and fba_inbound_val2 != null">and fba_inbound between #{fba_inbound_val} and #{fba_inbound_val2}</when><when test="fba_inbound_op == 'isNull'"> and fba_inbound is null </when><when test="fba_inbound_op == 'isNotNull'"> and fba_inbound is not null </when><when test="fba_inbound_val != null"> and fba_inbound ${fba_inbound_op} #{fba_inbound_val} </when></choose></if>
+            <if test="fba_inbound_working_op != null"><choose><when test="fba_inbound_working_op == 'between' and fba_inbound_working_val != null and fba_inbound_working_val2 != null">and fba_inbound_working between #{fba_inbound_working_val} and #{fba_inbound_working_val2}</when><when test="fba_inbound_working_op == 'isNull'"> and fba_inbound_working is null </when><when test="fba_inbound_working_op == 'isNotNull'"> and fba_inbound_working is not null </when><when test="fba_inbound_working_val != null"> and fba_inbound_working ${fba_inbound_working_op} #{fba_inbound_working_val} </when></choose></if>
             <if test="total_inventory_op != null"><choose><when test="total_inventory_op == 'between' and total_inventory_val != null and total_inventory_val2 != null">and total_inventory between #{total_inventory_val} and #{total_inventory_val2}</when><when test="total_inventory_op == 'isNull'"> and total_inventory is null </when><when test="total_inventory_op == 'isNotNull'"> and total_inventory is not null </when><when test="total_inventory_val != null"> and total_inventory ${total_inventory_op} #{total_inventory_val} </when></choose></if>
             <if test="sales_7d_op != null"><choose><when test="sales_7d_op == 'between' and sales_7d_val != null and sales_7d_val2 != null">and sales_7d between #{sales_7d_val} and #{sales_7d_val2}</when><when test="sales_7d_op == 'isNull'"> and sales_7d is null </when><when test="sales_7d_op == 'isNotNull'"> and sales_7d is not null </when><when test="sales_7d_val != null"> and sales_7d ${sales_7d_op} #{sales_7d_val} </when></choose></if>
             <if test="sales_14d_op != null"><choose><when test="sales_14d_op == 'between' and sales_14d_val != null and sales_14d_val2 != null">and sales_14d between #{sales_14d_val} and #{sales_14d_val2}</when><when test="sales_14d_op == 'isNull'"> and sales_14d is null </when><when test="sales_14d_op == 'isNotNull'"> and sales_14d is not null </when><when test="sales_14d_val != null"> and sales_14d ${sales_14d_op} #{sales_14d_val} </when></choose></if>
@@ -665,7 +678,7 @@
                s.refund_rate_90d, s.tag_name,
                s.purchased_qty AS purchased_qty,
                s.domestic_stock, s.pending_ship_qty, s.fba_stock,
-               s.fba_inbound, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,
+               s.fba_inbound, s.fba_inbound_working, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,
                s.sales_speed_14d, s.sales_speed_30d, s.sales_speed_60d, s.avg_monthly_sales,
                s.safety_stock, s.ship_qty, s.replenish_qty, s.restock_days, s.calc_time
         FROM amz_replenishment_snapshot s
@@ -698,6 +711,7 @@
             <when test="sortField == 'pendingShipQty'">order by pending_ship_qty</when>
             <when test="sortField == 'fbaStock'">order by fba_stock</when>
             <when test="sortField == 'fbaInbound'">order by fba_inbound</when>
+            <when test="sortField == 'fbaInboundWorking'">order by fba_inbound_working</when>
             <when test="sortField == 'totalInventory'">order by total_inventory</when>
             <when test="sortField == 'sales7d'">order by sales_7d</when>
             <when test="sortField == 'sales14d'">order by sales_14d</when>

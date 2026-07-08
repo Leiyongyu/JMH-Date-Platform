@@ -449,6 +449,7 @@ const columnDefs = [
   { key: 'pendingShipQty', label: '待出库', align: 'right', width: 95, sortable: true, filterType: 'number' },
   { key: 'fbaStock', label: 'FBA在库', align: 'right', width: 105, sortable: true, filterType: 'number' },
   { key: 'fbaInbound', label: 'FBA在途', align: 'right', width: 105, sortable: true, filterType: 'number' },
+  { key: 'fbaInboundWorking', label: 'FBA计划入库', align: 'right', width: 125, sortable: true, filterType: 'number' },
   { key: 'totalInventory', label: '总库存', align: 'right', width: 105, sortable: true, filterType: 'number' },
   { key: 'sales7d', label: '7天销量', align: 'right', width: 95, sortable: true, format: 'number', filterType: 'number' },
   { key: 'sales14d', label: '14天销量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
@@ -499,7 +500,7 @@ const regionGroup = ref('')
 
 function handleRegionChange() { bdCache = {}; queryParams.value.pageNum = 1; getList() }
 
-const summaryFields = ['reviewCount','sales7d','sales14d','sales30d','sales60d','fbaStock','fbaInbound']
+const summaryFields = ['reviewCount','sales7d','sales14d','sales30d','sales60d','fbaStock','fbaInbound','fbaInboundWorking']
 function getSummaries({ columns, data }) {
   const sums = {}
   if (!data || !data.length) return []

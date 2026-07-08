@@ -22,6 +22,7 @@ public class AmzFormulaConfig implements Serializable
     private Integer replenishDays;
     private Integer deductFbaStock;
     private Integer deductFbaInbound;
+    private Integer deductFbaInboundWorking;
     private Integer deductDomesticStock;
     private Integer deductPurchasedQty;
     private Integer deductPendingShipQty;
@@ -67,6 +68,8 @@ public class AmzFormulaConfig implements Serializable
     public void setDeductFbaStock(Integer deductFbaStock) { this.deductFbaStock = deductFbaStock; }
     public Integer getDeductFbaInbound() { return deductFbaInbound; }
     public void setDeductFbaInbound(Integer deductFbaInbound) { this.deductFbaInbound = deductFbaInbound; }
+    public Integer getDeductFbaInboundWorking() { return deductFbaInboundWorking; }
+    public void setDeductFbaInboundWorking(Integer deductFbaInboundWorking) { this.deductFbaInboundWorking = deductFbaInboundWorking; }
     public Integer getDeductDomesticStock() { return deductDomesticStock; }
     public void setDeductDomesticStock(Integer deductDomesticStock) { this.deductDomesticStock = deductDomesticStock; }
     public Integer getDeductPurchasedQty() { return deductPurchasedQty; }

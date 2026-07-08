@@ -182,9 +182,9 @@
               <div class="rule-title">扣减项</div>
               <el-checkbox v-model="form.deductFbaStock" :true-value="1" :false-value="0">扣减FBA在库</el-checkbox>
               <el-checkbox v-model="form.deductFbaInbound" :true-value="1" :false-value="0">扣减FBA在途</el-checkbox>
+              <el-checkbox v-model="form.deductFbaInboundWorking" :true-value="1" :false-value="0">扣减FBA计划入库</el-checkbox>
               <el-checkbox v-model="form.deductDomesticStock" :true-value="1" :false-value="0">扣减国内仓库存</el-checkbox>
               <el-checkbox v-model="form.deductPurchasedQty" :true-value="1" :false-value="0">扣减已采购数量</el-checkbox>
-              <el-checkbox v-model="form.deductPendingShipQty" :true-value="1" :false-value="0">扣减待出库数量</el-checkbox>
             </div>
             <div class="rule-block">
               <div class="rule-title">结果限制</div>
@@ -244,25 +244,25 @@ const strategyPresetMap = {
   BALANCED: {
     salesWeight14d: 0.5, salesWeight30d: 0.4, salesWeight60d: 0.1,
     replenishDays: 120, safetyDays: 90, shipDays: 90,
-    deductFbaStock: 1, deductFbaInbound: 1, deductDomesticStock: 1, deductPurchasedQty: 1, deductPendingShipQty: 1,
+    deductFbaStock: 1, deductFbaInbound: 1, deductFbaInboundWorking: 1, deductDomesticStock: 1, deductPurchasedQty: 1, deductPendingShipQty: 0,
     allowNegativeReplenish: 1, minReplenishQty: null, maxReplenishQty: null, roundMode: 'NONE'
   },
   AGGRESSIVE: {
     salesWeight14d: 0.7, salesWeight30d: 0.25, salesWeight60d: 0.05,
     replenishDays: 150, safetyDays: 100, shipDays: 100,
-    deductFbaStock: 1, deductFbaInbound: 1, deductDomesticStock: 1, deductPurchasedQty: 1, deductPendingShipQty: 1,
+    deductFbaStock: 1, deductFbaInbound: 1, deductFbaInboundWorking: 1, deductDomesticStock: 1, deductPurchasedQty: 1, deductPendingShipQty: 0,
     allowNegativeReplenish: 1, minReplenishQty: null, maxReplenishQty: null, roundMode: 'CEIL'
   },
   CONSERVATIVE: {
     salesWeight14d: 0.2, salesWeight30d: 0.5, salesWeight60d: 0.3,
     replenishDays: 90, safetyDays: 75, shipDays: 75,
-    deductFbaStock: 1, deductFbaInbound: 1, deductDomesticStock: 1, deductPurchasedQty: 1, deductPendingShipQty: 1,
+    deductFbaStock: 1, deductFbaInbound: 1, deductFbaInboundWorking: 1, deductDomesticStock: 1, deductPurchasedQty: 1, deductPendingShipQty: 0,
     allowNegativeReplenish: 0, minReplenishQty: 0, maxReplenishQty: null, roundMode: 'FLOOR'
   },
   CLEARANCE: {
     salesWeight14d: 0.2, salesWeight30d: 0.3, salesWeight60d: 0.5,
     replenishDays: 30, safetyDays: 30, shipDays: 30,
-    deductFbaStock: 1, deductFbaInbound: 1, deductDomesticStock: 1, deductPurchasedQty: 1, deductPendingShipQty: 1,
+    deductFbaStock: 1, deductFbaInbound: 1, deductFbaInboundWorking: 1, deductDomesticStock: 1, deductPurchasedQty: 1, deductPendingShipQty: 0,
     allowNegativeReplenish: 0, minReplenishQty: 0, maxReplenishQty: 0, roundMode: 'FLOOR'
   }
 }
@@ -282,9 +282,10 @@ const defaultForm = {
   replenishDays: 120,
   deductFbaStock: 1,
   deductFbaInbound: 1,
+  deductFbaInboundWorking: 1,
   deductDomesticStock: 1,
   deductPurchasedQty: 1,
-  deductPendingShipQty: 1,
+  deductPendingShipQty: 0,
   allowNegativeReplenish: 1,
   minReplenishQty: null,
   maxReplenishQty: null,
@@ -383,7 +384,7 @@ function buildFormulaFields(data) {
   if (Number(data.deductPurchasedQty) === 1) deductParts.push('{purchases}')
   if (Number(data.deductDomesticStock) === 1) deductParts.push('{domestic}')
   if (fbaParts.length) deductParts.push(...fbaParts)
-  if (Number(data.deductPendingShipQty) === 1) deductParts.push('{locked}')
+  if (Number(data.deductFbaInboundWorking) === 1) deductParts.push('{inboundWorking}')
   const deductExpr = deductParts.length ? ' - ' + deductParts.join(' - ') : ''
   data.formulaWeightedDaily = weighted
   data.formulaMonthly = `(${weighted}) * {month}`

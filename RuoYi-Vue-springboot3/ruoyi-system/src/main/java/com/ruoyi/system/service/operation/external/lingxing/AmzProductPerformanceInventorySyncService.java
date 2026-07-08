@@ -123,6 +123,7 @@ public class AmzProductPerformanceInventorySyncService
         int processing = intVal(available, row, "reserved_fc_processing");
         int reserved = customerOrders + processing;
         int inbound = intVal(available, row, "afn_inbound_shipped_quantity");
+        int inboundWorking = intVal(available, row, "afn_inbound_working_quantity");
 
         AmzProductPerformanceInventory entity = new AmzProductPerformanceInventory();
         entity.setSid(sid);
@@ -133,6 +134,7 @@ public class AmzProductPerformanceInventorySyncService
         entity.setFbaReceiving(receiving);
         entity.setFbaReserved(reserved);
         entity.setFbaInbound(inbound);
+        entity.setFbaInboundWorking(inboundWorking);
         entity.setFbaStock(fulfillable + transfer + receiving + reserved);
         return entity;
     }

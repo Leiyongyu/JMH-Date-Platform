@@ -16,6 +16,7 @@ public class AmzProductPerformanceInventory implements Serializable
     private Integer fbaReceiving;
     private Integer fbaReserved;
     private Integer fbaInbound;
+    private Integer fbaInboundWorking;
     private Integer fbaStock;
 
     public Long getId() { return id; }
@@ -36,6 +37,8 @@ public class AmzProductPerformanceInventory implements Serializable
     public void setFbaReserved(Integer fbaReserved) { this.fbaReserved = fbaReserved; }
     public Integer getFbaInbound() { return fbaInbound; }
     public void setFbaInbound(Integer fbaInbound) { this.fbaInbound = fbaInbound; }
+    public Integer getFbaInboundWorking() { return fbaInboundWorking; }
+    public void setFbaInboundWorking(Integer fbaInboundWorking) { this.fbaInboundWorking = fbaInboundWorking; }
     public Integer getFbaStock() { return fbaStock; }
     public void setFbaStock(Integer fbaStock) { this.fbaStock = fbaStock; }
 }

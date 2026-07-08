@@ -25,7 +25,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
     private static final Set<String> SORT_FIELDS = Set.of(
         "storeName", "sellerSku", "warehouseSku", "asin", "price", "rating", "reviewCount",
         "adRate", "profitRate30d", "refundRate90d", "domesticStock", "pendingShipQty",
-        "fbaStock", "fbaInbound", "totalInventory", "sales7d", "sales14d",
+        "fbaStock", "fbaInbound", "fbaInboundWorking", "totalInventory", "sales7d", "sales14d",
         "sales30d", "sales60d", "salesSpeed14d", "salesSpeed30d", "salesSpeed60d",
         "avgMonthlySales", "safetyStock", "shipQty", "replenishQty", "restockDays"
     );
@@ -41,6 +41,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         NUM_MAP.put("refundRate90d","refund_rate_90d"); NUM_MAP.put("purchasedQty","purchased_qty");
         NUM_MAP.put("domesticStock","domestic_stock"); NUM_MAP.put("pendingShipQty","pending_ship_qty");
         NUM_MAP.put("fbaStock","fba_stock"); NUM_MAP.put("fbaInbound","fba_inbound");
+        NUM_MAP.put("fbaInboundWorking","fba_inbound_working");
         NUM_MAP.put("totalInventory","total_inventory"); NUM_MAP.put("sales7d","sales_7d");
         NUM_MAP.put("sales14d","sales_14d"); NUM_MAP.put("sales30d","sales_30d");
         NUM_MAP.put("sales60d","sales_60d"); NUM_MAP.put("salesSpeed14d","sales_speed_14d");

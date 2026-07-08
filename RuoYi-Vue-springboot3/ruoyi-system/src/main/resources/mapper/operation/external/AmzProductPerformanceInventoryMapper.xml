@@ -11,6 +11,7 @@
         <result property="fbaReceiving" column="fba_receiving"/>
         <result property="fbaReserved" column="fba_reserved"/>
         <result property="fbaInbound" column="fba_inbound"/>
+        <result property="fbaInboundWorking" column="fba_inbound_working"/>
         <result property="fbaStock" column="fba_stock"/>
     </resultMap>
 
@@ -19,11 +20,11 @@
     <insert id="batchInsert">
         INSERT INTO amz_product_performance_inventory (
             sid, seller_sku, local_sku, fba_fulfillable, fba_transfer,
-            fba_receiving, fba_reserved, fba_inbound, fba_stock
+            fba_receiving, fba_reserved, fba_inbound, fba_inbound_working, fba_stock
         ) VALUES
         <foreach collection="list" item="e" separator=",">
             (#{e.sid}, #{e.sellerSku}, #{e.localSku}, #{e.fbaFulfillable}, #{e.fbaTransfer},
-             #{e.fbaReceiving}, #{e.fbaReserved}, #{e.fbaInbound}, #{e.fbaStock})
+             #{e.fbaReceiving}, #{e.fbaReserved}, #{e.fbaInbound}, #{e.fbaInboundWorking}, #{e.fbaStock})
         </foreach>
     </insert>
 </mapper>

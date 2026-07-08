@@ -17,6 +17,7 @@
         <result property="replenishDays" column="replenish_days" />
         <result property="deductFbaStock" column="deduct_fba_stock" />
         <result property="deductFbaInbound" column="deduct_fba_inbound" />
+        <result property="deductFbaInboundWorking" column="deduct_fba_inbound_working" />
         <result property="deductDomesticStock" column="deduct_domestic_stock" />
         <result property="deductPurchasedQty" column="deduct_purchased_qty" />
         <result property="deductPendingShipQty" column="deduct_pending_ship_qty" />
@@ -57,9 +58,10 @@
             replenish_days = #{replenishDays},
             deduct_fba_stock = COALESCE(#{deductFbaStock}, 1),
             deduct_fba_inbound = COALESCE(#{deductFbaInbound}, 1),
+            deduct_fba_inbound_working = COALESCE(#{deductFbaInboundWorking}, 1),
             deduct_domestic_stock = COALESCE(#{deductDomesticStock}, 1),
             deduct_purchased_qty = COALESCE(#{deductPurchasedQty}, 1),
-            deduct_pending_ship_qty = COALESCE(#{deductPendingShipQty}, 1),
+            deduct_pending_ship_qty = COALESCE(#{deductPendingShipQty}, 0),
             allow_negative_replenish = COALESCE(#{allowNegativeReplenish}, 1),
             min_replenish_qty = #{minReplenishQty},
             max_replenish_qty = #{maxReplenishQty},
@@ -80,7 +82,7 @@
             region_group, region_name, marketplaces, strategy_type,
             sales_weight_14d, sales_weight_30d, sales_weight_60d,
             month_multiplier, safety_days, ship_days, replenish_days,
-            deduct_fba_stock, deduct_fba_inbound, deduct_domestic_stock,
+            deduct_fba_stock, deduct_fba_inbound, deduct_fba_inbound_working, deduct_domestic_stock,
             deduct_purchased_qty, deduct_pending_ship_qty, allow_negative_replenish,
             min_replenish_qty, max_replenish_qty, round_mode,
             formula_weighted_daily, formula_monthly, formula_safety,
@@ -90,8 +92,8 @@
             #{regionGroup}, #{regionName}, #{marketplaces}, COALESCE(#{strategyType}, 'CUSTOM'),
             #{salesWeight14d}, #{salesWeight30d}, #{salesWeight60d},
             #{monthMultiplier}, #{safetyDays}, #{shipDays}, #{replenishDays},
-            COALESCE(#{deductFbaStock}, 1), COALESCE(#{deductFbaInbound}, 1), COALESCE(#{deductDomesticStock}, 1),
-            COALESCE(#{deductPurchasedQty}, 1), COALESCE(#{deductPendingShipQty}, 1), COALESCE(#{allowNegativeReplenish}, 1),
+            COALESCE(#{deductFbaStock}, 1), COALESCE(#{deductFbaInbound}, 1), COALESCE(#{deductFbaInboundWorking}, 1), COALESCE(#{deductDomesticStock}, 1),
+            COALESCE(#{deductPurchasedQty}, 1), COALESCE(#{deductPendingShipQty}, 0), COALESCE(#{allowNegativeReplenish}, 1),
             #{minReplenishQty}, #{maxReplenishQty}, COALESCE(#{roundMode}, 'NONE'),
             #{formulaWeightedDaily}, #{formulaMonthly}, #{formulaSafety},
             #{formulaShip}, #{formulaReplenish}, #{formulaRestock},

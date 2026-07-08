@@ -48,7 +48,7 @@ public class UnifiedExportService
     {
         List<String> allowed = Arrays.asList("sid","sellerSku","warehouseSku","warehouseName","asin","principalName",
             "price","storeName","productCategory","rating","reviewCount","adRate","profitRate30d","refundRate90d",
-            "purchasedQty","domesticStock","pendingShipQty","fbaStock","fbaInbound","totalInventory",
+            "purchasedQty","domesticStock","pendingShipQty","fbaStock","fbaInbound","fbaInboundWorking","totalInventory",
             "sales7d","sales14d","sales30d","sales60d","salesSpeed14d","salesSpeed30d","salesSpeed60d",
             "avgMonthlySales","safetyStock","shipQty","replenishQty","restockDays","calcTime");
         List<String> keys = resolveKeys(req, allowed);
@@ -255,6 +255,7 @@ public class UnifiedExportService
         m.put("profitRate30d", s.getProfitRate30d()); m.put("refundRate90d", s.getRefundRate90d());
         m.put("purchasedQty", s.getPurchasedQty()); m.put("domesticStock", s.getDomesticStock());
         m.put("pendingShipQty", s.getPendingShipQty()); m.put("fbaStock", s.getFbaStock()); m.put("fbaInbound", s.getFbaInbound());
+        m.put("fbaInboundWorking", s.getFbaInboundWorking());
         m.put("totalInventory", s.getTotalInventory()); m.put("sales7d", s.getSales7d()); m.put("sales14d", s.getSales14d());
         m.put("sales30d", s.getSales30d()); m.put("sales60d", s.getSales60d()); m.put("salesSpeed14d", s.getSalesSpeed14d());
         m.put("salesSpeed30d", s.getSalesSpeed30d()); m.put("salesSpeed60d", s.getSalesSpeed60d());
@@ -313,7 +314,7 @@ public class UnifiedExportService
         t.put("productCategory","产品分类"); t.put("rating","评分"); t.put("reviewCount","评论数");
         t.put("adRate","广告费率"); t.put("profitRate30d","30天利润率"); t.put("refundRate90d","90天退款率");
         t.put("purchasedQty","已采购"); t.put("domesticStock","国内仓库存"); t.put("pendingShipQty","待出库");
-        t.put("fbaStock","FBA在库"); t.put("fbaInbound","FBA在途"); t.put("totalInventory","总库存");
+        t.put("fbaStock","FBA在库"); t.put("fbaInbound","FBA在途"); t.put("fbaInboundWorking","FBA计划入库"); t.put("totalInventory","总库存");
         t.put("sales7d","7天销量"); t.put("sales14d","14天销量"); t.put("sales30d","30天销量"); t.put("sales60d","60天销量");
         t.put("salesSpeed14d","14日均销"); t.put("salesSpeed30d","30日均销"); t.put("salesSpeed60d","60日均销");
         t.put("avgMonthlySales","平均月销量"); t.put("safetyStock","安全库存"); t.put("shipQty","发货量");
