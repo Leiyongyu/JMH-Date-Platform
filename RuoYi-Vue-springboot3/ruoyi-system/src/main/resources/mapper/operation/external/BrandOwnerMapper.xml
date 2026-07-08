@@ -7,10 +7,42 @@
         <result property="brandCode" column="brand_code" />
         <result property="ownerName" column="owner_name" />
         <result property="userId" column="user_id" />
+        <result property="createTime" column="create_time" />
+        <result property="updateTime" column="update_time" />
+        <result property="version" column="version" />
     </resultMap>
 
+    <sql id="BaseColumnList">
+        id, brand_code, owner_name, user_id, create_time, update_time, version
+    </sql>
+
+    <select id="selectList" parameterType="com.ruoyi.system.domain.operation.external.BrandOwner" resultMap="Result">
+        SELECT <include refid="BaseColumnList" />
+        FROM brand_owner
+        <where>
+            <if test="brandCode != null and brandCode != ''">
+                AND brand_code LIKE CONCAT('%', #{brandCode}, '%')
+            </if>
+            <if test="ownerName != null and ownerName != ''">
+                AND owner_name LIKE CONCAT('%', #{ownerName}, '%')
+            </if>
+        </where>
+        ORDER BY brand_code ASC, id DESC
+    </select>
+
     <select id="selectAll" resultMap="Result">
-        SELECT id, brand_code, owner_name, user_id FROM brand_owner
+        SELECT <include refid="BaseColumnList" />
+        FROM brand_owner
+        ORDER BY brand_code ASC, id DESC
+    </select>
+
+    <select id="countByBrandCode" resultType="int">
+        SELECT COUNT(1)
+        FROM brand_owner
+        WHERE brand_code = #{brandCode}
+        <if test="excludeId != null">
+            AND id != #{excludeId}
+        </if>
     </select>
 
     <insert id="insert" parameterType="com.ruoyi.system.domain.operation.external.BrandOwner" useGeneratedKeys="true" keyProperty="id">

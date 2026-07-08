@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,10 +31,11 @@ public class BrandOwnerController extends BaseController
 
     @PreAuthorize("@ss.hasPermi('operations:brandOwner:list')")
     @GetMapping("/list")
-    public TableDataInfo list()
+    public TableDataInfo list(BrandOwner query)
     {
         startPage();
-        List<BrandOwner> list = brandOwnerMapper.selectAll();
+        normalize(query);
+        List<BrandOwner> list = brandOwnerMapper.selectList(query);
         return getDataTable(list);
     }
 
@@ -43,6 +45,10 @@ public class BrandOwnerController extends BaseController
     {
         if (entity.getId() != null)
             return error("新增品牌负责人时 ID 必须为空");
+        normalize(entity);
+        AjaxResult validation = validate(entity, null);
+        if (validation != null)
+            return validation;
         brandOwnerMapper.insert(entity);
         return success();
     }
@@ -53,6 +59,10 @@ public class BrandOwnerController extends BaseController
     {
         if (entity.getId() == null)
             return error("ID不能为空");
+        normalize(entity);
+        AjaxResult validation = validate(entity, entity.getId());
+        if (validation != null)
+            return validation;
         brandOwnerMapper.update(entity);
         return success();
     }
@@ -63,5 +73,35 @@ public class BrandOwnerController extends BaseController
     {
         brandOwnerMapper.deleteById(id);
         return success();
+    }
+
+    private AjaxResult validate(BrandOwner entity, Integer excludeId)
+    {
+        if (!StringUtils.hasText(entity.getBrandCode()))
+            return error("品牌代码不能为空");
+        if (!StringUtils.hasText(entity.getOwnerName()))
+            return error("负责人不能为空");
+        if (brandOwnerMapper.countByBrandCode(entity.getBrandCode(), excludeId) > 0)
+            return error("品牌代码已存在");
+        return null;
+    }
+
+    private void normalize(BrandOwner entity)
+    {
+        if (entity == null)
+            return;
+        entity.setBrandCode(trimUpper(entity.getBrandCode()));
+        entity.setOwnerName(trim(entity.getOwnerName()));
+    }
+
+    private String trimUpper(String value)
+    {
+        String text = trim(value);
+        return text == null ? null : text.toUpperCase();
+    }
+
+    private String trim(String value)
+    {
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
 }
