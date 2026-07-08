@@ -20,7 +20,7 @@ public class AmzRestockSummarySyncService
     private static final Logger LOG = LoggerFactory.getLogger(AmzRestockSummarySyncService.class);
     private static final String API = "erp/sc/routing/restocking/analysis/getSummaryList";
     private static final int PAGE_SIZE = 50;
-    private static final int SID_BATCH_SIZE = 20;
+    private static final int SID_BATCH_SIZE = 10;
 
     private final LingxingGatewayService gw;
     private final AmzRestockSummaryMapper mapper;
@@ -71,11 +71,13 @@ public class AmzRestockSummarySyncService
                     if (seen.add(e.getHashId())) fresh.add(e);
                 if (!fresh.isEmpty()) { mapper.batchInsert(fresh); total += fresh.size(); }
                 int remoteTotal = getInt(resp, "total");
+                // 服务端返回 total 则根据 total 判断是否已拉完
                 if (remoteTotal > 0 && offset + PAGE_SIZE >= remoteTotal) break;
+                // total 不可信时，最后一页不满 50 条视为结束
                 if (data.size() < PAGE_SIZE) break;
                 offset += PAGE_SIZE;
             }
-            if (i + SID_BATCH_SIZE < sids.size()) Thread.sleep(2000);
+            if ((i / SID_BATCH_SIZE) % 10 == 9) Thread.sleep(2000); // 每 10 个 sid 停 2s 防限流
         }
         return OperationSyncResult.success("amz_restock", "领星-Amazon补货建议", API, total, total, System.currentTimeMillis()-start);
     }
