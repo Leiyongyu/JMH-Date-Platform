@@ -220,4 +220,25 @@
             sku = #{k.sku} OR sku LIKE CONCAT('%', #{k.sku})
         </foreach>
     </select>
+
+    <select id="selectSkusByNormalizedKeys" resultType="java.util.HashMap">
+        SELECT sku AS standardSku, sku AS inventorySku, match_key AS matchKey
+        FROM (
+            SELECT sku,
+                   normalize_customs_sku_key(sku) AS match_key,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY normalize_customs_sku_key(sku)
+                       ORDER BY
+                           CASE WHEN sku = normalize_customs_sku_key(sku) THEN 0
+                                WHEN sku REGEXP '^[0-9]' THEN 1
+                                WHEN sku LIKE 'JMH%' THEN 2
+                                ELSE 3 END,
+                           id
+                   ) AS rn
+            FROM customs_inventory_list
+            WHERE sku IS NOT NULL AND sku != ''
+        ) ranked
+        WHERE rn = 1 AND match_key IN
+        <foreach collection="keys" item="key" open="(" separator="," close=")">#{key}</foreach>
+    </select>
 </mapper>

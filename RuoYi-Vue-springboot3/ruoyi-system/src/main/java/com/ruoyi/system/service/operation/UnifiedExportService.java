@@ -94,7 +94,7 @@ public class UnifiedExportService
         Set<String> selected = "SELECTED".equals(req.getScope()) && req.getRowKeys() != null
                 ? new HashSet<>(req.getRowKeys()) : null;
         for (AmzReplenishmentSnapshot s : list) {
-            if (selected != null && !selected.contains((s.getSid() != null ? s.getSid() : "") + "|" + (s.getSellerSku() != null ? s.getSellerSku() : "") + "|" + (s.getWarehouseSku() != null ? s.getWarehouseSku() : ""))) continue;
+            if (selected != null && !selected.contains((s.getSid() != null ? s.getSid() : "") + "|" + (s.getSellerSku() != null ? s.getSellerSku() : "") + "|" + (s.getWarehouseSku() != null ? s.getWarehouseSku() : "") + "|" + (s.getWarehouseName() != null ? s.getWarehouseName() : ""))) continue;
             all.add(toMap(s, keys));
         }
         return all;

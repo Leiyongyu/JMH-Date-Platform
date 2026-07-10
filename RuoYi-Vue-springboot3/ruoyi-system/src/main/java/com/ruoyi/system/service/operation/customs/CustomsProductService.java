@@ -5,11 +5,13 @@ import com.ruoyi.system.domain.operation.customs.CustomsDeclarationItem;
 import com.ruoyi.system.domain.operation.customs.CustomsProduct;
 import com.ruoyi.system.domain.operation.customs.CustomsStockOrderOption;
 import com.ruoyi.common.utils.html.EscapeUtil;
+import com.ruoyi.system.mapper.operation.customs.CustomsInventoryMapper;
 import com.ruoyi.system.mapper.operation.customs.CustomsProductMapper;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -40,16 +42,38 @@ public class CustomsProductService
     private static final Pattern HS_PATTERN = Pattern.compile("^(\\d{4}\\s?\\d{2,6})");
 
     private final CustomsProductMapper productMapper;
+    private final CustomsInventoryMapper customsInventoryMapper;
 
-    public CustomsProductService(CustomsProductMapper productMapper)
+    public CustomsProductService(CustomsProductMapper productMapper, CustomsInventoryMapper customsInventoryMapper)
     {
         this.productMapper = productMapper;
+        this.customsInventoryMapper = customsInventoryMapper;
     }
 
     public List<CustomsProduct> search(String keyword)
     {
         String value = trim(keyword);
-        return value.isEmpty() ? List.of() : productMapper.search(value, 20);
+        if (value.isEmpty()) return List.of();
+        // Resolve to standard SKU first
+        Map<String, String> mapping = resolveStandardSkus(List.of(value));
+        String standardSku = mapping.get(value);
+        // Search by original keyword, normalized key, and standard SKU
+        Set<String> seenSkus = new HashSet<>();
+        List<CustomsProduct> results = new ArrayList<>();
+        addSearchResults(results, seenSkus, value);
+        String normalized = normalizeSkuKey(value);
+        if (!normalized.equals(value) && !normalized.isEmpty()) addSearchResults(results, seenSkus, normalized);
+        if (standardSku != null && !standardSku.equals(value) && !standardSku.equals(normalized))
+            addSearchResults(results, seenSkus, standardSku);
+        return results;
+    }
+
+    private void addSearchResults(List<CustomsProduct> results, Set<String> seenSkus, String term)
+    {
+        for (CustomsProduct p : productMapper.search(term, 20))
+        {
+            if (p.getSku() != null && seenSkus.add(p.getSku())) results.add(p);
+        }
     }
 
     public List<CustomsStockOrderOption> searchStockOrders(String keyword, Integer limit)
@@ -131,15 +155,31 @@ public class CustomsProductService
         if (sourceSkus != null)
             for (String sku : sourceSkus) if (!trim(sku).isEmpty()) requestedSkus.add(sku.trim());
         List<String> uniqueSkus = normalizeSkus(requestedSkus);
-        List<CustomsProduct> products = uniqueSkus.isEmpty() ? List.of() : productMapper.selectBySkus(uniqueSkus);
+
+        // Resolve raw SKUs to standard customs_inventory_list SKUs — no fallback to raw
+        Map<String, String> skuMapping = resolveStandardSkus(uniqueSkus);
+        List<String> querySkus = uniqueSkus.stream()
+                .map(skuMapping::get)
+                .filter(s -> s != null)
+                .distinct()
+                .collect(Collectors.toList());
+
+        List<CustomsProduct> products = querySkus.isEmpty() ? List.of() : productMapper.selectBySkus(querySkus);
         Map<String, CustomsProduct> found = new HashMap<>();
         for (CustomsProduct product : products) found.put(product.getSku(), product);
 
+        // Build a reverse mapping: rawSku → standardSku (from inventory), for missing detection
         List<CustomsDeclarationItem> matched = new ArrayList<>();
         List<String> missing = new ArrayList<>();
         for (String sku : requestedSkus)
         {
-            CustomsProduct product = found.get(sku);
+            String standardSku = skuMapping.get(sku);
+            if (standardSku == null)
+            {
+                missing.add(sku);
+                continue;
+            }
+            CustomsProduct product = found.get(standardSku);
             if (product == null)
             {
                 missing.add(sku);
@@ -176,14 +216,30 @@ public class CustomsProductService
         if (requests.isEmpty()) throw new IllegalArgumentException("未读取到SKU");
 
         List<String> uniqueSkus = normalizeSkus(requests.stream().map(SkuRequest::sku).toList());
+
+        // Resolve raw SKUs to standard customs_inventory_list SKUs — no fallback to raw
+        Map<String, String> skuMapping = resolveStandardSkus(uniqueSkus);
+        List<String> querySkus = uniqueSkus.stream()
+                .map(skuMapping::get)
+                .filter(s -> s != null)
+                .distinct()
+                .collect(Collectors.toList());
+
         Map<String, CustomsProduct> found = new HashMap<>();
-        for (CustomsProduct product : productMapper.selectBySkus(uniqueSkus)) found.put(product.getSku(), product);
+        List<CustomsProduct> skuProducts = querySkus.isEmpty() ? List.<CustomsProduct>of() : productMapper.selectBySkus(querySkus);
+        for (CustomsProduct product : skuProducts) found.put(product.getSku(), product);
 
         List<CustomsDeclarationItem> matched = new ArrayList<>();
         List<String> missing = new ArrayList<>();
         for (SkuRequest request : requests)
         {
-            CustomsProduct product = found.get(request.sku());
+            String standardSku = skuMapping.get(request.sku());
+            if (standardSku == null)
+            {
+                missing.add(request.sku());
+                continue;
+            }
+            CustomsProduct product = found.get(standardSku);
             if (product == null)
             {
                 missing.add(request.sku());
@@ -229,8 +285,30 @@ public class CustomsProductService
         }
         if (parsed.isEmpty() && errors.isEmpty()) throw new IllegalArgumentException("未读取到可导入的商品数据");
 
-        // All rows failed parsing — return errors without touching the DB
-        if (parsed.isEmpty())
+        // Normalize SKUs against customs_inventory_list
+        List<CustomsProduct> validProducts = new ArrayList<>();
+        {
+            List<String> rawSkus = parsed.stream().map(CustomsProduct::getSku).distinct().collect(Collectors.toList());
+            Map<String, String> skuMapping = resolveStandardSkus(rawSkus);
+            for (CustomsProduct product : parsed)
+            {
+                String standardSku = skuMapping.getOrDefault(product.getSku(), null);
+                if (standardSku == null)
+                {
+                    errors.add(product.getSku() + "：未在库存清单中找到匹配的标准SKU");
+                }
+                else
+                {
+                    product.setSku(standardSku);
+                    validProducts.add(product);
+                }
+            }
+        }
+        // Use only products that could be resolved
+        List<CustomsProduct> resolved = validProducts;
+
+        // All rows failed — return errors without touching the DB
+        if (resolved.isEmpty())
         {
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("inserted", 0);
@@ -242,7 +320,7 @@ public class CustomsProductService
 
         // Batch-check existing SKUs (1 DB call instead of N)
         Set<String> existingSkus = new HashSet<>();
-        List<String> allSkus = parsed.stream().map(CustomsProduct::getSku).distinct().collect(Collectors.toList());
+        List<String> allSkus = resolved.stream().map(CustomsProduct::getSku).distinct().collect(Collectors.toList());
         if (!allSkus.isEmpty())
         {
             for (CustomsProduct p : productMapper.selectBySkus(allSkus))
@@ -256,8 +334,8 @@ public class CustomsProductService
         try
         {
             // Batch upsert (already internally split into 500-size chunks)
-            batchUpsert(parsed);
-            for (CustomsProduct product : parsed)
+            batchUpsert(resolved);
+            for (CustomsProduct product : resolved)
             {
                 if (existingSkus.contains(product.getSku())) updated++;
                 else inserted++;
@@ -300,7 +378,8 @@ public class CustomsProductService
     private List<CustomsProduct> normalizeSaveProducts(List<CustomsProduct> products)
     {
         if (products == null || products.isEmpty()) throw new IllegalArgumentException("请选择需要保存的商品");
-        Map<String, CustomsProduct> unique = new LinkedHashMap<>();
+        // First validate and sanitize
+        List<String> rawSkus = new ArrayList<>();
         for (CustomsProduct product : products)
         {
             validateProduct(product);
@@ -308,6 +387,18 @@ public class CustomsProductService
             product.setSku(product.getSku().trim());
             product.setSourceLocation(trim(product.getSourceLocation()));
             product.setOriginCountry(defaultValue(product.getOriginCountry(), "中国"));
+            rawSkus.add(product.getSku());
+        }
+
+        // Resolve SKUs to standard customs_inventory_list SKUs
+        Map<String, String> skuMapping = resolveStandardSkus(rawSkus);
+        Map<String, CustomsProduct> unique = new LinkedHashMap<>();
+        for (CustomsProduct product : products)
+        {
+            String standardSku = skuMapping.getOrDefault(product.getSku(), null);
+            if (standardSku == null)
+                throw new IllegalArgumentException(product.getSku() + "：未在库存清单中找到匹配的标准SKU");
+            product.setSku(standardSku);
             unique.put(product.getSku(), product);
         }
         return new ArrayList<>(unique.values());
@@ -494,6 +585,62 @@ public class CustomsProductService
     private String trim(String value)
     {
         return value == null ? "" : value.trim();
+    }
+
+    /** Normalize a raw SKU (possibly with brand prefix) to a key for matching against customs_inventory_list. */
+    private String normalizeSkuKey(String rawSku)
+    {
+        if (rawSku == null || rawSku.isEmpty()) return "";
+        String s = rawSku.trim();
+        int firstDash = s.indexOf('-');
+        if (firstDash < 0) return s;
+        String prefix = s.substring(0, firstDash);
+        // PC 前缀原样保留
+        if (prefix.toUpperCase().contains("PC")) return s;
+        // 从第一个包含数字的段开始；该段去掉前导非数字字符；后续段全部保留
+        String[] parts = s.split("-");
+        for (int i = 0; i < parts.length; i++)
+        {
+            if (parts[i].matches(".*\\d+.*"))
+            {
+                String first = parts[i].replaceAll("^[^0-9]+", "");
+                if (first.isEmpty()) continue;
+                StringBuilder sb = new StringBuilder(first);
+                for (int j = i + 1; j < parts.length; j++) sb.append("-").append(parts[j]);
+                return sb.toString();
+            }
+        }
+        return s;
+    }
+
+    /** Resolve raw SKUs to standard customs_inventory_list SKUs. Returns rawSku → standardSku map (null if not found). */
+    private Map<String, String> resolveStandardSkus(List<String> rawSkus)
+    {
+        if (rawSkus == null || rawSkus.isEmpty()) return Collections.emptyMap();
+        List<String> keys = rawSkus.stream()
+                .map(this::normalizeSkuKey)
+                .filter(k -> !k.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+        if (keys.isEmpty()) return Collections.emptyMap();
+
+        // SQL returns best-match inventory SKU per matchKey (ROW_NUMBER priority-ordered)
+        List<Map<String, String>> rows = customsInventoryMapper.selectSkusByNormalizedKeys(keys);
+        Map<String, String> keyToSku = new LinkedHashMap<>();
+        for (Map<String, String> row : rows)
+        {
+            String invSku = row.get("standardSku");
+            String matchKey = row.get("matchKey");
+            if (invSku != null && matchKey != null) keyToSku.putIfAbsent(matchKey, invSku);
+        }
+
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String raw : rawSkus)
+        {
+            String key = normalizeSkuKey(raw);
+            result.put(raw, keyToSku.getOrDefault(key, null));
+        }
+        return result;
     }
 
     private record SkuRequest(String sku, int quantity) {}

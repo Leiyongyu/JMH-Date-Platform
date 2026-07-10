@@ -116,7 +116,18 @@
             od.overseas_order_no AS source_order_no,
             od.order_total_box_volume AS order_total_cbm
         FROM overseas_stock_order_detail od
-        INNER JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = od.sku COLLATE utf8mb4_unicode_ci
+        LEFT JOIN (
+            SELECT sku, match_key FROM (
+                SELECT sku, normalize_customs_sku_key(sku) AS match_key,
+                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku)
+                        ORDER BY CASE WHEN sku = normalize_customs_sku_key(sku) THEN 0
+                                      WHEN sku REGEXP '^[0-9]' THEN 1
+                                      WHEN sku LIKE 'JMH%' THEN 2
+                                      ELSE 3 END, id) AS rn
+                FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
+            ) ranked WHERE rn = 1
+        ) il ON normalize_customs_sku_key(od.sku) = il.match_key
+        INNER JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
         WHERE od.overseas_order_no IN
         <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
         ORDER BY FIELD(od.overseas_order_no,
@@ -127,11 +138,22 @@
     <select id="selectMissingSkusByStockOrders" resultType="string">
         SELECT DISTINCT od.sku
         FROM overseas_stock_order_detail od
-        LEFT JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = od.sku COLLATE utf8mb4_unicode_ci
+        LEFT JOIN (
+            SELECT sku, match_key FROM (
+                SELECT sku, normalize_customs_sku_key(sku) AS match_key,
+                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku)
+                        ORDER BY CASE WHEN sku = normalize_customs_sku_key(sku) THEN 0
+                                      WHEN sku REGEXP '^[0-9]' THEN 1
+                                      WHEN sku LIKE 'JMH%' THEN 2
+                                      ELSE 3 END, id) AS rn
+                FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
+            ) ranked WHERE rn = 1
+        ) il ON normalize_customs_sku_key(od.sku) = il.match_key
+        LEFT JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
         WHERE od.overseas_order_no IN
         <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
           AND od.sku IS NOT NULL AND od.sku != ''
-          AND p.sku IS NULL
+          AND (il.sku IS NULL OR p.sku IS NULL)
         ORDER BY od.sku
     </select>
 
@@ -169,7 +191,18 @@
     <select id="selectProductsByFbaShipments" resultMap="CustomsProductResult">
         SELECT <include refid="pColumns"/>
         FROM amz_fba_shipment_box b
-        INNER JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = b.sku COLLATE utf8mb4_unicode_ci
+        LEFT JOIN (
+            SELECT sku, match_key FROM (
+                SELECT sku, normalize_customs_sku_key(sku) AS match_key,
+                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku)
+                        ORDER BY CASE WHEN sku = normalize_customs_sku_key(sku) THEN 0
+                                      WHEN sku REGEXP '^[0-9]' THEN 1
+                                      WHEN sku LIKE 'JMH%' THEN 2
+                                      ELSE 3 END, id) AS rn
+                FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
+            ) ranked WHERE rn = 1
+        ) il ON normalize_customs_sku_key(b.sku) = il.match_key
+        INNER JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
         WHERE b.shipment_id IN
         <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
         ORDER BY FIELD(b.shipment_id,
@@ -180,11 +213,22 @@
     <select id="selectMissingSkusByFbaShipments" resultType="string">
         SELECT DISTINCT b.sku
         FROM amz_fba_shipment_box b
-        LEFT JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = b.sku COLLATE utf8mb4_unicode_ci
+        LEFT JOIN (
+            SELECT sku, match_key FROM (
+                SELECT sku, normalize_customs_sku_key(sku) AS match_key,
+                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku)
+                        ORDER BY CASE WHEN sku = normalize_customs_sku_key(sku) THEN 0
+                                      WHEN sku REGEXP '^[0-9]' THEN 1
+                                      WHEN sku LIKE 'JMH%' THEN 2
+                                      ELSE 3 END, id) AS rn
+                FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
+            ) ranked WHERE rn = 1
+        ) il ON normalize_customs_sku_key(b.sku) = il.match_key
+        LEFT JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
         WHERE b.shipment_id IN
         <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
           AND b.sku IS NOT NULL AND b.sku != ''
-          AND p.sku IS NULL
+          AND (il.sku IS NULL OR p.sku IS NULL)
         ORDER BY b.sku
     </select>
 
@@ -246,7 +290,7 @@
             packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height, box_no,
             origin_country, destination_country, hs_code, hs_description, exemption, is_tax)
         SELECT
-            od.sku,
+            il.sku,
             IF(il.product_code IS NOT NULL,
                REPLACE(REPLACE(
                    IF(REPLACE(il.product_code, '\n', '') REGEXP '[（(]',
@@ -301,11 +345,21 @@
                 FROM overseas_stock_order_detail od
             ) calc
         ) od
-        LEFT JOIN customs_inventory_list il ON REPLACE(od.product_code, 'JMH-', '') COLLATE utf8mb4_unicode_ci = REPLACE(il.sku, 'JMH', '')
+        LEFT JOIN (
+            SELECT sku, match_key FROM (
+                SELECT sku, normalize_customs_sku_key(sku) AS match_key,
+                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku)
+                        ORDER BY CASE WHEN sku = normalize_customs_sku_key(sku) THEN 0
+                                      WHEN sku REGEXP '^[0-9]' THEN 1
+                                      WHEN sku LIKE 'JMH%' THEN 2
+                                      ELSE 3 END, id) AS rn
+                FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
+            ) ranked WHERE rn = 1
+        ) il ON normalize_customs_sku_key(od.sku) = il.match_key
         LEFT JOIN lingxing_product_weight lpw ON od.sku COLLATE utf8mb4_unicode_ci = lpw.sku COLLATE utf8mb4_unicode_ci
         LEFT JOIN warehouse w ON od.r_wid = w.wid
         LEFT JOIN purchase_order po ON od.sku COLLATE utf8mb4_unicode_ci = po.item_sku
-        WHERE od.product_code LIKE 'JMH-%'
+        WHERE od.product_code LIKE 'JMH-%' AND il.sku IS NOT NULL
         ON DUPLICATE KEY UPDATE
             source_location = VALUES(source_location),
             description_cn = VALUES(description_cn),
@@ -333,7 +387,7 @@
          packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height, box_no,
          origin_country, destination_country, hs_code, hs_description, exemption, is_tax)
         SELECT
-            src.sku,
+            src.il_sku,
             src.source_location,
             IFNULL(NULLIF(src.product_name, ''), ''),
             '无型号',
@@ -358,6 +412,7 @@
         FROM (
             SELECT
                 weighted.sku,
+                il.sku AS il_sku,
                 COALESCE(NULLIF(il.product_name, ''), NULLIF(weighted.product_name, '')) AS product_name,
                 il.customs_unit AS unit,
                 il.tax_included_price,
@@ -475,15 +530,22 @@
                 FROM customs_inventory_list il1
                 INNER JOIN (
                     SELECT sku, MIN(id) AS id
-                    FROM customs_inventory_list
-                    WHERE sku IS NOT NULL AND sku != ''
+                    FROM (
+                        SELECT sku, id,
+                            ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku)
+                                ORDER BY CASE WHEN sku = normalize_customs_sku_key(sku) THEN 0
+                                              WHEN sku REGEXP '^[0-9]' THEN 1
+                                              WHEN sku LIKE 'JMH%' THEN 2
+                                              ELSE 3 END, id) AS rn
+                        FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
+                    ) ranked WHERE rn = 1
                     GROUP BY sku
                 ) il_pick ON il1.id = il_pick.id
-            ) il ON weighted.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
+            ) il ON normalize_customs_sku_key(weighted.sku) = normalize_customs_sku_key(il.sku)
             LEFT JOIN lingxing_product_weight lpw ON weighted.sku COLLATE utf8mb4_unicode_ci = lpw.sku COLLATE utf8mb4_unicode_ci
             LEFT JOIN amz_fba_shipment s
                 ON weighted.shipment_id COLLATE utf8mb4_unicode_ci = s.shipment_id COLLATE utf8mb4_unicode_ci
         ) src
-        WHERE src.sku IS NOT NULL AND src.sku != ''
+        WHERE src.sku IS NOT NULL AND src.sku != '' AND src.il_sku IS NOT NULL
     </insert>
 </mapper>
