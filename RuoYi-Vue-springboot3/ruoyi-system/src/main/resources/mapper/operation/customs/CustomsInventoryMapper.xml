@@ -27,6 +27,8 @@
         <result property="remark" column="remark"/>
         <result property="customsUnit" column="customs_unit"/>
         <result property="declarationElements" column="declaration_elements"/>
+        <result property="hsCode" column="hs_code"/>
+        <result property="hsDescription" column="hs_description"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
@@ -36,7 +38,7 @@
         purchase_date, inbound_date, inbound_quantity, inbound_remark, outbound_date,
         czech_warehouse_qty, uk_warehouse_qty, us_warehouse_qty, de_warehouse_qty,
         fba_de_qty, fba_uk_qty, fba_us_qty, fba_fr_qty, remaining_stock, remark,
-        customs_unit, declaration_elements, created_at, updated_at
+        customs_unit, declaration_elements, hs_code, hs_description, created_at, updated_at
     </sql>
 
     <select id="selectList" resultMap="CustomsInventoryResult">
@@ -95,6 +97,8 @@
             NULL AS remark,
             customs_unit AS customs_unit,
             NULL AS declaration_elements,
+            NULL AS hs_code,
+            NULL AS hs_description,
             NULL AS created_at,
             NULL AS updated_at
         FROM customs_inventory_list
@@ -138,13 +142,13 @@
          purchase_date, inbound_date, inbound_quantity, inbound_remark, outbound_date,
          czech_warehouse_qty, uk_warehouse_qty, us_warehouse_qty, de_warehouse_qty,
          fba_de_qty, fba_uk_qty, fba_us_qty, fba_fr_qty, remaining_stock, remark,
-         customs_unit, declaration_elements)
+         customs_unit, declaration_elements, hs_code, hs_description)
         VALUES
         (#{productCode}, #{productName}, #{sku}, #{purchaseQuantity}, #{unit}, #{taxIncludedPrice},
          #{purchaseDate}, #{inboundDate}, #{inboundQuantity}, #{inboundRemark}, #{outboundDate},
          #{czechWarehouseQty}, #{ukWarehouseQty}, #{usWarehouseQty}, #{deWarehouseQty},
          #{fbaDeQty}, #{fbaUkQty}, #{fbaUsQty}, #{fbaFrQty}, #{remainingStock}, #{remark},
-         #{customsUnit}, #{declarationElements})
+         #{customsUnit}, #{declarationElements}, #{hsCode}, #{hsDescription})
     </insert>
 
     <update id="update">
@@ -171,7 +175,9 @@
             remaining_stock = #{remainingStock},
             remark = #{remark},
             customs_unit = #{customsUnit},
-            declaration_elements = #{declarationElements}
+            declaration_elements = #{declarationElements},
+            hs_code = #{hsCode},
+            hs_description = #{hsDescription}
         WHERE id = #{id}
     </update>
 
@@ -181,7 +187,7 @@
          purchase_date, inbound_date, inbound_quantity, inbound_remark, outbound_date,
          czech_warehouse_qty, uk_warehouse_qty, us_warehouse_qty, de_warehouse_qty,
          fba_de_qty, fba_uk_qty, fba_us_qty, fba_fr_qty, remaining_stock, remark,
-         customs_unit, declaration_elements)
+         customs_unit, declaration_elements, hs_code, hs_description)
         VALUES
         <foreach collection="items" item="item" separator=",">
             (#{item.productCode}, #{item.productName}, #{item.sku}, #{item.purchaseQuantity},
@@ -189,13 +195,15 @@
              #{item.inboundQuantity}, #{item.inboundRemark}, #{item.outboundDate},
              #{item.czechWarehouseQty}, #{item.ukWarehouseQty}, #{item.usWarehouseQty}, #{item.deWarehouseQty},
              #{item.fbaDeQty}, #{item.fbaUkQty}, #{item.fbaUsQty}, #{item.fbaFrQty}, #{item.remainingStock},
-             #{item.remark}, #{item.customsUnit}, #{item.declarationElements})
+             #{item.remark}, #{item.customsUnit}, #{item.declarationElements}, #{item.hsCode}, #{item.hsDescription})
         </foreach>
     </insert>
 
     <update id="updateDeclarationElements">
         UPDATE customs_inventory_list
         SET declaration_elements = #{item.declarationElements},
+            hs_code = #{item.hsCode},
+            hs_description = #{item.hsDescription},
             product_name = #{item.productName},
             customs_unit = #{item.customsUnit},
             tax_included_price = #{item.taxIncludedPrice},
@@ -206,10 +214,10 @@
     </update>
 
     <insert id="batchInsertDeclarationRows">
-        INSERT INTO customs_inventory_list (sku, product_code, product_name, declaration_elements, customs_unit, tax_included_price)
+        INSERT INTO customs_inventory_list (sku, product_code, product_name, declaration_elements, hs_code, hs_description, customs_unit, tax_included_price)
         VALUES
         <foreach collection="list" item="item" separator=",">
-            (#{item.sku}, #{item.sourceLocation}, #{item.productName}, #{item.declarationElements}, #{item.customsUnit}, #{item.taxIncludedPrice})
+            (#{item.sku}, #{item.sourceLocation}, #{item.productName}, #{item.declarationElements}, #{item.hsCode}, #{item.hsDescription}, #{item.customsUnit}, #{item.taxIncludedPrice})
         </foreach>
     </insert>
 
@@ -240,5 +248,12 @@
         ) ranked
         WHERE rn = 1 AND match_key IN
         <foreach collection="keys" item="key" open="(" separator="," close=")">#{key}</foreach>
+    </select>
+
+    <select id="selectBySkus" resultMap="CustomsInventoryResult">
+        SELECT <include refid="columns"/>
+        FROM customs_inventory_list
+        WHERE sku IN
+        <foreach collection="skus" item="sku" open="(" separator="," close=")">#{sku}</foreach>
     </select>
 </mapper>

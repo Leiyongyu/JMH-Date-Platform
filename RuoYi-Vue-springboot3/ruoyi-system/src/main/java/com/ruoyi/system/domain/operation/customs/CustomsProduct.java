@@ -10,6 +10,7 @@ public class CustomsProduct implements Serializable
 
     private Long id;
     private String sku;
+    private String productCode;
     private String descriptionCn;
     private String model;
     private String unit;
@@ -30,6 +31,11 @@ public class CustomsProduct implements Serializable
     private String sourceLocation;
     private String exemption;
     private Integer isTax;
+    private String sourceType;
+    private String sourceFileName;
+    private String sourceSheet;
+    private Integer sourceRowNo;
+    private String updatedBy;
     private Date createdAt;
     private Date updatedAt;
 
@@ -37,6 +43,8 @@ public class CustomsProduct implements Serializable
     public void setId(Long id) { this.id = id; }
     public String getSku() { return sku; }
     public void setSku(String sku) { this.sku = sku; }
+    public String getProductCode() { return productCode; }
+    public void setProductCode(String productCode) { this.productCode = productCode; }
     public String getDescriptionCn() { return descriptionCn; }
     public void setDescriptionCn(String descriptionCn) { this.descriptionCn = descriptionCn; }
     public String getModel() { return model; }
@@ -77,6 +85,16 @@ public class CustomsProduct implements Serializable
     public void setExemption(String exemption) { this.exemption = exemption; }
     public Integer getIsTax() { return isTax; }
     public void setIsTax(Integer isTax) { this.isTax = isTax; }
+    public String getSourceType() { return sourceType; }
+    public void setSourceType(String sourceType) { this.sourceType = sourceType; }
+    public String getSourceFileName() { return sourceFileName; }
+    public void setSourceFileName(String sourceFileName) { this.sourceFileName = sourceFileName; }
+    public String getSourceSheet() { return sourceSheet; }
+    public void setSourceSheet(String sourceSheet) { this.sourceSheet = sourceSheet; }
+    public Integer getSourceRowNo() { return sourceRowNo; }
+    public void setSourceRowNo(Integer sourceRowNo) { this.sourceRowNo = sourceRowNo; }
+    public String getUpdatedBy() { return updatedBy; }
+    public void setUpdatedBy(String updatedBy) { this.updatedBy = updatedBy; }
     public Date getCreatedAt() { return createdAt; }
     public void setCreatedAt(Date createdAt) { this.createdAt = createdAt; }
     public Date getUpdatedAt() { return updatedAt; }

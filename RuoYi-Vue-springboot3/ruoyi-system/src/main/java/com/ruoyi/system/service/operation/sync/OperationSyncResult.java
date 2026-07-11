@@ -37,10 +37,14 @@ public class OperationSyncResult
         r.syncType = syncType;
         r.syncName = syncName;
         r.apiPath = apiPath;
-        r.status = STATUS_SUCCESS;
+        r.status = totalCount <= 0 && successCount <= 0 ? STATUS_FAILED : STATUS_SUCCESS;
         r.totalCount = totalCount;
         r.successCount = successCount;
         r.failCount = 0;
+        if (STATUS_FAILED.equals(r.status))
+        {
+            r.errorMessage = "同步结果为空：总数0、成功0。请检查接口参数、返回数据或过滤条件。";
+        }
         r.elapsedMs = elapsedMs;
         return r;
     }

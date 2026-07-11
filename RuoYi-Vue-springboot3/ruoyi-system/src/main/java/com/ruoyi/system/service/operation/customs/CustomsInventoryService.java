@@ -15,6 +15,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.CellStyle;
@@ -34,12 +36,13 @@ public class CustomsInventoryService
     private static final long MAX_FILE_SIZE = 30L * 1024 * 1024;
     private static final int MAX_ROWS = 60000;
     private static final String IMPORT_SHEET_NAME = "工作表1";
+    private static final Pattern HS_PATTERN = Pattern.compile("^(\\d{6,13})\\s*(.*)$");
     private static final String[] FIELD_NAMES = {
             "productCode", "productName", "sku", "purchaseQuantity", "unit", "taxIncludedPrice",
             "purchaseDate", "inboundDate", "inboundQuantity", "inboundRemark", "outboundDate",
             "czechWarehouseQty", "ukWarehouseQty", "usWarehouseQty", "deWarehouseQty",
             "fbaDeQty", "fbaUkQty", "fbaUsQty", "fbaFrQty", "remainingStock",
-            "remark", "customsUnit", "declarationElements"
+            "remark", "customsUnit", "declarationElements", "hsCode", "hsDescription"
     };
     private final CustomsInventoryMapper inventoryMapper;
 
@@ -77,6 +80,7 @@ public class CustomsInventoryService
     public CustomsInventoryItem add(CustomsInventoryItem item)
     {
         validateItem(item);
+        applyHsFields(item);
         inventoryMapper.insert(item);
         return item;
     }
@@ -89,6 +93,7 @@ public class CustomsInventoryService
         if (old == null) throw new IllegalArgumentException("出入库记录不存在");
         checkFieldPermissions(old, item);
         validateItem(item);
+        applyHsFields(item);
         inventoryMapper.update(item);
         return item;
     }
@@ -236,7 +241,24 @@ public class CustomsInventoryService
         item.setRemark(cellString(row.getCell(20)));
         item.setCustomsUnit(cellString(row.getCell(21)));
         item.setDeclarationElements(cellString(row.getCell(22)));
+        applyHsFields(item);
         return item;
+    }
+
+    private void applyHsFields(CustomsInventoryItem item)
+    {
+        String elements = trim(item.getDeclarationElements());
+        Matcher matcher = HS_PATTERN.matcher(elements);
+        if (matcher.find())
+        {
+            item.setHsCode(matcher.group(1));
+            item.setHsDescription(trim(matcher.group(2)));
+        }
+        else
+        {
+            item.setHsCode("");
+            item.setHsDescription(elements);
+        }
     }
 
     private void checkFile(MultipartFile file)
@@ -280,6 +302,8 @@ public class CustomsInventoryService
         requireFieldPerm(changed(oldItem.getRemark(), newItem.getRemark()), "remark", "备注");
         requireFieldPerm(changed(oldItem.getCustomsUnit(), newItem.getCustomsUnit()), "customsUnit", "报关计量单位");
         requireFieldPerm(changed(oldItem.getDeclarationElements(), newItem.getDeclarationElements()), "declarationElements", "申报要素");
+        requireFieldPerm(changed(oldItem.getHsCode(), newItem.getHsCode()), "hsCode", "海关编码");
+        requireFieldPerm(changed(oldItem.getHsDescription(), newItem.getHsDescription()), "hsDescription", "申报要素说明");
     }
 
     private void requireFieldPerm(boolean changed, String field, String name)

@@ -19,6 +19,7 @@ public class CustomsDeclarationElementsImportService
     private static final String SHEET_NAME = "报关单";
     private static final Pattern DECLARATION_SKU_PATTERN = Pattern.compile("申报要素备注栏备注[:：]\\s*([A-Za-z0-9]+[-A-Za-z0-9]*)");
     private static final Pattern SKU_PATTERN = Pattern.compile("\\b[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+\\b");
+    private static final Pattern HS_PATTERN = Pattern.compile("^(\\d{6,13})\\s*(.*)$");
 
     private final CustomsInventoryMapper mapper;
 
@@ -68,7 +69,7 @@ public class CustomsDeclarationElementsImportService
             if (declCol == -1) throw new IllegalArgumentException("未找到 商品编码 列");
 
             // 4. 读取数据行
-            Map<String, String[]> dataMap = new LinkedHashMap<>(); // key: sku|sourceLocation → [declElements, sourceLocation, sku, customsUnit, taxPrice, productName]
+            Map<String, String[]> dataMap = new LinkedHashMap<>(); // key: sku|sourceLocation → [declElements, sourceLocation, sku, customsUnit, taxPrice, productName, hsCode, hsDescription]
             int readRows = 0, skippedRows = 0;
             for (int r = headerRowIdx + 1; r <= sheet.getLastRowNum(); r++)
             {
@@ -108,7 +109,8 @@ public class CustomsDeclarationElementsImportService
                 }
 
                 readRows++;
-                dataMap.put(sku + "|" + srcLoc, new String[]{decl, srcLoc, sku, customsUnit, taxPrice, productName});
+                String[] hs = splitHs(decl);
+                dataMap.put(sku + "|" + srcLoc, new String[]{decl, srcLoc, sku, customsUnit, taxPrice, productName, hs[0], hs[1]});
             }
             if (dataMap.isEmpty()) throw new IllegalArgumentException("Excel 中没有可导入数据");
 
@@ -170,6 +172,8 @@ public class CustomsDeclarationElementsImportService
                 row.put("customsUnit", vals[3]);
                 row.put("taxIncludedPrice", vals[4]);
                 row.put("productName", vals[5]);
+                row.put("hsCode", vals[6]);
+                row.put("hsDescription", vals[7]);
                 if (exists)
                 {
                     toUpdate.add(row);
@@ -241,5 +245,13 @@ public class CustomsDeclarationElementsImportService
     private String buildKey(String sku, String sourceLocation)
     {
         return (sku == null ? "" : sku.trim()) + "|" + (sourceLocation == null ? "" : sourceLocation.trim());
+    }
+
+    private String[] splitHs(String declarationElements)
+    {
+        String value = declarationElements == null ? "" : declarationElements.trim();
+        Matcher matcher = HS_PATTERN.matcher(value);
+        if (matcher.find()) return new String[]{matcher.group(1), matcher.group(2).trim()};
+        return new String[]{"", value};
     }
 }

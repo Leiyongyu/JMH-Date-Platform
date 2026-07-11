@@ -25,19 +25,11 @@ public interface CustomsProductMapper
 
     List<CustomsFbaShipmentOption> searchFbaShipments(@Param("keyword") String keyword, @Param("limit") int limit);
 
-    List<CustomsProduct> selectProductsByFbaShipments(@Param("shipments") List<String> shipments);
+    List<CustomsDeclarationItem> selectProductsByFbaShipments(@Param("shipments") List<String> shipments);
 
     List<String> selectMissingSkusByFbaShipments(@Param("shipments") List<String> shipments);
 
     int batchInsert(@Param("products") List<CustomsProduct> products);
 
     int batchUpsert(@Param("products") List<CustomsProduct> products);
-
-    int countAll();
-
-    /** 关联overseas_stock_order_detail + customs_inventory_list + warehouse，全量刷新产品库 */
-    int refreshFromJoin();
-
-    /** 从 Amazon FBA 装箱明细补充不存在的 SKU */
-    int insertMissingFromAmzShipmentBox();
 }

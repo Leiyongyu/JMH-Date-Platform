@@ -4,7 +4,9 @@ import com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentOption;
 import com.ruoyi.system.domain.operation.customs.CustomsDeclarationItem;
 import com.ruoyi.system.domain.operation.customs.CustomsProduct;
 import com.ruoyi.system.domain.operation.customs.CustomsStockOrderOption;
+import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.html.EscapeUtil;
+import com.ruoyi.system.domain.operation.customs.CustomsInventoryItem;
 import com.ruoyi.system.mapper.operation.customs.CustomsInventoryMapper;
 import com.ruoyi.system.mapper.operation.customs.CustomsProductMapper;
 import java.io.InputStream;
@@ -30,6 +32,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
@@ -43,11 +46,15 @@ public class CustomsProductService
 
     private final CustomsProductMapper productMapper;
     private final CustomsInventoryMapper customsInventoryMapper;
+    private final TransactionTemplate transactionTemplate;
 
-    public CustomsProductService(CustomsProductMapper productMapper, CustomsInventoryMapper customsInventoryMapper)
+    public CustomsProductService(CustomsProductMapper productMapper,
+                                 CustomsInventoryMapper customsInventoryMapper,
+                                 TransactionTemplate transactionTemplate)
     {
         this.productMapper = productMapper;
         this.customsInventoryMapper = customsInventoryMapper;
+        this.transactionTemplate = transactionTemplate;
     }
 
     public List<CustomsProduct> search(String keyword)
@@ -58,21 +65,22 @@ public class CustomsProductService
         Map<String, String> mapping = resolveStandardSkus(List.of(value));
         String standardSku = mapping.get(value);
         // Search by original keyword, normalized key, and standard SKU
-        Set<String> seenSkus = new HashSet<>();
+        Set<String> seenKeys = new HashSet<>();
         List<CustomsProduct> results = new ArrayList<>();
-        addSearchResults(results, seenSkus, value);
+        addSearchResults(results, seenKeys, value);
         String normalized = normalizeSkuKey(value);
-        if (!normalized.equals(value) && !normalized.isEmpty()) addSearchResults(results, seenSkus, normalized);
+        if (!normalized.equals(value) && !normalized.isEmpty()) addSearchResults(results, seenKeys, normalized);
         if (standardSku != null && !standardSku.equals(value) && !standardSku.equals(normalized))
-            addSearchResults(results, seenSkus, standardSku);
+            addSearchResults(results, seenKeys, standardSku);
         return results;
     }
 
-    private void addSearchResults(List<CustomsProduct> results, Set<String> seenSkus, String term)
+    private void addSearchResults(List<CustomsProduct> results, Set<String> seenKeys, String term)
     {
         for (CustomsProduct p : productMapper.search(term, 20))
         {
-            if (p.getSku() != null && seenSkus.add(p.getSku())) results.add(p);
+            String key = productKey(p);
+            if (!key.isEmpty() && seenKeys.add(key)) results.add(p);
         }
     }
 
@@ -93,6 +101,8 @@ public class CustomsProductService
         List<String> orders = normalizeSkus(orderNos);
         if (orders.isEmpty()) throw new IllegalArgumentException("请选择需要关联的备货单");
         List<CustomsDeclarationItem> products = productMapper.selectProductsByStockOrders(orders);
+        // 只有匹配到出入库清单的 SKU 才会被批次价格覆盖；纯历史记录保持历史单价。
+        applyBatchPrices(new ArrayList<CustomsProduct>(products));
         List<String> missingSkus = productMapper.selectMissingSkusByStockOrders(orders);
         return buildLinkResult(products, missingSkus);
     }
@@ -101,7 +111,9 @@ public class CustomsProductService
     {
         List<String> shipments = normalizeSkus(shipmentIds);
         if (shipments.isEmpty()) throw new IllegalArgumentException("请选择需要关联的FBA货件");
-        List<CustomsProduct> products = productMapper.selectProductsByFbaShipments(shipments);
+        List<CustomsDeclarationItem> products = productMapper.selectProductsByFbaShipments(shipments);
+        // 含税/库存商品沿用采购数量 + 剩余库存倒推批次价；历史兜底记录不受影响。
+        applyBatchPrices(new ArrayList<CustomsProduct>(products));
         List<String> missingSkus = productMapper.selectMissingSkusByFbaShipments(shipments);
         return buildLinkResult(products, missingSkus);
     }
@@ -159,14 +171,18 @@ public class CustomsProductService
         // Resolve raw SKUs to standard customs_inventory_list SKUs — no fallback to raw
         Map<String, String> skuMapping = resolveStandardSkus(uniqueSkus);
         List<String> querySkus = uniqueSkus.stream()
-                .map(skuMapping::get)
-                .filter(s -> s != null)
+                .map(s -> skuMapping.getOrDefault(s, s))
                 .distinct()
                 .collect(Collectors.toList());
 
         List<CustomsProduct> products = querySkus.isEmpty() ? List.of() : productMapper.selectBySkus(querySkus);
         Map<String, CustomsProduct> found = new HashMap<>();
-        for (CustomsProduct product : products) found.put(product.getSku(), product);
+        Map<String, CustomsProduct> foundByKey = new LinkedHashMap<>();
+        for (CustomsProduct product : products)
+        {
+            found.putIfAbsent(product.getSku(), product);
+            foundByKey.putIfAbsent(normalizeSkuKey(product.getSku()), product);
+        }
 
         // Build a reverse mapping: rawSku → standardSku (from inventory), for missing detection
         List<CustomsDeclarationItem> matched = new ArrayList<>();
@@ -174,12 +190,9 @@ public class CustomsProductService
         for (String sku : requestedSkus)
         {
             String standardSku = skuMapping.get(sku);
-            if (standardSku == null)
-            {
-                missing.add(sku);
-                continue;
-            }
-            CustomsProduct product = found.get(standardSku);
+            String lookupSku = standardSku == null ? sku : standardSku;
+            CustomsProduct product = found.get(lookupSku);
+            if (product == null) product = foundByKey.get(normalizeSkuKey(sku));
             if (product == null)
             {
                 missing.add(sku);
@@ -220,26 +233,27 @@ public class CustomsProductService
         // Resolve raw SKUs to standard customs_inventory_list SKUs — no fallback to raw
         Map<String, String> skuMapping = resolveStandardSkus(uniqueSkus);
         List<String> querySkus = uniqueSkus.stream()
-                .map(skuMapping::get)
-                .filter(s -> s != null)
+                .map(s -> skuMapping.getOrDefault(s, s))
                 .distinct()
                 .collect(Collectors.toList());
 
         Map<String, CustomsProduct> found = new HashMap<>();
+        Map<String, CustomsProduct> foundByKey = new LinkedHashMap<>();
         List<CustomsProduct> skuProducts = querySkus.isEmpty() ? List.<CustomsProduct>of() : productMapper.selectBySkus(querySkus);
-        for (CustomsProduct product : skuProducts) found.put(product.getSku(), product);
+        for (CustomsProduct product : skuProducts)
+        {
+            found.putIfAbsent(product.getSku(), product);
+            foundByKey.putIfAbsent(normalizeSkuKey(product.getSku()), product);
+        }
 
         List<CustomsDeclarationItem> matched = new ArrayList<>();
         List<String> missing = new ArrayList<>();
         for (SkuRequest request : requests)
         {
             String standardSku = skuMapping.get(request.sku());
-            if (standardSku == null)
-            {
-                missing.add(request.sku());
-                continue;
-            }
-            CustomsProduct product = found.get(standardSku);
+            String lookupSku = standardSku == null ? request.sku() : standardSku;
+            CustomsProduct product = found.get(lookupSku);
+            if (product == null) product = foundByKey.get(normalizeSkuKey(request.sku()));
             if (product == null)
             {
                 missing.add(request.sku());
@@ -264,6 +278,9 @@ public class CustomsProductService
         try (InputStream input = file.getInputStream(); Workbook workbook = new XSSFWorkbook(input))
         {
             Sheet sheet = findCustomsSheet(workbook);
+            String sheetName = sheet.getSheetName();
+            String fileName = file.getOriginalFilename();
+            String username = currentUsername();
             int last = Math.min(sheet.getLastRowNum(), MAX_ROWS - 1);
             for (int i = 10; i <= last; i++)
             {
@@ -275,6 +292,11 @@ public class CustomsProductService
                 {
                     CustomsProduct product = parseHistoryRow(row, sku);
                     sanitizeProduct(product);
+                    product.setSourceType("IMPORT");
+                    product.setSourceFileName(fileName);
+                    product.setSourceSheet(sheetName);
+                    product.setSourceRowNo(i + 1);
+                    product.setUpdatedBy(username);
                     parsed.add(product);
                 }
                 catch (Exception e)
@@ -285,27 +307,8 @@ public class CustomsProductService
         }
         if (parsed.isEmpty() && errors.isEmpty()) throw new IllegalArgumentException("未读取到可导入的商品数据");
 
-        // Normalize SKUs against customs_inventory_list
-        List<CustomsProduct> validProducts = new ArrayList<>();
-        {
-            List<String> rawSkus = parsed.stream().map(CustomsProduct::getSku).distinct().collect(Collectors.toList());
-            Map<String, String> skuMapping = resolveStandardSkus(rawSkus);
-            for (CustomsProduct product : parsed)
-            {
-                String standardSku = skuMapping.getOrDefault(product.getSku(), null);
-                if (standardSku == null)
-                {
-                    errors.add(product.getSku() + "：未在库存清单中找到匹配的标准SKU");
-                }
-                else
-                {
-                    product.setSku(standardSku);
-                    validProducts.add(product);
-                }
-            }
-        }
-        // Use only products that could be resolved
-        List<CustomsProduct> resolved = validProducts;
+        // 历史报关资料按文件中的完整 SKU 保存，不要求 SKU 必须存在于出入库清单。
+        List<CustomsProduct> resolved = parsed;
 
         // All rows failed — return errors without touching the DB
         if (resolved.isEmpty())
@@ -318,26 +321,22 @@ public class CustomsProductService
             return result;
         }
 
-        // Batch-check existing SKUs (1 DB call instead of N)
-        Set<String> existingSkus = new HashSet<>();
-        List<String> allSkus = resolved.stream().map(CustomsProduct::getSku).distinct().collect(Collectors.toList());
-        if (!allSkus.isEmpty())
+        // Batch-check existing rows by full SKU + product_code.
+        Set<String> existingKeys = new HashSet<>();
+        for (CustomsProduct p : productMapper.selectExistingBySkuSource(resolved))
         {
-            for (CustomsProduct p : productMapper.selectBySkus(allSkus))
-            {
-                existingSkus.add(p.getSku());
-            }
+            existingKeys.add(productKey(p));
         }
 
         int inserted = 0;
         int updated = 0;
         try
         {
-            // Batch upsert (already internally split into 500-size chunks)
+            // 历史报关价格是已经申报的当前值，重复导入直接覆盖，不参与库存批次价格计算。
             batchUpsert(resolved);
             for (CustomsProduct product : resolved)
             {
-                if (existingSkus.contains(product.getSku())) updated++;
+                if (existingKeys.contains(productKey(product))) updated++;
                 else inserted++;
             }
         }
@@ -345,6 +344,7 @@ public class CustomsProductService
         {
             errors.add("批量写入失败：" + e.getMessage());
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            throw new IllegalStateException("批量写入失败：" + e.getMessage(), e);
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("inserted", inserted);
@@ -352,6 +352,69 @@ public class CustomsProductService
         result.put("failed", errors.size());
         result.put("errors", errors);
         return result;
+    }
+
+    public Map<String, Object> importHistories(List<MultipartFile> files) throws Exception
+    {
+        if (files == null || files.isEmpty()) throw new IllegalArgumentException("请选择历史报关单文件");
+        int inserted = 0;
+        int updated = 0;
+        int failed = 0;
+        List<String> errors = new ArrayList<>();
+        for (MultipartFile file : files)
+        {
+            try
+            {
+                Map<String, Object> one = transactionTemplate.execute(status ->
+                {
+                    try
+                    {
+                        return importHistory(file);
+                    }
+                    catch (Exception e)
+                    {
+                        throw new IllegalStateException(e);
+                    }
+                });
+                if (one == null) one = Map.of();
+                inserted += number(one.get("inserted"));
+                updated += number(one.get("updated"));
+                failed += number(one.get("failed"));
+                Object fileErrors = one.get("errors");
+                if (fileErrors instanceof List<?> list)
+                    for (Object error : list) errors.add(file.getOriginalFilename() + "：" + error);
+            }
+            catch (Exception e)
+            {
+                failed++;
+                Throwable cause = e.getCause() == null ? e : e.getCause();
+                errors.add((file == null ? "未知文件" : file.getOriginalFilename()) + "：" + cause.getMessage());
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("fileCount", files.size());
+        result.put("inserted", inserted);
+        result.put("updated", updated);
+        result.put("failed", failed);
+        result.put("errors", errors);
+        return result;
+    }
+
+    private int number(Object value)
+    {
+        return value instanceof Number number ? number.intValue() : 0;
+    }
+
+    private String currentUsername()
+    {
+        try { return SecurityUtils.getUsername(); }
+        catch (Exception ignored) { return null; }
+    }
+
+    private String productKey(CustomsProduct product)
+    {
+        if (product == null) return "";
+        return trim(product.getSku()) + "|" + trim(product.getProductCode());
     }
 
     public List<CustomsProduct> findExistingProducts(List<CustomsProduct> products)
@@ -370,6 +433,7 @@ public class CustomsProductService
             List<CustomsProduct> existing = productMapper.selectExistingBySkuSource(values);
             if (!existing.isEmpty()) throw new IllegalArgumentException("商品资料已存在，请确认覆盖后再保存");
         }
+        // 页面“保存商品”保存当前确认值到历史报关表，不重新计算库存批次价格。
         if (overwrite) batchUpsert(values);
         else batchInsert(values);
         return values.size();
@@ -379,27 +443,26 @@ public class CustomsProductService
     {
         if (products == null || products.isEmpty()) throw new IllegalArgumentException("请选择需要保存的商品");
         // First validate and sanitize
-        List<String> rawSkus = new ArrayList<>();
         for (CustomsProduct product : products)
         {
             validateProduct(product);
             sanitizeProduct(product);
+            product.setSourceType("MANUAL");
+            product.setSourceFileName(null);
+            product.setSourceSheet(null);
+            product.setSourceRowNo(null);
+            product.setUpdatedBy(currentUsername());
             product.setSku(product.getSku().trim());
+            product.setProductCode(trim(product.getProductCode()));
             product.setSourceLocation(trim(product.getSourceLocation()));
             product.setOriginCountry(defaultValue(product.getOriginCountry(), "中国"));
-            rawSkus.add(product.getSku());
         }
 
-        // Resolve SKUs to standard customs_inventory_list SKUs
-        Map<String, String> skuMapping = resolveStandardSkus(rawSkus);
         Map<String, CustomsProduct> unique = new LinkedHashMap<>();
         for (CustomsProduct product : products)
         {
-            String standardSku = skuMapping.getOrDefault(product.getSku(), null);
-            if (standardSku == null)
-                throw new IllegalArgumentException(product.getSku() + "：未在库存清单中找到匹配的标准SKU");
-            product.setSku(standardSku);
-            unique.put(product.getSku(), product);
+            // 保存时保留页面完整 SKU；库存清单只能在出入库清单页面维护。
+            unique.put(product.getSku() + "|" + trim(product.getProductCode()), product);
         }
         return new ArrayList<>(unique.values());
     }
@@ -483,6 +546,7 @@ public class CustomsProductService
         CustomsDeclarationItem item = new CustomsDeclarationItem();
         item.setId(product.getId());
         item.setSku(product.getSku());
+        item.setProductCode(product.getProductCode());
         item.setDescriptionCn(product.getDescriptionCn());
         item.setModel(product.getModel());
         item.setUnit(product.getUnit());
@@ -536,6 +600,7 @@ public class CustomsProductService
     {
         if (product.getDescriptionCn() != null) product.setDescriptionCn(EscapeUtil.clean(product.getDescriptionCn()));
         if (product.getHsDescription() != null) product.setHsDescription(EscapeUtil.clean(product.getHsDescription()));
+        if (product.getProductCode() != null) product.setProductCode(EscapeUtil.clean(product.getProductCode()));
         if (product.getModel() != null) product.setModel(EscapeUtil.clean(product.getModel()));
         if (product.getExemption() != null) product.setExemption(EscapeUtil.clean(product.getExemption()));
         if (product.getSourceLocation() != null) product.setSourceLocation(EscapeUtil.clean(product.getSourceLocation()));
@@ -559,8 +624,12 @@ public class CustomsProductService
         if (cell.getCellType() == CellType.BOOLEAN) return Boolean.toString(cell.getBooleanCellValue());
         if (cell.getCellType() == CellType.FORMULA)
         {
-            try { return BigDecimal.valueOf(cell.getNumericCellValue()).stripTrailingZeros().toPlainString(); }
-            catch (Exception ignored) { return trim(cell.getCellFormula()); }
+            CellType cachedType = cell.getCachedFormulaResultType();
+            if (cachedType == CellType.STRING) return trim(cell.getStringCellValue());
+            if (cachedType == CellType.NUMERIC)
+                return BigDecimal.valueOf(cell.getNumericCellValue()).stripTrailingZeros().toPlainString();
+            if (cachedType == CellType.BOOLEAN) return Boolean.toString(cell.getBooleanCellValue());
+            return "";
         }
         return trim(cell.toString());
     }
@@ -641,6 +710,87 @@ public class CustomsProductService
             result.put(raw, keyToSku.getOrDefault(key, null));
         }
         return result;
+    }
+
+    // ==================== 批次单价计算 ====================
+
+    /**
+     * 根据出入库明细的采购数量和含税单价，按剩余库存倒推当前批次单价。
+     * <p>
+     * 数量段和单价段右对齐（单价段可能少于数量段，左侧无价格的历史批次忽略）。
+     * 从最后一笔采购累计，累计量 ≥ 剩余库存时取该批次单价。
+     *
+     * @param qtyStr   采购数量，如 "20+66+30+50+50+30"
+     * @param priceStr 含税单价，如 "1375/1265/1210/1089"
+     * @param remaining 剩余库存
+     * @return 批次单价，无法计算则返回 null
+     */
+    static BigDecimal calculateBatchUnitPrice(String qtyStr, String priceStr, BigDecimal remaining)
+    {
+        if (qtyStr == null || qtyStr.isEmpty()) return null;
+        if (priceStr == null || priceStr.isEmpty()) return null;
+        if (remaining == null || remaining.compareTo(BigDecimal.ZERO) <= 0) return null;
+
+        String[] qtyParts = qtyStr.split("\\+");
+        String[] priceParts = priceStr.split("/");
+        if (qtyParts.length == 0 || priceParts.length == 0) return null;
+
+        // 解析数量（右对齐：price[0] 对应 qty[offset]）
+        BigDecimal[] quantities = new BigDecimal[qtyParts.length];
+        for (int i = 0; i < qtyParts.length; i++)
+        {
+            try { quantities[i] = new BigDecimal(qtyParts[i].trim()); }
+            catch (NumberFormatException e) { return null; }
+        }
+
+        // 解析单价
+        BigDecimal[] prices = new BigDecimal[priceParts.length];
+        for (int i = 0; i < priceParts.length; i++)
+        {
+            try { prices[i] = new BigDecimal(priceParts[i].trim()); }
+            catch (NumberFormatException e) { return null; }
+        }
+
+        int offset = quantities.length - prices.length; // 左侧无对应单价的数量段数
+        if (offset < 0) offset = 0; // 防御：单价段数多于数量段
+
+        BigDecimal cumQty = BigDecimal.ZERO;
+        // 从最后一批往前累计，BigDecimal 累加和比较，避免 int 截断小数
+        for (int i = quantities.length - 1; i >= offset; i--)
+        {
+            cumQty = cumQty.add(quantities[i]);
+            if (cumQty.compareTo(remaining) >= 0)
+                return prices[i - offset];
+        }
+        // 剩余库存大于所有有价批次，取最早单价
+        if (prices.length > 0) return prices[0];
+        return null;
+    }
+
+    /**
+     * 为产品列表按 SKU 匹配出入库明细，计算并设置批次单价。
+     * 匹配不到 inventory 的保持原价不变。
+     */
+    private void applyBatchPrices(List<CustomsProduct> products)
+    {
+        if (products == null || products.isEmpty()) return;
+        List<String> skus = products.stream().map(CustomsProduct::getSku)
+                .filter(s -> s != null && !s.isEmpty()).distinct().collect(Collectors.toList());
+        if (skus.isEmpty()) return;
+
+        List<CustomsInventoryItem> inventoryItems = customsInventoryMapper.selectBySkus(skus);
+        Map<String, CustomsInventoryItem> invMap = new HashMap<>();
+        for (CustomsInventoryItem item : inventoryItems)
+            if (item.getSku() != null) invMap.put(item.getSku(), item);
+
+        for (CustomsProduct product : products)
+        {
+            CustomsInventoryItem inv = invMap.get(product.getSku());
+            if (inv == null) continue;
+            BigDecimal batchPrice = calculateBatchUnitPrice(
+                    inv.getPurchaseQuantity(), inv.getTaxIncludedPrice(), inv.getRemainingStock());
+            if (batchPrice != null) product.setUnitPriceUsd(batchPrice);
+        }
     }
 
     private record SkuRequest(String sku, int quantity) {}

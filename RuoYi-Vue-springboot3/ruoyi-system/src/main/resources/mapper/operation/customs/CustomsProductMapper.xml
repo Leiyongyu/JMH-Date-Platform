@@ -5,6 +5,7 @@
     <resultMap id="CustomsProductResult" type="com.ruoyi.system.domain.operation.customs.CustomsProduct">
         <id property="id" column="id"/>
         <result property="sku" column="sku"/>
+        <result property="productCode" column="product_code"/>
         <result property="descriptionCn" column="description_cn"/>
         <result property="model" column="model"/>
         <result property="unit" column="unit"/>
@@ -25,6 +26,11 @@
         <result property="sourceLocation" column="source_location"/>
         <result property="exemption" column="exemption"/>
         <result property="isTax" column="is_tax"/>
+        <result property="sourceType" column="source_type"/>
+        <result property="sourceFileName" column="source_file_name"/>
+        <result property="sourceSheet" column="source_sheet"/>
+        <result property="sourceRowNo" column="source_row_no"/>
+        <result property="updatedBy" column="updated_by"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
@@ -37,48 +43,57 @@
     </resultMap>
 
     <sql id="columns">
-        id, sku, description_cn, model, unit, unit_price_usd, currency, single_weight,
+        id, sku, product_code, description_cn, model, unit, unit_price_usd, currency, single_weight,
         packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height, box_no,
         hs_code, hs_description, origin_country, destination_country, source_location,
-        exemption, is_tax, created_at, updated_at
+        exemption, is_tax, source_type, source_file_name, source_sheet, source_row_no, updated_by,
+        created_at, updated_at
     </sql>
 
     <sql id="pColumns">
-        p.id, p.sku, p.description_cn, p.model, p.unit, p.unit_price_usd, p.currency, p.single_weight,
+        p.id, p.sku, p.product_code, p.description_cn, p.model, p.unit, p.unit_price_usd, p.currency, p.single_weight,
         p.packing_net_weight, p.packing_gross_weight, p.packing_cbm, p.box_length, p.box_width, p.box_height, p.box_no,
         p.hs_code, p.hs_description, p.origin_country, p.destination_country, p.source_location,
-        p.exemption, p.is_tax, p.created_at, p.updated_at
+        p.exemption, p.is_tax, p.source_type, p.source_file_name, p.source_sheet, p.source_row_no, p.updated_by,
+        p.created_at, p.updated_at
     </sql>
 
     <select id="search" resultMap="CustomsProductResult">
         SELECT <include refid="columns"/>
-        FROM customs_products_list
+        FROM customs_declaration_product_view
         WHERE sku LIKE CONCAT('%', #{keyword}, '%')
            OR description_cn LIKE CONCAT('%', #{keyword}, '%')
-        ORDER BY CASE WHEN sku = #{keyword} THEN 0 WHEN sku LIKE CONCAT(#{keyword}, '%') THEN 1 ELSE 2 END, sku
+           OR sku_key LIKE CONCAT('%', normalize_customs_sku_key(#{keyword}), '%')
+        ORDER BY CASE WHEN sku = #{keyword} THEN 0 WHEN sku LIKE CONCAT(#{keyword}, '%') THEN 1 ELSE 2 END,
+                 CASE WHEN id &gt; 0 THEN 0 ELSE 1 END,
+                 sku
         LIMIT #{limit}
     </select>
 
     <select id="selectBySku" resultMap="CustomsProductResult">
-        SELECT <include refid="columns"/> FROM customs_products_list WHERE sku = #{sku} LIMIT 1
-    </select>
-
-    <select id="countAll" resultType="int">
-        SELECT COUNT(1) FROM customs_products_list
+        SELECT <include refid="columns"/> FROM customs_declaration_product_view
+        WHERE sku = #{sku} OR sku_key = normalize_customs_sku_key(#{sku})
+        ORDER BY CASE WHEN sku = #{sku} THEN 0 ELSE 1 END,
+                 CASE WHEN id &gt; 0 THEN 0 ELSE 1 END,
+                 updated_at DESC
+        LIMIT 1
     </select>
 
     <select id="selectBySkus" resultMap="CustomsProductResult">
-        SELECT <include refid="columns"/> FROM customs_products_list
+        SELECT <include refid="columns"/> FROM customs_declaration_product_view
         WHERE sku IN
         <foreach collection="skus" item="sku" open="(" separator="," close=")">#{sku}</foreach>
+           OR sku_key IN
+        <foreach collection="skus" item="sku" open="(" separator="," close=")">normalize_customs_sku_key(#{sku})</foreach>
+        ORDER BY CASE WHEN id &gt; 0 THEN 0 ELSE 1 END, updated_at DESC
     </select>
 
     <select id="selectExistingBySkuSource" resultMap="CustomsProductResult">
         SELECT <include refid="columns"/>
-        FROM customs_products_list
+        FROM customs_declaration_history
         WHERE
         <foreach collection="products" item="p" open="(" separator=" OR " close=")">
-            sku = #{p.sku}
+            (sku = #{p.sku} AND IFNULL(product_code, '') = IFNULL(#{p.productCode}, ''))
         </foreach>
     </select>
 
@@ -117,9 +132,9 @@
             od.order_total_box_volume AS order_total_cbm
         FROM overseas_stock_order_detail od
         LEFT JOIN (
-            SELECT sku, match_key FROM (
-                SELECT sku, normalize_customs_sku_key(sku) AS match_key,
-                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku)
+            SELECT sku, product_code, match_key FROM (
+                SELECT sku, product_code, normalize_customs_sku_key(sku) AS match_key,
+                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku), IFNULL(product_code, '')
                         ORDER BY CASE WHEN sku = normalize_customs_sku_key(sku) THEN 0
                                       WHEN sku REGEXP '^[0-9]' THEN 1
                                       WHEN sku LIKE 'JMH%' THEN 2
@@ -127,7 +142,11 @@
                 FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
             ) ranked WHERE rn = 1
         ) il ON normalize_customs_sku_key(od.sku) = il.match_key
-        INNER JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
+        INNER JOIN customs_declaration_product_view p
+            ON ((il.sku IS NOT NULL
+                 AND p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
+                 AND IFNULL(p.product_code, '') COLLATE utf8mb4_unicode_ci = IFNULL(il.product_code, '') COLLATE utf8mb4_unicode_ci)
+                OR (il.sku IS NULL AND p.sku_key = normalize_customs_sku_key(od.sku)))
         WHERE od.overseas_order_no IN
         <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
         ORDER BY FIELD(od.overseas_order_no,
@@ -139,9 +158,9 @@
         SELECT DISTINCT od.sku
         FROM overseas_stock_order_detail od
         LEFT JOIN (
-            SELECT sku, match_key FROM (
-                SELECT sku, normalize_customs_sku_key(sku) AS match_key,
-                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku)
+            SELECT sku, product_code, match_key FROM (
+                SELECT sku, product_code, normalize_customs_sku_key(sku) AS match_key,
+                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku), IFNULL(product_code, '')
                         ORDER BY CASE WHEN sku = normalize_customs_sku_key(sku) THEN 0
                                       WHEN sku REGEXP '^[0-9]' THEN 1
                                       WHEN sku LIKE 'JMH%' THEN 2
@@ -149,11 +168,15 @@
                 FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
             ) ranked WHERE rn = 1
         ) il ON normalize_customs_sku_key(od.sku) = il.match_key
-        LEFT JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
+        LEFT JOIN customs_declaration_product_view p
+            ON ((il.sku IS NOT NULL
+                 AND p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
+                 AND IFNULL(p.product_code, '') COLLATE utf8mb4_unicode_ci = IFNULL(il.product_code, '') COLLATE utf8mb4_unicode_ci)
+                OR (il.sku IS NULL AND p.sku_key = normalize_customs_sku_key(od.sku)))
         WHERE od.overseas_order_no IN
         <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
           AND od.sku IS NOT NULL AND od.sku != ''
-          AND (il.sku IS NULL OR p.sku IS NULL)
+          AND p.sku IS NULL
         ORDER BY od.sku
     </select>
 
@@ -188,13 +211,37 @@
         LIMIT #{limit}
     </select>
 
-    <select id="selectProductsByFbaShipments" resultMap="CustomsProductResult">
-        SELECT <include refid="pColumns"/>
+    <select id="selectProductsByFbaShipments" resultMap="CustomsDeclarationItemResult">
+        SELECT
+            <include refid="pColumns"/>,
+            CAST(IF(b.quantity_in_case IS NOT NULL AND b.quantity_in_case REGEXP '^[0-9.]+$',
+                    CAST(b.quantity_in_case AS DECIMAL(12,4)), 1)
+                 * GREATEST(IFNULL(b.box_num, 1), 1) AS SIGNED) AS quantity,
+            CAST(GREATEST(IFNULL(b.box_num, 1), 1) AS SIGNED) AS box_count,
+            b.shipment_id AS source_order_no,
+            b.box_no AS box_no,
+            IF(b.box_weight REGEXP '^[0-9.]+$',
+               CAST(b.box_weight AS DECIMAL(12,4)) *
+               IF(UPPER(IFNULL(b.box_weight_unit, 'KG')) IN ('LB', 'LBS'), 0.45359237, 1),
+               p.packing_gross_weight) AS packing_gross_weight,
+            IF(b.box_length REGEXP '^[0-9.]+$', CAST(b.box_length AS DECIMAL(12,4)) *
+               IF(UPPER(IFNULL(b.box_dimensions_unit, 'CM')) IN ('IN', 'INCH'), 2.54, 1), p.box_length) AS box_length,
+            IF(b.box_width REGEXP '^[0-9.]+$', CAST(b.box_width AS DECIMAL(12,4)) *
+               IF(UPPER(IFNULL(b.box_dimensions_unit, 'CM')) IN ('IN', 'INCH'), 2.54, 1), p.box_width) AS box_width,
+            IF(b.box_height REGEXP '^[0-9.]+$', CAST(b.box_height AS DECIMAL(12,4)) *
+               IF(UPPER(IFNULL(b.box_dimensions_unit, 'CM')) IN ('IN', 'INCH'), 2.54, 1), p.box_height) AS box_height,
+            COALESCE(
+              IF(b.box_volume REGEXP '^[0-9.]+$', CAST(b.box_volume AS DECIMAL(12,6)), NULL),
+              IF(b.box_length REGEXP '^[0-9.]+$' AND b.box_width REGEXP '^[0-9.]+$' AND b.box_height REGEXP '^[0-9.]+$',
+                 CAST(b.box_length AS DECIMAL(12,4)) * CAST(b.box_width AS DECIMAL(12,4)) * CAST(b.box_height AS DECIMAL(12,4)) *
+                 POW(IF(UPPER(IFNULL(b.box_dimensions_unit, 'CM')) IN ('IN', 'INCH'), 2.54, 1), 3) / 1000000,
+                 p.packing_cbm)
+            ) AS packing_cbm
         FROM amz_fba_shipment_box b
         LEFT JOIN (
-            SELECT sku, match_key FROM (
-                SELECT sku, normalize_customs_sku_key(sku) AS match_key,
-                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku)
+            SELECT sku, product_code, match_key FROM (
+                SELECT sku, product_code, normalize_customs_sku_key(sku) AS match_key,
+                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku), IFNULL(product_code, '')
                         ORDER BY CASE WHEN sku = normalize_customs_sku_key(sku) THEN 0
                                       WHEN sku REGEXP '^[0-9]' THEN 1
                                       WHEN sku LIKE 'JMH%' THEN 2
@@ -202,7 +249,11 @@
                 FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
             ) ranked WHERE rn = 1
         ) il ON normalize_customs_sku_key(b.sku) = il.match_key
-        INNER JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
+        INNER JOIN customs_declaration_product_view p
+            ON ((il.sku IS NOT NULL
+                 AND p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
+                 AND IFNULL(p.product_code, '') COLLATE utf8mb4_unicode_ci = IFNULL(il.product_code, '') COLLATE utf8mb4_unicode_ci)
+                OR (il.sku IS NULL AND p.sku_key = normalize_customs_sku_key(b.sku)))
         WHERE b.shipment_id IN
         <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
         ORDER BY FIELD(b.shipment_id,
@@ -214,9 +265,9 @@
         SELECT DISTINCT b.sku
         FROM amz_fba_shipment_box b
         LEFT JOIN (
-            SELECT sku, match_key FROM (
-                SELECT sku, normalize_customs_sku_key(sku) AS match_key,
-                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku)
+            SELECT sku, product_code, match_key FROM (
+                SELECT sku, product_code, normalize_customs_sku_key(sku) AS match_key,
+                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku), IFNULL(product_code, '')
                         ORDER BY CASE WHEN sku = normalize_customs_sku_key(sku) THEN 0
                                       WHEN sku REGEXP '^[0-9]' THEN 1
                                       WHEN sku LIKE 'JMH%' THEN 2
@@ -224,29 +275,35 @@
                 FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
             ) ranked WHERE rn = 1
         ) il ON normalize_customs_sku_key(b.sku) = il.match_key
-        LEFT JOIN customs_products_list p ON p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
+        LEFT JOIN customs_declaration_product_view p
+            ON ((il.sku IS NOT NULL
+                 AND p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
+                 AND IFNULL(p.product_code, '') COLLATE utf8mb4_unicode_ci = IFNULL(il.product_code, '') COLLATE utf8mb4_unicode_ci)
+                OR (il.sku IS NULL AND p.sku_key = normalize_customs_sku_key(b.sku)))
         WHERE b.shipment_id IN
         <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
           AND b.sku IS NOT NULL AND b.sku != ''
-          AND (il.sku IS NULL OR p.sku IS NULL)
+          AND p.sku IS NULL
         ORDER BY b.sku
     </select>
 
     <sql id="productInsertColumns">
-        sku, description_cn, model, unit, unit_price_usd, currency, single_weight,
+        sku, sku_key, product_code, description_cn, model, unit, unit_price_usd, currency, single_weight,
         packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height, box_no,
-        hs_code, hs_description, origin_country, destination_country, source_location, exemption, is_tax
+        hs_code, hs_description, origin_country, destination_country, source_location, exemption, is_tax,
+        source_type, source_file_name, source_sheet, source_row_no, updated_by
     </sql>
 
     <sql id="productInsertValues">
-        #{p.sku}, #{p.descriptionCn}, #{p.model}, #{p.unit}, #{p.unitPriceUsd}, #{p.currency},
+        #{p.sku}, normalize_customs_sku_key(#{p.sku}), IFNULL(#{p.productCode}, ''), #{p.descriptionCn}, #{p.model}, #{p.unit}, #{p.unitPriceUsd}, #{p.currency},
         #{p.singleWeight}, #{p.packingNetWeight}, #{p.packingGrossWeight}, #{p.packingCbm},
         #{p.boxLength}, #{p.boxWidth}, #{p.boxHeight}, #{p.boxNo}, #{p.hsCode}, #{p.hsDescription}, #{p.originCountry},
-        #{p.destinationCountry}, #{p.sourceLocation}, #{p.exemption}, #{p.isTax}
+        #{p.destinationCountry}, #{p.sourceLocation}, #{p.exemption}, IFNULL(#{p.isTax}, 0),
+        #{p.sourceType}, #{p.sourceFileName}, #{p.sourceSheet}, #{p.sourceRowNo}, #{p.updatedBy}
     </sql>
 
     <insert id="batchInsert">
-        INSERT INTO customs_products_list
+        INSERT INTO customs_declaration_history
         (<include refid="productInsertColumns"/>)
         VALUES
         <foreach collection="products" item="p" separator=",">
@@ -255,7 +312,7 @@
     </insert>
 
     <insert id="batchUpsert">
-        INSERT INTO customs_products_list
+        INSERT INTO customs_declaration_history
         (<include refid="productInsertColumns"/>)
         VALUES
         <foreach collection="products" item="p" separator=",">
@@ -282,270 +339,13 @@
             source_location = VALUES(source_location),
             exemption = VALUES(exemption),
             is_tax = VALUES(is_tax),
+            sku_key = VALUES(sku_key),
+            source_type = VALUES(source_type),
+            source_file_name = VALUES(source_file_name),
+            source_sheet = VALUES(source_sheet),
+            source_row_no = VALUES(source_row_no),
+            updated_by = VALUES(updated_by),
             updated_at = CURRENT_TIMESTAMP
     </insert>
-
-    <insert id="refreshFromJoin">
-        INSERT INTO customs_products_list (sku, source_location, description_cn, model, unit, unit_price_usd, currency, single_weight,
-            packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height, box_no,
-            origin_country, destination_country, hs_code, hs_description, exemption, is_tax)
-        SELECT
-            il.sku,
-            IF(il.product_code IS NOT NULL,
-               REPLACE(REPLACE(
-                   IF(REPLACE(il.product_code, '\n', '') REGEXP '[（(]',
-                      SUBSTRING_INDEX(REPLACE(REPLACE(REPLACE(il.product_code, '\n', ''), '(', '（'), ')', '）'), '（', -1),
-                      ''),
-                   '）', ''), ')', ''), ''),
-            IFNULL(il.product_name, ''),
-            '无型号',
-            IFNULL(il.customs_unit, ''),
-            IF(il.tax_included_price IS NOT NULL AND il.tax_included_price REGEXP '^[0-9.]+(/[0-9.]+)*$',
-               CAST(SUBSTRING_INDEX(il.tax_included_price, '/', -1) AS DECIMAL(10,2)),
-               0),
-            IFNULL(NULLIF(od.tariffs_currency_unit, ''), 'USD'),
-            IFNULL(ROUND(IFNULL(lpw.gross_weight / 1000, od.calc_net_weight / NULLIF(od.calc_product_qty, 0)), 4), 0),
-            ROUND(IFNULL(lpw.gross_weight / 1000, od.calc_net_weight / NULLIF(od.calc_product_qty, 0)), 4),
-            od.calc_gross_weight,
-            od.calc_cbm,
-            od.cg_box_length,
-            od.cg_box_width,
-            od.cg_box_height,
-            od.box_range,
-            '中国',
-            CASE TRIM(IFNULL(w.name, ''))
-                WHEN '谷仓 德国区' THEN '德国'
-                WHEN '谷仓 英国区' THEN '英国'
-                WHEN '谷仓 新泽西区' THEN '美国'
-                WHEN '谷仓 加州区' THEN '美国'
-                WHEN '德国' THEN '德国'
-                WHEN '美国' THEN '美国'
-                ELSE IFNULL(w.name, '')
-            END,
-            IFNULL(REGEXP_SUBSTR(TRIM(IFNULL(il.declaration_elements, '')), '^[0-9]+'), ''),
-            TRIM(REGEXP_REPLACE(TRIM(IFNULL(il.declaration_elements, '')), '^[0-9]+[[:space:]]*', '')),
-            '照章', IFNULL(po.is_tax, 0)
-        FROM (
-            SELECT calc.*,
-                IFNULL(calc.total_box_weight, IFNULL(calc.cg_box_weight, 0) * calc.calc_box_count) AS calc_gross_weight,
-                GREATEST(IFNULL(calc.total_box_weight, IFNULL(calc.cg_box_weight, 0) * calc.calc_box_count) - calc.calc_box_count * 0.5, 0) AS calc_net_weight,
-                GREATEST(IFNULL(calc.quantity_in_case, 1) * calc.calc_box_count, 1) AS calc_product_qty,
-                IFNULL(calc.total_box_volume, IFNULL(calc.box_cbm, 0) * calc.calc_box_count) AS calc_cbm
-            FROM (
-                SELECT od.*,
-                    GREATEST(
-                        IFNULL(
-                            NULLIF(od.package_num, 0),
-                            IF(od.total_box_weight IS NOT NULL AND od.cg_box_weight IS NOT NULL AND od.cg_box_weight > 0,
-                               ROUND(od.total_box_weight / od.cg_box_weight),
-                               1)
-                        ),
-                        1
-                    ) AS calc_box_count
-                FROM overseas_stock_order_detail od
-            ) calc
-        ) od
-        LEFT JOIN (
-            SELECT sku, match_key FROM (
-                SELECT sku, normalize_customs_sku_key(sku) AS match_key,
-                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku)
-                        ORDER BY CASE WHEN sku = normalize_customs_sku_key(sku) THEN 0
-                                      WHEN sku REGEXP '^[0-9]' THEN 1
-                                      WHEN sku LIKE 'JMH%' THEN 2
-                                      ELSE 3 END, id) AS rn
-                FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
-            ) ranked WHERE rn = 1
-        ) il ON normalize_customs_sku_key(od.sku) = il.match_key
-        LEFT JOIN lingxing_product_weight lpw ON od.sku COLLATE utf8mb4_unicode_ci = lpw.sku COLLATE utf8mb4_unicode_ci
-        LEFT JOIN warehouse w ON od.r_wid = w.wid
-        LEFT JOIN purchase_order po ON od.sku COLLATE utf8mb4_unicode_ci = po.item_sku
-        WHERE od.product_code LIKE 'JMH-%' AND il.sku IS NOT NULL
-        ON DUPLICATE KEY UPDATE
-            source_location = VALUES(source_location),
-            description_cn = VALUES(description_cn),
-            unit_price_usd = VALUES(unit_price_usd),
-            model = VALUES(model),
-            unit = VALUES(unit),
-            currency = VALUES(currency),
-            single_weight = VALUES(single_weight),
-            packing_net_weight = VALUES(packing_net_weight),
-            packing_gross_weight = VALUES(packing_gross_weight),
-            packing_cbm = VALUES(packing_cbm),
-            box_length = VALUES(box_length),
-            box_width = VALUES(box_width),
-            box_height = VALUES(box_height),
-            box_no = VALUES(box_no),
-            destination_country = VALUES(destination_country),
-            exemption = VALUES(exemption),
-            is_tax = VALUES(is_tax),
-            updated_at = NOW()
-    </insert>
-
-    <insert id="insertMissingFromAmzShipmentBox">
-        INSERT IGNORE INTO customs_products_list
-        (sku, source_location, description_cn, model, unit, unit_price_usd, currency, single_weight,
-         packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height, box_no,
-         origin_country, destination_country, hs_code, hs_description, exemption, is_tax)
-        SELECT
-            src.il_sku,
-            src.source_location,
-            IFNULL(NULLIF(src.product_name, ''), ''),
-            '无型号',
-            IFNULL(src.unit, ''),
-            IF(src.tax_included_price IS NOT NULL AND src.tax_included_price REGEXP '^[0-9.]+(/[0-9.]+)*$',
-               CAST(SUBSTRING_INDEX(src.tax_included_price, '/', -1) AS DECIMAL(10,2)),
-               0),
-            'USD',
-            IFNULL(ROUND(IFNULL(src.product_gross_weight / 1000, src.group_net_weight / NULLIF(src.group_qty, 0)), 4), 0),
-            ROUND(IFNULL(src.product_gross_weight / 1000, src.group_net_weight / NULLIF(src.group_qty, 0)), 4),
-            ROUND(src.group_gross_weight / NULLIF(src.group_qty, 0) * src.product_qty, 4),
-            ROUND(src.group_cbm / NULLIF(src.group_qty, 0) * src.product_qty, 6),
-            src.box_length,
-            src.box_width,
-            src.box_height,
-            src.box_no,
-            '中国',
-            src.country_name,
-            IFNULL(REGEXP_SUBSTR(TRIM(IFNULL(src.declaration_elements, '')), '^[0-9]+'), ''),
-            TRIM(REGEXP_REPLACE(TRIM(IFNULL(src.declaration_elements, '')), '^[0-9]+[[:space:]]*', '')),
-            '照章', 0
-        FROM (
-            SELECT
-                weighted.sku,
-                il.sku AS il_sku,
-                COALESCE(NULLIF(il.product_name, ''), NULLIF(weighted.product_name, '')) AS product_name,
-                il.customs_unit AS unit,
-                il.tax_included_price,
-                il.declaration_elements,
-                IF(il.product_code IS NOT NULL,
-                   REPLACE(REPLACE(
-                       IF(REPLACE(il.product_code, '\n', '') REGEXP '[（(]',
-                          SUBSTRING_INDEX(REPLACE(REPLACE(REPLACE(il.product_code, '\n', ''), '(', '（'), ')', '）'), '（', -1),
-                          ''),
-                       '）', ''), ')', ''), '') AS source_location,
-                weighted.product_qty,
-                weighted.group_qty,
-                GREATEST(weighted.group_gross_weight - weighted.group_box_count * 0.5, 0) AS group_net_weight,
-                weighted.group_gross_weight,
-                weighted.group_cbm,
-                lpw.gross_weight AS product_gross_weight,
-                weighted.box_length,
-                weighted.box_width,
-                weighted.box_height,
-                weighted.box_no,
-                CASE UPPER(IFNULL(s.ship_to_country_code, ''))
-                    WHEN 'DE' THEN '德国'
-                    WHEN 'US' THEN '美国'
-                    WHEN 'GB' THEN '英国'
-                    WHEN 'UK' THEN '英国'
-                    WHEN 'ES' THEN '西班牙'
-                    WHEN 'CN' THEN '中国'
-                    WHEN 'FR' THEN '法国'
-                    WHEN 'PL' THEN '波兰'
-                    WHEN 'IT' THEN '意大利'
-                    ELSE IFNULL(s.ship_to_country_code, '')
-                END AS country_name
-            FROM (
-                SELECT base.*,
-                    SUM(base.product_qty) OVER (
-                        PARTITION BY base.shipment_id, base.box_num, base.box_weight, base.box_length_text, base.box_width_text, base.box_height_text
-                    ) AS group_qty,
-                    MAX(base.gross_weight) OVER (
-                        PARTITION BY base.shipment_id, base.box_num, base.box_weight, base.box_length_text, base.box_width_text, base.box_height_text
-                    ) AS group_gross_weight,
-                    MAX(base.box_count) OVER (
-                        PARTITION BY base.shipment_id, base.box_num, base.box_weight, base.box_length_text, base.box_width_text, base.box_height_text
-                    ) AS group_box_count,
-                    MAX(base.cbm) OVER (
-                        PARTITION BY base.shipment_id, base.box_num, base.box_weight, base.box_length_text, base.box_width_text, base.box_height_text
-                    ) AS group_cbm
-                FROM (
-                    SELECT
-                        b.id,
-                        b.sid,
-                        b.shipment_id,
-                        b.box_type,
-                        b.box_weight,
-                        b.box_dimensions_unit,
-                        b.box_weight_unit,
-                        b.box_num,
-                        b.box_no,
-                        b.msku,
-                        b.sku,
-                        b.product_name,
-                        b.fulfillment_network_sku,
-                        b.quantity_in_case,
-                        b.box_length AS box_length_text,
-                        b.box_width AS box_width_text,
-                        b.box_height AS box_height_text,
-                        GREATEST(IFNULL(b.box_num, 1), 1) AS box_count,
-                        IF(b.quantity_in_case IS NOT NULL AND b.quantity_in_case REGEXP '^[0-9.]+$',
-                           CAST(b.quantity_in_case AS DECIMAL(12,4)),
-                           1) * GREATEST(IFNULL(b.box_num, 1), 1) AS product_qty,
-                        IF(b.box_weight IS NOT NULL AND b.box_weight REGEXP '^[0-9.]+$',
-                           CAST(b.box_weight AS DECIMAL(12,4)) *
-                               IF(UPPER(IFNULL(b.box_weight_unit, 'KG')) IN ('LB', 'LBS'), 0.45359237, 1) *
-                               GREATEST(IFNULL(b.box_num, 1), 1),
-                           0) AS gross_weight,
-                        IF(b.box_length IS NOT NULL AND b.box_length REGEXP '^[0-9.]+$',
-                           CAST(b.box_length AS DECIMAL(12,4)) *
-                               IF(UPPER(IFNULL(b.box_dimensions_unit, 'CM')) IN ('IN', 'INCH'), 2.54, 1),
-                           NULL) AS box_length,
-                        IF(b.box_width IS NOT NULL AND b.box_width REGEXP '^[0-9.]+$',
-                           CAST(b.box_width AS DECIMAL(12,4)) *
-                               IF(UPPER(IFNULL(b.box_dimensions_unit, 'CM')) IN ('IN', 'INCH'), 2.54, 1),
-                           NULL) AS box_width,
-                        IF(b.box_height IS NOT NULL AND b.box_height REGEXP '^[0-9.]+$',
-                           CAST(b.box_height AS DECIMAL(12,4)) *
-                               IF(UPPER(IFNULL(b.box_dimensions_unit, 'CM')) IN ('IN', 'INCH'), 2.54, 1),
-                           NULL) AS box_height,
-                        CASE
-                            WHEN b.box_volume IS NOT NULL AND b.box_volume REGEXP '^[0-9.]+$'
-                                THEN CAST(b.box_volume AS DECIMAL(12,6))
-                            WHEN b.box_length IS NOT NULL AND b.box_length REGEXP '^[0-9.]+$'
-                             AND b.box_width IS NOT NULL AND b.box_width REGEXP '^[0-9.]+$'
-                             AND b.box_height IS NOT NULL AND b.box_height REGEXP '^[0-9.]+$'
-                                THEN ROUND(
-                                    CAST(b.box_length AS DECIMAL(12,4)) *
-                                    CAST(b.box_width AS DECIMAL(12,4)) *
-                                    CAST(b.box_height AS DECIMAL(12,4)) *
-                                    POW(IF(UPPER(IFNULL(b.box_dimensions_unit, 'CM')) IN ('IN', 'INCH'), 2.54, 1), 3) /
-                                    1000000 *
-                                    GREATEST(IFNULL(b.box_num, 1), 1),
-                                    6
-                                )
-                            ELSE NULL
-                        END AS cbm
-                    FROM amz_fba_shipment_box b
-                ) base
-            ) weighted
-            INNER JOIN (
-                SELECT sku, MIN(id) AS id
-                FROM amz_fba_shipment_box
-                WHERE sku IS NOT NULL AND sku != ''
-                GROUP BY sku
-            ) pick ON weighted.id = pick.id
-            LEFT JOIN (
-                SELECT il1.*
-                FROM customs_inventory_list il1
-                INNER JOIN (
-                    SELECT sku, MIN(id) AS id
-                    FROM (
-                        SELECT sku, id,
-                            ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku)
-                                ORDER BY CASE WHEN sku = normalize_customs_sku_key(sku) THEN 0
-                                              WHEN sku REGEXP '^[0-9]' THEN 1
-                                              WHEN sku LIKE 'JMH%' THEN 2
-                                              ELSE 3 END, id) AS rn
-                        FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
-                    ) ranked WHERE rn = 1
-                    GROUP BY sku
-                ) il_pick ON il1.id = il_pick.id
-            ) il ON normalize_customs_sku_key(weighted.sku) = normalize_customs_sku_key(il.sku)
-            LEFT JOIN lingxing_product_weight lpw ON weighted.sku COLLATE utf8mb4_unicode_ci = lpw.sku COLLATE utf8mb4_unicode_ci
-            LEFT JOIN amz_fba_shipment s
-                ON weighted.shipment_id COLLATE utf8mb4_unicode_ci = s.shipment_id COLLATE utf8mb4_unicode_ci
-        ) src
-        WHERE src.sku IS NOT NULL AND src.sku != '' AND src.il_sku IS NOT NULL
-    </insert>
 </mapper>
+

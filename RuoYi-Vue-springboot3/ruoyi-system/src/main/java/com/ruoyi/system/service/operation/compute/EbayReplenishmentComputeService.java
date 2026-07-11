@@ -103,8 +103,8 @@ public class EbayReplenishmentComputeService
         Map<String, String> skuProductNameMap = new LinkedHashMap<>();
         Map<String, BigDecimal> profitRateMap = new LinkedHashMap<>();  // key = site|middleCode
         Map<String, BigDecimal> returnRateMap = new LinkedHashMap<>();  // key = site|middleCode
-        // 老品判断集合：dedup 中有则老品
-        Set<String> oldSkuSet = new HashSet<>();
+        // 产品性质：由 ebay_product_listing 最早刊登时间重建到 dedup 后提供，1=老品，2=新品
+        Map<String, Integer> productNatureMap = new HashMap<>();
 
         for (EbayProductDedup dedup : dedupMapper.selectAll())
         {
@@ -121,7 +121,11 @@ public class EbayReplenishmentComputeService
             siteRowsBySku.computeIfAbsent(groupKey, k -> new LinkedHashMap<>())
                     .put(site, new SkuSiteRow(groupKey, site));
 
-            oldSkuSet.add(site + "|" + groupKey);
+            if (dedup.getProductNature() != null) {
+                String natureKey = site + "|" + groupKey;
+                productNatureMap.merge(natureKey, dedup.getProductNature(),
+                        (existing, current) -> existing == 1 || current == 1 ? 1 : current);
+            }
 
             // 利润率 & 退货率 — 用数字键匹配，跨品牌
             String numKey = InventoryUtils.extractNumericKey(rawSku);
@@ -304,10 +308,11 @@ public class EbayReplenishmentComputeService
                     if (rr != null) snap.setReturnRate(rr);
                 }
 
-                // ---- 产品性质（自动判定：dedup有→老品(1)，仅库存有→新品(2)） ----
+                // ---- 产品性质（按同 SKU 最早 listing_start_time 判定：>60天老品，否则新品） ----
                 String siteSkuKey = row.site + "|" + baseSku;
-                Integer productNature = oldSkuSet.contains(siteSkuKey) ? 1 :
-                    (inventorySkuSet.contains(siteSkuKey) ? 2 : 1);
+                Integer productNature = productNatureMap.get(siteSkuKey);
+                if (productNature == null)
+                    productNature = inventorySkuSet.contains(siteSkuKey) ? 2 : 1;
                 snap.setProductNature(productNature);
 
                 // ---- 月销预测 ----
@@ -621,11 +626,11 @@ public class EbayReplenishmentComputeService
         int d30 = nvl(snap.getSales30d());
         int age = nvl(snap.getOutboundDays());
 
-        // 产品性质: null 视为 1 (老品)
+        // 产品性质: 1=老品，2=新品；null 视为老品
         int nature = snap.getProductNature() != null ? snap.getProductNature() : 1;
 
         // ---- 新品规则: result = d30 * 30 / age ----
-        if (nature == 0)
+        if (nature == 2)
         {
             if (d30 > 0 && age > 0)
             {

@@ -7,6 +7,7 @@
         <result property="site" column="site" />
         <result property="sku" column="sku" />
         <result property="productName" column="product_name" />
+        <result property="productNature" column="product_nature" />
         <result property="profitRate" column="profit_rate" />
         <result property="returnRate" column="return_rate" />
         <result property="lowestPrice" column="lowest_price" />
@@ -20,7 +21,7 @@
     </resultMap>
 
     <select id="selectAll" resultMap="Result">
-        SELECT id, site, sku, product_name, profit_rate, return_rate, lowest_price,
+        SELECT id, site, sku, product_name, product_nature, profit_rate, return_rate, lowest_price,
                lowest_item_number, lowest_upload_time,
                oe_number, tracking_price, tracking_profit_margin, floor_price, remark
         FROM ebay_product_dedup
@@ -28,7 +29,7 @@
 
     <update id="updateProfitRate">
         UPDATE ebay_product_dedup SET profit_rate = #{rate}
-        WHERE site = #{site} AND sku LIKE CONCAT('%', #{middleCode}, '%') LIMIT 1
+        WHERE site = #{site} AND sku LIKE CONCAT('%', #{middleCode}, '%')
     </update>
 
     <update id="updateReturnRate">
@@ -68,7 +69,7 @@
     </update>
 
     <insert id="rebuildFromListing">
-        INSERT INTO ebay_product_dedup (site, sku, product_name)
+        INSERT INTO ebay_product_dedup (site, sku, product_name, product_nature)
         SELECT
           CASE
             WHEN l.site_name IN ('德国', '法国', '美国', '英国') THEN l.site_name
@@ -79,8 +80,19 @@
             ELSE COALESCE(NULLIF(l.site_name, ''), l.site_code)
           END,
           l.sku,
-          MAX(l.title)
+          MAX(l.title),
+          CASE
+            WHEN MIN(first_listing.first_listing_start_time) IS NULL THEN 2
+            WHEN DATEDIFF(CURDATE(), DATE(MIN(first_listing.first_listing_start_time))) > 60 THEN 1
+            ELSE 2
+          END
         FROM ebay_product_listing l
+        LEFT JOIN (
+          SELECT sku, MIN(listing_start_time) AS first_listing_start_time
+          FROM ebay_product_listing
+          WHERE sku IS NOT NULL AND sku != '' AND listing_start_time IS NOT NULL
+          GROUP BY sku
+        ) first_listing ON first_listing.sku = l.sku
         WHERE l.sku IS NOT NULL AND l.sku != ''
           AND (l.site_name IS NOT NULL AND l.site_name != '' OR l.site_code IS NOT NULL AND l.site_code != '')
         GROUP BY
@@ -93,7 +105,7 @@
             ELSE COALESCE(NULLIF(l.site_name, ''), l.site_code)
           END,
           l.sku
-        ON DUPLICATE KEY UPDATE product_name = VALUES(product_name), site = VALUES(site)
+        ON DUPLICATE KEY UPDATE product_name = VALUES(product_name), product_nature = VALUES(product_nature), site = VALUES(site)
     </insert>
 
     <update id="updateProductNature">

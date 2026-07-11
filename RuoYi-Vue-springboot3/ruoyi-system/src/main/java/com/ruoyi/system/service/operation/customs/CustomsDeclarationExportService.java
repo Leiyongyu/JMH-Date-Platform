@@ -234,7 +234,7 @@ public class CustomsDeclarationExportService
             set(sheet, rowIndex, 3, defaultValue(item.getModel(), "无型号"));
             set(sheet, rowIndex, 4, defaultValue(item.getUnit(), "PIECE"));
             setNumber(sheet, rowIndex, 5, item.getQuantity());
-            setNumber(sheet, rowIndex, 6, item.getUnitPriceUsd());
+            setFormula(sheet, rowIndex, 6, "ROUND(" + formulaNumber(item.getUnitPriceUsd()) + "/1.13*1.15*0.14,2)");
             getCell(sheet, rowIndex, 6).setCellStyle(numberStyle);
             setFormula(sheet, rowIndex, 7, "ROUND(F" + excelRow + "*G" + excelRow + ",2)");
             getCell(sheet, rowIndex, 7).setCellStyle(numberStyle);
@@ -389,6 +389,12 @@ public class CustomsDeclarationExportService
     private String formatCbm(BigDecimal value)
     {
         return value.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+    }
+
+    private String formulaNumber(BigDecimal value)
+    {
+        if (value == null) return "0";
+        return value.stripTrailingZeros().toPlainString();
     }
 
     private void fillCustomsItems(Sheet sheet, List<CustomsDeclarationItem> items)

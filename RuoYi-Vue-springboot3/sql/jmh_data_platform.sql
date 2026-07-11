@@ -402,6 +402,8 @@ CREATE TABLE `customs_inventory_list`  (
   `remark` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '备注',
   `customs_unit` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '报关计量单位',
   `declaration_elements` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL COMMENT '申报要素',
+  `hs_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '海关编码，从申报要素开头数字拆分',
+  `hs_description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL COMMENT '申报要素说明，去除开头海关编码后的内容',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`) USING BTREE,
@@ -416,6 +418,7 @@ DROP TABLE IF EXISTS `customs_products_list`;
 CREATE TABLE `customs_products_list`  (
   `id` int NOT NULL AUTO_INCREMENT,
   `sku` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'SKU编码',
+  `product_code` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT '' COMMENT '出入库明细编码',
   `description_cn` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '中文品名',
   `model` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT '通用型' COMMENT '规格型号',
   `unit` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT 'PIECE' COMMENT '单位',
@@ -441,7 +444,7 @@ CREATE TABLE `customs_products_list`  (
   `version` int NULL DEFAULT 1 COMMENT '乐观锁版本号',
   `is_tax` int NULL DEFAULT NULL COMMENT '是否含税 0否 1是',
   PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `sku`(`sku` ASC) USING BTREE
+  UNIQUE INDEX `uk_sku_product_code`(`sku` ASC, `product_code` ASC) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 1153 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------

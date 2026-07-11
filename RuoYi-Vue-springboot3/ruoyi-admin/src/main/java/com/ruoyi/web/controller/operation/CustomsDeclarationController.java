@@ -106,6 +106,15 @@ public class CustomsDeclarationController extends BaseController
         catch (Exception e) { return error(e.getMessage()); }
     }
 
+    @Log(title = "报关商品-历史报关单批量导入", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('customs:declaration:import')")
+    @PostMapping("/import-histories")
+    public AjaxResult importHistories(@RequestParam("files") List<MultipartFile> files)
+    {
+        try { return success(productService.importHistories(files)); }
+        catch (Exception e) { return error(e.getMessage()); }
+    }
+
     @Log(title = "FBA装箱明细导入", businessType = BusinessType.IMPORT)
     @PreAuthorize("@ss.hasPermi('customs:declaration:import')")
     @PostMapping("/import-fba-shipment-box")

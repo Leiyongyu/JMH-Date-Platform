@@ -121,21 +121,23 @@ public class OperationImportService
         try (InputStream is = openCheckedFile(file); Workbook wb = new XSSFWorkbook(is))
         {
             int success = 0;
+            String fileSite = mapSite(fileName(file));
             for (int s = 0; s < wb.getNumberOfSheets(); s++)
             {
                 Sheet sheet = wb.getSheetAt(s);
-                String site = mapSite(sheet.getSheetName());
+                String site = fileSite != null ? fileSite : mapSite(sheet.getSheetName());
                 if (site == null)
                 {
-                    addFailure(failures, 1, sheet.getSheetName(), "未知站点 sheet，已跳过");
+                    addFailure(failures, 1, fileName(file), "未知站点文件名或sheet，已跳过");
                     continue;
                 }
                 Row headerRow = sheet.getRow(0);
                 int colSku = findColumnIndex(headerRow, 0, "SKU", "产品代码");
                 int colRate = findColumnIndex(headerRow, 1, "Profit", "利润率");
                 int rows = Math.min(sheet.getLastRowNum(), MAX_ROWS);
-                task.setTotalRows(nvl(task.getTotalRows()) + rows);
-                for (int i = 1; i <= rows; i++)
+                int startRow = isProfitPlaceholderRow(sheet.getRow(1), colSku, colRate) ? 2 : 1;
+                task.setTotalRows(nvl(task.getTotalRows()) + Math.max(rows - startRow + 1, 0));
+                for (int i = startRow; i <= rows; i++)
                 {
                     Row row = sheet.getRow(i);
                     if (row == null || isEmptyRow(row)) continue;
@@ -152,7 +154,6 @@ public class OperationImportService
                         }
                         if (rate == null)
                         {
-                            addFailure(failures, i + 1, sku, "利润率为空或格式不正确");
                             continue;
                         }
                         int rowsUpdated = dedupMapper.updateProfitRate(site, mid, rate);
@@ -470,6 +471,15 @@ public class OperationImportService
             }
         }
         return defaultIndex;
+    }
+
+    private boolean isProfitPlaceholderRow(Row row, int colSku, int colRate)
+    {
+        String sku = getCellStr(row, colSku);
+        String rate = getCellStr(row, colRate);
+        return (sku != null && sku.contains("SKU 未填写"))
+                || "--".equals(rate)
+                || (rate != null && rate.contains("app.analysis"));
     }
 
     private String getCellStr(Row row, int col) { return row == null || col < 0 ? null : getCellStr(row.getCell(col)); }

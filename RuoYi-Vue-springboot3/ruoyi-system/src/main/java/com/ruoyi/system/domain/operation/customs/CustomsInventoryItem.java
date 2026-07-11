@@ -32,6 +32,8 @@ public class CustomsInventoryItem implements Serializable
     private String remark;
     private String customsUnit;
     private String declarationElements;
+    private String hsCode;
+    private String hsDescription;
     private Date createdAt;
     private Date updatedAt;
 
@@ -83,6 +85,10 @@ public class CustomsInventoryItem implements Serializable
     public void setCustomsUnit(String customsUnit) { this.customsUnit = customsUnit; }
     public String getDeclarationElements() { return declarationElements; }
     public void setDeclarationElements(String declarationElements) { this.declarationElements = declarationElements; }
+    public String getHsCode() { return hsCode; }
+    public void setHsCode(String hsCode) { this.hsCode = hsCode; }
+    public String getHsDescription() { return hsDescription; }
+    public void setHsDescription(String hsDescription) { this.hsDescription = hsDescription; }
     public Date getCreatedAt() { return createdAt; }
     public void setCreatedAt(Date createdAt) { this.createdAt = createdAt; }
     public Date getUpdatedAt() { return updatedAt; }

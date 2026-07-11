@@ -79,6 +79,7 @@ public abstract class AbstractQuartzJob implements Job
         sysJobLog.setStartTime(startTime);
         sysJobLog.setEndTime(new Date());
         long runMs = sysJobLog.getEndTime().getTime() - sysJobLog.getStartTime().getTime();
+        boolean contextFailed = isContextFailed();
 
         // ★ 增强：尝试从 OperationSyncContext 读取业务同步结果，生成更丰富的 job_message
         String enhancedMessage = tryBuildEnhancedMessage(sysJobLog.getJobName(), runMs);
@@ -98,9 +99,10 @@ public abstract class AbstractQuartzJob implements Job
             sysJobLog.setExceptionInfo(errorMsg);
             createFailureNotice(sysJob.getJobName(), errorMsg, runMs);
         }
-        else if (isContextFailed())
+        else if (contextFailed)
         {
             sysJobLog.setStatus(Constants.FAIL);
+            createFailureNotice(sysJob.getJobName(), enhancedMessage, runMs);
         }
         else
         {
@@ -109,6 +111,7 @@ public abstract class AbstractQuartzJob implements Job
 
         // 写入数据库当中
         SpringUtils.getBean(ISysJobLogService.class).addJobLog(sysJobLog);
+        clearOperationSyncContext();
     }
 
     /**
@@ -188,18 +191,19 @@ public abstract class AbstractQuartzJob implements Job
         {
             // 反射失败说明依赖不可用，回退默认行为
         }
-        finally
-        {
-            // 清理 ThreadLocal 防止内存泄漏
-            try
-            {
-                Class<?> contextClass = Class.forName(
-                        "com.ruoyi.system.service.operation.sync.OperationSyncContext");
-                contextClass.getMethod("clear").invoke(null);
-            }
-            catch (Exception ignored) {}
-        }
         return null;
+    }
+
+    /** 清理 OperationSyncContext ThreadLocal 防止内存泄漏 */
+    private void clearOperationSyncContext()
+    {
+        try
+        {
+            Class<?> contextClass = Class.forName(
+                    "com.ruoyi.system.service.operation.sync.OperationSyncContext");
+            contextClass.getMethod("clear").invoke(null);
+        }
+        catch (Exception ignored) {}
     }
 
     /** 检查 OperationSyncContext 中是否有失败结果 */

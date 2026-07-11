@@ -38,4 +38,7 @@ public interface CustomsInventoryMapper
 
     /** Given normalized keys, find matching customs_inventory_list SKUs. Returns map with standardSku→inventorySku. */
     List<Map<String, String>> selectSkusByNormalizedKeys(@Param("keys") List<String> keys);
+
+    /** 按 SKU 列表批量查出入库明细（用于批次单价计算） */
+    List<CustomsInventoryItem> selectBySkus(@Param("skus") List<String> skus);
 }
