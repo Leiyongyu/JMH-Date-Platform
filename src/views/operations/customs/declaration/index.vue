@@ -20,12 +20,15 @@
                 v-hasPermi="['customs:declaration:import']">批量导入 SKU</el-dropdown-item>
               <el-dropdown-item command="fbaBox" icon="Box" :disabled="fbaBoxImporting"
                 v-hasPermi="['customs:declaration:import']">导入 FBA 装箱明细</el-dropdown-item>
+              <el-dropdown-item command="history" icon="UploadFilled"
+                v-hasPermi="['customs:declaration:import']">批量上传历史报关单</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
       </div>
       <input ref="skuFileRef" class="file-input" type="file" accept=".xlsx" @change="handleSkuFile">
       <input ref="fbaBoxFileRef" class="file-input" type="file" accept=".xlsx" @change="handleFbaBoxFile">
+      <input ref="historyFileRef" class="file-input" type="file" accept=".xlsx" multiple @change="handleHistoryFiles">
     </div>
 
     <section class="declaration-sheet">
@@ -285,6 +288,7 @@ import {
   checkCustomsProducts,
   exportCustomsDeclaration,
   importFbaShipmentBox,
+  importCustomsHistories,
   importCustomsSkus,
   loadFbaShipmentProducts,
   loadStockOrderProducts,
@@ -297,6 +301,7 @@ import {
 const { proxy } = getCurrentInstance()
 const skuFileRef = ref()
 const fbaBoxFileRef = ref()
+const historyFileRef = ref()
 const searching = ref(false)
 const saving = ref(false)
 const exporting = ref(false)
@@ -886,13 +891,31 @@ function toActualIndex(pageIndex) {
 
 function openSkuFile() { skuFileRef.value?.click() }
 function openFbaBoxFile() { fbaBoxFileRef.value?.click() }
+function openHistoryFiles() { historyFileRef.value?.click() }
 
 function handleToolbarCommand(command) {
   const actions = {
     sku: openSkuFile,
     fbaBox: openFbaBoxFile,
+    history: openHistoryFiles,
   }
   actions[command]?.()
+}
+
+async function handleHistoryFiles(event) {
+  const files = Array.from(event.target.files || [])
+  if (!files.length) return
+  proxy.$modal.loading('正在导入历史报关单，请稍候...')
+  try {
+    const response = await importCustomsHistories(files)
+    const result = response.data || {}
+    const message = `历史报关单导入完成：文件 ${result.fileCount || files.length} 个，新增 ${result.inserted || 0} 条，覆盖 ${result.updated || 0} 条，失败 ${result.failed || 0} 条`
+    if (result.failed) proxy.$alert(`${message}\n${(result.errors || []).slice(0, 10).join('\n')}`, '部分导入失败', { type: 'warning' })
+    else proxy.$modal.msgSuccess(message)
+  } finally {
+    proxy.$modal.closeLoading()
+    event.target.value = ''
+  }
 }
 
 async function handleSkuFile(event) {
@@ -979,6 +1002,7 @@ function toProductPayload(item) {
   return {
     id: item.id,
     sku: item.sku,
+    productCode: item.productCode,
     descriptionCn: item.descriptionCn,
     model: item.model,
     unit: item.unit,

@@ -66,6 +66,18 @@ export function importCustomsHistory(file) {
   })
 }
 
+export function importCustomsHistories(files) {
+  const data = new FormData()
+  files.forEach(file => data.append('files', file))
+  return request({
+    url: '/operations/customs/declaration/import-histories',
+    method: 'post',
+    data,
+    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false },
+    timeout: FILE_TIMEOUT
+  })
+}
+
 export function importFbaShipmentBox(file) {
   const data = new FormData()
   data.append('file', file)
