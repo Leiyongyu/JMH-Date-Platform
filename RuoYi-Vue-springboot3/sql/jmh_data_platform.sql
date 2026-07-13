@@ -85,7 +85,8 @@ CREATE TABLE `amz_fba_shipment_box`  (
   `quantity_in_case` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '单箱数量',
   `create_time` datetime NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `uk_ship_box_msku`(`sid` ASC, `shipment_id` ASC, `box_num` ASC, `msku` ASC) USING BTREE
+  UNIQUE INDEX `uk_ship_box_msku`(`sid` ASC, `shipment_id` ASC, `box_num` ASC, `msku` ASC) USING BTREE,
+  INDEX `idx_fba_box_shipment_sku`(`shipment_id` ASC, `sku` ASC) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'FBA货件装箱信息' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -399,6 +400,15 @@ CREATE TABLE `customs_inventory_list`  (
   `fba_us_qty` decimal(18, 4) NULL DEFAULT NULL COMMENT 'FBA(US)',
   `fba_fr_qty` decimal(18, 4) NULL DEFAULT NULL COMMENT 'FBA(FR)',
   `remaining_stock` decimal(18, 4) NULL DEFAULT NULL COMMENT '剩余库存',
+  `auto_czech_warehouse_qty` decimal(18, 4) NULL DEFAULT NULL COMMENT '系统自动库存基准-捷克仓',
+  `auto_uk_warehouse_qty` decimal(18, 4) NULL DEFAULT NULL COMMENT '系统自动库存基准-英国仓',
+  `auto_us_warehouse_qty` decimal(18, 4) NULL DEFAULT NULL COMMENT '系统自动库存基准-美国谷仓',
+  `auto_de_warehouse_qty` decimal(18, 4) NULL DEFAULT NULL COMMENT '系统自动库存基准-德国仓',
+  `auto_fba_de_qty` decimal(18, 4) NULL DEFAULT NULL COMMENT '系统自动库存基准-FBA(DE)',
+  `auto_fba_uk_qty` decimal(18, 4) NULL DEFAULT NULL COMMENT '系统自动库存基准-FBA(UK)',
+  `auto_fba_us_qty` decimal(18, 4) NULL DEFAULT NULL COMMENT '系统自动库存基准-FBA(US)',
+  `auto_fba_fr_qty` decimal(18, 4) NULL DEFAULT NULL COMMENT '系统自动库存基准-FBA(FR)',
+  `auto_remaining_stock` decimal(18, 4) NULL DEFAULT NULL COMMENT '系统自动库存基准-剩余库存',
   `remark` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '备注',
   `customs_unit` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '报关计量单位',
   `declaration_elements` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL COMMENT '申报要素',
@@ -410,6 +420,34 @@ CREATE TABLE `customs_inventory_list`  (
   INDEX `idx_customs_inventory_sku`(`sku` ASC) USING BTREE,
   INDEX `idx_customs_inventory_product_code`(`product_code` ASC) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 3398 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '报关出入库清单' ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
+-- Table structure for customs_declaration_generate_log
+-- ----------------------------
+DROP TABLE IF EXISTS `customs_declaration_generate_log`;
+CREATE TABLE `customs_declaration_generate_log` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `declaration_no` varchar(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '本次报关生成批次号',
+  `source_type` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '来源类型：EBAY/FBA/MANUAL',
+  `source_order_no` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '来源单号：备货单号/FBA货件号/手工批次',
+  `source_line_id` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '来源明细ID',
+  `raw_sku` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '来源原始SKU',
+  `standard_sku` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '匹配后的出入库清单SKU',
+  `product_code` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '商品编码',
+  `source_location` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '货源地',
+  `warehouse_bucket` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '仓库归类：CZ/UK/US_GC/DE/FBA_DE/FBA_UK/FBA_US/FBA_FR/UNKNOWN',
+  `warehouse_name` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '实际仓库名称或原始仓库信息',
+  `quantity` decimal(18,4) NOT NULL DEFAULT 0.0000 COMMENT '本次报关数量',
+  `match_status` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'MATCHED' COMMENT '匹配状态：MATCHED/UNKNOWN_WAREHOUSE/MISSING_INVENTORY',
+  `remark` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '备注',
+  `created_by` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '创建人',
+  `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_customs_decl_source_line`(`source_type` ASC, `source_order_no` ASC, `source_line_id` ASC, `warehouse_bucket` ASC) USING BTREE,
+  INDEX `idx_customs_decl_sku_code`(`standard_sku` ASC, `product_code` ASC) USING BTREE,
+  INDEX `idx_customs_decl_bucket`(`warehouse_bucket` ASC) USING BTREE,
+  INDEX `idx_customs_decl_no`(`declaration_no` ASC) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '报关单生成库存扣减日志' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for customs_products_list

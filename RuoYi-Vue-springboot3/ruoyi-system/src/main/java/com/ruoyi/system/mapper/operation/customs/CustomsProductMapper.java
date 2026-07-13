@@ -1,6 +1,7 @@
 package com.ruoyi.system.mapper.operation.customs;
 
 import com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentOption;
+import com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentSkuOption;
 import com.ruoyi.system.domain.operation.customs.CustomsDeclarationItem;
 import com.ruoyi.system.domain.operation.customs.CustomsProduct;
 import com.ruoyi.system.domain.operation.customs.CustomsStockOrderOption;
@@ -23,11 +24,17 @@ public interface CustomsProductMapper
 
     List<String> selectMissingSkusByStockOrders(@Param("orders") List<String> orders);
 
+    List<String> selectMissingInventorySkusByStockOrders(@Param("orders") List<String> orders);
+
     List<CustomsFbaShipmentOption> searchFbaShipments(@Param("keyword") String keyword, @Param("limit") int limit);
+
+    List<CustomsFbaShipmentSkuOption> selectFbaShipmentSkuOptions(@Param("shipments") List<String> shipments);
 
     List<CustomsDeclarationItem> selectProductsByFbaShipments(@Param("shipments") List<String> shipments);
 
     List<String> selectMissingSkusByFbaShipments(@Param("shipments") List<String> shipments);
+
+    List<String> selectMissingInventorySkusByFbaShipments(@Param("shipments") List<String> shipments);
 
     int batchInsert(@Param("products") List<CustomsProduct> products);
 

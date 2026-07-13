@@ -42,8 +42,14 @@ public class AmzFbaShipmentBoxSyncService
         // CLOSED货件 + 最近N天
         List<Map<String, Object>> refs = shipmentMapper.selectClosedSidShipmentByDays(days);
         LOG.info("FBA装箱信息 共 {} 个sid, {} 条已完成货件(最近{}天)", sids.size(), refs.size(), days);
+        if (refs.isEmpty())
+        {
+            return OperationSyncResult.skipped("amz_fba_box", "领星-FBA装箱信息", API,
+                    "最近" + days + "天没有已完成货件，无需同步装箱信息", System.currentTimeMillis() - start);
+        }
 
         int total = 0;
+        Set<String> touchedShipmentIds = new LinkedHashSet<>();
         for (Map<String, Object> ref : refs)
         {
             Integer sid = (Integer) ref.get("sid");
@@ -84,10 +90,12 @@ public class AmzFbaShipmentBoxSyncService
                     }
                 }
                 if (!batch.isEmpty()) { mapper.batchInsert(batch); total += batch.size(); }
+                touchedShipmentIds.add(shipmentId);
             }
             catch (Exception e) { LOG.warn("FBA装箱信息失败 {}/{}: {}", sid, shipmentId, e.getMessage()); }
         }
-        int skuMapped = mapper.updateSkuFromListing();
+        int skuMapped = touchedShipmentIds.isEmpty()
+                ? 0 : mapper.updateSkuFromListingByShipmentIds(new ArrayList<>(touchedShipmentIds));
         LOG.info("FBA装箱信息 完成: {} 条, SKU映射: {} 条", total, skuMapped);
         return OperationSyncResult.success("amz_fba_box", "领星-FBA装箱信息", API, total, total, System.currentTimeMillis() - start);
     }

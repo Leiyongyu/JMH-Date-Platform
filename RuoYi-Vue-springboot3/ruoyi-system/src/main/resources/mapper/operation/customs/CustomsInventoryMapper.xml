@@ -24,6 +24,15 @@
         <result property="fbaUsQty" column="fba_us_qty"/>
         <result property="fbaFrQty" column="fba_fr_qty"/>
         <result property="remainingStock" column="remaining_stock"/>
+        <result property="autoCzechWarehouseQty" column="auto_czech_warehouse_qty"/>
+        <result property="autoUkWarehouseQty" column="auto_uk_warehouse_qty"/>
+        <result property="autoUsWarehouseQty" column="auto_us_warehouse_qty"/>
+        <result property="autoDeWarehouseQty" column="auto_de_warehouse_qty"/>
+        <result property="autoFbaDeQty" column="auto_fba_de_qty"/>
+        <result property="autoFbaUkQty" column="auto_fba_uk_qty"/>
+        <result property="autoFbaUsQty" column="auto_fba_us_qty"/>
+        <result property="autoFbaFrQty" column="auto_fba_fr_qty"/>
+        <result property="autoRemainingStock" column="auto_remaining_stock"/>
         <result property="remark" column="remark"/>
         <result property="customsUnit" column="customs_unit"/>
         <result property="declarationElements" column="declaration_elements"/>
@@ -38,6 +47,8 @@
         purchase_date, inbound_date, inbound_quantity, inbound_remark, outbound_date,
         czech_warehouse_qty, uk_warehouse_qty, us_warehouse_qty, de_warehouse_qty,
         fba_de_qty, fba_uk_qty, fba_us_qty, fba_fr_qty, remaining_stock, remark,
+        auto_czech_warehouse_qty, auto_uk_warehouse_qty, auto_us_warehouse_qty, auto_de_warehouse_qty,
+        auto_fba_de_qty, auto_fba_uk_qty, auto_fba_us_qty, auto_fba_fr_qty, auto_remaining_stock,
         customs_unit, declaration_elements, hs_code, hs_description, created_at, updated_at
     </sql>
 
@@ -94,6 +105,15 @@
             NULL AS fba_us_qty,
             NULL AS fba_fr_qty,
             NULL AS remaining_stock,
+            NULL AS auto_czech_warehouse_qty,
+            NULL AS auto_uk_warehouse_qty,
+            NULL AS auto_us_warehouse_qty,
+            NULL AS auto_de_warehouse_qty,
+            NULL AS auto_fba_de_qty,
+            NULL AS auto_fba_uk_qty,
+            NULL AS auto_fba_us_qty,
+            NULL AS auto_fba_fr_qty,
+            NULL AS auto_remaining_stock,
             NULL AS remark,
             customs_unit AS customs_unit,
             NULL AS declaration_elements,
@@ -142,12 +162,16 @@
          purchase_date, inbound_date, inbound_quantity, inbound_remark, outbound_date,
          czech_warehouse_qty, uk_warehouse_qty, us_warehouse_qty, de_warehouse_qty,
          fba_de_qty, fba_uk_qty, fba_us_qty, fba_fr_qty, remaining_stock, remark,
+         auto_czech_warehouse_qty, auto_uk_warehouse_qty, auto_us_warehouse_qty, auto_de_warehouse_qty,
+         auto_fba_de_qty, auto_fba_uk_qty, auto_fba_us_qty, auto_fba_fr_qty, auto_remaining_stock,
          customs_unit, declaration_elements, hs_code, hs_description)
         VALUES
         (#{productCode}, #{productName}, #{sku}, #{purchaseQuantity}, #{unit}, #{taxIncludedPrice},
          #{purchaseDate}, #{inboundDate}, #{inboundQuantity}, #{inboundRemark}, #{outboundDate},
          #{czechWarehouseQty}, #{ukWarehouseQty}, #{usWarehouseQty}, #{deWarehouseQty},
          #{fbaDeQty}, #{fbaUkQty}, #{fbaUsQty}, #{fbaFrQty}, #{remainingStock}, #{remark},
+         #{autoCzechWarehouseQty}, #{autoUkWarehouseQty}, #{autoUsWarehouseQty}, #{autoDeWarehouseQty},
+         #{autoFbaDeQty}, #{autoFbaUkQty}, #{autoFbaUsQty}, #{autoFbaFrQty}, #{autoRemainingStock},
          #{customsUnit}, #{declarationElements}, #{hsCode}, #{hsDescription})
     </insert>
 
@@ -187,6 +211,8 @@
          purchase_date, inbound_date, inbound_quantity, inbound_remark, outbound_date,
          czech_warehouse_qty, uk_warehouse_qty, us_warehouse_qty, de_warehouse_qty,
          fba_de_qty, fba_uk_qty, fba_us_qty, fba_fr_qty, remaining_stock, remark,
+         auto_czech_warehouse_qty, auto_uk_warehouse_qty, auto_us_warehouse_qty, auto_de_warehouse_qty,
+         auto_fba_de_qty, auto_fba_uk_qty, auto_fba_us_qty, auto_fba_fr_qty, auto_remaining_stock,
          customs_unit, declaration_elements, hs_code, hs_description)
         VALUES
         <foreach collection="items" item="item" separator=",">
@@ -195,7 +221,10 @@
              #{item.inboundQuantity}, #{item.inboundRemark}, #{item.outboundDate},
              #{item.czechWarehouseQty}, #{item.ukWarehouseQty}, #{item.usWarehouseQty}, #{item.deWarehouseQty},
              #{item.fbaDeQty}, #{item.fbaUkQty}, #{item.fbaUsQty}, #{item.fbaFrQty}, #{item.remainingStock},
-             #{item.remark}, #{item.customsUnit}, #{item.declarationElements}, #{item.hsCode}, #{item.hsDescription})
+             #{item.remark},
+             #{item.autoCzechWarehouseQty}, #{item.autoUkWarehouseQty}, #{item.autoUsWarehouseQty}, #{item.autoDeWarehouseQty},
+             #{item.autoFbaDeQty}, #{item.autoFbaUkQty}, #{item.autoFbaUsQty}, #{item.autoFbaFrQty}, #{item.autoRemainingStock},
+             #{item.customsUnit}, #{item.declarationElements}, #{item.hsCode}, #{item.hsDescription})
         </foreach>
     </insert>
 

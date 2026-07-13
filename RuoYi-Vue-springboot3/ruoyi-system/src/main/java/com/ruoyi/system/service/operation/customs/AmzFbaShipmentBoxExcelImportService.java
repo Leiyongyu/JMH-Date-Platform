@@ -67,22 +67,13 @@ public class AmzFbaShipmentBoxExcelImportService
 
         List<AmzFbaShipmentBox> rows = new ArrayList<>();
         Set<String> importedShipments = new LinkedHashSet<>();
-        Set<String> skippedShipments = new LinkedHashSet<>();
         Set<String> unmatchedShops = new LinkedHashSet<>();
-        int skippedExistingRows = 0;
         int failedRows = 0;
 
         for (ExcelBoxRow source : excelRows)
         {
-            if (existingShipmentIds.contains(source.shipmentId))
-            {
-                skippedShipments.add(source.shipmentId);
-                skippedExistingRows++;
-                continue;
-            }
-
-            Integer sid = matchSid(source.shopName, shops);
-            if (sid == null) sid = sidByShipment.get(source.shipmentId);
+            Integer sid = sidByShipment.get(source.shipmentId);
+            if (sid == null) sid = matchSid(source.shopName, shops);
             if (sid == null)
             {
                 unmatchedShops.add(source.shopName);
@@ -112,19 +103,31 @@ public class AmzFbaShipmentBoxExcelImportService
             importedShipments.add(source.shipmentId);
         }
 
+        int replacedShipments = 0;
+        for (String shipmentId : importedShipments)
+        {
+            if (existingShipmentIds.contains(shipmentId))
+            {
+                boxMapper.deleteByShipmentId(shipmentId);
+                replacedShipments++;
+            }
+        }
+
         int inserted = 0;
         for (int i = 0; i < rows.size(); i += BATCH_SIZE)
         {
             inserted += boxMapper.batchInsert(rows.subList(i, Math.min(i + BATCH_SIZE, rows.size())));
         }
-        int skuMapped = rows.isEmpty() ? 0 : boxMapper.updateSkuFromListing();
+        int skuMapped = importedShipments.isEmpty() ? 0
+                : boxMapper.updateSkuFromListingByShipmentIds(new ArrayList<>(importedShipments));
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("readRows", excelRows.size());
         result.put("insertedRows", inserted);
         result.put("importedShipments", importedShipments.size());
-        result.put("skippedExistingRows", skippedExistingRows);
-        result.put("skippedExistingShipments", skippedShipments.size());
+        result.put("replacedShipments", replacedShipments);
+        result.put("skippedExistingRows", 0);
+        result.put("skippedExistingShipments", 0);
         result.put("failedRows", failedRows);
         result.put("skuMapped", skuMapped);
         result.put("unmatchedShops", new ArrayList<>(unmatchedShops));

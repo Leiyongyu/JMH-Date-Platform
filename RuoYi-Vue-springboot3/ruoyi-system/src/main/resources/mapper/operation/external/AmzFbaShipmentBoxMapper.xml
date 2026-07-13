@@ -53,4 +53,18 @@
         WHERE b.sku IS NULL OR b.sku = '' OR b.product_name IS NULL OR b.product_name = ''
     </update>
 
+    <update id="updateSkuFromListingByShipmentIds">
+        UPDATE amz_fba_shipment_box b
+        JOIN amz_product_listing p
+          ON b.sid = p.sid
+         AND b.msku COLLATE utf8mb4_unicode_ci = p.seller_sku COLLATE utf8mb4_unicode_ci
+        SET b.sku = CASE WHEN b.sku IS NULL OR b.sku = '' THEN p.local_sku ELSE b.sku END,
+            b.product_name = CASE WHEN b.product_name IS NULL OR b.product_name = '' THEN p.local_name ELSE b.product_name END
+        WHERE b.shipment_id IN
+        <foreach collection="shipmentIds" item="shipmentId" open="(" separator="," close=")">
+            #{shipmentId}
+        </foreach>
+          AND (b.sku IS NULL OR b.sku = '' OR b.product_name IS NULL OR b.product_name = '')
+    </update>
+
 </mapper>

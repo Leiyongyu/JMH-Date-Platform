@@ -1,12 +1,15 @@
 package com.ruoyi.system.service.operation.customs;
 
 import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.system.domain.operation.customs.CustomsDeclarationGenerateLog;
 import com.ruoyi.system.domain.operation.customs.CustomsInventoryItem;
+import com.ruoyi.system.mapper.operation.customs.CustomsDeclarationGenerateLogMapper;
 import com.ruoyi.system.mapper.operation.customs.CustomsInventoryMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.net.URLEncoder;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -14,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -42,18 +46,23 @@ public class CustomsInventoryService
             "purchaseDate", "inboundDate", "inboundQuantity", "inboundRemark", "outboundDate",
             "czechWarehouseQty", "ukWarehouseQty", "usWarehouseQty", "deWarehouseQty",
             "fbaDeQty", "fbaUkQty", "fbaUsQty", "fbaFrQty", "remainingStock",
-            "remark", "customsUnit", "declarationElements", "hsCode", "hsDescription"
+            "remark", "customsUnit", "declarationElements"
     };
     private final CustomsInventoryMapper inventoryMapper;
+    private final CustomsDeclarationGenerateLogMapper generateLogMapper;
 
-    public CustomsInventoryService(CustomsInventoryMapper inventoryMapper)
+    public CustomsInventoryService(CustomsInventoryMapper inventoryMapper,
+                                   CustomsDeclarationGenerateLogMapper generateLogMapper)
     {
         this.inventoryMapper = inventoryMapper;
+        this.generateLogMapper = generateLogMapper;
     }
 
     public List<CustomsInventoryItem> list(String keyword)
     {
-        return inventoryMapper.selectList(trim(keyword));
+        List<CustomsInventoryItem> rows = inventoryMapper.selectList(trim(keyword));
+        enrichDeclarationUsage(rows);
+        return rows;
     }
 
     public List<CustomsInventoryItem> productOptions(String productCode, String productName, String sku, String unit)
@@ -80,7 +89,10 @@ public class CustomsInventoryService
     public CustomsInventoryItem add(CustomsInventoryItem item)
     {
         validateItem(item);
+        normalizeDateFields(item);
+        applyRemainingStock(item);
         applyHsFields(item);
+        initializeAutoStock(item);
         inventoryMapper.insert(item);
         return item;
     }
@@ -91,11 +103,168 @@ public class CustomsInventoryService
         if (item == null || item.getId() == null) throw new IllegalArgumentException("编辑记录ID不能为空");
         CustomsInventoryItem old = inventoryMapper.selectById(item.getId());
         if (old == null) throw new IllegalArgumentException("出入库记录不存在");
-        checkFieldPermissions(old, item);
         validateItem(item);
+        normalizeDateFields(item);
+        applyRemainingStock(item);
         applyHsFields(item);
+        checkFieldPermissions(old, item);
         inventoryMapper.update(item);
         return item;
+    }
+
+    private void enrichDeclarationUsage(List<CustomsInventoryItem> rows)
+    {
+        if (rows == null || rows.isEmpty()) return;
+        List<Map<String, String>> keys = rows.stream()
+                .filter(row -> !trim(row.getSku()).isEmpty())
+                .map(row -> {
+                    Map<String, String> key = new LinkedHashMap<>();
+                    key.put("sku", trim(row.getSku()));
+                    key.put("productCode", trim(row.getProductCode()));
+                    return key;
+                })
+                .distinct()
+                .collect(Collectors.toList());
+        if (keys.isEmpty()) return;
+
+        Map<String, CustomsInventoryItem> rowMap = new LinkedHashMap<>();
+        for (CustomsInventoryItem row : rows)
+        {
+            rowMap.put(rowKey(row.getSku(), row.getProductCode()), row);
+            row.setDeclaredCzechWarehouseQty(BigDecimal.ZERO);
+            row.setDeclaredUkWarehouseQty(BigDecimal.ZERO);
+            row.setDeclaredUsWarehouseQty(BigDecimal.ZERO);
+            row.setDeclaredDeWarehouseQty(BigDecimal.ZERO);
+            row.setDeclaredFbaDeQty(BigDecimal.ZERO);
+            row.setDeclaredFbaUkQty(BigDecimal.ZERO);
+            row.setDeclaredFbaUsQty(BigDecimal.ZERO);
+            row.setDeclaredFbaFrQty(BigDecimal.ZERO);
+            row.setDeclaredUnknownWarehouseQty(BigDecimal.ZERO);
+            row.setDeclaredTotalQty(BigDecimal.ZERO);
+            row.setDeclarationLogs(new LinkedHashMap<>());
+        }
+
+        for (Map<String, Object> summary : generateLogMapper.selectBucketSummary(keys))
+        {
+            CustomsInventoryItem row = rowMap.get(rowKey(value(summary.get("standardSku")), value(summary.get("productCode"))));
+            if (row == null) continue;
+            String bucket = value(summary.get("warehouseBucket"));
+            BigDecimal quantity = decimalValue(summary.get("quantity"));
+            applyDeclaredQuantity(row, bucket, quantity);
+        }
+
+        for (CustomsDeclarationGenerateLog log : generateLogMapper.selectRecentLogs(keys))
+        {
+            CustomsInventoryItem row = rowMap.get(rowKey(log.getStandardSku(), log.getProductCode()));
+            if (row == null) continue;
+            String bucket = defaultValue(log.getWarehouseBucket(), "UNKNOWN");
+            row.getDeclarationLogs().computeIfAbsent(bucket, k -> new ArrayList<>()).add(log);
+        }
+
+        for (CustomsInventoryItem row : rows)
+        {
+            BigDecimal total = sum(row.getDeclaredCzechWarehouseQty(), row.getDeclaredUkWarehouseQty(),
+                    row.getDeclaredUsWarehouseQty(), row.getDeclaredDeWarehouseQty(), row.getDeclaredFbaDeQty(),
+                    row.getDeclaredFbaUkQty(), row.getDeclaredFbaUsQty(), row.getDeclaredFbaFrQty(),
+                    row.getDeclaredUnknownWarehouseQty());
+            row.setDeclaredTotalQty(total);
+            row.setAvailableRemainingStock(autoBase(row.getAutoRemainingStock(), row.getRemainingStock()).subtract(total));
+        }
+    }
+
+    private void initializeAutoStock(CustomsInventoryItem item)
+    {
+        item.setAutoCzechWarehouseQty(nvl(item.getAutoCzechWarehouseQty(), item.getCzechWarehouseQty()));
+        item.setAutoUkWarehouseQty(nvl(item.getAutoUkWarehouseQty(), item.getUkWarehouseQty()));
+        item.setAutoUsWarehouseQty(nvl(item.getAutoUsWarehouseQty(), item.getUsWarehouseQty()));
+        item.setAutoDeWarehouseQty(nvl(item.getAutoDeWarehouseQty(), item.getDeWarehouseQty()));
+        item.setAutoFbaDeQty(nvl(item.getAutoFbaDeQty(), item.getFbaDeQty()));
+        item.setAutoFbaUkQty(nvl(item.getAutoFbaUkQty(), item.getFbaUkQty()));
+        item.setAutoFbaUsQty(nvl(item.getAutoFbaUsQty(), item.getFbaUsQty()));
+        item.setAutoFbaFrQty(nvl(item.getAutoFbaFrQty(), item.getFbaFrQty()));
+        item.setAutoRemainingStock(nvl(item.getAutoRemainingStock(), item.getRemainingStock()));
+    }
+
+    private void normalizeDateFields(CustomsInventoryItem item)
+    {
+        item.setPurchaseDate(normalizeSingleDate(item.getPurchaseDate()));
+        item.setInboundDate(normalizeSingleDate(item.getInboundDate()));
+        item.setOutboundDate(normalizeLooseDateText(item.getOutboundDate()));
+    }
+
+    private void applyRemainingStock(CustomsInventoryItem item)
+    {
+        item.setRemainingStock(calculateRemainingStock(item));
+    }
+
+    private BigDecimal calculateRemainingStock(CustomsInventoryItem item)
+    {
+        return nvl(item.getInboundQuantity())
+                .subtract(nvl(item.getCzechWarehouseQty()))
+                .subtract(nvl(item.getUkWarehouseQty()))
+                .subtract(nvl(item.getUsWarehouseQty()))
+                .subtract(nvl(item.getDeWarehouseQty()))
+                .subtract(nvl(item.getFbaDeQty()))
+                .subtract(nvl(item.getFbaUkQty()))
+                .subtract(nvl(item.getFbaUsQty()))
+                .subtract(nvl(item.getFbaFrQty()));
+    }
+
+    private void applyDeclaredQuantity(CustomsInventoryItem row, String bucket, BigDecimal quantity)
+    {
+        BigDecimal value = nvl(quantity);
+        switch (bucket)
+        {
+            case "CZ" -> row.setDeclaredCzechWarehouseQty(nvl(row.getDeclaredCzechWarehouseQty()).add(value));
+            case "UK" -> row.setDeclaredUkWarehouseQty(nvl(row.getDeclaredUkWarehouseQty()).add(value));
+            case "US_GC" -> row.setDeclaredUsWarehouseQty(nvl(row.getDeclaredUsWarehouseQty()).add(value));
+            case "DE" -> row.setDeclaredDeWarehouseQty(nvl(row.getDeclaredDeWarehouseQty()).add(value));
+            case "FBA_DE" -> row.setDeclaredFbaDeQty(nvl(row.getDeclaredFbaDeQty()).add(value));
+            case "FBA_UK" -> row.setDeclaredFbaUkQty(nvl(row.getDeclaredFbaUkQty()).add(value));
+            case "FBA_US" -> row.setDeclaredFbaUsQty(nvl(row.getDeclaredFbaUsQty()).add(value));
+            case "FBA_FR" -> row.setDeclaredFbaFrQty(nvl(row.getDeclaredFbaFrQty()).add(value));
+            default -> row.setDeclaredUnknownWarehouseQty(nvl(row.getDeclaredUnknownWarehouseQty()).add(value));
+        }
+    }
+
+    private String rowKey(String sku, String productCode)
+    {
+        return trim(sku) + "|" + trim(productCode);
+    }
+
+    private BigDecimal decimalValue(Object value)
+    {
+        if (value instanceof BigDecimal decimal) return decimal;
+        if (value instanceof Number number) return BigDecimal.valueOf(number.doubleValue());
+        try { return new BigDecimal(value(value)); }
+        catch (Exception ignored) { return BigDecimal.ZERO; }
+    }
+
+    private BigDecimal nvl(BigDecimal value)
+    {
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private BigDecimal nvl(BigDecimal value, BigDecimal fallback)
+    {
+        return value == null ? fallback : value;
+    }
+
+    private BigDecimal autoBase(BigDecimal autoValue, BigDecimal manualFallback)
+    {
+        return autoValue == null ? nvl(manualFallback) : autoValue;
+    }
+
+    private BigDecimal sum(BigDecimal... values)
+    {
+        BigDecimal total = BigDecimal.ZERO;
+        for (BigDecimal value : values) total = total.add(nvl(value));
+        return total;
+    }
+
+    private String value(Object value)
+    {
+        return value == null ? "" : value.toString();
     }
 
     public void export(List<Long> ids, HttpServletResponse response) throws Exception
@@ -188,7 +357,11 @@ public class CustomsInventoryService
                 {
                     String productCode = cellString(row.getCell(0));
                     if (!productCode.isEmpty()) lastProductCode = productCode;
-                    parsed.add(parseRow(row, defaultValue(productCode, lastProductCode)));
+                    CustomsInventoryItem item = parseRow(row, defaultValue(productCode, lastProductCode));
+                    normalizeDateFields(item);
+                    applyRemainingStock(item);
+                    initializeAutoStock(item);
+                    parsed.add(item);
                 }
                 catch (Exception e)
                 {
@@ -237,7 +410,6 @@ public class CustomsInventoryService
         item.setFbaUkQty(decimal(row.getCell(16)));
         item.setFbaUsQty(decimal(row.getCell(17)));
         item.setFbaFrQty(decimal(row.getCell(18)));
-        item.setRemainingStock(decimal(row.getCell(19)));
         item.setRemark(cellString(row.getCell(20)));
         item.setCustomsUnit(cellString(row.getCell(21)));
         item.setDeclarationElements(cellString(row.getCell(22)));
@@ -298,12 +470,9 @@ public class CustomsInventoryService
         requireFieldPerm(changed(oldItem.getFbaUkQty(), newItem.getFbaUkQty()), "fbaUkQty", "FBA(UK)");
         requireFieldPerm(changed(oldItem.getFbaUsQty(), newItem.getFbaUsQty()), "fbaUsQty", "FBA(US)");
         requireFieldPerm(changed(oldItem.getFbaFrQty(), newItem.getFbaFrQty()), "fbaFrQty", "FBA(FR)");
-        requireFieldPerm(changed(oldItem.getRemainingStock(), newItem.getRemainingStock()), "remainingStock", "剩余库存");
         requireFieldPerm(changed(oldItem.getRemark(), newItem.getRemark()), "remark", "备注");
         requireFieldPerm(changed(oldItem.getCustomsUnit(), newItem.getCustomsUnit()), "customsUnit", "报关计量单位");
         requireFieldPerm(changed(oldItem.getDeclarationElements(), newItem.getDeclarationElements()), "declarationElements", "申报要素");
-        requireFieldPerm(changed(oldItem.getHsCode(), newItem.getHsCode()), "hsCode", "海关编码");
-        requireFieldPerm(changed(oldItem.getHsDescription(), newItem.getHsDescription()), "hsDescription", "申报要素说明");
     }
 
     private void requireFieldPerm(boolean changed, String field, String name)
@@ -337,12 +506,52 @@ public class CustomsInventoryService
     private String dateOrText(Cell cell)
     {
         if (cell == null) return "";
-        if (cell.getCellType() == CellType.NUMERIC && DateUtil.isValidExcelDate(cell.getNumericCellValue()))
+        if (isDateCell(cell))
         {
-            Date date = DateUtil.getJavaDate(cell.getNumericCellValue());
-            return new SimpleDateFormat("yyyy/M/d").format(date);
+            Date date = DateUtil.getJavaDate(cellNumericValue(cell));
+            return new SimpleDateFormat("yyyy-MM-dd").format(date);
         }
-        return cellString(cell);
+        return normalizeLooseDateText(cellString(cell));
+    }
+
+    private String normalizeSingleDate(String value)
+    {
+        String text = trim(value);
+        if (text.isEmpty()) return "";
+        Date date = parseDate(text);
+        return date == null ? text : new SimpleDateFormat("yyyy-MM-dd").format(date);
+    }
+
+    private String normalizeLooseDateText(String value)
+    {
+        String text = trim(value);
+        if (text.isEmpty()) return "";
+        String[] parts = text.split("[\\r\\n,，;；]+");
+        List<String> normalized = new ArrayList<>();
+        for (String part : parts)
+        {
+            String item = trim(part);
+            if (item.isEmpty()) continue;
+            normalized.add(normalizeSingleDate(item));
+        }
+        return normalized.isEmpty() ? text : String.join("，", normalized);
+    }
+
+    private Date parseDate(String value)
+    {
+        String text = trim(value).replace('.', '-').replace('/', '-');
+        String[] patterns = {"yyyy-MM-dd", "yyyy-M-d", "yyyyMMdd"};
+        for (String pattern : patterns)
+        {
+            try
+            {
+                SimpleDateFormat format = new SimpleDateFormat(pattern);
+                format.setLenient(false);
+                return format.parse(text);
+            }
+            catch (ParseException ignored) { }
+        }
+        return null;
     }
 
     private BigDecimal decimal(Cell cell)
@@ -356,15 +565,33 @@ public class CustomsInventoryService
     private String cellString(Cell cell)
     {
         if (cell == null) return "";
-        if (cell.getCellType() == CellType.NUMERIC)
-            return BigDecimal.valueOf(cell.getNumericCellValue()).stripTrailingZeros().toPlainString();
-        if (cell.getCellType() == CellType.BOOLEAN) return Boolean.toString(cell.getBooleanCellValue());
-        if (cell.getCellType() == CellType.FORMULA)
+        CellType type = cell.getCellType();
+        if (type == CellType.FORMULA)
         {
-            try { return BigDecimal.valueOf(cell.getNumericCellValue()).stripTrailingZeros().toPlainString(); }
-            catch (Exception ignored) { return trim(cell.getCellFormula()); }
+            try { type = cell.getCachedFormulaResultType(); }
+            catch (Exception ignored) { return ""; }
         }
+        if (type == CellType.NUMERIC)
+            return BigDecimal.valueOf(cellNumericValue(cell)).stripTrailingZeros().toPlainString();
+        if (type == CellType.STRING) return trim(cell.getStringCellValue());
+        if (type == CellType.BOOLEAN) return Boolean.toString(cell.getBooleanCellValue());
         return trim(cell.toString());
+    }
+
+    private boolean isDateCell(Cell cell)
+    {
+        if (cell == null) return false;
+        try
+        {
+            CellType type = cell.getCellType() == CellType.FORMULA ? cell.getCachedFormulaResultType() : cell.getCellType();
+            return type == CellType.NUMERIC && DateUtil.isValidExcelDate(cellNumericValue(cell));
+        }
+        catch (Exception ignored) { return false; }
+    }
+
+    private double cellNumericValue(Cell cell)
+    {
+        return cell.getNumericCellValue();
     }
 
     private String defaultValue(String value, String defaultValue)

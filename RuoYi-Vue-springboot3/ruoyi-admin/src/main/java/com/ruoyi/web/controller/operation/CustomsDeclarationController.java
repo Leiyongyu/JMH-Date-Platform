@@ -147,6 +147,7 @@ public class CustomsDeclarationController extends BaseController
     @PostMapping("/export")
     public void export(@RequestBody CustomsDeclarationRequest request, HttpServletResponse response) throws Exception
     {
+        productService.recordDeclarationGenerate(request);
         exportService.export(request, response);
     }
 }

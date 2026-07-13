@@ -1,13 +1,17 @@
 package com.ruoyi.system.service.operation.customs;
 
 import com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentOption;
+import com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentSkuOption;
 import com.ruoyi.system.domain.operation.customs.CustomsDeclarationItem;
+import com.ruoyi.system.domain.operation.customs.CustomsDeclarationGenerateLog;
+import com.ruoyi.system.domain.operation.customs.CustomsDeclarationRequest;
 import com.ruoyi.system.domain.operation.customs.CustomsProduct;
 import com.ruoyi.system.domain.operation.customs.CustomsStockOrderOption;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.html.EscapeUtil;
 import com.ruoyi.system.domain.operation.customs.CustomsInventoryItem;
 import com.ruoyi.system.mapper.operation.customs.CustomsInventoryMapper;
+import com.ruoyi.system.mapper.operation.customs.CustomsDeclarationGenerateLogMapper;
 import com.ruoyi.system.mapper.operation.customs.CustomsProductMapper;
 import java.io.InputStream;
 import java.math.BigDecimal;
@@ -17,9 +21,11 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -46,14 +52,17 @@ public class CustomsProductService
 
     private final CustomsProductMapper productMapper;
     private final CustomsInventoryMapper customsInventoryMapper;
+    private final CustomsDeclarationGenerateLogMapper generateLogMapper;
     private final TransactionTemplate transactionTemplate;
 
     public CustomsProductService(CustomsProductMapper productMapper,
                                  CustomsInventoryMapper customsInventoryMapper,
+                                 CustomsDeclarationGenerateLogMapper generateLogMapper,
                                  TransactionTemplate transactionTemplate)
     {
         this.productMapper = productMapper;
         this.customsInventoryMapper = customsInventoryMapper;
+        this.generateLogMapper = generateLogMapper;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -93,7 +102,21 @@ public class CustomsProductService
     public List<CustomsFbaShipmentOption> searchFbaShipments(String keyword, Integer limit)
     {
         int size = limit == null ? 50 : Math.max(1, Math.min(limit, 200));
-        return productMapper.searchFbaShipments(trim(keyword), size);
+        List<CustomsFbaShipmentOption> shipments = productMapper.searchFbaShipments(trim(keyword), size);
+        if (shipments == null || shipments.isEmpty()) return shipments;
+        List<String> shipmentIds = shipments.stream()
+                .map(CustomsFbaShipmentOption::getShipmentId)
+                .filter(id -> !trim(id).isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+        Map<String, List<CustomsFbaShipmentSkuOption>> itemMap = productMapper.selectFbaShipmentSkuOptions(shipmentIds)
+                .stream()
+                .collect(Collectors.groupingBy(CustomsFbaShipmentSkuOption::getShipmentId, LinkedHashMap::new, Collectors.toList()));
+        for (CustomsFbaShipmentOption shipment : shipments)
+        {
+            shipment.setItems(itemMap.getOrDefault(shipment.getShipmentId(), Collections.emptyList()));
+        }
+        return shipments;
     }
 
     public Map<String, Object> linkStockOrders(List<String> orderNos)
@@ -104,7 +127,8 @@ public class CustomsProductService
         // 只有匹配到出入库清单的 SKU 才会被批次价格覆盖；纯历史记录保持历史单价。
         applyBatchPrices(new ArrayList<CustomsProduct>(products));
         List<String> missingSkus = productMapper.selectMissingSkusByStockOrders(orders);
-        return buildLinkResult(products, missingSkus);
+        List<String> missingInventorySkus = productMapper.selectMissingInventorySkusByStockOrders(orders);
+        return buildLinkResult(products, missingSkus, missingInventorySkus, "EBAY");
     }
 
     public Map<String, Object> linkFbaShipments(List<String> shipmentIds)
@@ -112,29 +136,57 @@ public class CustomsProductService
         List<String> shipments = normalizeSkus(shipmentIds);
         if (shipments.isEmpty()) throw new IllegalArgumentException("请选择需要关联的FBA货件");
         List<CustomsDeclarationItem> products = productMapper.selectProductsByFbaShipments(shipments);
+        applyFbaTax(products, shipments);
         // 含税/库存商品沿用采购数量 + 剩余库存倒推批次价；历史兜底记录不受影响。
         applyBatchPrices(new ArrayList<CustomsProduct>(products));
         List<String> missingSkus = productMapper.selectMissingSkusByFbaShipments(shipments);
-        return buildLinkResult(products, missingSkus);
+        List<String> missingInventorySkus = productMapper.selectMissingInventorySkusByFbaShipments(shipments);
+        return buildLinkResult(products, missingSkus, missingInventorySkus, "FBA");
     }
 
-    private Map<String, Object> buildLinkResult(List<? extends CustomsProduct> products, List<String> missingSkus)
+    private void applyFbaTax(List<CustomsDeclarationItem> products, List<String> shipments)
+    {
+        if (products == null || products.isEmpty()) return;
+        Map<String, Integer> taxMap = productMapper.selectFbaShipmentSkuOptions(shipments)
+                .stream()
+                .filter(item -> !trim(item.getShipmentId()).isEmpty() && !trim(item.getSku()).isEmpty())
+                .filter(item -> item.getIsTax() != null)
+                .collect(Collectors.toMap(
+                        item -> trim(item.getShipmentId()) + "|" + normalizeSkuKey(item.getSku()),
+                        CustomsFbaShipmentSkuOption::getIsTax,
+                        (left, right) -> left != null ? left : right,
+                        LinkedHashMap::new));
+        for (CustomsDeclarationItem product : products)
+        {
+            Integer isTax = taxMap.get(trim(product.getSourceOrderNo()) + "|" + normalizeSkuKey(defaultValue(product.getRawSku(), product.getSku())));
+            if (isTax != null) product.setIsTax(isTax);
+        }
+    }
+
+    private Map<String, Object> buildLinkResult(List<? extends CustomsProduct> products,
+                                                List<String> missingSkus,
+                                                List<String> missingInventorySkus,
+                                                String sourceType)
     {
         List<CustomsDeclarationItem> items = new ArrayList<>();
         Map<String, CustomsDeclarationItem> merged = new LinkedHashMap<>();
+        Set<String> missingHistorySkus = new LinkedHashSet<>();
+        Set<String> visibleSkuKeys = new LinkedHashSet<>();
 
         for (CustomsProduct product : products)
         {
             CustomsDeclarationItem item = copyToItem(product);
+            visibleSkuKeys.add(normalizeSkuKey(defaultValue(trim(item.getRawSku()), trim(item.getSku()))));
+            if ("INVENTORY".equalsIgnoreCase(trim(product.getSourceType())))
+            {
+                missingHistorySkus.add(defaultValue(trim(item.getRawSku()), trim(item.getSku())));
+            }
             item.setQuantity(Math.max(1, item.getQuantity() == null ? 1 : item.getQuantity()));
             item.setBoxCount(Math.max(1, item.getBoxCount() == null ? 1 : item.getBoxCount()));
 
             if (product.getIsTax() != null && product.getIsTax() == 1)
             {
-                String key = trim(product.getSku()) + "|"
-                        + trim(product.getSourceLocation()) + "|"
-                        + trim(product.getBoxNo()) + "|"
-                        + trim(product.getDestinationCountry());
+                String key = normalizeSkuKey(product.getSku()) + "|" + trim(product.getSourceLocation());
                 CustomsDeclarationItem existing = merged.get(key);
                 if (existing != null)
                 {
@@ -155,9 +207,28 @@ public class CustomsProductService
             }
         }
 
+        for (String sku : missingSkus == null ? List.<String>of() : missingSkus)
+        {
+            String value = trim(sku);
+            String key = normalizeSkuKey(value);
+            if (value.isEmpty() || !visibleSkuKeys.add(key)) continue;
+            CustomsDeclarationItem item = new CustomsDeclarationItem();
+            item.setSku(value);
+            item.setRawSku(value);
+            item.setQuantity(1);
+            item.setBoxCount(1);
+            item.setUnit("");
+            item.setCurrency("");
+            item.setDeclarationSourceType(sourceType);
+            item.setMatchStatus("MISSING_PRODUCT");
+            items.add(item);
+        }
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("products", items);
         result.put("missingSkus", missingSkus == null ? List.of() : missingSkus);
+        result.put("missingInventorySkus", missingInventorySkus == null ? List.of() : missingInventorySkus);
+        result.put("missingHistorySkus", new ArrayList<>(missingHistorySkus));
         return result;
     }
 
@@ -572,9 +643,79 @@ public class CustomsProductService
             item.setQuantity(declarationItem.getQuantity());
             item.setBoxCount(declarationItem.getBoxCount());
             item.setSourceOrderNo(declarationItem.getSourceOrderNo());
+            item.setDeclarationSourceType(declarationItem.getDeclarationSourceType());
+            item.setSourceLineId(declarationItem.getSourceLineId());
+            item.setRawSku(declarationItem.getRawSku());
+            item.setWarehouseBucket(declarationItem.getWarehouseBucket());
+            item.setWarehouseName(declarationItem.getWarehouseName());
+            item.setMatchStatus(declarationItem.getMatchStatus());
             item.setOrderTotalCbm(declarationItem.getOrderTotalCbm());
         }
         return item;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public String recordDeclarationGenerate(CustomsDeclarationRequest request)
+    {
+        if (request == null || request.getItems() == null || request.getItems().isEmpty()) return null;
+        String declarationNo = "CD" + java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                + "-" + UUID.randomUUID().toString().substring(0, 8);
+        String username = currentUsername();
+        List<CustomsDeclarationGenerateLog> logs = new ArrayList<>();
+        int index = 0;
+        for (CustomsDeclarationItem item : request.getItems())
+        {
+            index++;
+            String sku = trim(item.getSku());
+            if (sku.isEmpty()) continue;
+            CustomsDeclarationGenerateLog log = new CustomsDeclarationGenerateLog();
+            String sourceType = defaultValue(item.getDeclarationSourceType(), "MANUAL");
+            String sourceOrderNo = defaultValue(item.getSourceOrderNo(), declarationNo);
+            String sourceLineId = defaultValue(item.getSourceLineId(), "LINE-" + index);
+            String bucket = defaultValue(item.getWarehouseBucket(), "UNKNOWN");
+            log.setDeclarationNo(declarationNo);
+            log.setSourceType(sourceType);
+            log.setSourceOrderNo(sourceOrderNo);
+            log.setSourceLineId(sourceLineId);
+            log.setRawSku(defaultValue(item.getRawSku(), sku));
+            log.setStandardSku(sku);
+            log.setProductCode(trim(item.getProductCode()));
+            log.setSourceLocation(trim(item.getSourceLocation()));
+            log.setWarehouseBucket(bucket);
+            log.setWarehouseName(defaultValue(item.getWarehouseName(), bucketName(bucket)));
+            log.setQuantity(BigDecimal.valueOf(Math.max(0, item.getQuantity() == null ? 0 : item.getQuantity())));
+            log.setMatchStatus(defaultValue(item.getMatchStatus(),
+                    "UNKNOWN".equalsIgnoreCase(bucket) ? "UNKNOWN_WAREHOUSE" : "MATCHED"));
+            log.setRemark("报关单导出生成");
+            log.setCreatedBy(username);
+            logs.add(log);
+        }
+        if (!logs.isEmpty())
+        {
+            for (int from = 0; from < logs.size(); from += 500)
+            {
+                int to = Math.min(from + 500, logs.size());
+                generateLogMapper.batchUpsert(logs.subList(from, to));
+            }
+        }
+        return declarationNo;
+    }
+
+    private String bucketName(String bucket)
+    {
+        return switch (bucket == null ? "" : bucket)
+        {
+            case "CZ" -> "捷克仓";
+            case "UK" -> "英国仓";
+            case "US_GC" -> "美国谷仓";
+            case "DE" -> "德国仓";
+            case "FBA_DE" -> "FBA(DE)";
+            case "FBA_UK" -> "FBA(UK)";
+            case "FBA_US" -> "FBA(US)";
+            case "FBA_FR" -> "FBA(FR)";
+            default -> "未知仓";
+        };
     }
 
     private List<String> normalizeSkus(List<String> values)

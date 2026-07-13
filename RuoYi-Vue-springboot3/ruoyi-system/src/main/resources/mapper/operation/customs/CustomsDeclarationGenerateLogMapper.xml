@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.customs.CustomsDeclarationGenerateLogMapper">
+
+    <resultMap id="LogResult" type="com.ruoyi.system.domain.operation.customs.CustomsDeclarationGenerateLog">
+        <id property="id" column="id"/>
+        <result property="declarationNo" column="declaration_no"/>
+        <result property="sourceType" column="source_type"/>
+        <result property="sourceOrderNo" column="source_order_no"/>
+        <result property="sourceLineId" column="source_line_id"/>
+        <result property="rawSku" column="raw_sku"/>
+        <result property="standardSku" column="standard_sku"/>
+        <result property="productCode" column="product_code"/>
+        <result property="sourceLocation" column="source_location"/>
+        <result property="warehouseBucket" column="warehouse_bucket"/>
+        <result property="warehouseName" column="warehouse_name"/>
+        <result property="quantity" column="quantity"/>
+        <result property="matchStatus" column="match_status"/>
+        <result property="remark" column="remark"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="createdTime" column="created_time"/>
+    </resultMap>
+
+    <insert id="batchUpsert">
+        INSERT INTO customs_declaration_generate_log
+        (declaration_no, source_type, source_order_no, source_line_id, raw_sku, standard_sku,
+         product_code, source_location, warehouse_bucket, warehouse_name, quantity, match_status,
+         remark, created_by)
+        VALUES
+        <foreach collection="logs" item="log" separator=",">
+            (#{log.declarationNo}, #{log.sourceType}, #{log.sourceOrderNo}, #{log.sourceLineId},
+             #{log.rawSku}, #{log.standardSku}, IFNULL(#{log.productCode}, ''), #{log.sourceLocation},
+             #{log.warehouseBucket}, #{log.warehouseName}, #{log.quantity}, #{log.matchStatus},
+             #{log.remark}, #{log.createdBy})
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+            declaration_no = VALUES(declaration_no),
+            raw_sku = VALUES(raw_sku),
+            standard_sku = VALUES(standard_sku),
+            source_location = VALUES(source_location),
+            warehouse_name = VALUES(warehouse_name),
+            quantity = VALUES(quantity),
+            match_status = VALUES(match_status),
+            remark = VALUES(remark),
+            created_by = VALUES(created_by),
+            created_time = CURRENT_TIMESTAMP
+    </insert>
+
+    <select id="selectBucketSummary" resultType="map">
+        SELECT standard_sku AS standardSku,
+               IFNULL(product_code, '') AS productCode,
+               warehouse_bucket AS warehouseBucket,
+               SUM(IFNULL(quantity, 0)) AS quantity
+        FROM customs_declaration_generate_log
+        WHERE standard_sku IS NOT NULL AND standard_sku != ''
+          AND match_status IN ('MATCHED', 'UNKNOWN_WAREHOUSE')
+          AND
+        <foreach collection="keys" item="key" open="(" separator=" OR " close=")">
+            (standard_sku = #{key.sku} AND IFNULL(product_code, '') = IFNULL(#{key.productCode}, ''))
+        </foreach>
+        GROUP BY standard_sku, IFNULL(product_code, ''), warehouse_bucket
+    </select>
+
+    <select id="selectRecentLogs" resultMap="LogResult">
+        SELECT id, declaration_no, source_type, source_order_no, source_line_id, raw_sku, standard_sku,
+               product_code, source_location, warehouse_bucket, warehouse_name, quantity, match_status,
+               remark, created_by, created_time
+        FROM customs_declaration_generate_log
+        WHERE standard_sku IS NOT NULL AND standard_sku != ''
+          AND
+        <foreach collection="keys" item="key" open="(" separator=" OR " close=")">
+            (standard_sku = #{key.sku} AND IFNULL(product_code, '') = IFNULL(#{key.productCode}, ''))
+        </foreach>
+        ORDER BY created_time DESC, id DESC
+        LIMIT 500
+    </select>
+</mapper>

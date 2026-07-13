@@ -1,6 +1,7 @@
 import request from '@/utils/request'
 
 const FILE_TIMEOUT = 10 * 60 * 1000
+const LINK_TIMEOUT = 60 * 1000
 
 export function searchCustomsProducts(keyword) {
   return request({
@@ -22,7 +23,8 @@ export function loadStockOrderProducts(data) {
   return request({
     url: '/operations/customs/declaration/stock-orders/products',
     method: 'post',
-    data
+    data,
+    timeout: LINK_TIMEOUT
   })
 }
 
@@ -38,7 +40,8 @@ export function loadFbaShipmentProducts(data) {
   return request({
     url: '/operations/customs/declaration/fba-shipments/products',
     method: 'post',
-    data
+    data,
+    timeout: LINK_TIMEOUT
   })
 }
 

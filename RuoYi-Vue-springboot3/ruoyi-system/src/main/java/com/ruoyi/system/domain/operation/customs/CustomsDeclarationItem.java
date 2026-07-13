@@ -10,6 +10,12 @@ public class CustomsDeclarationItem extends CustomsProduct implements Serializab
     private Integer quantity;
     private Integer boxCount;
     private String sourceOrderNo;
+    private String declarationSourceType;
+    private String sourceLineId;
+    private String rawSku;
+    private String warehouseBucket;
+    private String warehouseName;
+    private String matchStatus;
     private BigDecimal orderTotalCbm;
     private BigDecimal totalPrice;
     private BigDecimal totalWeight;
@@ -20,6 +26,18 @@ public class CustomsDeclarationItem extends CustomsProduct implements Serializab
     public void setBoxCount(Integer boxCount) { this.boxCount = boxCount; }
     public String getSourceOrderNo() { return sourceOrderNo; }
     public void setSourceOrderNo(String sourceOrderNo) { this.sourceOrderNo = sourceOrderNo; }
+    public String getDeclarationSourceType() { return declarationSourceType; }
+    public void setDeclarationSourceType(String declarationSourceType) { this.declarationSourceType = declarationSourceType; }
+    public String getSourceLineId() { return sourceLineId; }
+    public void setSourceLineId(String sourceLineId) { this.sourceLineId = sourceLineId; }
+    public String getRawSku() { return rawSku; }
+    public void setRawSku(String rawSku) { this.rawSku = rawSku; }
+    public String getWarehouseBucket() { return warehouseBucket; }
+    public void setWarehouseBucket(String warehouseBucket) { this.warehouseBucket = warehouseBucket; }
+    public String getWarehouseName() { return warehouseName; }
+    public void setWarehouseName(String warehouseName) { this.warehouseName = warehouseName; }
+    public String getMatchStatus() { return matchStatus; }
+    public void setMatchStatus(String matchStatus) { this.matchStatus = matchStatus; }
     public BigDecimal getOrderTotalCbm() { return orderTotalCbm; }
     public void setOrderTotalCbm(BigDecimal orderTotalCbm) { this.orderTotalCbm = orderTotalCbm; }
     public BigDecimal getTotalPrice() { return totalPrice; }

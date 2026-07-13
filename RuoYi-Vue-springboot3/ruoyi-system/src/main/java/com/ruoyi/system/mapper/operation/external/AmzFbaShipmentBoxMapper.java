@@ -15,4 +15,7 @@ public interface AmzFbaShipmentBoxMapper
 
     /** 通过 amz_product_listing 映射 sku */
     int updateSkuFromListing();
+
+    /** 通过 amz_product_listing 映射本次同步货件的 sku */
+    int updateSkuFromListingByShipmentIds(@Param("shipmentIds") List<String> shipmentIds);
 }

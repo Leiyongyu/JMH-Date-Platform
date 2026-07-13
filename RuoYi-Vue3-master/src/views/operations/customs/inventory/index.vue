@@ -14,14 +14,10 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="importExcel" icon="Upload"
-                v-hasPermi="['customs:inventory:import']">导入 Excel</el-dropdown-item>
-              <el-dropdown-item command="importDecl" icon="DocumentAdd"
-                v-hasPermi="['customs:inventory:import']">导入报关申报要素</el-dropdown-item>
-              <el-dropdown-item command="exportSelected" icon="Download" :disabled="!selectedRows.length"
-                v-hasPermi="['customs:inventory:export']" divided>导出选中</el-dropdown-item>
-              <el-dropdown-item command="exportAll" icon="Download"
-                v-hasPermi="['customs:inventory:export']">导出全部</el-dropdown-item>
+              <el-dropdown-item v-if="checkPermi(['customs:inventory:import'])" command="importExcel" icon="Upload">导入 Excel</el-dropdown-item>
+              <el-dropdown-item v-if="checkPermi(['customs:inventory:import'])" command="importDecl" icon="DocumentAdd">导入报关申报要素</el-dropdown-item>
+              <el-dropdown-item v-if="checkPermi(['customs:inventory:export'])" command="exportSelected" icon="Download" :disabled="!selectedRows.length" divided>导出选中</el-dropdown-item>
+              <el-dropdown-item v-if="checkPermi(['customs:inventory:export'])" command="exportAll" icon="Download">导出全部</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -55,15 +51,42 @@
       <el-table-column label="入库数量" prop="inboundQuantity" width="95" align="right" :formatter="integerFormatter" />
       <el-table-column label="入库备注" prop="inboundRemark" width="120" show-overflow-tooltip />
       <el-table-column label="出库日期" prop="outboundDate" width="150" show-overflow-tooltip />
-      <el-table-column label="捷克仓" prop="czechWarehouseQty" width="85" align="right" :formatter="integerFormatter" />
-      <el-table-column label="英国仓" prop="ukWarehouseQty" width="85" align="right" :formatter="integerFormatter" />
-      <el-table-column label="美国谷仓" prop="usWarehouseQty" width="95" align="right" :formatter="integerFormatter" />
-      <el-table-column label="德国仓" prop="deWarehouseQty" width="85" align="right" :formatter="integerFormatter" />
-      <el-table-column label="FBA(DE)" prop="fbaDeQty" width="88" align="right" :formatter="integerFormatter" />
-      <el-table-column label="FBA(UK)" prop="fbaUkQty" width="88" align="right" :formatter="integerFormatter" />
-      <el-table-column label="FBA(US)" prop="fbaUsQty" width="88" align="right" :formatter="integerFormatter" />
-      <el-table-column label="FBA(FR)" prop="fbaFrQty" width="88" align="right" :formatter="integerFormatter" />
-      <el-table-column label="剩余库存" prop="remainingStock" width="95" align="right" :formatter="integerFormatter" />
+      <el-table-column label="捷克仓" width="116" align="right">
+        <template #default="{ row }"><warehouse-cell :row="row" bucket="CZ" base-field="czechWarehouseQty" auto-field="autoCzechWarehouseQty" declared-field="declaredCzechWarehouseQty" /></template>
+      </el-table-column>
+      <el-table-column label="英国仓" width="116" align="right">
+        <template #default="{ row }"><warehouse-cell :row="row" bucket="UK" base-field="ukWarehouseQty" auto-field="autoUkWarehouseQty" declared-field="declaredUkWarehouseQty" /></template>
+      </el-table-column>
+      <el-table-column label="美国谷仓" width="126" align="right">
+        <template #default="{ row }"><warehouse-cell :row="row" bucket="US_GC" base-field="usWarehouseQty" auto-field="autoUsWarehouseQty" declared-field="declaredUsWarehouseQty" /></template>
+      </el-table-column>
+      <el-table-column label="德国仓" width="116" align="right">
+        <template #default="{ row }"><warehouse-cell :row="row" bucket="DE" base-field="deWarehouseQty" auto-field="autoDeWarehouseQty" declared-field="declaredDeWarehouseQty" /></template>
+      </el-table-column>
+      <el-table-column label="FBA(DE)" width="120" align="right">
+        <template #default="{ row }"><warehouse-cell :row="row" bucket="FBA_DE" base-field="fbaDeQty" auto-field="autoFbaDeQty" declared-field="declaredFbaDeQty" /></template>
+      </el-table-column>
+      <el-table-column label="FBA(UK)" width="120" align="right">
+        <template #default="{ row }"><warehouse-cell :row="row" bucket="FBA_UK" base-field="fbaUkQty" auto-field="autoFbaUkQty" declared-field="declaredFbaUkQty" /></template>
+      </el-table-column>
+      <el-table-column label="FBA(US)" width="120" align="right">
+        <template #default="{ row }"><warehouse-cell :row="row" bucket="FBA_US" base-field="fbaUsQty" auto-field="autoFbaUsQty" declared-field="declaredFbaUsQty" /></template>
+      </el-table-column>
+      <el-table-column label="FBA(FR)" width="120" align="right">
+        <template #default="{ row }"><warehouse-cell :row="row" bucket="FBA_FR" base-field="fbaFrQty" auto-field="autoFbaFrQty" declared-field="declaredFbaFrQty" /></template>
+      </el-table-column>
+      <el-table-column label="未知仓" width="112" align="right">
+        <template #default="{ row }"><warehouse-cell :row="row" bucket="UNKNOWN" declared-field="declaredUnknownWarehouseQty" unknown /></template>
+      </el-table-column>
+      <el-table-column label="剩余库存" width="120" align="right">
+        <template #default="{ row }">
+          <div class="stock-cell">
+            <strong>手动 {{ formatQty(row.remainingStock) }}</strong>
+            <small v-if="Number(row.declaredTotalQty || 0)">已报 {{ formatQty(row.declaredTotalQty) }}</small>
+            <span>自动 {{ formatQty(row.availableRemainingStock ?? row.autoRemainingStock ?? row.remainingStock) }}</span>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column label="备注" prop="remark" width="140" show-overflow-tooltip />
       <el-table-column label="报关计量单位" prop="customsUnit" width="115" align="center" />
       <el-table-column label="申报要素" prop="declarationElements" min-width="180" show-overflow-tooltip />
@@ -162,8 +185,8 @@
           <el-date-picker
             v-model="form.purchaseDate"
             type="date"
-            value-format="YYYY/M/D"
-            format="YYYY/M/D"
+            value-format="YYYY-MM-DD"
+            format="YYYY-MM-DD"
             placeholder="选择采购日期"
             :disabled="!canEditField('purchaseDate')"
             clearable
@@ -173,8 +196,8 @@
           <el-date-picker
             v-model="form.inboundDate"
             type="date"
-            value-format="YYYY/M/D"
-            format="YYYY/M/D"
+            value-format="YYYY-MM-DD"
+            format="YYYY-MM-DD"
             placeholder="选择入库日期"
             :disabled="!canEditField('inboundDate')"
             clearable
@@ -185,12 +208,9 @@
         </el-form-item>
         <el-form-item label="入库备注"><el-input v-model="form.inboundRemark" :disabled="!canEditField('inboundRemark')" /></el-form-item>
         <el-form-item label="出库日期">
-          <el-date-picker
+          <el-input
             v-model="form.outboundDate"
-            type="date"
-            value-format="YYYY/M/D"
-            format="YYYY/M/D"
-            placeholder="选择出库日期"
+            placeholder="可填写多个日期，如 2026-07-01，2026-07-05"
             :disabled="!canEditField('outboundDate')"
             clearable
           />
@@ -217,9 +237,11 @@
 </template>
 
 <script setup name="CustomsInventory">
+import { defineComponent, h, resolveComponent } from 'vue'
 import { saveAs } from 'file-saver'
 import { blobValidate } from '@/utils/ruoyi'
 import request from '@/utils/request'
+import { checkPermi } from '@/utils/permission'
 import {
   addCustomsInventory,
   exportCustomsInventory,
@@ -246,6 +268,44 @@ const editMode = ref(false)
 const editableFields = ref([])
 let productSearchSeq = 0
 const dialogTitle = computed(() => editMode.value ? '编辑出入库记录' : '新增出入库记录')
+const warehouseLinkTextStyle = {
+  color: '#1677ff',
+  textDecoration: 'underline',
+  textUnderlineOffset: '2px'
+}
+
+const WarehouseCell = defineComponent({
+  name: 'WarehouseCell',
+  props: {
+    row: { type: Object, required: true },
+    bucket: { type: String, required: true },
+    baseField: { type: String, default: '' },
+    autoField: { type: String, default: '' },
+    declaredField: { type: String, required: true },
+    unknown: { type: Boolean, default: false }
+  },
+  setup(props) {
+    return () => {
+      const ElPopover = resolveComponent('el-popover')
+      const logs = bucketLogs(props.row, props.bucket)
+      const base = props.baseField ? Number(props.row[props.baseField] || 0) : 0
+      const autoBase = props.autoField ? Number((props.row[props.autoField] ?? props.row[props.baseField]) || 0) : base
+      const declared = Number(props.row[props.declaredField] || 0)
+      const available = props.unknown ? null : autoBase - declared
+      const trigger = h('div', { class: ['stock-cell', 'has-popover', declared ? 'has-declared' : ''] }, [
+        props.unknown
+          ? h('strong', { class: 'warehouse-log-link', style: warehouseLinkTextStyle }, `自动 ${formatQty(declared)}`)
+          : h('strong', { class: 'warehouse-log-link', style: warehouseLinkTextStyle }, `手动 ${formatQty(base)}`),
+        declared ? h('small', `已报 ${formatQty(declared)}`) : null,
+        props.unknown ? null : h('span', { class: 'warehouse-log-link', style: warehouseLinkTextStyle }, `自动 ${formatQty(available)}`)
+      ])
+      return h(ElPopover, { trigger: 'hover', width: 420, placement: 'top' }, {
+        reference: () => trigger,
+        default: () => renderWarehouseLogs(props.row, props.bucket, logs)
+      })
+    }
+  }
+})
 
 const queryParams = reactive({
   pageNum: 1,
@@ -298,7 +358,7 @@ const calcRemainingStock = computed(() => {
 
 function todayText() {
   const date = new Date()
-  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 function resetFormModel() {
@@ -329,6 +389,57 @@ function integerFormatter(row, column, value) {
   const numberValue = Number(value)
   if (Number.isNaN(numberValue)) return value
   return String(Math.trunc(numberValue))
+}
+
+function formatQty(value) {
+  if (value === null || value === undefined || value === '') return '0'
+  const numberValue = Number(value)
+  if (Number.isNaN(numberValue)) return String(value)
+  return String(Math.trunc(numberValue))
+}
+
+function bucketLogs(row, bucket) {
+  return row?.declarationLogs?.[bucket] || []
+}
+
+function renderWarehouseLogs(row, bucket, logs) {
+  const children = [
+    h('div', { class: 'log-popover-title' }, [
+      h('strong', bucketLabel(bucket)),
+      h('span', `${row.sku || '-'} / ${row.productCode || '-'}`)
+    ])
+  ]
+  if (!logs.length) {
+    children.push(h('div', { class: 'log-empty' }, '暂无报关记录'))
+  } else {
+    children.push(...logs.slice(0, 12).map(log => h('div', { class: 'log-row' }, [
+      h('div', { class: 'log-row-main' }, [
+        h('strong', `${log.sourceType || '-'} ${log.sourceOrderNo || '-'}`),
+        h('span', `${formatQty(log.quantity)} 件`)
+      ]),
+      h('div', { class: 'log-row-sub' }, [
+        h('span', `编码：${log.productCode || row.productCode || '-'}`),
+        h('span', `货源地：${log.sourceLocation || '-'}`),
+        h('span', `仓库：${log.warehouseName || bucketLabel(bucket)}`),
+        h('span', `SKU：${log.rawSku || log.standardSku || row.sku || '-'}`)
+      ])
+    ])))
+  }
+  return h('div', { class: 'log-popover' }, children)
+}
+
+function bucketLabel(bucket) {
+  return ({
+    CZ: '捷克仓',
+    UK: '英国仓',
+    US_GC: '美国谷仓',
+    DE: '德国仓',
+    FBA_DE: 'FBA(DE)',
+    FBA_UK: 'FBA(UK)',
+    FBA_US: 'FBA(US)',
+    FBA_FR: 'FBA(FR)',
+    UNKNOWN: '未知仓'
+  })[bucket] || bucket || '未知仓'
 }
 
 function openFile() {
@@ -386,7 +497,10 @@ async function handleEdit(row) {
   await loadEditableFields()
   Object.assign(form, {
     ...createForm(),
-    ...row
+    ...row,
+    purchaseDate: normalizeDateValue(row.purchaseDate),
+    inboundDate: normalizeDateValue(row.inboundDate),
+    outboundDate: normalizeLooseDateText(row.outboundDate)
   })
   editMode.value = true
   dialogVisible.value = true
@@ -452,6 +566,9 @@ function submitForm() {
     if (!valid) return
     saving.value = true
     form.remainingStock = calcRemainingStock.value
+    form.purchaseDate = normalizeDateValue(form.purchaseDate)
+    form.inboundDate = normalizeDateValue(form.inboundDate)
+    form.outboundDate = normalizeLooseDateText(form.outboundDate)
     try {
       if (editMode.value) {
         await updateCustomsInventory(form)
@@ -475,6 +592,23 @@ function canEditField(field) {
 function validateSkuOrName(rule, value, callback) {
   if (!form.sku && !form.productName) callback(new Error('SKU和产品名称至少填写一项'))
   else callback()
+}
+
+function normalizeDateValue(value) {
+  if (!value) return ''
+  const text = String(value).trim()
+  const match = text.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/)
+  if (!match) return text
+  return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`
+}
+
+function normalizeLooseDateText(value) {
+  if (!value) return ''
+  return String(value)
+    .split(/[\r\n,，;；]+/)
+    .map(item => normalizeDateValue(item.trim()))
+    .filter(Boolean)
+    .join('，')
 }
 
 async function handleFileChange(event) {
@@ -629,5 +763,108 @@ getList()
   color: #6b7280;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.stock-cell {
+  display: grid;
+  gap: 2px;
+  min-height: 42px;
+  align-content: center;
+  line-height: 1.15;
+  cursor: help;
+}
+
+.stock-cell strong {
+  color: #1f2937;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stock-cell small {
+  color: #c2410c;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stock-cell span {
+  color: #409eff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stock-cell.has-popover :deep(strong),
+.stock-cell.has-popover :deep(span) {
+  color: #1677ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.stock-cell.has-declared :deep(strong) {
+  color: #1677ff;
+}
+
+.log-popover {
+  display: grid;
+  gap: 8px;
+}
+
+.log-popover-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.log-popover-title strong {
+  color: #1f2937;
+}
+
+.log-popover-title span {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.log-row {
+  display: grid;
+  gap: 4px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.log-row-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.log-row-main strong {
+  color: #303133;
+  font-size: 13px;
+}
+
+.log-row-main span {
+  color: #c2410c;
+  font-size: 12px;
+}
+
+.log-row-sub {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px 8px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.log-row-sub span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-empty {
+  padding: 10px 0;
+  color: #909399;
+  text-align: center;
 }
 </style>

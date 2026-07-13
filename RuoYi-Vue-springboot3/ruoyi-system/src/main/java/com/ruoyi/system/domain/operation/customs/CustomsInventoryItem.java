@@ -2,6 +2,8 @@ package com.ruoyi.system.domain.operation.customs;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 import java.util.Date;
 
 public class CustomsInventoryItem implements Serializable
@@ -29,6 +31,27 @@ public class CustomsInventoryItem implements Serializable
     private BigDecimal fbaUsQty;
     private BigDecimal fbaFrQty;
     private BigDecimal remainingStock;
+    private BigDecimal autoCzechWarehouseQty;
+    private BigDecimal autoUkWarehouseQty;
+    private BigDecimal autoUsWarehouseQty;
+    private BigDecimal autoDeWarehouseQty;
+    private BigDecimal autoFbaDeQty;
+    private BigDecimal autoFbaUkQty;
+    private BigDecimal autoFbaUsQty;
+    private BigDecimal autoFbaFrQty;
+    private BigDecimal autoRemainingStock;
+    private BigDecimal declaredCzechWarehouseQty;
+    private BigDecimal declaredUkWarehouseQty;
+    private BigDecimal declaredUsWarehouseQty;
+    private BigDecimal declaredDeWarehouseQty;
+    private BigDecimal declaredFbaDeQty;
+    private BigDecimal declaredFbaUkQty;
+    private BigDecimal declaredFbaUsQty;
+    private BigDecimal declaredFbaFrQty;
+    private BigDecimal declaredUnknownWarehouseQty;
+    private BigDecimal declaredTotalQty;
+    private BigDecimal availableRemainingStock;
+    private Map<String, List<CustomsDeclarationGenerateLog>> declarationLogs;
     private String remark;
     private String customsUnit;
     private String declarationElements;
@@ -79,6 +102,48 @@ public class CustomsInventoryItem implements Serializable
     public void setFbaFrQty(BigDecimal fbaFrQty) { this.fbaFrQty = fbaFrQty; }
     public BigDecimal getRemainingStock() { return remainingStock; }
     public void setRemainingStock(BigDecimal remainingStock) { this.remainingStock = remainingStock; }
+    public BigDecimal getAutoCzechWarehouseQty() { return autoCzechWarehouseQty; }
+    public void setAutoCzechWarehouseQty(BigDecimal autoCzechWarehouseQty) { this.autoCzechWarehouseQty = autoCzechWarehouseQty; }
+    public BigDecimal getAutoUkWarehouseQty() { return autoUkWarehouseQty; }
+    public void setAutoUkWarehouseQty(BigDecimal autoUkWarehouseQty) { this.autoUkWarehouseQty = autoUkWarehouseQty; }
+    public BigDecimal getAutoUsWarehouseQty() { return autoUsWarehouseQty; }
+    public void setAutoUsWarehouseQty(BigDecimal autoUsWarehouseQty) { this.autoUsWarehouseQty = autoUsWarehouseQty; }
+    public BigDecimal getAutoDeWarehouseQty() { return autoDeWarehouseQty; }
+    public void setAutoDeWarehouseQty(BigDecimal autoDeWarehouseQty) { this.autoDeWarehouseQty = autoDeWarehouseQty; }
+    public BigDecimal getAutoFbaDeQty() { return autoFbaDeQty; }
+    public void setAutoFbaDeQty(BigDecimal autoFbaDeQty) { this.autoFbaDeQty = autoFbaDeQty; }
+    public BigDecimal getAutoFbaUkQty() { return autoFbaUkQty; }
+    public void setAutoFbaUkQty(BigDecimal autoFbaUkQty) { this.autoFbaUkQty = autoFbaUkQty; }
+    public BigDecimal getAutoFbaUsQty() { return autoFbaUsQty; }
+    public void setAutoFbaUsQty(BigDecimal autoFbaUsQty) { this.autoFbaUsQty = autoFbaUsQty; }
+    public BigDecimal getAutoFbaFrQty() { return autoFbaFrQty; }
+    public void setAutoFbaFrQty(BigDecimal autoFbaFrQty) { this.autoFbaFrQty = autoFbaFrQty; }
+    public BigDecimal getAutoRemainingStock() { return autoRemainingStock; }
+    public void setAutoRemainingStock(BigDecimal autoRemainingStock) { this.autoRemainingStock = autoRemainingStock; }
+    public BigDecimal getDeclaredCzechWarehouseQty() { return declaredCzechWarehouseQty; }
+    public void setDeclaredCzechWarehouseQty(BigDecimal declaredCzechWarehouseQty) { this.declaredCzechWarehouseQty = declaredCzechWarehouseQty; }
+    public BigDecimal getDeclaredUkWarehouseQty() { return declaredUkWarehouseQty; }
+    public void setDeclaredUkWarehouseQty(BigDecimal declaredUkWarehouseQty) { this.declaredUkWarehouseQty = declaredUkWarehouseQty; }
+    public BigDecimal getDeclaredUsWarehouseQty() { return declaredUsWarehouseQty; }
+    public void setDeclaredUsWarehouseQty(BigDecimal declaredUsWarehouseQty) { this.declaredUsWarehouseQty = declaredUsWarehouseQty; }
+    public BigDecimal getDeclaredDeWarehouseQty() { return declaredDeWarehouseQty; }
+    public void setDeclaredDeWarehouseQty(BigDecimal declaredDeWarehouseQty) { this.declaredDeWarehouseQty = declaredDeWarehouseQty; }
+    public BigDecimal getDeclaredFbaDeQty() { return declaredFbaDeQty; }
+    public void setDeclaredFbaDeQty(BigDecimal declaredFbaDeQty) { this.declaredFbaDeQty = declaredFbaDeQty; }
+    public BigDecimal getDeclaredFbaUkQty() { return declaredFbaUkQty; }
+    public void setDeclaredFbaUkQty(BigDecimal declaredFbaUkQty) { this.declaredFbaUkQty = declaredFbaUkQty; }
+    public BigDecimal getDeclaredFbaUsQty() { return declaredFbaUsQty; }
+    public void setDeclaredFbaUsQty(BigDecimal declaredFbaUsQty) { this.declaredFbaUsQty = declaredFbaUsQty; }
+    public BigDecimal getDeclaredFbaFrQty() { return declaredFbaFrQty; }
+    public void setDeclaredFbaFrQty(BigDecimal declaredFbaFrQty) { this.declaredFbaFrQty = declaredFbaFrQty; }
+    public BigDecimal getDeclaredUnknownWarehouseQty() { return declaredUnknownWarehouseQty; }
+    public void setDeclaredUnknownWarehouseQty(BigDecimal declaredUnknownWarehouseQty) { this.declaredUnknownWarehouseQty = declaredUnknownWarehouseQty; }
+    public BigDecimal getDeclaredTotalQty() { return declaredTotalQty; }
+    public void setDeclaredTotalQty(BigDecimal declaredTotalQty) { this.declaredTotalQty = declaredTotalQty; }
+    public BigDecimal getAvailableRemainingStock() { return availableRemainingStock; }
+    public void setAvailableRemainingStock(BigDecimal availableRemainingStock) { this.availableRemainingStock = availableRemainingStock; }
+    public Map<String, List<CustomsDeclarationGenerateLog>> getDeclarationLogs() { return declarationLogs; }
+    public void setDeclarationLogs(Map<String, List<CustomsDeclarationGenerateLog>> declarationLogs) { this.declarationLogs = declarationLogs; }
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
     public String getCustomsUnit() { return customsUnit; }
