@@ -288,7 +288,7 @@ public class EbayReplenishmentComputeService
 
                 // ---- 最大月销补货量 = maxMonthlySales * 4.03 - totalInventory ----
                 int mm = snap.getMaxMonthlySales() != null ? snap.getMaxMonthlySales() : 0;
-                snap.setMaxMonthlyReplenishQty(Math.max(0, (int) Math.round(mm * 4.03 - totalInv)));
+                snap.setMaxMonthlyReplenishQty((int) Math.round(mm * 4.03 - totalInv));
 
                 // ---- 库销比 ----
                 int d30 = snap.getSales30d();
