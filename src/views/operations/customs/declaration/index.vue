@@ -16,12 +16,9 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="sku" icon="DocumentAdd"
-                v-hasPermi="['customs:declaration:import']">批量导入 SKU</el-dropdown-item>
-              <el-dropdown-item command="fbaBox" icon="Box" :disabled="fbaBoxImporting"
-                v-hasPermi="['customs:declaration:import']">导入 FBA 装箱明细</el-dropdown-item>
-              <el-dropdown-item command="history" icon="UploadFilled"
-                v-hasPermi="['customs:declaration:import']">批量上传历史报关单</el-dropdown-item>
+              <el-dropdown-item v-if="checkPermi(['customs:declaration:import'])" command="sku" icon="DocumentAdd">批量导入 SKU</el-dropdown-item>
+              <el-dropdown-item v-if="checkPermi(['customs:declaration:import'])" command="fbaBox" icon="Box" :disabled="fbaBoxImporting">导入 FBA 装箱明细</el-dropdown-item>
+              <el-dropdown-item v-if="checkPermi(['customs:declaration:import'])" command="history" icon="UploadFilled">批量上传历史报关单</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -174,10 +171,17 @@
                       </div>
                     </template>
                   </el-autocomplete>
+                  <div class="item-tax-line">
+                    <el-tag :type="taxTagType(entry.row.isTax)" effect="plain" size="small">{{ taxLabel(entry.row.isTax) }}</el-tag>
+                    <el-select v-model="entry.row.isTax" size="small" placeholder="含税状态" clearable>
+                      <el-option label="含税" :value="1" />
+                      <el-option label="不含税" :value="0" />
+                    </el-select>
+                  </div>
                 </div>
               </div>
               <div class="item-declare">
-                <el-input v-model="entry.row.productCode" size="small" placeholder="商品编码" />
+                <el-input v-model="entry.row.hsCode" size="small" placeholder="商品编码" />
                 <el-input v-model="entry.row.hsDescription" size="small" placeholder="申报要素" />
               </div>
               <div class="item-qty">
@@ -195,6 +199,21 @@
               <div class="item-country">
                 <el-input v-model="entry.row.destinationCountry" size="small" placeholder="目的国" />
                 <el-input v-model="entry.row.sourceLocation" size="small" placeholder="货源地" />
+                <el-select
+                  v-model="entry.row.warehouseBucket"
+                  size="small"
+                  placeholder="扣减仓库"
+                  clearable
+                  filterable
+                  @change="handleWarehouseBucketChange(entry.row)"
+                >
+                  <el-option
+                    v-for="option in warehouseBucketOptions"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
               </div>
               <div class="item-actions">
                 <el-button link type="primary" icon="Plus" title="在当前箱组添加商品" @click="addItemInBox(entry.index, entry.row)" />
@@ -239,6 +258,14 @@
             <div class="missing-sku-title">未匹配到商品库的 SKU（{{ stockDialog.missingSkus.length }}）</div>
             <el-tag v-for="sku in stockDialog.missingSkus" :key="sku" type="danger" effect="plain">{{ sku }}</el-tag>
           </div>
+          <div v-if="stockDialog.missingInventorySkus.length" class="missing-sku-box">
+            <div class="missing-sku-title">库存清单中没有的 SKU（{{ stockDialog.missingInventorySkus.length }}）</div>
+            <el-tag v-for="sku in stockDialog.missingInventorySkus" :key="sku" type="warning" effect="plain">{{ sku }}</el-tag>
+          </div>
+          <div v-if="stockDialog.missingHistorySkus.length" class="missing-sku-box">
+            <div class="missing-sku-title">历史报关资料中没有的 SKU（{{ stockDialog.missingHistorySkus.length }}）</div>
+            <el-tag v-for="sku in stockDialog.missingHistorySkus" :key="sku" type="info" effect="plain">{{ sku }}</el-tag>
+          </div>
         </el-tab-pane>
         <el-tab-pane label="AMZ FBA货件" name="fba">
           <div class="stock-link-tip">保存关联后会将所选 FBA 货件对应商品合并到当前报关单，重复 SKU 会合并并累加数量。</div>
@@ -253,9 +280,28 @@
           </div>
           <el-table ref="fbaShipmentTableRef" v-loading="fbaDialog.loading" :data="fbaDialog.shipments" border
             row-key="shipmentId" height="460" class="stock-order-table" @selection-change="handleFbaShipmentSelection">
+            <el-table-column type="expand" width="44">
+              <template #default="{ row }">
+                <el-table :data="row.items || []" size="small" border class="fba-sku-table" empty-text="暂无SKU明细">
+                  <el-table-column prop="sku" label="SKU" min-width="180" show-overflow-tooltip />
+                  <el-table-column prop="totalQuantity" label="装箱量" width="100" align="right">
+                    <template #default="{ row: item }">{{ formatNumber(item.totalQuantity, 0) }}</template>
+                  </el-table-column>
+                  <el-table-column prop="totalBoxCount" label="箱数" width="90" align="right" />
+                  <el-table-column prop="isTax" label="含税" width="110" align="center">
+                    <template #default="{ row: item }">
+                      <el-tag :type="taxTagType(item.isTax)" effect="plain" size="small">{{ taxLabel(item.isTax) }}</el-tag>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </template>
+            </el-table-column>
             <el-table-column type="selection" width="44" fixed="left" :reserve-selection="true" />
-            <el-table-column prop="shipmentId" label="货件编号" min-width="170" fixed="left" />
-            <el-table-column prop="productCount" label="装箱商品数量" min-width="140" />
+            <el-table-column prop="shipmentId" label="货件编号" min-width="180" fixed="left">
+              <template #default="{ row }">
+                <el-button link type="primary" @click.stop="toggleFbaShipmentExpand(row)">{{ row.shipmentId }}</el-button>
+              </template>
+            </el-table-column>
             <el-table-column prop="totalBoxCount" label="总箱数" min-width="120" />
             <el-table-column prop="totalQuantity" label="总装箱量" min-width="140" />
             <el-table-column prop="totalGrossWeight" label="总毛重(kg)" min-width="140">
@@ -269,6 +315,14 @@
           <div v-if="fbaDialog.missingSkus.length" class="missing-sku-box">
             <div class="missing-sku-title">未匹配到商品库的 SKU（{{ fbaDialog.missingSkus.length }}）</div>
             <el-tag v-for="sku in fbaDialog.missingSkus" :key="sku" type="danger" effect="plain">{{ sku }}</el-tag>
+          </div>
+          <div v-if="fbaDialog.missingInventorySkus.length" class="missing-sku-box">
+            <div class="missing-sku-title">库存清单中没有的 SKU（{{ fbaDialog.missingInventorySkus.length }}）</div>
+            <el-tag v-for="sku in fbaDialog.missingInventorySkus" :key="sku" type="warning" effect="plain">{{ sku }}</el-tag>
+          </div>
+          <div v-if="fbaDialog.missingHistorySkus.length" class="missing-sku-box">
+            <div class="missing-sku-title">历史报关资料中没有的 SKU（{{ fbaDialog.missingHistorySkus.length }}）</div>
+            <el-tag v-for="sku in fbaDialog.missingHistorySkus" :key="sku" type="info" effect="plain">{{ sku }}</el-tag>
           </div>
         </el-tab-pane>
       </el-tabs>
@@ -297,6 +351,7 @@ import {
   searchFbaShipments,
   searchStockOrders
 } from '@/api/operations/customs/declaration'
+import { checkPermi } from '@/utils/permission'
 
 const { proxy } = getCurrentInstance()
 const skuFileRef = ref()
@@ -317,6 +372,17 @@ let boxKeySeed = 0
 const defaultCompany = '成都玖马赫供应链管理有限公司   信用代码：91510106MACMNJMB6A'
 const header = reactive(createHeader())
 const items = ref([createEmptyItem()])
+const warehouseBucketOptions = [
+  { label: '捷克仓', value: 'CZ', name: '捷克仓' },
+  { label: '英国仓', value: 'UK', name: '英国仓' },
+  { label: '美国谷仓', value: 'US_GC', name: '美国谷仓' },
+  { label: '德国仓', value: 'DE', name: '德国仓' },
+  { label: 'FBA(DE)', value: 'FBA_DE', name: 'FBA(DE)' },
+  { label: 'FBA(UK)', value: 'FBA_UK', name: 'FBA(UK)' },
+  { label: 'FBA(US)', value: 'FBA_US', name: 'FBA(US)' },
+  { label: 'FBA(FR)', value: 'FBA_FR', name: 'FBA(FR)' },
+  { label: '未知仓', value: 'UNKNOWN', name: '未知仓' }
+]
 const itemPage = reactive({ pageNum: 1, pageSize: 50 })
 const dataSourceDialog = reactive({
   visible: false,
@@ -331,7 +397,9 @@ const stockDialog = reactive({
   selected: [],
   selectedOrderNos: [],
   restoring: false,
-  missingSkus: []
+  missingSkus: [],
+  missingInventorySkus: [],
+  missingHistorySkus: []
 })
 const fbaDialog = reactive({
   visible: false,
@@ -342,7 +410,9 @@ const fbaDialog = reactive({
   selected: [],
   selectedShipmentIds: [],
   restoring: false,
-  missingSkus: []
+  missingSkus: [],
+  missingInventorySkus: [],
+  missingHistorySkus: []
 })
 function createHeader() {
   return {
@@ -363,6 +433,7 @@ function createEmptyItem() {
     unitPriceUsd: 0, currency: 'USD', singleWeight: 0, quantity: 1,
     hsCode: '', hsDescription: '', originCountry: '中国', destinationCountry: '',
     sourceLocation: '', exemption: '', boxNo: null, boxCount: 1, sourceOrderNo: '', orderTotalCbm: null, isTax: null,
+    declarationSourceType: '', sourceLineId: '', rawSku: '', warehouseBucket: '', warehouseName: '', matchStatus: '',
     packingNetWeight: null, packingGrossWeight: null, packingCbm: null,
     boxLength: null, boxWidth: null, boxHeight: null
   }
@@ -463,7 +534,7 @@ function selectProductOption(row, product) {
       row[field] = currentBox[field]
     }
   })
-  if (!row.productCode) row.productCode = product.hsCode || ''
+  row.hsCode = product.hsCode || ''
 }
 
 function productToRow(product) {
@@ -473,9 +544,15 @@ function productToRow(product) {
     boxCount: Number(product.boxCount || 1),
     orderTotalCbm: product.orderTotalCbm ?? null,
     sourceOrderNo: product.sourceOrderNo || '',
+    declarationSourceType: product.declarationSourceType || '',
+    sourceLineId: product.sourceLineId || '',
+    rawSku: product.rawSku || product.sku || '',
+    warehouseBucket: product.warehouseBucket || '',
+    warehouseName: product.warehouseName || '',
+    matchStatus: product.matchStatus || '',
     _key: ++keySeed,
     _boxKey: `box-${++boxKeySeed}`,
-    productCode: product.productCode || product.hsCode || '',
+    productCode: product.productCode || '',
     boxNo: product.boxNo || null,
     isTax: product.isTax != null ? product.isTax : null
   }
@@ -498,8 +575,39 @@ async function loadActiveLinkOptions() {
 }
 
 async function confirmDataSourceLink() {
-  if (dataSourceDialog.platform === 'stock') await confirmStockOrderLink()
-  else await confirmFbaShipmentLink()
+  try {
+    if (dataSourceDialog.platform === 'stock') await confirmStockOrderLink()
+    else await confirmFbaShipmentLink()
+  } catch (error) {
+    const message = resolveRequestErrorMessage(error, '关联数据源失败，请稍后重试')
+    proxy.$modal.msgError(message)
+  }
+}
+
+function handleWarehouseBucketChange(row) {
+  const option = warehouseBucketOptions.find(item => item.value === row.warehouseBucket)
+  row.warehouseName = option?.name || ''
+  if (row.warehouseBucket && !row.declarationSourceType) row.declarationSourceType = 'MANUAL'
+  if (!row.warehouseBucket && row.declarationSourceType === 'MANUAL') row.warehouseName = ''
+}
+
+function taxLabel(value) {
+  if (Number(value) === 1) return '含税'
+  if (Number(value) === 0) return '不含税'
+  return '未匹配'
+}
+
+function taxTagType(value) {
+  if (Number(value) === 1) return 'success'
+  if (Number(value) === 0) return 'info'
+  return 'warning'
+}
+
+function resolveRequestErrorMessage(error, fallback) {
+  const message = error?.response?.data?.msg || error?.message || error
+  if (typeof message === 'string' && message.includes('timeout')) return '关联数据源超时，请稍后重试或缩小选择范围'
+  if (typeof message === 'string' && message.trim()) return message
+  return fallback
 }
 
 async function restoreActiveLinkSelection() {
@@ -647,7 +755,7 @@ async function openStockOrderDialog() {
   dataSourceDialog.visible = true
   dataSourceDialog.platform = 'stock'
   stockDialog.keyword = ''
-  stockDialog.missingSkus = []
+  resetLinkMissing(stockDialog)
   await loadStockOrders()
 }
 
@@ -656,7 +764,7 @@ async function loadStockOrders() {
   try {
     const response = await searchStockOrders({ keyword: stockDialog.keyword, limit: 100 })
     stockDialog.orders = response.data || []
-    stockDialog.missingSkus = []
+    resetLinkMissing(stockDialog)
     await restoreStockOrderSelection()
   } finally {
     stockDialog.loading = false
@@ -696,13 +804,14 @@ async function confirmStockOrderLink() {
     const response = await loadStockOrderProducts({ overseasOrderNos: stockDialog.selectedOrderNos })
     const result = normalizeLinkResult(response.data)
     const rows = result.products.map(productToRow)
-    stockDialog.missingSkus = result.missingSkus
-    if (!rows.length && !result.missingSkus.length) {
+    applyLinkMissing(stockDialog, result)
+    const missingCount = linkMissingCount(result)
+    if (!rows.length && !missingCount) {
       proxy.$modal.msgWarning('未匹配到报关产品库商品，请先同步或维护商品库')
       return
     }
     appendLinkedRows(rows)
-    if (result.missingSkus.length) proxy.$modal.msgWarning(`已关联 ${rows.length} 个商品，${result.missingSkus.length} 个SKU未匹配`)
+    if (missingCount) proxy.$modal.msgWarning(`已关联 ${rows.length} 个商品，${missingCount} 个SKU需要排查`)
     else {
       dataSourceDialog.visible = false
       proxy.$modal.msgSuccess(`已关联 ${rows.length} 个商品`)
@@ -716,7 +825,7 @@ async function openFbaShipmentDialog() {
   dataSourceDialog.visible = true
   dataSourceDialog.platform = 'fba'
   fbaDialog.keyword = ''
-  fbaDialog.missingSkus = []
+  resetLinkMissing(fbaDialog)
   await loadFbaShipments()
 }
 
@@ -725,7 +834,7 @@ async function loadFbaShipments() {
   try {
     const response = await searchFbaShipments({ keyword: fbaDialog.keyword, limit: 100 })
     fbaDialog.shipments = response.data || []
-    fbaDialog.missingSkus = []
+    resetLinkMissing(fbaDialog)
     await restoreFbaShipmentSelection()
   } finally {
     fbaDialog.loading = false
@@ -781,13 +890,14 @@ async function confirmFbaShipmentLink() {
     const response = await loadFbaShipmentProducts({ shipmentIds: fbaDialog.selectedShipmentIds })
     const result = normalizeLinkResult(response.data)
     const rows = result.products.map(productToRow)
-    fbaDialog.missingSkus = result.missingSkus
-    if (!rows.length && !result.missingSkus.length) {
+    applyLinkMissing(fbaDialog, result)
+    const missingCount = linkMissingCount(result)
+    if (!rows.length && !missingCount) {
       proxy.$modal.msgWarning('未匹配到报关产品库商品，请先同步或维护商品库')
       return
     }
     appendLinkedRows(rows)
-    if (result.missingSkus.length) proxy.$modal.msgWarning(`已关联 ${rows.length} 个商品，${result.missingSkus.length} 个SKU未匹配`)
+    if (missingCount) proxy.$modal.msgWarning(`已关联 ${rows.length} 个商品，${missingCount} 个SKU需要排查`)
     else {
       dataSourceDialog.visible = false
       proxy.$modal.msgSuccess(`已关联 ${rows.length} 个商品`)
@@ -798,20 +908,41 @@ async function confirmFbaShipmentLink() {
 }
 
 function normalizeLinkResult(data) {
-  if (Array.isArray(data)) return { products: data, missingSkus: [] }
+  if (Array.isArray(data)) return { products: data, missingSkus: [], missingInventorySkus: [], missingHistorySkus: [] }
   return {
     products: data?.products || [],
-    missingSkus: data?.missingSkus || []
+    missingSkus: data?.missingSkus || [],
+    missingInventorySkus: data?.missingInventorySkus || [],
+    missingHistorySkus: data?.missingHistorySkus || []
   }
 }
 
+function toggleFbaShipmentExpand(row) {
+  fbaShipmentTableRef.value?.toggleRowExpansion(row)
+}
+
+function resetLinkMissing(dialog) {
+  dialog.missingSkus = []
+  dialog.missingInventorySkus = []
+  dialog.missingHistorySkus = []
+}
+
+function applyLinkMissing(dialog, result) {
+  dialog.missingSkus = result.missingSkus || []
+  dialog.missingInventorySkus = result.missingInventorySkus || []
+  dialog.missingHistorySkus = result.missingHistorySkus || []
+}
+
+function linkMissingCount(result) {
+  return (result.missingSkus?.length || 0)
+    + (result.missingInventorySkus?.length || 0)
+    + (result.missingHistorySkus?.length || 0)
+}
+
 function canMergeCustomsProduct(existing, incoming) {
-  const isTax = Number(incoming.isTax || existing.isTax || 0) === 1
-  if (!isTax) return false
+  if (Number(existing.isTax) !== 1 || Number(incoming.isTax) !== 1) return false
   return normalize(existing.sku) === normalize(incoming.sku)
     && normalize(existing.sourceLocation) === normalize(incoming.sourceLocation)
-    && normalize(existing.boxNo) === normalize(incoming.boxNo)
-    && normalize(existing.destinationCountry) === normalize(incoming.destinationCountry)
 }
 
 function normalize(v) { return (v || '').trim() }
@@ -856,6 +987,12 @@ function addItemInBox(index, sourceRow) {
   row.boxNo = sourceRow.boxNo
   row.boxCount = sourceRow.boxCount || 1
   row.sourceOrderNo = sourceRow.sourceOrderNo || ''
+  row.declarationSourceType = sourceRow.declarationSourceType || ''
+  row.sourceLineId = sourceRow.sourceLineId || ''
+  row.rawSku = sourceRow.rawSku || ''
+  row.warehouseBucket = sourceRow.warehouseBucket || ''
+  row.warehouseName = sourceRow.warehouseName || ''
+  row.matchStatus = sourceRow.matchStatus || ''
   row.orderTotalCbm = sourceRow.orderTotalCbm || null
   row.packingGrossWeight = sourceRow.packingGrossWeight
   row.packingCbm = sourceRow.packingCbm
@@ -948,6 +1085,7 @@ async function handleFbaBoxFile(event) {
     const response = await importFbaShipmentBox(file)
     const result = response.data || {}
     const message = `FBA 装箱明细导入完成：读取 ${result.readRows || 0} 行，新增 ${result.insertedRows || 0} 行，货件 ${result.importedShipments || 0} 个`
+      + (result.replacedShipments ? `，覆盖已存在货件 ${result.replacedShipments} 个` : '')
       + (result.skippedExistingShipments ? `，跳过已存在货件 ${result.skippedExistingShipments} 个` : '')
       + (result.failedRows ? `，失败 ${result.failedRows} 行` : '')
       + (result.unmatchedShops?.length ? `，未匹配店铺 ${result.unmatchedShops.length} 个` : '')
@@ -1431,6 +1569,18 @@ async function handleClear() {
 .item-actions {
   display: flex;
   justify-content: center;
+}
+
+.item-tax-line {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 5px;
+  align-items: center;
+}
+
+.fba-sku-table {
+  margin: 4px 10px 8px 78px;
+  width: calc(100% - 88px);
 }
 
 .packing-workbench :deep(.el-input-number),
