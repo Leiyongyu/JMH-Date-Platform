@@ -443,7 +443,7 @@ public class EbayReplenishmentComputeService
             String key = site + "|" + InventoryUtils.extractInventoryGroupKey(sku.trim());
             LocalDate od = ws.getOptTime().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
             LocalDate ex = agg.inboundTimeMap.get(key);
-            if (ex == null || od.isBefore(ex)) agg.inboundTimeMap.put(key, od);
+            if (ex == null || od.isAfter(ex)) agg.inboundTimeMap.put(key, od);
         }
 
         // --- 采购周期天数 ---
