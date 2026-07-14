@@ -8,14 +8,13 @@
       <div class="toolbar">
         <el-button type="primary" icon="Plus" @click="handleAdd"
           v-hasPermi="['customs:inventory:add']">新增</el-button>
-        <el-dropdown trigger="click" @command="handleToolCommand" :disabled="importing || exporting || declImporting">
-          <el-button type="primary" :loading="importing || exporting || declImporting">
+        <el-dropdown trigger="click" @command="handleToolCommand" :disabled="importing || exporting">
+          <el-button type="primary" :loading="importing || exporting">
             导入导出 ▾
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item v-if="checkPermi(['customs:inventory:import'])" command="importExcel" icon="Upload">导入 Excel</el-dropdown-item>
-              <el-dropdown-item v-if="checkPermi(['customs:inventory:import'])" command="importDecl" icon="DocumentAdd">导入报关申报要素</el-dropdown-item>
               <el-dropdown-item v-if="checkPermi(['customs:inventory:export'])" command="exportSelected" icon="Download" :disabled="!selectedRows.length" divided>导出选中</el-dropdown-item>
               <el-dropdown-item v-if="checkPermi(['customs:inventory:export'])" command="exportAll" icon="Download">导出全部</el-dropdown-item>
             </el-dropdown-menu>
@@ -24,7 +23,6 @@
         <el-button icon="Refresh" @click="getList">刷新</el-button>
       </div>
       <input ref="fileRef" class="file-input" type="file" accept=".xlsx" @change="handleFileChange">
-      <input ref="declFileRef" class="file-input" type="file" accept=".xlsx" @change="handleDeclFileChange">
     </div>
 
     <el-form :model="queryParams" ref="queryRef" :inline="true" class="query-form">
@@ -240,7 +238,6 @@
 import { defineComponent, h, resolveComponent } from 'vue'
 import { saveAs } from 'file-saver'
 import { blobValidate } from '@/utils/ruoyi'
-import request from '@/utils/request'
 import { checkPermi } from '@/utils/permission'
 import {
   addCustomsInventory,
@@ -255,13 +252,11 @@ import {
 const { proxy } = getCurrentInstance()
 const loading = ref(false)
 const importing = ref(false)
-const declImporting = ref(false)
 const exporting = ref(false)
 const saving = ref(false)
 const total = ref(0)
 const list = ref([])
 const fileRef = ref()
-const declFileRef = ref()
 const selectedRows = ref([])
 const dialogVisible = ref(false)
 const editMode = ref(false)
@@ -448,37 +443,8 @@ function openFile() {
 
 function handleToolCommand(cmd) {
   if (cmd === 'importExcel') openFile()
-  else if (cmd === 'importDecl') openDeclFile()
   else if (cmd === 'exportSelected') handleExportSelected()
   else if (cmd === 'exportAll') handleExportAll()
-}
-
-function openDeclFile() {
-  declFileRef.value?.click()
-}
-
-async function handleDeclFileChange(event) {
-  const file = event.target.files[0]
-  if (!file) return
-  declImporting.value = true
-  try {
-    const fd = new FormData(); fd.append('file', file)
-    const res = await request({ url: '/operations/customs/inventory/import-declaration-elements', method: 'post', data: fd, headers: { 'Content-Type': 'multipart/form-data' } })
-    const d = res.data || res
-    if (d && d.readRows !== undefined) {
-      const msg = `读取 ${d.readRows || 0} 行，新增 ${d.insertedRows || 0} 行，更新 ${d.updatedRows || 0} 行，跳过 ${d.skippedRows || 0} 行`
-      proxy.$modal.msgSuccess(msg)
-      if (d.errors && d.errors.length) {
-        proxy.$modal.alert(`以下异常（前50条）：\n${d.errors.join('\n')}`, '导入详情', { confirmButtonText: '确定' })
-      }
-      getList()
-    }
-  } catch (e) {
-    proxy.$modal.msgError(e.message || '导入失败')
-  } finally {
-    declImporting.value = false
-    declFileRef.value.value = ''
-  }
 }
 
 function handleSelectionChange(selection) {
