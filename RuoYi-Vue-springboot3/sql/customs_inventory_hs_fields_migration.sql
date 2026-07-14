@@ -68,8 +68,8 @@ SELECT
     ''
   ) AS hs_description,
   COALESCE(NULLIF(h.origin_country, ''), '中国') AS origin_country,
-  COALESCE(h.destination_country, '') AS destination_country,
-  COALESCE(NULLIF(h.source_location, ''), '') AS source_location,
+  COALESCE(NULLIF(h.destination_country, ''), '美国') AS destination_country,
+  COALESCE(NULLIF(h.source_location, ''), NULLIF(i.product_code, ''), '') AS source_location,
   COALESCE(NULLIF(h.exemption, ''), '照章') AS exemption,
   COALESCE(po.is_tax, h.is_tax, 0) AS is_tax,
   COALESCE(h.source_type, 'INVENTORY') AS source_type,

@@ -84,7 +84,9 @@ public class CustomsDeclarationController extends BaseController
     @PostMapping("/fba-shipments/products")
     public AjaxResult linkFbaShipments(@RequestBody CustomsStockOrderLinkRequest request)
     {
-        try { return success(productService.linkFbaShipments(request == null ? null : request.getShipmentIds())); }
+        try { return success(productService.linkFbaShipments(
+                request == null ? null : request.getShipmentIds(),
+                request == null ? null : request.getFbaSkuKeys())); }
         catch (Exception e) { return error(e.getMessage()); }
     }
 

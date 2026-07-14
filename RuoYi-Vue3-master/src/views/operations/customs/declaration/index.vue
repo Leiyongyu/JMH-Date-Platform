@@ -283,6 +283,11 @@
             <el-table-column type="expand" width="44">
               <template #default="{ row }">
                 <el-table :data="row.items || []" size="small" border class="fba-sku-table" empty-text="暂无SKU明细">
+                  <el-table-column label="选择" width="64" align="center">
+                    <template #default="{ row: item }">
+                      <el-checkbox v-model="item._checked" />
+                    </template>
+                  </el-table-column>
                   <el-table-column prop="sku" label="SKU" min-width="180" show-overflow-tooltip />
                   <el-table-column prop="totalQuantity" label="装箱量" width="100" align="right">
                     <template #default="{ row: item }">{{ formatNumber(item.totalQuantity, 0) }}</template>
@@ -311,6 +316,7 @@
           <div class="stock-dialog-summary">
             <span>共 {{ fbaDialog.shipments.length }} 条</span>
             <span>已选 {{ fbaDialog.selectedShipmentIds.length }} 条</span>
+            <span>已选SKU {{ selectedFbaSkuKeys.length }} 个</span>
           </div>
           <div v-if="fbaDialog.missingSkus.length" class="missing-sku-box">
             <div class="missing-sku-title">未匹配到商品库的 SKU（{{ fbaDialog.missingSkus.length }}）</div>
@@ -414,6 +420,7 @@ const fbaDialog = reactive({
   missingInventorySkus: [],
   missingHistorySkus: []
 })
+const selectedFbaSkuKeys = computed(() => collectSelectedFbaSkuKeys())
 function createHeader() {
   return {
     preEntry: '', customsNo: '', consignor: defaultCompany, customsArea: '',
@@ -431,7 +438,7 @@ function createEmptyItem() {
   return {
     _key: ++keySeed, _boxKey: `box-${++boxKeySeed}`, productCode: '', sku: '', descriptionCn: '', model: '', unit: '个',
     unitPriceUsd: 0, currency: 'USD', singleWeight: 0, quantity: 1,
-    hsCode: '', hsDescription: '', originCountry: '中国', destinationCountry: '',
+    hsCode: '', hsDescription: '', originCountry: '中国', destinationCountry: '美国',
     sourceLocation: '', exemption: '', boxNo: null, boxCount: 1, sourceOrderNo: '', orderTotalCbm: null, isTax: null,
     declarationSourceType: '', sourceLineId: '', rawSku: '', warehouseBucket: '', warehouseName: '', matchStatus: '',
     packingNetWeight: null, packingGrossWeight: null, packingCbm: null,
@@ -833,7 +840,7 @@ async function loadFbaShipments() {
   fbaDialog.loading = true
   try {
     const response = await searchFbaShipments({ keyword: fbaDialog.keyword, limit: 100 })
-    fbaDialog.shipments = response.data || []
+    fbaDialog.shipments = normalizeFbaShipments(response.data || [])
     resetLinkMissing(fbaDialog)
     await restoreFbaShipmentSelection()
   } finally {
@@ -885,9 +892,14 @@ async function confirmFbaShipmentLink() {
     proxy.$modal.msgWarning('请先选择FBA货件')
     return
   }
+  const fbaSkuKeys = collectSelectedFbaSkuKeys()
+  if (!fbaSkuKeys.length) {
+    proxy.$modal.msgWarning('请至少选择一个FBA货件SKU')
+    return
+  }
   fbaDialog.saving = true
   try {
-    const response = await loadFbaShipmentProducts({ shipmentIds: fbaDialog.selectedShipmentIds })
+    const response = await loadFbaShipmentProducts({ shipmentIds: fbaDialog.selectedShipmentIds, fbaSkuKeys })
     const result = normalizeLinkResult(response.data)
     const rows = result.products.map(productToRow)
     applyLinkMissing(fbaDialog, result)
@@ -919,6 +931,33 @@ function normalizeLinkResult(data) {
 
 function toggleFbaShipmentExpand(row) {
   fbaShipmentTableRef.value?.toggleRowExpansion(row)
+}
+
+function normalizeFbaShipments(rows) {
+  return rows.map(row => ({
+    ...row,
+    items: (row.items || []).map(item => ({
+      ...item,
+      _checked: item._checked !== false,
+      _fbaSkuKey: buildFbaSkuKey(row.shipmentId, item.sku)
+    }))
+  }))
+}
+
+function buildFbaSkuKey(shipmentId, sku) {
+  return `${shipmentId || ''}|${sku || ''}`
+}
+
+function collectSelectedFbaSkuKeys() {
+  const selectedShipments = new Set(fbaDialog.selectedShipmentIds)
+  const keys = []
+  fbaDialog.shipments.forEach(shipment => {
+    if (!selectedShipments.has(shipment.shipmentId)) return
+    ;(shipment.items || []).forEach(item => {
+      if (item._checked !== false && item._fbaSkuKey) keys.push(item._fbaSkuKey)
+    })
+  })
+  return Array.from(new Set(keys))
 }
 
 function resetLinkMissing(dialog) {
@@ -999,8 +1038,8 @@ function addItemInBox(index, sourceRow) {
   row.boxLength = sourceRow.boxLength
   row.boxWidth = sourceRow.boxWidth
   row.boxHeight = sourceRow.boxHeight
-  row.destinationCountry = sourceRow.destinationCountry || ''
-  row.sourceLocation = sourceRow.sourceLocation || ''
+  row.destinationCountry = sourceRow.destinationCountry || '美国'
+  row.sourceLocation = sourceRow.sourceLocation || sourceRow.productCode || ''
   items.value.splice(index + 1, 0, row)
   refreshBoxGroups()
   itemPage.pageNum = Math.max(1, Math.ceil((index + 2) / itemPage.pageSize))
@@ -1202,6 +1241,7 @@ async function handleClear() {
   stockDialog.selected = []
   fbaDialog.selectedShipmentIds = []
   fbaDialog.selected = []
+  fbaDialog.shipments = normalizeFbaShipments(fbaDialog.shipments)
   proxy.$modal.msgSuccess('已清空')
 }
 </script>

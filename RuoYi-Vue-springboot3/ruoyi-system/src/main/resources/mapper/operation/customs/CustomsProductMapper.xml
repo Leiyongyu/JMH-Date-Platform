@@ -522,6 +522,10 @@
                 OR (il.sku IS NULL AND p.sku_key COLLATE utf8mb4_unicode_ci = normalize_customs_sku_key(b.sku) COLLATE utf8mb4_unicode_ci))
         WHERE b.shipment_id IN
         <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
+        <if test="fbaSkuKeys != null and fbaSkuKeys.size() > 0">
+          AND CONCAT(b.shipment_id, '|', b.sku) IN
+          <foreach collection="fbaSkuKeys" item="skuKey" open="(" separator="," close=")">#{skuKey}</foreach>
+        </if>
         ORDER BY FIELD(b.shipment_id,
         <foreach collection="shipments" item="shipment" separator=",">#{shipment}</foreach>
         ), b.id
@@ -599,6 +603,10 @@
                 OR (il.sku IS NULL AND p.sku_key COLLATE utf8mb4_unicode_ci = normalize_customs_sku_key(b.sku) COLLATE utf8mb4_unicode_ci))
         WHERE b.shipment_id IN
         <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
+          <if test="fbaSkuKeys != null and fbaSkuKeys.size() > 0">
+          AND CONCAT(b.shipment_id, '|', b.sku) IN
+          <foreach collection="fbaSkuKeys" item="skuKey" open="(" separator="," close=")">#{skuKey}</foreach>
+          </if>
           AND b.sku IS NOT NULL AND b.sku != ''
           AND p.sku IS NULL
         ORDER BY b.sku
@@ -616,6 +624,10 @@
         ) il ON normalize_customs_sku_key(b.sku) COLLATE utf8mb4_unicode_ci = il.match_key COLLATE utf8mb4_unicode_ci
         WHERE b.shipment_id IN
         <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
+          <if test="fbaSkuKeys != null and fbaSkuKeys.size() > 0">
+          AND CONCAT(b.shipment_id, '|', b.sku) IN
+          <foreach collection="fbaSkuKeys" item="skuKey" open="(" separator="," close=")">#{skuKey}</foreach>
+          </if>
           AND b.sku IS NOT NULL AND b.sku != ''
           AND il.match_key IS NULL
         ORDER BY b.sku

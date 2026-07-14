@@ -133,14 +133,22 @@ public class CustomsProductService
 
     public Map<String, Object> linkFbaShipments(List<String> shipmentIds)
     {
+        return linkFbaShipments(shipmentIds, null);
+    }
+
+    public Map<String, Object> linkFbaShipments(List<String> shipmentIds, List<String> fbaSkuKeys)
+    {
         List<String> shipments = normalizeSkus(shipmentIds);
         if (shipments.isEmpty()) throw new IllegalArgumentException("请选择需要关联的FBA货件");
-        List<CustomsDeclarationItem> products = productMapper.selectProductsByFbaShipments(shipments);
+        List<String> selectedSkuKeys = normalizeSkus(fbaSkuKeys);
+        if (fbaSkuKeys != null && selectedSkuKeys.isEmpty())
+            throw new IllegalArgumentException("请至少选择一个FBA货件SKU");
+        List<CustomsDeclarationItem> products = productMapper.selectProductsByFbaShipments(shipments, selectedSkuKeys);
         applyFbaTax(products, shipments);
         // 含税/库存商品沿用采购数量 + 剩余库存倒推批次价；历史兜底记录不受影响。
         applyBatchPrices(new ArrayList<CustomsProduct>(products));
-        List<String> missingSkus = productMapper.selectMissingSkusByFbaShipments(shipments);
-        List<String> missingInventorySkus = productMapper.selectMissingInventorySkusByFbaShipments(shipments);
+        List<String> missingSkus = productMapper.selectMissingSkusByFbaShipments(shipments, selectedSkuKeys);
+        List<String> missingInventorySkus = productMapper.selectMissingInventorySkusByFbaShipments(shipments, selectedSkuKeys);
         return buildLinkResult(products, missingSkus, missingInventorySkus, "FBA");
     }
 
@@ -525,7 +533,8 @@ public class CustomsProductService
             product.setUpdatedBy(currentUsername());
             product.setSku(product.getSku().trim());
             product.setProductCode(trim(product.getProductCode()));
-            product.setSourceLocation(trim(product.getSourceLocation()));
+            product.setDestinationCountry(defaultValue(product.getDestinationCountry(), "美国"));
+            product.setSourceLocation(defaultValue(product.getSourceLocation(), product.getProductCode()));
             product.setOriginCountry(defaultValue(product.getOriginCountry(), "中国"));
         }
 
@@ -596,8 +605,8 @@ public class CustomsProductService
         product.setUnitPriceUsd(decimal(priceParts.length > 0 ? priceParts[0] : "0"));
         product.setCurrency(priceParts.length >= 3 ? defaultValue(priceParts[2].trim(), "USD") : "USD");
         product.setOriginCountry(cellString(row.getCell(7)));
-        product.setDestinationCountry(cellString(row.getCell(8)));
-        product.setSourceLocation(cellString(row.getCell(10)));
+        product.setDestinationCountry(defaultValue(cellString(row.getCell(8)), "美国"));
+        product.setSourceLocation(defaultValue(cellString(row.getCell(10)), product.getProductCode()));
         product.setExemption(cellString(row.getCell(12)));
         return product;
     }

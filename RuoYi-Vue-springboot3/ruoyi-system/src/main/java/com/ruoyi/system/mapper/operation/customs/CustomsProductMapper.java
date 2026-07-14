@@ -30,11 +30,14 @@ public interface CustomsProductMapper
 
     List<CustomsFbaShipmentSkuOption> selectFbaShipmentSkuOptions(@Param("shipments") List<String> shipments);
 
-    List<CustomsDeclarationItem> selectProductsByFbaShipments(@Param("shipments") List<String> shipments);
+    List<CustomsDeclarationItem> selectProductsByFbaShipments(@Param("shipments") List<String> shipments,
+                                                              @Param("fbaSkuKeys") List<String> fbaSkuKeys);
 
-    List<String> selectMissingSkusByFbaShipments(@Param("shipments") List<String> shipments);
+    List<String> selectMissingSkusByFbaShipments(@Param("shipments") List<String> shipments,
+                                                 @Param("fbaSkuKeys") List<String> fbaSkuKeys);
 
-    List<String> selectMissingInventorySkusByFbaShipments(@Param("shipments") List<String> shipments);
+    List<String> selectMissingInventorySkusByFbaShipments(@Param("shipments") List<String> shipments,
+                                                          @Param("fbaSkuKeys") List<String> fbaSkuKeys);
 
     int batchInsert(@Param("products") List<CustomsProduct> products);
 

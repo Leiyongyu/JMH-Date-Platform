@@ -54,6 +54,12 @@ public class RedisCache
         redisTemplate.opsForValue().set(key, value, timeout, timeUnit);
     }
 
+    /** 仅当 key 不存在时写入（用于去重），返回 true=写入成功 false=key已存在 */
+    public <T> boolean setCacheObjectIfAbsent(final String key, final T value, final Integer timeout, final TimeUnit unit)
+    {
+        return Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(key, value, timeout, unit));
+    }
+
     /**
      * 设置有效时间
      *

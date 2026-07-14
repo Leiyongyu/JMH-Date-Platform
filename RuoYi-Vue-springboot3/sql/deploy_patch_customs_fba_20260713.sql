@@ -73,21 +73,24 @@ DELIMITER ;
 
 /* 2) customs_products_list compatibility fields/index */
 SET @sql := IF(
-    (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customs_products_list' AND COLUMN_NAME = 'product_code') = 0,
+    (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customs_products_list') > 0
+    AND (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customs_products_list' AND COLUMN_NAME = 'product_code') = 0,
     'ALTER TABLE customs_products_list ADD COLUMN product_code varchar(100) NOT NULL DEFAULT '''' COMMENT ''商品编码'' AFTER sku',
     'SELECT ''skip customs_products_list.product_code'''
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @sql := IF(
-    (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customs_products_list' AND INDEX_NAME = 'uk_sku') > 0,
+    (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customs_products_list') > 0
+    AND (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customs_products_list' AND INDEX_NAME = 'uk_sku') > 0,
     'ALTER TABLE customs_products_list DROP INDEX uk_sku',
     'SELECT ''skip drop customs_products_list.uk_sku'''
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @sql := IF(
-    (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customs_products_list' AND INDEX_NAME = 'uk_sku_product_code') = 0,
+    (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customs_products_list') > 0
+    AND (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customs_products_list' AND INDEX_NAME = 'uk_sku_product_code') = 0,
     'ALTER TABLE customs_products_list ADD UNIQUE KEY uk_sku_product_code (sku, product_code)',
     'SELECT ''skip customs_products_list.uk_sku_product_code'''
 );
@@ -255,7 +258,9 @@ SET @sql := IF((SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_S
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 /* 8) Migrate old customs_products_list current values into history, only when absent */
-INSERT IGNORE INTO customs_declaration_history (
+SET @sql := IF(
+  (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customs_products_list') > 0,
+  'INSERT IGNORE INTO customs_declaration_history (
     sku, sku_key, product_code, description_cn, model, unit,
     unit_price_usd, currency, hs_code, hs_description,
     origin_country, destination_country, source_location, exemption,
@@ -264,24 +269,27 @@ INSERT IGNORE INTO customs_declaration_history (
 SELECT
     p.sku,
     normalize_customs_sku_key(p.sku),
-    IFNULL(p.product_code, ''),
-    IFNULL(p.description_cn, ''),
-    IFNULL(p.model, ''),
-    IFNULL(p.unit, ''),
+    IFNULL(p.product_code, ''''),
+    IFNULL(p.description_cn, ''''),
+    IFNULL(p.model, ''''),
+    IFNULL(p.unit, ''''),
     p.unit_price_usd,
-    'USD',
-    IFNULL(p.hs_code, ''),
+    ''USD'',
+    IFNULL(p.hs_code, ''''),
     p.hs_description,
-    '中国',
-    '',
-    IFNULL(p.source_location, ''),
-    IFNULL(p.exemption, ''),
-    'LEGACY',
-    'SYSTEM',
+    ''中国'',
+    '''',
+    IFNULL(p.source_location, ''''),
+    IFNULL(p.exemption, ''''),
+    ''LEGACY'',
+    ''SYSTEM'',
     NOW(),
     NOW()
 FROM customs_products_list p
-WHERE p.sku IS NOT NULL AND p.sku != '';
+WHERE p.sku IS NOT NULL AND p.sku != ''''',
+  'SELECT ''skip migrate customs_products_list'''
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 /* 9) Quartz schedule: FBA shipment first, box detail after shipment */
 UPDATE sys_job
@@ -338,8 +346,8 @@ SELECT
         ''
     ) AS hs_description,
     COALESCE(NULLIF(h.origin_country, ''), '中国') AS origin_country,
-    COALESCE(h.destination_country, '') AS destination_country,
-    COALESCE(NULLIF(h.source_location, ''), '') AS source_location,
+    COALESCE(NULLIF(h.destination_country, ''), '美国') AS destination_country,
+    COALESCE(NULLIF(h.source_location, ''), NULLIF(i.product_code, ''), '') AS source_location,
     COALESCE(NULLIF(h.exemption, ''), '照章') AS exemption,
     COALESCE(po.is_tax, h.is_tax, 0) AS is_tax,
     COALESCE(h.source_type, 'INVENTORY') AS source_type,
