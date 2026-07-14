@@ -275,12 +275,13 @@ public class EbayReplenishmentComputeService
                         && snap.getLocalOnway() <= 2
                         && planCount <= 2
                         && snap.getLockedQty() <= 2;
-                boolean canCalc = lowStock ? (cyc != null && od != null) : (cyc != null);
-                if (canCalc)
+                int cycDays = cyc != null ? cyc : 0;
+                int odDays  = od  != null ? od  : 0;
+                double days = lowStock ? (cycDays + odDays) : cycDays;
+                if (days > 0)
                 {
                     BigDecimal avgMonthly = BigDecimal.valueOf(snap.getSales90d())
                             .divide(BigDecimal.valueOf(3), 4, RoundingMode.HALF_UP);
-                    double days = lowStock ? (cyc + od) : cyc;
                     snap.setSuggestPurchaseQty(
                             avgMonthly.multiply(BigDecimal.valueOf(days / 30.0))
                                     .setScale(0, RoundingMode.HALF_UP));
