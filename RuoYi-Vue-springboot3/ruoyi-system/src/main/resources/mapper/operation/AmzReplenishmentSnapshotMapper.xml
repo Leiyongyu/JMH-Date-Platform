@@ -45,9 +45,9 @@
     </resultMap>
 
     <sql id="amzWeightedDailyExpr">
-        (COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5)
-        + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4)
-        + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1))
+        (ROUND(COALESCE(MAX(rs.sales_14d),0) / 14, 2) * COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5)
+        + ROUND(COALESCE(MAX(rs.sales_30d),0) / 30, 2) * COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4)
+        + ROUND(COALESCE(MAX(rs.sales_60d),0) / 60, 2) * COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1))
     </sql>
 
     <sql id="amzFbaDeductExpr">
@@ -202,12 +202,12 @@
                                 COALESCE(MAX(rs.sales_14d), 0) AS sales_14d,
                                 COALESCE(MAX(rs.sales_30d), 0) AS sales_30d,
                                 COALESCE(MAX(rs.sales_60d), 0) AS sales_60d,
-                                MAX(rs.avg_sales_14d) AS sales_speed_14d,
-                                MAX(rs.avg_sales_30d) AS sales_speed_30d,
-                                MAX(rs.avg_sales_60d) AS sales_speed_60d,
-                                (COALESCE(MAX(rs.avg_sales_14d),0)*COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5)
-                                    + COALESCE(MAX(rs.avg_sales_30d),0)*COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4)
-                                    + COALESCE(MAX(rs.avg_sales_60d),0)*COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1)) AS weighted_daily_sales,
+                                ROUND(COALESCE(MAX(rs.sales_14d), 0) / 14, 2) AS sales_speed_14d,
+                                ROUND(COALESCE(MAX(rs.sales_30d), 0) / 30, 2) AS sales_speed_30d,
+                                ROUND(COALESCE(MAX(rs.sales_60d), 0) / 60, 2) AS sales_speed_60d,
+                                (ROUND(COALESCE(MAX(rs.sales_14d),0) / 14, 2) * COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5)
+                                    + ROUND(COALESCE(MAX(rs.sales_30d),0) / 30, 2) * COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4)
+                                    + ROUND(COALESCE(MAX(rs.sales_60d),0) / 60, 2) * COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1)) AS weighted_daily_sales,
                                 COALESCE(ANY_VALUE(fc.month_multiplier), 30) AS month_multiplier,
                                 COALESCE(ANY_VALUE(fc.safety_days), 90) AS safety_days,
                                 COALESCE(ANY_VALUE(fc.ship_days), 90) AS ship_days,
@@ -261,7 +261,10 @@
                s.purchased_qty AS purchased_qty,
                s.domestic_stock, s.pending_ship_qty, s.fba_stock,
                s.fba_inbound, s.fba_inbound_working, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,
-               s.sales_speed_14d, s.sales_speed_30d, s.sales_speed_60d, s.avg_monthly_sales,
+               ROUND(COALESCE(s.sales_14d, 0) / 14, 2) AS sales_speed_14d,
+               ROUND(COALESCE(s.sales_30d, 0) / 30, 2) AS sales_speed_30d,
+               ROUND(COALESCE(s.sales_60d, 0) / 60, 2) AS sales_speed_60d,
+               s.avg_monthly_sales,
                s.safety_stock, s.ship_qty, s.replenish_qty, s.restock_days,
                s.region_group, s.calc_time
         FROM amz_replenishment_snapshot s
@@ -478,31 +481,31 @@
             <if test="sales_speed_14d_op != null">
                 <choose>
                     <when test="sales_speed_14d_op == 'between' and sales_speed_14d_val != null and sales_speed_14d_val2 != null">
-                        and sales_speed_14d between #{sales_speed_14d_val} and #{sales_speed_14d_val2}
+                        and ROUND(COALESCE(s.sales_14d, 0) / 14, 2) between #{sales_speed_14d_val} and #{sales_speed_14d_val2}
                     </when>
-                    <when test="sales_speed_14d_op == 'isNull'"> and sales_speed_14d is null </when>
-                    <when test="sales_speed_14d_op == 'isNotNull'"> and sales_speed_14d is not null </when>
-                    <when test="sales_speed_14d_val != null"> and sales_speed_14d ${sales_speed_14d_op} #{sales_speed_14d_val} </when>
+                    <when test="sales_speed_14d_op == 'isNull'"> and s.sales_14d is null </when>
+                    <when test="sales_speed_14d_op == 'isNotNull'"> and s.sales_14d is not null </when>
+                    <when test="sales_speed_14d_val != null"> and ROUND(COALESCE(s.sales_14d, 0) / 14, 2) ${sales_speed_14d_op} #{sales_speed_14d_val} </when>
                 </choose>
             </if>
             <if test="sales_speed_30d_op != null">
                 <choose>
                     <when test="sales_speed_30d_op == 'between' and sales_speed_30d_val != null and sales_speed_30d_val2 != null">
-                        and sales_speed_30d between #{sales_speed_30d_val} and #{sales_speed_30d_val2}
+                        and ROUND(COALESCE(s.sales_30d, 0) / 30, 2) between #{sales_speed_30d_val} and #{sales_speed_30d_val2}
                     </when>
-                    <when test="sales_speed_30d_op == 'isNull'"> and sales_speed_30d is null </when>
-                    <when test="sales_speed_30d_op == 'isNotNull'"> and sales_speed_30d is not null </when>
-                    <when test="sales_speed_30d_val != null"> and sales_speed_30d ${sales_speed_30d_op} #{sales_speed_30d_val} </when>
+                    <when test="sales_speed_30d_op == 'isNull'"> and s.sales_30d is null </when>
+                    <when test="sales_speed_30d_op == 'isNotNull'"> and s.sales_30d is not null </when>
+                    <when test="sales_speed_30d_val != null"> and ROUND(COALESCE(s.sales_30d, 0) / 30, 2) ${sales_speed_30d_op} #{sales_speed_30d_val} </when>
                 </choose>
             </if>
             <if test="sales_speed_60d_op != null">
                 <choose>
                     <when test="sales_speed_60d_op == 'between' and sales_speed_60d_val != null and sales_speed_60d_val2 != null">
-                        and sales_speed_60d between #{sales_speed_60d_val} and #{sales_speed_60d_val2}
+                        and ROUND(COALESCE(s.sales_60d, 0) / 60, 2) between #{sales_speed_60d_val} and #{sales_speed_60d_val2}
                     </when>
-                    <when test="sales_speed_60d_op == 'isNull'"> and sales_speed_60d is null </when>
-                    <when test="sales_speed_60d_op == 'isNotNull'"> and sales_speed_60d is not null </when>
-                    <when test="sales_speed_60d_val != null"> and sales_speed_60d ${sales_speed_60d_op} #{sales_speed_60d_val} </when>
+                    <when test="sales_speed_60d_op == 'isNull'"> and s.sales_60d is null </when>
+                    <when test="sales_speed_60d_op == 'isNotNull'"> and s.sales_60d is not null </when>
+                    <when test="sales_speed_60d_val != null"> and ROUND(COALESCE(s.sales_60d, 0) / 60, 2) ${sales_speed_60d_op} #{sales_speed_60d_val} </when>
                 </choose>
             </if>
             <if test="avg_monthly_sales_op != null">
@@ -655,9 +658,9 @@
             <if test="sales_14d_op != null"><choose><when test="sales_14d_op == 'between' and sales_14d_val != null and sales_14d_val2 != null">and sales_14d between #{sales_14d_val} and #{sales_14d_val2}</when><when test="sales_14d_op == 'isNull'"> and sales_14d is null </when><when test="sales_14d_op == 'isNotNull'"> and sales_14d is not null </when><when test="sales_14d_val != null"> and sales_14d ${sales_14d_op} #{sales_14d_val} </when></choose></if>
             <if test="sales_30d_op != null"><choose><when test="sales_30d_op == 'between' and sales_30d_val != null and sales_30d_val2 != null">and sales_30d between #{sales_30d_val} and #{sales_30d_val2}</when><when test="sales_30d_op == 'isNull'"> and sales_30d is null </when><when test="sales_30d_op == 'isNotNull'"> and sales_30d is not null </when><when test="sales_30d_val != null"> and sales_30d ${sales_30d_op} #{sales_30d_val} </when></choose></if>
             <if test="sales_60d_op != null"><choose><when test="sales_60d_op == 'between' and sales_60d_val != null and sales_60d_val2 != null">and sales_60d between #{sales_60d_val} and #{sales_60d_val2}</when><when test="sales_60d_op == 'isNull'"> and sales_60d is null </when><when test="sales_60d_op == 'isNotNull'"> and sales_60d is not null </when><when test="sales_60d_val != null"> and sales_60d ${sales_60d_op} #{sales_60d_val} </when></choose></if>
-            <if test="sales_speed_14d_op != null"><choose><when test="sales_speed_14d_op == 'between' and sales_speed_14d_val != null and sales_speed_14d_val2 != null">and sales_speed_14d between #{sales_speed_14d_val} and #{sales_speed_14d_val2}</when><when test="sales_speed_14d_op == 'isNull'"> and sales_speed_14d is null </when><when test="sales_speed_14d_op == 'isNotNull'"> and sales_speed_14d is not null </when><when test="sales_speed_14d_val != null"> and sales_speed_14d ${sales_speed_14d_op} #{sales_speed_14d_val} </when></choose></if>
-            <if test="sales_speed_30d_op != null"><choose><when test="sales_speed_30d_op == 'between' and sales_speed_30d_val != null and sales_speed_30d_val2 != null">and sales_speed_30d between #{sales_speed_30d_val} and #{sales_speed_30d_val2}</when><when test="sales_speed_30d_op == 'isNull'"> and sales_speed_30d is null </when><when test="sales_speed_30d_op == 'isNotNull'"> and sales_speed_30d is not null </when><when test="sales_speed_30d_val != null"> and sales_speed_30d ${sales_speed_30d_op} #{sales_speed_30d_val} </when></choose></if>
-            <if test="sales_speed_60d_op != null"><choose><when test="sales_speed_60d_op == 'between' and sales_speed_60d_val != null and sales_speed_60d_val2 != null">and sales_speed_60d between #{sales_speed_60d_val} and #{sales_speed_60d_val2}</when><when test="sales_speed_60d_op == 'isNull'"> and sales_speed_60d is null </when><when test="sales_speed_60d_op == 'isNotNull'"> and sales_speed_60d is not null </when><when test="sales_speed_60d_val != null"> and sales_speed_60d ${sales_speed_60d_op} #{sales_speed_60d_val} </when></choose></if>
+            <if test="sales_speed_14d_op != null"><choose><when test="sales_speed_14d_op == 'between' and sales_speed_14d_val != null and sales_speed_14d_val2 != null">and ROUND(COALESCE(sales_14d, 0) / 14, 2) between #{sales_speed_14d_val} and #{sales_speed_14d_val2}</when><when test="sales_speed_14d_op == 'isNull'"> and sales_14d is null </when><when test="sales_speed_14d_op == 'isNotNull'"> and sales_14d is not null </when><when test="sales_speed_14d_val != null"> and ROUND(COALESCE(sales_14d, 0) / 14, 2) ${sales_speed_14d_op} #{sales_speed_14d_val} </when></choose></if>
+            <if test="sales_speed_30d_op != null"><choose><when test="sales_speed_30d_op == 'between' and sales_speed_30d_val != null and sales_speed_30d_val2 != null">and ROUND(COALESCE(sales_30d, 0) / 30, 2) between #{sales_speed_30d_val} and #{sales_speed_30d_val2}</when><when test="sales_speed_30d_op == 'isNull'"> and sales_30d is null </when><when test="sales_speed_30d_op == 'isNotNull'"> and sales_30d is not null </when><when test="sales_speed_30d_val != null"> and ROUND(COALESCE(sales_30d, 0) / 30, 2) ${sales_speed_30d_op} #{sales_speed_30d_val} </when></choose></if>
+            <if test="sales_speed_60d_op != null"><choose><when test="sales_speed_60d_op == 'between' and sales_speed_60d_val != null and sales_speed_60d_val2 != null">and ROUND(COALESCE(sales_60d, 0) / 60, 2) between #{sales_speed_60d_val} and #{sales_speed_60d_val2}</when><when test="sales_speed_60d_op == 'isNull'"> and sales_60d is null </when><when test="sales_speed_60d_op == 'isNotNull'"> and sales_60d is not null </when><when test="sales_speed_60d_val != null"> and ROUND(COALESCE(sales_60d, 0) / 60, 2) ${sales_speed_60d_op} #{sales_speed_60d_val} </when></choose></if>
             <if test="avg_monthly_sales_op != null"><choose><when test="avg_monthly_sales_op == 'between' and avg_monthly_sales_val != null and avg_monthly_sales_val2 != null">and avg_monthly_sales between #{avg_monthly_sales_val} and #{avg_monthly_sales_val2}</when><when test="avg_monthly_sales_op == 'isNull'"> and avg_monthly_sales is null </when><when test="avg_monthly_sales_op == 'isNotNull'"> and avg_monthly_sales is not null </when><when test="avg_monthly_sales_val != null"> and avg_monthly_sales ${avg_monthly_sales_op} #{avg_monthly_sales_val} </when></choose></if>
             <if test="safety_stock_op != null"><choose><when test="safety_stock_op == 'between' and safety_stock_val != null and safety_stock_val2 != null">and safety_stock between #{safety_stock_val} and #{safety_stock_val2}</when><when test="safety_stock_op == 'isNull'"> and safety_stock is null </when><when test="safety_stock_op == 'isNotNull'"> and safety_stock is not null </when><when test="safety_stock_val != null"> and safety_stock ${safety_stock_op} #{safety_stock_val} </when></choose></if>
             <if test="ship_qty_op != null"><choose><when test="ship_qty_op == 'between' and ship_qty_val != null and ship_qty_val2 != null">and ship_qty between #{ship_qty_val} and #{ship_qty_val2}</when><when test="ship_qty_op == 'isNull'"> and ship_qty is null </when><when test="ship_qty_op == 'isNotNull'"> and ship_qty is not null </when><when test="ship_qty_val != null"> and ship_qty ${ship_qty_op} #{ship_qty_val} </when></choose></if>
@@ -681,7 +684,10 @@
                s.purchased_qty AS purchased_qty,
                s.domestic_stock, s.pending_ship_qty, s.fba_stock,
                s.fba_inbound, s.fba_inbound_working, s.total_inventory, s.sales_7d, s.sales_14d, s.sales_30d, s.sales_60d,
-               s.sales_speed_14d, s.sales_speed_30d, s.sales_speed_60d, s.avg_monthly_sales,
+               ROUND(COALESCE(s.sales_14d, 0) / 14, 2) AS sales_speed_14d,
+               ROUND(COALESCE(s.sales_30d, 0) / 30, 2) AS sales_speed_30d,
+               ROUND(COALESCE(s.sales_60d, 0) / 60, 2) AS sales_speed_60d,
+               s.avg_monthly_sales,
                s.safety_stock, s.ship_qty, s.replenish_qty, s.restock_days, s.calc_time
         FROM amz_replenishment_snapshot s
         LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = o.sid AND s.seller_sku = o.seller_sku
@@ -719,9 +725,9 @@
             <when test="sortField == 'sales14d'">order by sales_14d</when>
             <when test="sortField == 'sales30d'">order by sales_30d</when>
             <when test="sortField == 'sales60d'">order by sales_60d</when>
-            <when test="sortField == 'salesSpeed14d'">order by sales_speed_14d</when>
-            <when test="sortField == 'salesSpeed30d'">order by sales_speed_30d</when>
-            <when test="sortField == 'salesSpeed60d'">order by sales_speed_60d</when>
+            <when test="sortField == 'salesSpeed14d'">order by ROUND(COALESCE(s.sales_14d, 0) / 14, 2)</when>
+            <when test="sortField == 'salesSpeed30d'">order by ROUND(COALESCE(s.sales_30d, 0) / 30, 2)</when>
+            <when test="sortField == 'salesSpeed60d'">order by ROUND(COALESCE(s.sales_60d, 0) / 60, 2)</when>
             <when test="sortField == 'avgMonthlySales'">order by avg_monthly_sales</when>
             <when test="sortField == 'safetyStock'">order by safety_stock</when>
             <when test="sortField == 'shipQty'">order by ship_qty</when>
