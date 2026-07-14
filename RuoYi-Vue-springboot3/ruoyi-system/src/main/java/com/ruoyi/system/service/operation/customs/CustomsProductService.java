@@ -37,7 +37,6 @@ import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -422,7 +421,6 @@ public class CustomsProductService
         catch (Exception e)
         {
             errors.add("批量写入失败：" + e.getMessage());
-            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             throw new IllegalStateException("批量写入失败：" + e.getMessage(), e);
         }
         Map<String, Object> result = new LinkedHashMap<>();
@@ -606,7 +604,7 @@ public class CustomsProductService
         product.setCurrency(priceParts.length >= 3 ? defaultValue(priceParts[2].trim(), "USD") : "USD");
         product.setOriginCountry(cellString(row.getCell(7)));
         product.setDestinationCountry(defaultValue(cellString(row.getCell(8)), "美国"));
-        product.setSourceLocation(defaultValue(cellString(row.getCell(10)), product.getProductCode()));
+        product.setSourceLocation(defaultValue(cellString(row.getCell(10)), ""));
         product.setExemption(cellString(row.getCell(12)));
         return product;
     }

@@ -32,6 +32,14 @@
         WHERE site = #{site} AND sku LIKE CONCAT('%', #{middleCode}, '%')
     </update>
 
+    <insert id="upsertProfitRate">
+        INSERT INTO ebay_product_dedup (site, sku, profit_rate)
+        VALUES (#{site}, #{sku}, #{rate})
+        ON DUPLICATE KEY UPDATE
+            profit_rate = VALUES(profit_rate),
+            update_time = CURRENT_TIMESTAMP
+    </insert>
+
     <update id="updateReturnRate">
         UPDATE ebay_product_dedup SET return_rate = #{rate}
         WHERE site = #{site} AND sku LIKE CONCAT('%', #{middleCode}, '%') LIMIT 1

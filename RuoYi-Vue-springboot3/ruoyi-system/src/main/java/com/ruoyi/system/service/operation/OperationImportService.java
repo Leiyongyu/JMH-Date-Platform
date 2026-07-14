@@ -157,8 +157,11 @@ public class OperationImportService
                             continue;
                         }
                         int rowsUpdated = dedupMapper.updateProfitRate(site, mid, rate);
-                        if (rowsUpdated > 0) success++;
-                        else addFailure(failures, i + 1, sku, "未匹配到eBay商品记录");
+                        if (rowsUpdated == 0)
+                        {
+                            dedupMapper.upsertProfitRate(site, mid, rate);
+                        }
+                        success++;
                     }
                     catch (Exception e)
                     {
