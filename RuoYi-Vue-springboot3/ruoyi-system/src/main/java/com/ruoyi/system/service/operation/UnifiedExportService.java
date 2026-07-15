@@ -1,6 +1,7 @@
 package com.ruoyi.system.service.operation;
 
 import java.io.OutputStream;
+import java.math.BigDecimal;
 import java.util.*;
 
 import jakarta.servlet.http.HttpServletResponse;
@@ -251,8 +252,10 @@ public class UnifiedExportService
         m.put("sid", s.getSid()); m.put("sellerSku", s.getSellerSku()); m.put("warehouseSku", s.getWarehouseSku());
         m.put("warehouseName", s.getWarehouseName()); m.put("asin", s.getAsin()); m.put("principalName", s.getPrincipalName());
         m.put("price", s.getPrice()); m.put("storeName", s.getStoreName()); m.put("productCategory", s.getProductCategory());
-        m.put("rating", s.getRating()); m.put("reviewCount", s.getReviewCount()); m.put("adRate", s.getAdRate());
-        m.put("profitRate30d", s.getProfitRate30d()); m.put("refundRate90d", s.getRefundRate90d());
+        m.put("rating", s.getRating()); m.put("reviewCount", s.getReviewCount());
+        m.put("adRate", formatPercentText(s.getAdRate()));
+        m.put("profitRate30d", formatPercentText(s.getProfitRate30d()));
+        m.put("refundRate90d", formatPercentText(s.getRefundRate90d()));
         m.put("purchasedQty", s.getPurchasedQty()); m.put("domesticStock", s.getDomesticStock());
         m.put("pendingShipQty", s.getPendingShipQty()); m.put("fbaStock", s.getFbaStock()); m.put("fbaInbound", s.getFbaInbound());
         m.put("fbaInboundWorking", s.getFbaInboundWorking());
@@ -270,6 +273,13 @@ public class UnifiedExportService
         Map<String, Object> r = new LinkedHashMap<>();
         for (String k : keys) r.put(k, m.get(k));
         return r;
+    }
+
+    private String formatPercentText(BigDecimal value)
+    {
+        if (value == null) return "";
+        if (BigDecimal.ZERO.compareTo(value) == 0) return "0";
+        return value.stripTrailingZeros().toPlainString() + "%";
     }
 
     // ========== 中文标题映射 ==========
