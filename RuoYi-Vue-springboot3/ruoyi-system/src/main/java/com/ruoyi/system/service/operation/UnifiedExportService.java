@@ -252,7 +252,7 @@ public class UnifiedExportService
         m.put("sid", s.getSid()); m.put("sellerSku", s.getSellerSku()); m.put("warehouseSku", s.getWarehouseSku());
         m.put("warehouseName", s.getWarehouseName()); m.put("asin", s.getAsin()); m.put("principalName", s.getPrincipalName());
         m.put("price", s.getPrice()); m.put("storeName", s.getStoreName()); m.put("productCategory", s.getProductCategory());
-        m.put("rating", s.getRating()); m.put("reviewCount", s.getReviewCount());
+        m.put("rating", zeroIfNull(s.getRating())); m.put("reviewCount", zeroIfNull(s.getReviewCount()));
         m.put("adRate", formatPercentText(s.getAdRate()));
         m.put("profitRate30d", formatPercentText(s.getProfitRate30d()));
         m.put("refundRate90d", formatPercentText(s.getRefundRate90d()));
@@ -277,9 +277,14 @@ public class UnifiedExportService
 
     private String formatPercentText(BigDecimal value)
     {
-        if (value == null) return "";
+        if (value == null) return "0";
         if (BigDecimal.ZERO.compareTo(value) == 0) return "0";
         return value.stripTrailingZeros().toPlainString() + "%";
+    }
+
+    private Object zeroIfNull(Object value)
+    {
+        return value != null ? value : "0";
     }
 
     // ========== 中文标题映射 ==========
