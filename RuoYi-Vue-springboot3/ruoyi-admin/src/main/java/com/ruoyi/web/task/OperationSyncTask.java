@@ -21,6 +21,7 @@ import com.ruoyi.system.service.operation.external.lingxing.AmzFbaShipmentSyncSe
 import com.ruoyi.system.service.operation.external.lingxing.LingxingWarehouseSyncService;
 import com.ruoyi.system.service.operation.sync.OperationSyncContext;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
+import com.ruoyi.system.service.operation.sync.SyncOrchestratorService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -117,6 +118,14 @@ public class OperationSyncTask
     // ==================== 产品管理 ====================
     public void syncProductWeight() { exec("product_weight", "领星-产品管理", "erp/sc/routing/data/local_inventory/productInfo", LOCK_LINGXING_BASE,
             () -> SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.LingxingProductWeightSyncService.class).sync()); }
+
+    // ==================== 链路编排入口 ====================
+    public void runBaseChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("base"); }
+    public void runEbayChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("ebay"); }
+    public void runAmzChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("amz"); }
+    public void runFbaChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("fba"); }
+    public void runStockOrderChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("stock_order"); }
+    public void runGoodcangChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("goodcang"); }
 
     // ==================== 内部方法 ====================
     private static final int TASK_TIMEOUT_MINUTES = 30;

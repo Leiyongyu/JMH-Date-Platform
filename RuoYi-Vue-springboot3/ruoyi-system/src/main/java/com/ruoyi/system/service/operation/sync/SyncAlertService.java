@@ -39,7 +39,24 @@ public class SyncAlertService
     /** 发送失败告警（Redis 去重 60 分钟） */
     public void sendAlert(String chainCode, String stepCode, String status, String error, Long logId)
     {
-        if (!enabled || webhookUrl == null || webhookUrl.isBlank()) return;
+        sendAlert(chainCode, stepCode, stepCode, "", status, error, logId);
+    }
+
+    /** 发送失败告警（Redis 去重 60 分钟） */
+    public void sendAlert(String chainCode, String stepCode, String stepName, String apiPath,
+                          String status, String error, Long logId)
+    {
+        if (!enabled)
+        {
+            LOG.warn("同步告警未发送：sync.alert.enabled=false，链路={}，步骤={}", chainCode, stepCode);
+            return;
+        }
+        if (webhookUrl == null || webhookUrl.isBlank())
+        {
+            LOG.warn("同步告警未发送：sync.alert.webhook-url 为空，请配置环境变量 SYNC_ALERT_WEBHOOK_URL，链路={}，步骤={}，错误={}",
+                    chainCode, stepCode, truncate(error, 200));
+            return;
+        }
 
         markFailed(chainCode, stepCode);
         String dedupKey = ALERT_PREFIX + chainCode + ":" + stepCode + ":" + hash(error);
@@ -49,7 +66,8 @@ public class SyncAlertService
 
         String content = "## ⚠️ 同步告警\n"
                 + "> 链路：" + resolveName(chainCode) + "\n"
-                + "> 步骤：" + stepCode + "\n"
+                + "> 步骤：" + stepName + " (" + stepCode + ")\n"
+                + "> 接口：" + (apiPath != null ? apiPath : "") + "\n"
                 + "> 状态：" + status + "\n"
                 + "> 错误：" + truncate(error, 400) + "\n"
                 + "> 时间：" + LocalDateTime.now().format(DTF) + "\n"
@@ -60,6 +78,11 @@ public class SyncAlertService
     /** 检查恢复：上次失败 + 本次成功 → 发恢复通知 */
     public void checkAndSendRecovery(String chainCode, String stepCode, Long currentLogId)
     {
+        checkAndSendRecovery(chainCode, stepCode, stepCode, currentLogId);
+    }
+
+    public void checkAndSendRecovery(String chainCode, String stepCode, String stepName, Long currentLogId)
+    {
         if (!enabled || webhookUrl == null || webhookUrl.isBlank()) return;
         // 恢复检测键
         String failKey = ALERT_PREFIX + chainCode + ":" + stepCode + ":last_status";
@@ -69,7 +92,8 @@ public class SyncAlertService
         {
             String content = "## ✅ 已恢复\n"
                     + "> 链路：" + resolveName(chainCode) + "\n"
-                    + "> 步骤：" + stepCode + "\n"
+                    + "> 步骤：" + stepName + " (" + stepCode + ")\n"
+                    + "> 日志ID：" + (currentLogId != null ? String.valueOf(currentLogId) : "") + "\n"
                     + "> 时间：" + LocalDateTime.now().format(DTF);
             post(content);
             redis.deleteObject(failKey);
@@ -97,6 +121,8 @@ public class SyncAlertService
                     .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8)).build();
             HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() != 200) LOG.warn("企微告警发送失败 HTTP{}: {}", resp.statusCode(), resp.body());
+            else if (resp.body() == null || !resp.body().contains("\"errcode\":0"))
+                LOG.warn("企微告警返回异常: {}", resp.body());
             else LOG.info("企微告警已发送");
         }
         catch (Exception e) { LOG.error("企微告警发送异常: {}", e.getMessage()); }

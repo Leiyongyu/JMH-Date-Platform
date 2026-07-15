@@ -26,12 +26,12 @@ WHERE job_group = 'OPERATION'
 -- 3) 清理错误格式/重复链路任务，只保留带 () 的标准格式。
 DELETE FROM sys_job
 WHERE invoke_target IN (
-  'chainSyncTask.runBaseChain',
-  'chainSyncTask.runEbayChain',
-  'chainSyncTask.runAmzChain',
-  'chainSyncTask.runFbaChain',
-  'chainSyncTask.runStockOrderChain',
-  'chainSyncTask.runGoodcangChain'
+  'operationSyncTask.runBaseChain',
+  'operationSyncTask.runEbayChain',
+  'operationSyncTask.runAmzChain',
+  'operationSyncTask.runFbaChain',
+  'operationSyncTask.runStockOrderChain',
+  'operationSyncTask.runGoodcangChain'
 );
 
 -- 4) 插入/更新 6 条最新链路任务。
@@ -40,12 +40,12 @@ INSERT INTO sys_job (
   misfire_policy, concurrent, status, create_by, create_time, update_by, update_time, remark
 )
 VALUES
-  (225, '基础链路同步', 'OPERATION', 'chainSyncTask.runBaseChain()', '0 0 0 * * ?', '1', '0', '0', 'SYSTEM', NOW(), 'SYSTEM', NOW(), '每天00:00 店铺→仓库→产品管理'),
-  (226, 'eBay链路同步', 'OPERATION', 'chainSyncTask.runEbayChain()', '0 30 0 * * ?', '1', '0', '0', 'SYSTEM', NOW(), 'SYSTEM', NOW(), '每天00:30 刊登→库存→流水→补货→跟价'),
-  (227, 'AMZ补货链路同步', 'OPERATION', 'chainSyncTask.runAmzChain()', '0 0 1 * * ?', '1', '0', '0', 'SYSTEM', NOW(), 'SYSTEM', NOW(), '每天01:00 刊登→利润→补货建议→库存→快照'),
-  (228, 'FBA链路同步', 'OPERATION', 'chainSyncTask.runFbaChain()', '0 30 1 * * ?', '1', '0', '0', 'SYSTEM', NOW(), 'SYSTEM', NOW(), '每天01:30 货件→装箱信息'),
-  (229, '备货单链路同步', 'OPERATION', 'chainSyncTask.runStockOrderChain()', '0 0 2 * * ?', '1', '0', '0', 'SYSTEM', NOW(), 'SYSTEM', NOW(), '每天02:00 备货单号→备货单详情'),
-  (230, '谷仓链路同步', 'OPERATION', 'chainSyncTask.runGoodcangChain()', '0 30 2 * * ?', '1', '0', '0', 'SYSTEM', NOW(), 'SYSTEM', NOW(), '每天02:30 仓库→商品→入库单→入库详情')
+  (225, '基础链路同步', 'OPERATION', 'operationSyncTask.runBaseChain()', '0 0 0 * * ?', '1', '0', '0', 'SYSTEM', NOW(), 'SYSTEM', NOW(), '每天00:00 店铺→仓库→产品管理'),
+  (226, 'eBay链路同步', 'OPERATION', 'operationSyncTask.runEbayChain()', '0 30 0 * * ?', '1', '0', '0', 'SYSTEM', NOW(), 'SYSTEM', NOW(), '每天00:30 刊登→库存→流水→补货→跟价'),
+  (227, 'AMZ补货链路同步', 'OPERATION', 'operationSyncTask.runAmzChain()', '0 0 1 * * ?', '1', '0', '0', 'SYSTEM', NOW(), 'SYSTEM', NOW(), '每天01:00 刊登→利润→补货建议→库存→快照'),
+  (228, 'FBA链路同步', 'OPERATION', 'operationSyncTask.runFbaChain()', '0 30 1 * * ?', '1', '0', '0', 'SYSTEM', NOW(), 'SYSTEM', NOW(), '每天01:30 货件→装箱信息'),
+  (229, '备货单链路同步', 'OPERATION', 'operationSyncTask.runStockOrderChain()', '0 0 2 * * ?', '1', '0', '0', 'SYSTEM', NOW(), 'SYSTEM', NOW(), '每天02:00 备货单号→备货单详情'),
+  (230, '谷仓链路同步', 'OPERATION', 'operationSyncTask.runGoodcangChain()', '0 30 2 * * ?', '1', '0', '0', 'SYSTEM', NOW(), 'SYSTEM', NOW(), '每天02:30 仓库→商品→入库单→入库详情')
 ON DUPLICATE KEY UPDATE
   job_name = VALUES(job_name),
   job_group = VALUES(job_group),
@@ -64,7 +64,7 @@ FROM sys_job j
 JOIN sys_job k
   ON j.invoke_target = k.invoke_target
  AND j.job_id > k.job_id
-WHERE j.invoke_target LIKE 'chainSyncTask.%';
+WHERE j.invoke_target LIKE 'operationSyncTask.%';
 
 SET FOREIGN_KEY_CHECKS = 1;
 
@@ -73,3 +73,4 @@ SELECT job_id, job_name, job_group, invoke_target, cron_expression, concurrent, 
 FROM sys_job
 WHERE job_group = 'OPERATION'
 ORDER BY job_id;
+

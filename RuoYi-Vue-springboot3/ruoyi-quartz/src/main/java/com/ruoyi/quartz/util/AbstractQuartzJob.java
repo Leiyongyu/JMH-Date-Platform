@@ -102,7 +102,12 @@ public abstract class AbstractQuartzJob implements Job
         else if (contextFailed)
         {
             sysJobLog.setStatus(Constants.FAIL);
-            createFailureNotice(sysJob.getJobName(), enhancedMessage, runMs);
+            String detail = tryBuildContextExceptionInfo();
+            if (StringUtils.isNotEmpty(detail))
+            {
+                sysJobLog.setExceptionInfo(StringUtils.substring(detail, 0, 2000));
+            }
+            createFailureNotice(sysJob.getJobName(), StringUtils.isNotEmpty(detail) ? detail : enhancedMessage, runMs);
         }
         else
         {
@@ -194,6 +199,26 @@ public abstract class AbstractQuartzJob implements Job
         return null;
     }
 
+    private String tryBuildContextExceptionInfo()
+    {
+        try
+        {
+            Class<?> contextClass = Class.forName(
+                    "com.ruoyi.system.service.operation.sync.OperationSyncContext");
+            Object result = contextClass.getMethod("get").invoke(null);
+            if (result == null)
+            {
+                return null;
+            }
+            Object msg = result.getClass().getMethod("toExceptionInfo").invoke(result);
+            return msg != null ? msg.toString() : null;
+        }
+        catch (Exception ignored)
+        {
+            return null;
+        }
+    }
+
     /** 清理 OperationSyncContext ThreadLocal 防止内存泄漏 */
     private void clearOperationSyncContext()
     {
@@ -217,7 +242,7 @@ public abstract class AbstractQuartzJob implements Job
             if (result != null)
             {
                 Object status = result.getClass().getMethod("getStatus").invoke(result);
-                return "FAILED".equals(status);
+                return "FAILED".equals(status) || "PARTIAL".equals(status) || "PARTIAL_SUCCESS".equals(status);
             }
         }
         catch (Exception ignored) {}

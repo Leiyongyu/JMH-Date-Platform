@@ -172,6 +172,6 @@ goodcang:
 sync:
   alert:
     enabled: true
-    webhook-url: ${SYNC_ALERT_WEBHOOK_URL:}
+    webhook-url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=da6d9357-6841-4ce7-a5f9-223bff0931de
   connect-timeout: 30000
   read-timeout: 30000

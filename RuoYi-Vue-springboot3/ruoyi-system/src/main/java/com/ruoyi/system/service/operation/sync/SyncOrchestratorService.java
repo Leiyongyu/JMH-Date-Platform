@@ -9,6 +9,7 @@ import com.ruoyi.system.service.operation.external.goodcang.GoodcangProductSyncS
 import com.ruoyi.system.service.operation.external.goodcang.GoodcangWarehouseSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.*;
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -196,6 +197,7 @@ public class SyncOrchestratorService
         Long parentId = logSvc.start("chain:" + chain.code, chain.name, "", "JOB", "SYSTEM", null, null);
         int success = 0, failed = 0;
         boolean criticalFailed = false;
+        List<OperationSyncResult.FailureItem> failureItems = new ArrayList<>();
 
         try
         {
@@ -231,20 +233,25 @@ public class SyncOrchestratorService
                     {
                         failed++;
                         if (step.required) criticalFailed = true;
-                        LOG.warn("链路 {} 步骤 {} 失败: {}", chain.name, step.name, r.getErrorMessage());
-                        trySendAlert(chain.code, step.code, r.getErrorMessage(), fChildId);
+                        String detail = buildStepFailureDetail(chain, step, r, fChildId);
+                        failureItems.add(new OperationSyncResult.FailureItem(step.code + " / " + step.name, detail));
+                        LOG.warn("链路 {} 步骤 {} 失败: {}", chain.name, step.name, detail);
+                        trySendAlert(chain.code, step.code, step.name, step.apiPath, r.getStatus(), detail, fChildId);
                     }
-                    else { success++; trySendRecovery(chain.code, step.code, fChildId); }
+                    else { success++; trySendRecovery(chain.code, step.code, step.name, fChildId); }
                 }
                 catch (Exception e)
                 {
                     LOG.error("链路 {} 步骤 {} 异常: {}", chain.name, step.name, e.getMessage(), e);
                     failed++;
                     if (step.required) criticalFailed = true;
+                    String error = rootMessage(e);
                     OperationSyncResult fr = OperationSyncResult.failed("chain:" + chain.code + ":" + step.code,
-                            step.name, step.apiPath, e.getMessage(), System.currentTimeMillis() - stepStart);
+                            step.name, step.apiPath, error, System.currentTimeMillis() - stepStart);
                     if (childId != null) logSvc.finish(childId, fr);
-                    trySendAlert(chain.code, step.code, e.getMessage(), childId);
+                    String detail = buildStepFailureDetail(chain, step, fr, childId);
+                    failureItems.add(new OperationSyncResult.FailureItem(step.code + " / " + step.name, detail));
+                    trySendAlert(chain.code, step.code, step.name, step.apiPath, fr.getStatus(), detail, childId);
                 }
                 finally
                 {
@@ -255,10 +262,15 @@ public class SyncOrchestratorService
 
             long elapsed = System.currentTimeMillis() - start;
             String ps = failed == 0 ? OperationSyncResult.STATUS_SUCCESS
-                    : (success > 0 ? OperationSyncResult.STATUS_PARTIAL : OperationSyncResult.STATUS_FAILED);
+                    : OperationSyncResult.STATUS_FAILED;
             OperationSyncResult pr = new OperationSyncResult();
             pr.setSyncType("chain:" + chain.code); pr.setSyncName(chain.name); pr.setStatus(ps);
             pr.setTotalCount(chain.steps.size()); pr.setSuccessCount(success); pr.setFailCount(failed); pr.setElapsedMs(elapsed);
+            pr.setFailures(failureItems);
+            if (!failureItems.isEmpty())
+            {
+                pr.setErrorMessage(failureItems.get(0).getReason());
+            }
             logSvc.finish(parentId, pr);
             OperationSyncContext.set(pr);
             LOG.info("链路 {} 完成: {}成功 {}失败 耗时{}s", chain.name, success, failed, elapsed / 1000.0);
@@ -266,8 +278,10 @@ public class SyncOrchestratorService
         catch (Exception e)
         {
             LOG.error("链路 {} 异常: {}", chain.name, e.getMessage(), e);
-            if (parentId != null) logSvc.finish(parentId,
-                    OperationSyncResult.failed("chain:" + chain.code, chain.name, "", e.getMessage(), System.currentTimeMillis() - start));
+            OperationSyncResult failedResult = OperationSyncResult.failed("chain:" + chain.code, chain.name, "",
+                    rootMessage(e), System.currentTimeMillis() - start);
+            OperationSyncContext.set(failedResult);
+            if (parentId != null) logSvc.finish(parentId, failedResult);
         }
         finally { redis.unlock(chainLock); }
     }
@@ -372,17 +386,42 @@ public class SyncOrchestratorService
 
     // ==================== 告警委托 ====================
 
-    private void trySendAlert(String chainCode, String stepCode, String error, Long logId)
+    private String buildStepFailureDetail(Chain chain, StepDef step, OperationSyncResult r, Long childId)
     {
-        try { SyncAlertService svc = SpringUtils.getBean(SyncAlertService.class);
-              if (svc != null) svc.sendAlert(chainCode, stepCode, "FAILED", error, logId); }
-        catch (Exception ignored) {}
+        StringBuilder sb = new StringBuilder();
+        sb.append("链路=").append(chain.name)
+                .append("(").append(chain.code).append(")")
+                .append("；步骤=").append(step.name)
+                .append("(").append(step.code).append(")")
+                .append("；接口=").append(step.apiPath)
+                .append("；状态=").append(r.getStatus());
+        if (r.getErrorMessage() != null && !r.getErrorMessage().isEmpty())
+        {
+            sb.append("；原因=").append(r.getErrorMessage());
+        }
+        if (childId != null)
+        {
+            sb.append("；子日志ID=").append(childId);
+        }
+        return sb.toString();
     }
 
-    private void trySendRecovery(String chainCode, String stepCode, Long logId)
+    private void trySendAlert(String chainCode, String stepCode, String stepName, String apiPath,
+                              String status, String error, Long logId)
     {
-        try { SyncAlertService svc = SpringUtils.getBean(SyncAlertService.class);
-              if (svc != null) svc.checkAndSendRecovery(chainCode, stepCode, logId); }
-        catch (Exception ignored) {}
+        try {
+            SyncAlertService svc = SpringUtils.getBean(SyncAlertService.class);
+            if (svc != null) svc.sendAlert(chainCode, stepCode, stepName, apiPath, status, error, logId);
+        }
+        catch (Exception e) { LOG.warn("触发企微告警失败 [{}:{}]: {}", chainCode, stepCode, e.getMessage(), e); }
+    }
+
+    private void trySendRecovery(String chainCode, String stepCode, String stepName, Long logId)
+    {
+        try {
+            SyncAlertService svc = SpringUtils.getBean(SyncAlertService.class);
+            if (svc != null) svc.checkAndSendRecovery(chainCode, stepCode, stepName, logId);
+        }
+        catch (Exception e) { LOG.warn("触发企微恢复通知失败 [{}:{}]: {}", chainCode, stepCode, e.getMessage(), e); }
     }
 }
