@@ -106,18 +106,51 @@
     <select id="searchStockOrders" resultType="com.ruoyi.system.domain.operation.customs.CustomsStockOrderOption">
         SELECT
             od.overseas_order_no AS overseasOrderNo,
+            MAX(o.inbound_order_no) AS inboundOrderNo,
             COUNT(DISTINCT od.sku) AS productCount,
             CAST(IFNULL(MAX(od.order_total_box_num), SUM(GREATEST(IFNULL(od.box_number, 0), 0))) AS SIGNED) AS totalBoxCount,
             SUM(GREATEST(IFNULL(od.quantity_in_case, 1), 1) * GREATEST(IFNULL(od.box_number, 1), 1)) AS totalQuantity,
             IFNULL(MAX(od.order_total_box_weight), SUM(IFNULL(od.cg_box_weight, 0) * GREATEST(IFNULL(od.box_number, 1), 1))) AS totalGrossWeight
         FROM overseas_stock_order_detail od
+        LEFT JOIN overseas_stock_order o ON o.overseas_order_no COLLATE utf8mb4_unicode_ci = od.overseas_order_no COLLATE utf8mb4_unicode_ci
         WHERE od.overseas_order_no IS NOT NULL AND od.overseas_order_no != ''
         <if test="keyword != null and keyword != ''">
             AND od.overseas_order_no LIKE CONCAT('%', #{keyword}, '%')
         </if>
+        <if test="inboundOrderNo != null and inboundOrderNo != ''">
+            AND o.inbound_order_no LIKE CONCAT('%', #{inboundOrderNo}, '%')
+        </if>
         GROUP BY od.overseas_order_no
         ORDER BY od.overseas_order_no DESC
         LIMIT #{limit}
+    </select>
+
+    <select id="selectStockOrderSkuOptions" resultType="com.ruoyi.system.domain.operation.customs.CustomsStockOrderSkuOption">
+        SELECT
+            od.overseas_order_no AS overseasOrderNo,
+            od.sku AS sku,
+            SUM(GREATEST(IFNULL(od.quantity_in_case, 1), 1) * GREATEST(IFNULL(od.box_number, 1), 1)) AS totalQuantity,
+            SUM(GREATEST(IFNULL(od.box_number, 1), 1)) AS totalBoxCount,
+            MAX(tax.is_tax) AS isTax
+        FROM overseas_stock_order_detail od
+        LEFT JOIN (
+            SELECT sku_key, MAX(is_tax) AS is_tax
+            FROM (
+                SELECT normalize_customs_sku_key(item_sku) AS sku_key, is_tax
+                FROM purchase_order
+                WHERE item_sku IS NOT NULL AND item_sku != ''
+                  AND is_tax IS NOT NULL
+                  AND wid IN (18674, 18675, 18676)
+            ) ebay_tax
+            GROUP BY sku_key
+        ) tax ON tax.sku_key COLLATE utf8mb4_unicode_ci = normalize_customs_sku_key(od.sku) COLLATE utf8mb4_unicode_ci
+        WHERE od.overseas_order_no IN
+        <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
+          AND od.sku IS NOT NULL AND od.sku != ''
+        GROUP BY od.overseas_order_no, od.sku
+        ORDER BY FIELD(od.overseas_order_no,
+        <foreach collection="orders" item="order" separator=",">#{order}</foreach>
+        ), od.sku
     </select>
 
     <select id="selectProductsByStockOrders" resultMap="CustomsDeclarationItemResult">
@@ -212,7 +245,7 @@
                       END) COLLATE utf8mb4_unicode_ci
                   ), 0)
                 ) &gt; 0 THEN 1
-                WHEN UPPER(i2.sku) LIKE 'JMH%' THEN 2
+                WHEN UPPER(i2.sku) NOT LIKE 'JMH%' THEN 2
                 ELSE 3
               END,
               i2.id
@@ -225,6 +258,10 @@
                 OR (il.sku IS NULL AND p.sku_key COLLATE utf8mb4_unicode_ci = normalize_customs_sku_key(od.sku) COLLATE utf8mb4_unicode_ci))
         WHERE od.overseas_order_no IN
         <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
+        <if test="stockSkuKeys != null and stockSkuKeys.size() > 0">
+          AND CONCAT(od.overseas_order_no, '|', od.sku) IN
+          <foreach collection="stockSkuKeys" item="skuKey" open="(" separator="," close=")">#{skuKey}</foreach>
+        </if>
         ORDER BY FIELD(od.overseas_order_no,
         <foreach collection="orders" item="order" separator=",">#{order}</foreach>
         ), od.id
@@ -280,7 +317,7 @@
                       END) COLLATE utf8mb4_unicode_ci
                   ), 0)
                 ) &gt; 0 THEN 1
-                WHEN UPPER(i2.sku) LIKE 'JMH%' THEN 2
+                WHEN UPPER(i2.sku) NOT LIKE 'JMH%' THEN 2
                 ELSE 3
               END,
               i2.id
@@ -293,6 +330,10 @@
                 OR (il.sku IS NULL AND p.sku_key COLLATE utf8mb4_unicode_ci = normalize_customs_sku_key(od.sku) COLLATE utf8mb4_unicode_ci))
         WHERE od.overseas_order_no IN
         <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
+          <if test="stockSkuKeys != null and stockSkuKeys.size() > 0">
+          AND CONCAT(od.overseas_order_no, '|', od.sku) IN
+          <foreach collection="stockSkuKeys" item="skuKey" open="(" separator="," close=")">#{skuKey}</foreach>
+          </if>
           AND od.sku IS NOT NULL AND od.sku != ''
           AND p.sku IS NULL
         ORDER BY od.sku
@@ -310,6 +351,10 @@
         ) il ON normalize_customs_sku_key(od.sku) COLLATE utf8mb4_unicode_ci = il.match_key COLLATE utf8mb4_unicode_ci
         WHERE od.overseas_order_no IN
         <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
+          <if test="stockSkuKeys != null and stockSkuKeys.size() > 0">
+          AND CONCAT(od.overseas_order_no, '|', od.sku) IN
+          <foreach collection="stockSkuKeys" item="skuKey" open="(" separator="," close=")">#{skuKey}</foreach>
+          </if>
           AND od.sku IS NOT NULL AND od.sku != ''
           AND il.match_key IS NULL
         ORDER BY od.sku
@@ -509,7 +554,7 @@
                       END) COLLATE utf8mb4_unicode_ci
                   ), 0)
                 ) &gt; 0 THEN 1
-                WHEN UPPER(i2.sku) LIKE 'JMH%' THEN 2
+                WHEN UPPER(i2.sku) NOT LIKE 'JMH%' THEN 2
                 ELSE 3
               END,
               i2.id
@@ -590,7 +635,7 @@
                       END) COLLATE utf8mb4_unicode_ci
                   ), 0)
                 ) &gt; 0 THEN 1
-                WHEN UPPER(i2.sku) LIKE 'JMH%' THEN 2
+                WHEN UPPER(i2.sku) NOT LIKE 'JMH%' THEN 2
                 ELSE 3
               END,
               i2.id

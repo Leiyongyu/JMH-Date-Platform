@@ -61,9 +61,9 @@ spring:
   servlet:
     multipart:
       # 单个文件大小
-      max-file-size: 10MB
+      max-file-size: 50MB
       # 设置总上传的文件大小
-      max-request-size: 20MB
+      max-request-size: 60MB
   # 服务模块
   devtools:
     restart:
@@ -136,6 +136,11 @@ springdoc:
       paths-to-match: '/operations/**'
       packages-to-scan: com.ruoyi.web.controller.operation
 
+    - group: 'finance'
+      display-name: '财务模块'
+      paths-to-match: '/finance/**'
+      packages-to-scan: com.ruoyi.web.controller.finance
+
 # 防盗链配置
 referer:
   # 防盗链开关
@@ -175,3 +180,10 @@ sync:
     webhook-url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=da6d9357-6841-4ce7-a5f9-223bff0931de
   connect-timeout: 30000
   read-timeout: 30000
+
+# Python 外汇退税数据服务
+tax-refund:
+  python:
+    base-url: ${TAX_REFUND_PYTHON_BASE_URL:http://127.0.0.1:5000/api/v1}
+    connect-timeout: 5000
+    read-timeout: 300000

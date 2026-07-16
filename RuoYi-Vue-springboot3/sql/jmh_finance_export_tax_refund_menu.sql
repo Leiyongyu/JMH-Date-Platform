@@ -40,7 +40,7 @@ INSERT INTO sys_menu (
 SELECT
   '外汇退税', @finance_menu_id, 1, 'export-tax-refund', 'finance/exportTaxRefund/index', NULL, 'ExportTaxRefund',
   1, 0, 'C', '0', '0', 'finance:exportTaxRefund:list', 'chart',
-  'SYSTEM', NOW(), '外汇退税静态看板'
+  'SYSTEM', NOW(), '外汇退税流程工作台'
 WHERE @finance_menu_id IS NOT NULL
   AND NOT EXISTS (
     SELECT 1 FROM sys_menu WHERE parent_id = @finance_menu_id AND path = 'export-tax-refund'
@@ -66,7 +66,7 @@ SET @export_tax_menu_id := (
   SELECT menu_id FROM sys_menu WHERE parent_id = @finance_menu_id AND path = 'export-tax-refund' ORDER BY menu_id LIMIT 1
 );
 
--- 3. 页面按钮权限：查询、导出
+-- 3. 页面按钮权限：查询、导入、导出、生成
 INSERT INTO sys_menu (
   menu_name, parent_id, order_num, path, component, query, route_name,
   is_frame, is_cache, menu_type, visible, status, perms, icon,
@@ -95,6 +95,34 @@ WHERE @export_tax_menu_id IS NOT NULL
     SELECT 1 FROM sys_menu WHERE parent_id = @export_tax_menu_id AND perms = 'finance:exportTaxRefund:export'
   );
 
+INSERT INTO sys_menu (
+  menu_name, parent_id, order_num, path, component, query, route_name,
+  is_frame, is_cache, menu_type, visible, status, perms, icon,
+  create_by, create_time, remark
+)
+SELECT
+  '外汇退税导入', @export_tax_menu_id, 3, '', NULL, NULL, '',
+  1, 0, 'F', '0', '0', 'finance:exportTaxRefund:import', '#',
+  'SYSTEM', NOW(), ''
+WHERE @export_tax_menu_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM sys_menu WHERE parent_id = @export_tax_menu_id AND perms = 'finance:exportTaxRefund:import'
+  );
+
+INSERT INTO sys_menu (
+  menu_name, parent_id, order_num, path, component, query, route_name,
+  is_frame, is_cache, menu_type, visible, status, perms, icon,
+  create_by, create_time, remark
+)
+SELECT
+  '外汇退税生成', @export_tax_menu_id, 4, '', NULL, NULL, '',
+  1, 0, 'F', '0', '0', 'finance:exportTaxRefund:generate', '#',
+  'SYSTEM', NOW(), ''
+WHERE @export_tax_menu_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM sys_menu WHERE parent_id = @export_tax_menu_id AND perms = 'finance:exportTaxRefund:generate'
+  );
+
 -- 4. 授权给账号 leiyongyu 当前拥有的所有角色
 INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
 SELECT ur.role_id, m.menu_id
@@ -104,7 +132,9 @@ JOIN sys_menu m ON m.menu_id IN (
   @finance_menu_id,
   @export_tax_menu_id,
   (SELECT menu_id FROM sys_menu WHERE parent_id = @export_tax_menu_id AND perms = 'finance:exportTaxRefund:query' ORDER BY menu_id LIMIT 1),
-  (SELECT menu_id FROM sys_menu WHERE parent_id = @export_tax_menu_id AND perms = 'finance:exportTaxRefund:export' ORDER BY menu_id LIMIT 1)
+  (SELECT menu_id FROM sys_menu WHERE parent_id = @export_tax_menu_id AND perms = 'finance:exportTaxRefund:export' ORDER BY menu_id LIMIT 1),
+  (SELECT menu_id FROM sys_menu WHERE parent_id = @export_tax_menu_id AND perms = 'finance:exportTaxRefund:import' ORDER BY menu_id LIMIT 1),
+  (SELECT menu_id FROM sys_menu WHERE parent_id = @export_tax_menu_id AND perms = 'finance:exportTaxRefund:generate' ORDER BY menu_id LIMIT 1)
 )
 WHERE u.user_name = 'leiyongyu'
   AND m.menu_id IS NOT NULL;
@@ -116,6 +146,8 @@ WHERE menu_id IN (
   @finance_menu_id,
   @export_tax_menu_id,
   (SELECT menu_id FROM sys_menu WHERE parent_id = @export_tax_menu_id AND perms = 'finance:exportTaxRefund:query' ORDER BY menu_id LIMIT 1),
-  (SELECT menu_id FROM sys_menu WHERE parent_id = @export_tax_menu_id AND perms = 'finance:exportTaxRefund:export' ORDER BY menu_id LIMIT 1)
+  (SELECT menu_id FROM sys_menu WHERE parent_id = @export_tax_menu_id AND perms = 'finance:exportTaxRefund:export' ORDER BY menu_id LIMIT 1),
+  (SELECT menu_id FROM sys_menu WHERE parent_id = @export_tax_menu_id AND perms = 'finance:exportTaxRefund:import' ORDER BY menu_id LIMIT 1),
+  (SELECT menu_id FROM sys_menu WHERE parent_id = @export_tax_menu_id AND perms = 'finance:exportTaxRefund:generate' ORDER BY menu_id LIMIT 1)
 )
 ORDER BY parent_id, order_num, menu_id;

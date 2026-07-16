@@ -7,6 +7,7 @@ import com.ruoyi.system.domain.operation.customs.CustomsDeclarationGenerateLog;
 import com.ruoyi.system.domain.operation.customs.CustomsDeclarationRequest;
 import com.ruoyi.system.domain.operation.customs.CustomsProduct;
 import com.ruoyi.system.domain.operation.customs.CustomsStockOrderOption;
+import com.ruoyi.system.domain.operation.customs.CustomsStockOrderSkuOption;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.html.EscapeUtil;
 import com.ruoyi.system.domain.operation.customs.CustomsInventoryItem;
@@ -94,8 +95,27 @@ public class CustomsProductService
 
     public List<CustomsStockOrderOption> searchStockOrders(String keyword, Integer limit)
     {
+        return searchStockOrders(keyword, null, limit);
+    }
+
+    public List<CustomsStockOrderOption> searchStockOrders(String keyword, String inboundOrderNo, Integer limit)
+    {
         int size = limit == null ? 50 : Math.max(1, Math.min(limit, 200));
-        return productMapper.searchStockOrders(trim(keyword), size);
+        List<CustomsStockOrderOption> orders = productMapper.searchStockOrders(trim(keyword), trim(inboundOrderNo), size);
+        if (orders == null || orders.isEmpty()) return orders;
+        List<String> orderNos = orders.stream()
+                .map(CustomsStockOrderOption::getOverseasOrderNo)
+                .filter(no -> !trim(no).isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+        Map<String, List<CustomsStockOrderSkuOption>> itemMap = productMapper.selectStockOrderSkuOptions(orderNos)
+                .stream()
+                .collect(Collectors.groupingBy(CustomsStockOrderSkuOption::getOverseasOrderNo, LinkedHashMap::new, Collectors.toList()));
+        for (CustomsStockOrderOption order : orders)
+        {
+            order.setItems(itemMap.getOrDefault(order.getOverseasOrderNo(), Collections.emptyList()));
+        }
+        return orders;
     }
 
     public List<CustomsFbaShipmentOption> searchFbaShipments(String keyword, Integer limit)
@@ -120,13 +140,22 @@ public class CustomsProductService
 
     public Map<String, Object> linkStockOrders(List<String> orderNos)
     {
+        return linkStockOrders(orderNos, null, null);
+    }
+
+    public Map<String, Object> linkStockOrders(List<String> orderNos, List<String> stockSkuKeys, Map<String, Integer> taxOverrides)
+    {
         List<String> orders = normalizeSkus(orderNos);
         if (orders.isEmpty()) throw new IllegalArgumentException("请选择需要关联的备货单");
-        List<CustomsDeclarationItem> products = productMapper.selectProductsByStockOrders(orders);
+        List<String> selectedSkuKeys = normalizeSkus(stockSkuKeys);
+        if (stockSkuKeys != null && selectedSkuKeys.isEmpty())
+            throw new IllegalArgumentException("请至少选择一个备货单SKU");
+        List<CustomsDeclarationItem> products = productMapper.selectProductsByStockOrders(orders, selectedSkuKeys);
+        applyTaxOverrides(products, taxOverrides);
         // 只有匹配到出入库清单的 SKU 才会被批次价格覆盖；纯历史记录保持历史单价。
         applyBatchPrices(new ArrayList<CustomsProduct>(products));
-        List<String> missingSkus = productMapper.selectMissingSkusByStockOrders(orders);
-        List<String> missingInventorySkus = productMapper.selectMissingInventorySkusByStockOrders(orders);
+        List<String> missingSkus = productMapper.selectMissingSkusByStockOrders(orders, selectedSkuKeys);
+        List<String> missingInventorySkus = productMapper.selectMissingInventorySkusByStockOrders(orders, selectedSkuKeys);
         return buildLinkResult(products, missingSkus, missingInventorySkus, "EBAY");
     }
 
@@ -137,6 +166,11 @@ public class CustomsProductService
 
     public Map<String, Object> linkFbaShipments(List<String> shipmentIds, List<String> fbaSkuKeys)
     {
+        return linkFbaShipments(shipmentIds, fbaSkuKeys, null);
+    }
+
+    public Map<String, Object> linkFbaShipments(List<String> shipmentIds, List<String> fbaSkuKeys, Map<String, Integer> taxOverrides)
+    {
         List<String> shipments = normalizeSkus(shipmentIds);
         if (shipments.isEmpty()) throw new IllegalArgumentException("请选择需要关联的FBA货件");
         List<String> selectedSkuKeys = normalizeSkus(fbaSkuKeys);
@@ -144,11 +178,25 @@ public class CustomsProductService
             throw new IllegalArgumentException("请至少选择一个FBA货件SKU");
         List<CustomsDeclarationItem> products = productMapper.selectProductsByFbaShipments(shipments, selectedSkuKeys);
         applyFbaTax(products, shipments);
+        applyTaxOverrides(products, taxOverrides);
         // 含税/库存商品沿用采购数量 + 剩余库存倒推批次价；历史兜底记录不受影响。
         applyBatchPrices(new ArrayList<CustomsProduct>(products));
         List<String> missingSkus = productMapper.selectMissingSkusByFbaShipments(shipments, selectedSkuKeys);
         List<String> missingInventorySkus = productMapper.selectMissingInventorySkusByFbaShipments(shipments, selectedSkuKeys);
         return buildLinkResult(products, missingSkus, missingInventorySkus, "FBA");
+    }
+
+    private void applyTaxOverrides(List<CustomsDeclarationItem> products, Map<String, Integer> taxOverrides)
+    {
+        if (products == null || products.isEmpty() || taxOverrides == null || taxOverrides.isEmpty()) return;
+        for (CustomsDeclarationItem product : products)
+        {
+            String rawKey = trim(product.getSourceOrderNo()) + "|" + trim(defaultValue(product.getRawSku(), product.getSku()));
+            String normalizedKey = trim(product.getSourceOrderNo()) + "|" + normalizeSkuKey(defaultValue(product.getRawSku(), product.getSku()));
+            Integer value = taxOverrides.get(rawKey);
+            if (value == null) value = taxOverrides.get(normalizedKey);
+            if (value != null) product.setIsTax(value);
+        }
     }
 
     private void applyFbaTax(List<CustomsDeclarationItem> products, List<String> shipments)

@@ -59,16 +59,20 @@ public class CustomsDeclarationController extends BaseController
     @PreAuthorize("@ss.hasPermi('customs:declaration:query')")
     @GetMapping("/stock-orders/search")
     public AjaxResult searchStockOrders(@RequestParam(required = false) String keyword,
+                                        @RequestParam(required = false) String inboundOrderNo,
                                         @RequestParam(required = false) Integer limit)
     {
-        return success(productService.searchStockOrders(keyword, limit));
+        return success(productService.searchStockOrders(keyword, inboundOrderNo, limit));
     }
 
     @PreAuthorize("@ss.hasPermi('customs:declaration:query')")
     @PostMapping("/stock-orders/products")
     public AjaxResult linkStockOrders(@RequestBody CustomsStockOrderLinkRequest request)
     {
-        try { return success(productService.linkStockOrders(request == null ? null : request.getOverseasOrderNos())); }
+        try { return success(productService.linkStockOrders(
+                request == null ? null : request.getOverseasOrderNos(),
+                request == null ? null : request.getStockSkuKeys(),
+                request == null ? null : request.getTaxOverrides())); }
         catch (Exception e) { return error(e.getMessage()); }
     }
 
@@ -86,7 +90,8 @@ public class CustomsDeclarationController extends BaseController
     {
         try { return success(productService.linkFbaShipments(
                 request == null ? null : request.getShipmentIds(),
-                request == null ? null : request.getFbaSkuKeys())); }
+                request == null ? null : request.getFbaSkuKeys(),
+                request == null ? null : request.getTaxOverrides())); }
         catch (Exception e) { return error(e.getMessage()); }
     }
 
