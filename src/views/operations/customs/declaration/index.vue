@@ -173,9 +173,9 @@
                   </el-autocomplete>
                   <div class="item-tax-line">
                     <el-tag :type="taxTagType(entry.row.isTax)" effect="plain" size="small">{{ taxLabel(entry.row.isTax) }}</el-tag>
-                    <el-select v-model="entry.row.isTax" size="small" placeholder="含税状态" clearable>
-                      <el-option label="含税" :value="1" />
-                      <el-option label="不含税" :value="0" />
+                    <el-select v-model="entry.row.isTax" size="small" placeholder="含税状态" clearable :class="taxSelectClass(entry.row.isTax)">
+                      <el-option label="含税" :value="1"><span class="tax-option tax-yes">含税</span></el-option>
+                      <el-option label="不含税" :value="0"><span class="tax-option tax-no">不含税</span></el-option>
                     </el-select>
                   </div>
                 </div>
@@ -238,12 +238,47 @@
                 <el-button icon="Search" :loading="stockDialog.loading" @click="loadStockOrders" />
               </template>
             </el-input>
+            <el-input v-model="stockDialog.inboundOrderNo" clearable placeholder="搜索三方入库单号" class="stock-search-input"
+              @keyup.enter="loadStockOrders">
+              <template #prepend>入库单号</template>
+              <template #append>
+                <el-button icon="Search" :loading="stockDialog.loading" @click="loadStockOrders" />
+              </template>
+            </el-input>
           </div>
           <el-table ref="stockOrderTableRef" v-loading="stockDialog.loading" :data="stockDialog.orders" border
             row-key="overseasOrderNo" height="460" class="stock-order-table" @selection-change="handleStockOrderSelection">
+            <el-table-column type="expand" width="44">
+              <template #default="{ row }">
+                <el-table :data="row.items || []" size="small" border class="fba-sku-table" empty-text="暂无SKU明细">
+                  <el-table-column label="选择" width="64" align="center">
+                    <template #default="{ row: item }">
+                      <el-checkbox v-model="item._checked" />
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="sku" label="SKU" min-width="180" show-overflow-tooltip />
+                  <el-table-column prop="totalQuantity" label="装箱量" width="100" align="right">
+                    <template #default="{ row: item }">{{ formatNumber(item.totalQuantity, 0) }}</template>
+                  </el-table-column>
+                  <el-table-column prop="totalBoxCount" label="箱数" width="90" align="right" />
+                  <el-table-column prop="isTax" label="含税" width="130" align="center">
+                    <template #default="{ row: item }">
+                      <el-select v-model="item.isTax" size="small" placeholder="含税状态" clearable :class="taxSelectClass(item.isTax)">
+                        <el-option label="含税" :value="1"><span class="tax-option tax-yes">含税</span></el-option>
+                        <el-option label="不含税" :value="0"><span class="tax-option tax-no">不含税</span></el-option>
+                      </el-select>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </template>
+            </el-table-column>
             <el-table-column type="selection" width="44" fixed="left" :reserve-selection="true" />
-            <el-table-column prop="overseasOrderNo" label="备货单号" min-width="170" fixed="left" />
-            <el-table-column prop="productCount" label="装箱商品数量" min-width="140" />
+            <el-table-column prop="overseasOrderNo" label="备货单号" min-width="170" fixed="left">
+              <template #default="{ row }">
+                <el-button link type="primary" @click.stop="toggleStockOrderExpand(row)">{{ row.overseasOrderNo }}</el-button>
+              </template>
+            </el-table-column>
+            <el-table-column prop="inboundOrderNo" label="三方入库单号" min-width="170" show-overflow-tooltip />
             <el-table-column prop="totalBoxCount" label="总箱数" min-width="120" />
             <el-table-column prop="totalQuantity" label="总装箱量" min-width="140" />
             <el-table-column prop="totalGrossWeight" label="总毛重(kg)" min-width="140">
@@ -253,6 +288,7 @@
           <div class="stock-dialog-summary">
             <span>共 {{ stockDialog.orders.length }} 条</span>
             <span>已选 {{ stockDialog.selectedOrderNos.length }} 条</span>
+            <span>已选SKU {{ selectedStockSkuKeys.length }} 个</span>
           </div>
           <div v-if="stockDialog.missingSkus.length" class="missing-sku-box">
             <div class="missing-sku-title">未匹配到商品库的 SKU（{{ stockDialog.missingSkus.length }}）</div>
@@ -293,9 +329,12 @@
                     <template #default="{ row: item }">{{ formatNumber(item.totalQuantity, 0) }}</template>
                   </el-table-column>
                   <el-table-column prop="totalBoxCount" label="箱数" width="90" align="right" />
-                  <el-table-column prop="isTax" label="含税" width="110" align="center">
+                  <el-table-column prop="isTax" label="含税" width="130" align="center">
                     <template #default="{ row: item }">
-                      <el-tag :type="taxTagType(item.isTax)" effect="plain" size="small">{{ taxLabel(item.isTax) }}</el-tag>
+                      <el-select v-model="item.isTax" size="small" placeholder="含税状态" clearable :class="taxSelectClass(item.isTax)">
+                        <el-option label="含税" :value="1"><span class="tax-option tax-yes">含税</span></el-option>
+                        <el-option label="不含税" :value="0"><span class="tax-option tax-no">不含税</span></el-option>
+                      </el-select>
                     </template>
                   </el-table-column>
                 </el-table>
@@ -397,6 +436,7 @@ const dataSourceDialog = reactive({
 const stockDialog = reactive({
   visible: false,
   keyword: '',
+  inboundOrderNo: '',
   loading: false,
   saving: false,
   orders: [],
@@ -420,6 +460,7 @@ const fbaDialog = reactive({
   missingInventorySkus: [],
   missingHistorySkus: []
 })
+const selectedStockSkuKeys = computed(() => collectSelectedStockSkuKeys())
 const selectedFbaSkuKeys = computed(() => collectSelectedFbaSkuKeys())
 function createHeader() {
   return {
@@ -606,8 +647,14 @@ function taxLabel(value) {
 
 function taxTagType(value) {
   if (Number(value) === 1) return 'success'
-  if (Number(value) === 0) return 'info'
+  if (Number(value) === 0) return 'danger'
   return 'warning'
+}
+
+function taxSelectClass(value) {
+  if (Number(value) === 1) return 'tax-select tax-select-yes'
+  if (Number(value) === 0) return 'tax-select tax-select-no'
+  return 'tax-select'
 }
 
 function resolveRequestErrorMessage(error, fallback) {
@@ -762,6 +809,7 @@ async function openStockOrderDialog() {
   dataSourceDialog.visible = true
   dataSourceDialog.platform = 'stock'
   stockDialog.keyword = ''
+  stockDialog.inboundOrderNo = ''
   resetLinkMissing(stockDialog)
   await loadStockOrders()
 }
@@ -769,8 +817,12 @@ async function openStockOrderDialog() {
 async function loadStockOrders() {
   stockDialog.loading = true
   try {
-    const response = await searchStockOrders({ keyword: stockDialog.keyword, limit: 100 })
-    stockDialog.orders = response.data || []
+    const response = await searchStockOrders({
+      keyword: stockDialog.keyword,
+      inboundOrderNo: stockDialog.inboundOrderNo,
+      limit: 100
+    })
+    stockDialog.orders = normalizeStockOrders(response.data || [])
     resetLinkMissing(stockDialog)
     await restoreStockOrderSelection()
   } finally {
@@ -806,9 +858,18 @@ async function confirmStockOrderLink() {
     proxy.$modal.msgWarning('请先选择备货单')
     return
   }
+  const stockSkuKeys = collectSelectedStockSkuKeys()
+  if (!stockSkuKeys.length) {
+    proxy.$modal.msgWarning('请至少选择一个备货单SKU')
+    return
+  }
   stockDialog.saving = true
   try {
-    const response = await loadStockOrderProducts({ overseasOrderNos: stockDialog.selectedOrderNos })
+    const response = await loadStockOrderProducts({
+      overseasOrderNos: stockDialog.selectedOrderNos,
+      stockSkuKeys,
+      taxOverrides: collectTaxOverrides(stockDialog.orders, 'overseasOrderNo', 'stock')
+    })
     const result = normalizeLinkResult(response.data)
     const rows = result.products.map(productToRow)
     applyLinkMissing(stockDialog, result)
@@ -899,7 +960,11 @@ async function confirmFbaShipmentLink() {
   }
   fbaDialog.saving = true
   try {
-    const response = await loadFbaShipmentProducts({ shipmentIds: fbaDialog.selectedShipmentIds, fbaSkuKeys })
+    const response = await loadFbaShipmentProducts({
+      shipmentIds: fbaDialog.selectedShipmentIds,
+      fbaSkuKeys,
+      taxOverrides: collectTaxOverrides(fbaDialog.shipments, 'shipmentId', 'fba')
+    })
     const result = normalizeLinkResult(response.data)
     const rows = result.products.map(productToRow)
     applyLinkMissing(fbaDialog, result)
@@ -933,19 +998,46 @@ function toggleFbaShipmentExpand(row) {
   fbaShipmentTableRef.value?.toggleRowExpansion(row)
 }
 
+function toggleStockOrderExpand(row) {
+  stockOrderTableRef.value?.toggleRowExpansion(row)
+}
+
+function normalizeStockOrders(rows) {
+  return rows.map(row => ({
+    ...row,
+    items: (row.items || []).map(item => ({
+      ...item,
+      _checked: item._checked !== false,
+      _stockSkuKey: buildSourceSkuKey(row.overseasOrderNo, item.sku)
+    }))
+  }))
+}
+
 function normalizeFbaShipments(rows) {
   return rows.map(row => ({
     ...row,
     items: (row.items || []).map(item => ({
       ...item,
       _checked: item._checked !== false,
-      _fbaSkuKey: buildFbaSkuKey(row.shipmentId, item.sku)
+      _fbaSkuKey: buildSourceSkuKey(row.shipmentId, item.sku)
     }))
   }))
 }
 
-function buildFbaSkuKey(shipmentId, sku) {
-  return `${shipmentId || ''}|${sku || ''}`
+function buildSourceSkuKey(sourceNo, sku) {
+  return `${sourceNo || ''}|${sku || ''}`
+}
+
+function collectSelectedStockSkuKeys() {
+  const selectedOrders = new Set(stockDialog.selectedOrderNos)
+  const keys = []
+  stockDialog.orders.forEach(order => {
+    if (!selectedOrders.has(order.overseasOrderNo)) return
+    ;(order.items || []).forEach(item => {
+      if (item._checked !== false && item._stockSkuKey) keys.push(item._stockSkuKey)
+    })
+  })
+  return Array.from(new Set(keys))
 }
 
 function collectSelectedFbaSkuKeys() {
@@ -958,6 +1050,20 @@ function collectSelectedFbaSkuKeys() {
     })
   })
   return Array.from(new Set(keys))
+}
+
+function collectTaxOverrides(rows, sourceKey, mode) {
+  const selectedSources = new Set(mode === 'stock' ? stockDialog.selectedOrderNos : fbaDialog.selectedShipmentIds)
+  const overrides = {}
+  rows.forEach(row => {
+    const sourceNo = row[sourceKey]
+    if (!selectedSources.has(sourceNo)) return
+    ;(row.items || []).forEach(item => {
+      if (item._checked === false || item.isTax == null) return
+      overrides[buildSourceSkuKey(sourceNo, item.sku)] = Number(item.isTax)
+    })
+  })
+  return overrides
 }
 
 function resetLinkMissing(dialog) {
@@ -1616,6 +1722,44 @@ async function handleClear() {
   grid-template-columns: 58px minmax(0, 1fr);
   gap: 5px;
   align-items: center;
+}
+
+.tax-option {
+  font-weight: 600;
+}
+
+.tax-yes {
+  color: #67c23a;
+}
+
+.tax-no {
+  color: #f56c6c;
+}
+
+.tax-select {
+  width: 100%;
+}
+
+.tax-select-yes :deep(.el-select__wrapper) {
+  border-color: #b3e19d;
+  background: #f0f9eb;
+  box-shadow: 0 0 0 1px #b3e19d inset;
+}
+
+.tax-select-yes :deep(.el-select__selected-item) {
+  color: #529b2e;
+  font-weight: 600;
+}
+
+.tax-select-no :deep(.el-select__wrapper) {
+  border-color: #fab6b6;
+  background: #fef0f0;
+  box-shadow: 0 0 0 1px #fab6b6 inset;
+}
+
+.tax-select-no :deep(.el-select__selected-item) {
+  color: #c45656;
+  font-weight: 600;
 }
 
 .fba-sku-table {
