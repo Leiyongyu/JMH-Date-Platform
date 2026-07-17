@@ -42,6 +42,9 @@ public class SecurityConfig
     @Value("${ruoyi.security.public-monitor-enabled:true}")
     private boolean publicMonitorEnabled;
 
+    @Value("${ruoyi.security.druid-monitor-enabled:${ruoyi.security.public-monitor-enabled:true}}")
+    private boolean druidMonitorEnabled;
+
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration) throws Exception
     {
@@ -64,7 +67,11 @@ public class SecurityConfig
                     .requestMatchers(HttpMethod.GET, "/", "/*.html", "/**.html", "/**.css", "/**.js", "/profile/**").permitAll();
                 if (publicMonitorEnabled)
                 {
-                    requests.requestMatchers("/swagger-ui.html", "/v3/api-docs/**", "/swagger-ui/**", "/druid/**").permitAll();
+                    requests.requestMatchers("/swagger-ui.html", "/v3/api-docs/**", "/swagger-ui/**").permitAll();
+                }
+                if (druidMonitorEnabled)
+                {
+                    requests.requestMatchers("/druid/**").permitAll();
                 }
                 requests.anyRequest().authenticated();
             })

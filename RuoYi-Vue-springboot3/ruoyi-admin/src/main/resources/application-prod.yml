@@ -1,6 +1,7 @@
 ruoyi:
   security:
     public-monitor-enabled: false
+    druid-monitor-enabled: true
 
 springdoc:
   api-docs:
@@ -12,6 +13,9 @@ spring:
   datasource:
     druid:
       webStatFilter:
-        enabled: false
+        enabled: true
       statViewServlet:
-        enabled: false
+        enabled: true
+        allow: ${DRUID_ALLOW:}
+        login-username: ${DRUID_USERNAME:admin}
+        login-password: ${DRUID_PASSWORD:123456}
