@@ -72,6 +72,24 @@ public class TaxRefundPythonClient
         }
     }
 
+    public Map<String, Object> createFileTasks(String taskType, MultipartFile[] files, Map<String, String> fields, String erpUser)
+    {
+        try
+        {
+            String boundary = "----JmhTaxRefund" + UUID.randomUUID().toString().replace("-", "");
+            byte[] body = multipartBody(boundary, taskType, files, fields);
+            HttpRequest request = baseRequest("/tasks", erpUser)
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                    .build();
+            return send(request);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
     public Map<String, Object> getTask(Long taskId)
     {
         return get("/tasks/" + taskId, Map.of());
@@ -159,6 +177,11 @@ public class TaxRefundPythonClient
 
     private byte[] multipartBody(String boundary, String taskType, MultipartFile file, Map<String, String> fields) throws IOException
     {
+        return multipartBody(boundary, taskType, new MultipartFile[] { file }, fields);
+    }
+
+    private byte[] multipartBody(String boundary, String taskType, MultipartFile[] files, Map<String, String> fields) throws IOException
+    {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         writeField(out, boundary, "task_type", taskType);
         if (fields != null)
@@ -171,7 +194,22 @@ public class TaxRefundPythonClient
                 }
             }
         }
-        writeFile(out, boundary, file);
+        int count = 0;
+        if (files != null)
+        {
+            for (MultipartFile file : files)
+            {
+                if (file != null && !file.isEmpty())
+                {
+                    writeFile(out, boundary, file);
+                    count++;
+                }
+            }
+        }
+        if (count == 0)
+        {
+            throw new IllegalArgumentException("请选择有效文件");
+        }
         out.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
         return out.toByteArray();
     }

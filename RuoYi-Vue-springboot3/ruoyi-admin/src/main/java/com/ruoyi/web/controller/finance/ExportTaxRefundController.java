@@ -33,11 +33,11 @@ public class ExportTaxRefundController extends BaseController
     @Log(title = "外汇退税-导入报关资料", businessType = BusinessType.IMPORT)
     @PreAuthorize("@ss.hasPermi('finance:exportTaxRefund:import')")
     @PostMapping("/tasks/customs-material")
-    public AjaxResult importCustomsMaterial(@RequestParam("file") MultipartFile file)
+    public AjaxResult importCustomsMaterial(@RequestParam("file") MultipartFile[] files)
     {
         try
         {
-            return success(pythonClient.createFileTask("CUSTOMS_MATERIAL_IMPORT", file, Map.of(), getUsername()));
+            return success(pythonClient.createFileTasks("CUSTOMS_MATERIAL_IMPORT", files, Map.of(), getUsername()));
         }
         catch (Exception e)
         {
@@ -48,7 +48,7 @@ public class ExportTaxRefundController extends BaseController
     @Log(title = "外汇退税-导入报关单", businessType = BusinessType.IMPORT)
     @PreAuthorize("@ss.hasPermi('finance:exportTaxRefund:import')")
     @PostMapping("/tasks/customs-declaration")
-    public AjaxResult importCustomsDeclaration(@RequestParam("file") MultipartFile file,
+    public AjaxResult importCustomsDeclaration(@RequestParam("file") MultipartFile[] files,
                                                @RequestParam(required = false) String declarationMonth,
                                                @RequestParam(required = false) String declarationBatch,
                                                @RequestParam(required = false) String exportDate)
@@ -59,7 +59,7 @@ public class ExportTaxRefundController extends BaseController
             fields.put("declaration_month", declarationMonth);
             fields.put("declaration_batch", declarationBatch);
             fields.put("export_date", exportDate);
-            return success(pythonClient.createFileTask("CUSTOMS_DECLARATION_IMPORT", file, fields, getUsername()));
+            return success(pythonClient.createFileTasks("CUSTOMS_DECLARATION_IMPORT", files, fields, getUsername()));
         }
         catch (Exception e)
         {
@@ -70,11 +70,11 @@ public class ExportTaxRefundController extends BaseController
     @Log(title = "外汇退税-导入进货发票", businessType = BusinessType.IMPORT)
     @PreAuthorize("@ss.hasPermi('finance:exportTaxRefund:import')")
     @PostMapping("/tasks/purchase-invoice")
-    public AjaxResult importPurchaseInvoice(@RequestParam("file") MultipartFile file)
+    public AjaxResult importPurchaseInvoice(@RequestParam("file") MultipartFile[] files)
     {
         try
         {
-            return success(pythonClient.createFileTask("PURCHASE_INVOICE_IMPORT", file, Map.of(), getUsername()));
+            return success(pythonClient.createFileTasks("PURCHASE_INVOICE_IMPORT", files, Map.of(), getUsername()));
         }
         catch (Exception e)
         {
@@ -85,11 +85,11 @@ public class ExportTaxRefundController extends BaseController
     @Log(title = "外汇退税-导入外汇数据", businessType = BusinessType.IMPORT)
     @PreAuthorize("@ss.hasPermi('finance:exportTaxRefund:import')")
     @PostMapping("/tasks/forex")
-    public AjaxResult importForex(@RequestParam("file") MultipartFile file)
+    public AjaxResult importForex(@RequestParam("file") MultipartFile[] files)
     {
         try
         {
-            return success(pythonClient.createFileTask("FOREX_IMPORT", file, Map.of(), getUsername()));
+            return success(pythonClient.createFileTasks("FOREX_IMPORT", files, Map.of(), getUsername()));
         }
         catch (Exception e)
         {
