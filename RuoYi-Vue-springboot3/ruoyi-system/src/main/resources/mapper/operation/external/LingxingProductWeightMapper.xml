@@ -3,11 +3,12 @@
 <mapper namespace="com.ruoyi.system.mapper.operation.external.LingxingProductWeightMapper">
 
     <insert id="upsert">
-        INSERT INTO lingxing_product_weight (sku, gross_weight, net_weight)
-        VALUES (#{sku}, #{grossWeight}, #{netWeight})
+        INSERT INTO lingxing_product_weight (sku, gross_weight, net_weight, sync_time)
+        VALUES (#{sku}, #{grossWeight}, #{netWeight}, NOW())
         ON DUPLICATE KEY UPDATE
             gross_weight = COALESCE(VALUES(gross_weight), gross_weight),
             net_weight = COALESCE(VALUES(net_weight), net_weight),
+            sync_time = NOW(),
             update_time = NOW()
     </insert>
 

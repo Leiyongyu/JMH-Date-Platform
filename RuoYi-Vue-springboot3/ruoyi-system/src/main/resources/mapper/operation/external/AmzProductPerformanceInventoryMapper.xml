@@ -20,11 +20,11 @@
     <insert id="batchInsert">
         INSERT INTO amz_product_performance_inventory (
             sid, seller_sku, local_sku, fba_fulfillable, fba_transfer,
-            fba_receiving, fba_reserved, fba_inbound, fba_inbound_working, fba_stock
+            fba_receiving, fba_reserved, fba_inbound, fba_inbound_working, fba_stock, sync_time
         ) VALUES
         <foreach collection="list" item="e" separator=",">
             (#{e.sid}, #{e.sellerSku}, #{e.localSku}, #{e.fbaFulfillable}, #{e.fbaTransfer},
-             #{e.fbaReceiving}, #{e.fbaReserved}, #{e.fbaInbound}, #{e.fbaInboundWorking}, #{e.fbaStock})
+             #{e.fbaReceiving}, #{e.fbaReserved}, #{e.fbaInbound}, #{e.fbaInboundWorking}, #{e.fbaStock}, NOW())
         </foreach>
     </insert>
 </mapper>

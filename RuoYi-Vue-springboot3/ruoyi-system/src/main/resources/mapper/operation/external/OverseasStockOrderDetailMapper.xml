@@ -15,7 +15,7 @@
             cg_box_weight, cg_box_length, cg_box_width, cg_box_height, quantity_in_case,
             box_cbm, total_box_volume, total_box_weight, total_box_volume_weight,
             box_remark, order_total_box_num, order_total_box_weight,
-            order_total_box_volume, order_total_box_volume_weight
+            order_total_box_volume, order_total_box_volume_weight, sync_time
         ) VALUES
         <foreach collection="list" item="e" separator=",">
         (
@@ -26,7 +26,7 @@
             #{e.cgBoxWeight}, #{e.cgBoxLength}, #{e.cgBoxWidth}, #{e.cgBoxHeight}, #{e.quantityInCase},
             #{e.boxCbm}, #{e.totalBoxVolume}, #{e.totalBoxWeight}, #{e.totalBoxVolumeWeight},
             #{e.boxRemark}, #{e.orderTotalBoxNum}, #{e.orderTotalBoxWeight},
-            #{e.orderTotalBoxVolume}, #{e.orderTotalBoxVolumeWeight}
+            #{e.orderTotalBoxVolume}, #{e.orderTotalBoxVolumeWeight}, NOW()
         )
         </foreach>
     </insert>

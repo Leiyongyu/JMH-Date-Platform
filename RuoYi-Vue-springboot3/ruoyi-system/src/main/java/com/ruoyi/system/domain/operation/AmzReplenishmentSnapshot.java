@@ -40,6 +40,9 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     @Excel(name = "产品分类")
     private String productCategory;
 
+    @Excel(name = "产品性质", readConverterExp = "1=老品,2=新品")
+    private Integer productNature;
+
     private String remark;
 
     @Excel(name = "评分")
@@ -145,6 +148,8 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     public void setStoreName(String storeName) { this.storeName = storeName; }
     public String getProductCategory() { return productCategory; }
     public void setProductCategory(String productCategory) { this.productCategory = productCategory; }
+    public Integer getProductNature() { return productNature; }
+    public void setProductNature(Integer productNature) { this.productNature = productNature; }
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
     public BigDecimal getRating() { return rating; }

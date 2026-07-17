@@ -5,17 +5,20 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.system.domain.operation.external.OverseasStockOrder;
 import com.ruoyi.system.mapper.operation.external.OverseasStockOrderMapper;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
+import java.time.LocalDate;
 import java.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/** 领星备货单号同步 → overseas_stock_order, 全量拉取 upsert */
+/** 领星备货单号同步 → overseas_stock_order, 最近5天增量拉取 */
 @Service
 public class OverseasStockOrderSyncService
 {
     private static final Logger LOG = LoggerFactory.getLogger(OverseasStockOrderSyncService.class);
     private static final String API = "erp/sc/routing/owms/inbound/listInbound";
+    private static final int PAGE_SIZE = 50;
+    private static final int RECENT_DAYS = 5;
 
     private final LingxingGatewayService gw;
     private final OverseasStockOrderMapper mapper;
@@ -27,17 +30,21 @@ public class OverseasStockOrderSyncService
     public OperationSyncResult sync() throws Exception
     {
         long start = System.currentTimeMillis();
-        Set<String> existing = new HashSet<>();
+        Map<String, OverseasStockOrder> existing = new HashMap<>();
         for (OverseasStockOrder e : mapper.selectAll())
-            existing.add(e.getOverseasOrderNo());
+            existing.put(e.getOverseasOrderNo(), e);
 
-        int inserted = 0, page = 1, total = 0;
+        LocalDate endDate = LocalDate.now();
+        LocalDate startDate = endDate.minusDays(RECENT_DAYS);
+        int inserted = 0, updated = 0, processed = 0, page = 1, total = 0;
         while (true)
         {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("page", page);
-            body.put("page_size", 50);
+            body.put("page_size", PAGE_SIZE);
             body.put("is_delete", 0);
+            body.put("create_time_from", startDate.toString());
+            body.put("create_time_to", endDate.toString());
             Map<String, Object> resp = gw.post(API, body);
             List<Map<String, Object>> data = getList(resp, "data");
             if (data.isEmpty()) break;
@@ -46,24 +53,33 @@ public class OverseasStockOrderSyncService
             {
                 String orderNo = str(item, "overseas_order_no");
                 if (orderNo == null || orderNo.isEmpty()) continue;
-                if (!existing.contains(orderNo))
+                processed++;
+                OverseasStockOrder e = existing.get(orderNo);
+                if (e == null)
                 {
-                    OverseasStockOrder e = new OverseasStockOrder();
+                    e = new OverseasStockOrder();
                     e.setOverseasOrderNo(orderNo);
                     e.setInboundOrderNo(str(item, "inbound_order_no"));
                     e.setCreateTime(new Date());
                     mapper.insert(e);
-                    existing.add(orderNo);
+                    existing.put(orderNo, e);
                     inserted++;
+                }
+                else
+                {
+                    e.setOverseasOrderNo(orderNo);
+                    e.setInboundOrderNo(str(item, "inbound_order_no"));
+                    mapper.updateById(e);
+                    updated++;
                 }
             }
             Object t = resp.get("total");
             if (t instanceof Number) total = ((Number) t).intValue();
-            if (total > 0 && page * 50 >= total) break;
+            if (total > 0 && page * PAGE_SIZE >= total) break;
             page++;
         }
-        LOG.info("备货单号 全量同步完成, 新增 {} 条", inserted);
-        return OperationSyncResult.success("stock_order", "领星-备货单号", API, inserted, inserted, System.currentTimeMillis() - start);
+        LOG.info("备货单号 最近{}天同步完成({}~{}), 拉取/处理 {} 条, 新增 {} 条, 覆盖 {} 条", RECENT_DAYS, startDate, endDate, processed, inserted, updated);
+        return OperationSyncResult.success("stock_order", "领星-备货单号", API, processed, processed, System.currentTimeMillis() - start);
     }
 
     @SuppressWarnings("unchecked")

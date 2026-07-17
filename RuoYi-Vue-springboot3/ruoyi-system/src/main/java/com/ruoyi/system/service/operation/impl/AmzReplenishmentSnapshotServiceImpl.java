@@ -27,11 +27,11 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         "adRate", "profitRate30d", "refundRate90d", "domesticStock", "pendingShipQty",
         "fbaStock", "fbaInbound", "fbaInboundWorking", "totalInventory", "sales7d", "sales14d",
         "sales30d", "sales60d", "salesSpeed14d", "salesSpeed30d", "salesSpeed60d",
-        "avgMonthlySales", "safetyStock", "shipQty", "replenishQty", "restockDays"
+        "avgMonthlySales", "safetyStock", "shipQty", "replenishQty", "restockDays", "productNature"
     );
     private static final Set<String> TEXT_FIELDS = Set.of(
         "storeName", "storeNameExclude", "sellerSku", "warehouseSku", "asin", "principalName", "productCategory", "warehouseName",
-        "regionGroup", "storeCountryCode"
+        "regionGroup", "storeCountryCode", "productNature"
     );
     private static final Map<String, String> NUM_MAP = new LinkedHashMap<>();
     static {

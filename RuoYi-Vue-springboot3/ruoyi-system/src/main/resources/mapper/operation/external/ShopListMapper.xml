@@ -32,13 +32,13 @@
     <insert id="batchInsert" parameterType="java.util.List" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO shop_list (
             store_id, sid, store_name, platform_code, platform_name,
-            currency, is_sync, status, country_code
+            currency, is_sync, status, country_code, sync_time
         ) VALUES
         <foreach collection="list" item="item" separator=",">
         (
             #{item.storeId}, #{item.sid}, #{item.storeName},
             #{item.platformCode}, #{item.platformName},
-            #{item.currency}, #{item.isSync}, #{item.status}, #{item.countryCode}
+            #{item.currency}, #{item.isSync}, #{item.status}, #{item.countryCode}, NOW()
         )
         </foreach>
     </insert>
@@ -53,7 +53,8 @@
             currency = #{currency},
             is_sync = #{isSync},
             status = #{status},
-            country_code = #{countryCode}
+            country_code = #{countryCode},
+            sync_time = NOW()
         WHERE id = #{id}
     </update>
 

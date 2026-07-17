@@ -38,11 +38,11 @@
         INSERT INTO warehouse (
             wid, name, type, sub_type, is_delete, country_code,
             wp_id, wp_name, t_warehouse_name, t_warehouse_code,
-            t_country_area_name, t_status
+            t_country_area_name, t_status, sync_time
         ) VALUES (
             #{wid}, #{name}, #{type}, #{subType}, #{isDelete}, #{countryCode},
             #{wpId}, #{wpName}, #{tWarehouseName}, #{tWarehouseCode},
-            #{tCountryAreaName}, #{tStatus}
+            #{tCountryAreaName}, #{tStatus}, NOW()
         )
     </insert>
 
@@ -50,13 +50,13 @@
         INSERT INTO warehouse (
             wid, name, type, sub_type, is_delete, country_code,
             wp_id, wp_name, t_warehouse_name, t_warehouse_code,
-            t_country_area_name, t_status
+            t_country_area_name, t_status, sync_time
         ) VALUES
         <foreach collection="list" item="item" separator=",">
         (
             #{item.wid}, #{item.name}, #{item.type}, #{item.subType}, #{item.isDelete}, #{item.countryCode},
             #{item.wpId}, #{item.wpName}, #{item.tWarehouseName}, #{item.tWarehouseCode},
-            #{item.tCountryAreaName}, #{item.tStatus}
+            #{item.tCountryAreaName}, #{item.tStatus}, NOW()
         )
         </foreach>
     </insert>
@@ -73,7 +73,8 @@
             t_warehouse_name = #{tWarehouseName},
             t_warehouse_code = #{tWarehouseCode},
             t_country_area_name = #{tCountryAreaName},
-            t_status = #{tStatus}
+            t_status = #{tStatus},
+            sync_time = NOW()
         WHERE wid = #{wid}
     </update>
 

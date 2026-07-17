@@ -14,6 +14,7 @@
         <result property="principalName" column="principal_name" />
         <result property="storeName" column="store_name" />
         <result property="productCategory" column="product_category" />
+        <result property="productNature" column="product_nature" />
         <result property="remark" column="remark" />
         <result property="rating" column="rating" />
         <result property="reviewCount" column="review_count" />
@@ -110,7 +111,7 @@
     <insert id="insertByListing">
         INSERT INTO amz_replenishment_snapshot (
             sid, seller_sku, warehouse_sku, warehouse_name, asin, tag_name, principal_name, store_name,
-            price, product_category, rating, review_count, ad_rate, profit_rate_30d, refund_rate_90d,
+            price, product_category, product_nature, rating, review_count, ad_rate, profit_rate_30d, refund_rate_90d,
             purchased_qty, domestic_stock, pending_ship_qty, fba_stock, fba_inbound, fba_inbound_working, total_inventory,
             sales_7d, sales_14d, sales_30d, sales_60d,
             sales_speed_14d, sales_speed_30d, sales_speed_60d,
@@ -120,7 +121,7 @@
         SELECT
             final.sid, final.seller_sku, final.warehouse_sku, final.warehouse_name, final.asin,
             final.tag_name, final.principal_name, final.store_name, final.price,
-            final.product_category, final.rating, final.review_count, final.ad_rate, final.profit_rate_30d, final.refund_rate_90d,
+            final.product_category, final.product_nature, final.rating, final.review_count, final.ad_rate, final.profit_rate_30d, final.refund_rate_90d,
             final.purchased_qty, final.domestic_stock, final.pending_ship_qty, final.fba_stock,
             final.fba_inbound, final.fba_inbound_working, final.total_inventory,
             final.sales_7d, final.sales_14d, final.sales_30d, final.sales_60d,
@@ -186,6 +187,11 @@
                                 ANY_VALUE(pl.principal_name) AS principal_name,
                                 ANY_VALUE(COALESCE(sl.store_name, '')) AS store_name,
                                 ANY_VALUE(COALESCE(pc.category, '')) AS product_category,
+                                CASE
+                                    WHEN ANY_VALUE(pl.listing_create_date) IS NOT NULL
+                                     AND DATEDIFF(CURDATE(), ANY_VALUE(pl.listing_create_date)) &lt;= 60 THEN 2
+                                    ELSE 1
+                                END AS product_nature,
                                 ANY_VALUE(NULLIF(pl.last_star, '')) AS rating,
                                 ANY_VALUE(pl.review_num) AS review_count,
                                 ANY_VALUE(op.spend_rate * 100) AS ad_rate,
@@ -256,7 +262,7 @@
                s.store_name, s.image_url,
                COALESCE(o.product_category, s.product_category) AS product_category,
                COALESCE(o.remark, '') AS remark,
-               s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
+               s.product_nature, s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
                s.refund_rate_90d, s.tag_name,
                s.purchased_qty AS purchased_qty,
                s.domestic_stock, s.pending_ship_qty, s.fba_stock,
@@ -290,6 +296,12 @@
             <if test="asin != null and asin != ''">and s.asin like concat('%', #{asin}, '%')</if>
             <if test="principalName != null and principalName != ''">and s.principal_name like concat('%', #{principalName}, '%')</if>
             <if test="productCategory != null and productCategory != ''">and COALESCE(o.product_category, s.product_category) like concat('%', #{productCategory}, '%')</if>
+            <if test="productNature != null and productNature != ''">
+                <choose>
+                    <when test='productNature.contains(",")'>and s.product_nature in <foreach collection='productNature.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <otherwise>and s.product_nature = #{productNature}</otherwise>
+                </choose>
+            </if>
             <if test="warehouseName != null and warehouseName != ''">
                 <choose>
                     <when test='warehouseName.contains(",")'>and s.warehouse_name in <foreach collection='warehouseName.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
@@ -624,6 +636,12 @@
             <if test="asin != null and asin != ''">and s.asin like concat('%', #{asin}, '%')</if>
             <if test="principalName != null and principalName != ''">and s.principal_name like concat('%', #{principalName}, '%')</if>
             <if test="productCategory != null and productCategory != ''">and COALESCE(o.product_category, s.product_category) like concat('%', #{productCategory}, '%')</if>
+            <if test="productNature != null and productNature != ''">
+                <choose>
+                    <when test='productNature.contains(",")'>and s.product_nature in <foreach collection='productNature.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
+                    <otherwise>and s.product_nature = #{productNature}</otherwise>
+                </choose>
+            </if>
             <if test="warehouseName != null and warehouseName != ''">
                 <choose>
                     <when test='warehouseName.contains(",")'>and s.warehouse_name in <foreach collection='warehouseName.split(",")' item="it" open="(" separator="," close=")">#{it}</foreach></when>
@@ -679,7 +697,7 @@
                s.store_name, s.image_url,
                COALESCE(o.product_category, s.product_category) AS product_category,
                COALESCE(o.remark, '') AS remark,
-               s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
+               s.product_nature, s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
                s.refund_rate_90d, s.tag_name,
                s.purchased_qty AS purchased_qty,
                s.domestic_stock, s.pending_ship_qty, s.fba_stock,
@@ -699,6 +717,7 @@
             <if test="asin != null and asin != ''">and s.asin like concat('%', #{asin}, '%')</if>
             <if test="principalName != null and principalName != ''">and s.principal_name like concat('%', #{principalName}, '%')</if>
             <if test="productCategory != null and productCategory != ''">and COALESCE(o.product_category, s.product_category) like concat('%', #{productCategory}, '%')</if>
+            <if test="productNature != null">and s.product_nature = #{productNature}</if>
         </where>
         <include refid="sortClause"/>
     </select>
@@ -715,6 +734,7 @@
             <when test="sortField == 'adRate'">order by ad_rate</when>
             <when test="sortField == 'profitRate30d'">order by profit_rate_30d</when>
             <when test="sortField == 'refundRate90d'">order by refund_rate_90d</when>
+            <when test="sortField == 'productNature'">order by product_nature</when>
             <when test="sortField == 'domesticStock'">order by domestic_stock</when>
             <when test="sortField == 'pendingShipQty'">order by pending_ship_qty</when>
             <when test="sortField == 'fbaStock'">order by fba_stock</when>

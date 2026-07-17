@@ -19,11 +19,16 @@
     </select>
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO overseas_stock_order (overseas_order_no, inbound_order_no) VALUES (#{overseasOrderNo}, #{inboundOrderNo})
+        INSERT INTO overseas_stock_order (overseas_order_no, inbound_order_no, create_time, sync_time)
+        VALUES (#{overseasOrderNo}, #{inboundOrderNo}, NOW(), NOW())
     </insert>
 
     <update id="updateById">
-        UPDATE overseas_stock_order SET overseas_order_no = #{overseasOrderNo} WHERE id = #{id}
+        UPDATE overseas_stock_order
+        SET overseas_order_no = #{overseasOrderNo},
+            inbound_order_no = #{inboundOrderNo},
+            sync_time = NOW()
+        WHERE id = #{id}
     </update>
 
 </mapper>

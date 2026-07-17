@@ -17,9 +17,9 @@
     </select>
     <delete id="deleteAll">DELETE FROM goodcang_warehouse</delete>
     <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO goodcang_warehouse (warehouse_code,warehouse_name,country_code,wp_code,wp_name,wid) VALUES
+        INSERT INTO goodcang_warehouse (warehouse_code,warehouse_name,country_code,wp_code,wp_name,wid,sync_time) VALUES
         <foreach collection="list" item="e" separator=",">
-        (#{e.warehouseCode},#{e.warehouseName},#{e.countryCode},#{e.wpCode},#{e.wpName},#{e.wid})
+        (#{e.warehouseCode},#{e.warehouseName},#{e.countryCode},#{e.wpCode},#{e.wpName},#{e.wid},NOW())
         </foreach>
     </insert>
     <update id="fillWidByFuzzyMatch">

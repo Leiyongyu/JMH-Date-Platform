@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JMH 退税数据平台</title>
+  <style>
+    :root { --bg: #f5f6fa; --panel: #fff; --border: #e1e5ee; --text: #1a1d2e; --muted: #6b7280; --primary: #3b5de7; --ok: #16a34a; --warn: #d97706; --bad: #dc2626; --radius: 10px; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font: 14px/1.6 system-ui, "Microsoft YaHei", sans-serif; }
+    header { background: linear-gradient(135deg, #0f1d45, #2a47c9); color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+    header h1 { font-size: 20px; }
+    header .sub { font-size: 12px; opacity: .75; }
+    main { max-width: 1500px; margin: 0 auto; padding: 14px; }
+    .layout { display: grid; grid-template-columns: 340px 1fr; gap: 14px; align-items: start; }
+
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 14px; }
+    .panel h2 { font-size: 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+
+    label { display: block; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 3px; margin-top: 8px; }
+    input, select { width: 100%; height: 34px; border: 1px solid var(--border); border-radius: 6px; padding: 0 8px; font-size: 13px; }
+    input:focus, select:focus { outline: 2px solid rgba(59,93,231,.15); border-color: var(--primary); }
+    input[type=checkbox] { width: auto; height: auto; }
+    .check { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+
+    button { border: none; border-radius: 6px; padding: 7px 13px; cursor: pointer; font-weight: 600; font-size: 12px; }
+    button.primary { background: var(--primary); color: #fff; }
+    button.ghost { background: #f3f4f6; color: var(--text); }
+    button.danger { background: #fee2e2; color: var(--bad); }
+    button:disabled { opacity: .5; cursor: wait; }
+
+    .btn-row { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+
+    .msg { display: none; margin-top: 8px; padding: 8px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+    .msg.show { display: block; }
+    .msg.info { background: #eef2ff; color: var(--primary); }
+    .msg.err { background: #fee2e2; color: var(--bad); }
+
+    /* ── 任务状态卡片 ── */
+    .task-card { margin-top: 10px; padding: 10px; border-radius: 6px; background: #f8f9fc; display: none; }
+    .task-card.show { display: block; }
+    .task-row { display: flex; justify-content: space-between; font-size: 12px; margin: 3px 0; }
+    .task-row strong { color: var(--text); }
+    .badge { display: inline-block; padding: 2px 7px; border-radius: 99px; font-size: 11px; font-weight: 700; }
+    .badge.RUNNING,.badge.PENDING { background: #e3ebff; color: var(--primary); }
+    .badge.SUCCESS { background: #dcfce7; color: var(--ok); }
+    .badge.PARTIAL { background: #fef3c7; color: var(--warn); }
+    .badge.FAILED { background: #fee2e2; color: var(--bad); }
+    pre { margin-top: 8px; max-height: 200px; overflow: auto; border-radius: 6px; background: #111827; color: #d7e0ef; padding: 10px; font: 11px/1.5 Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+
+    .task-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+    .task-table th, .task-table td { padding: 6px 8px; border-bottom: 1px solid #eef0f5; white-space: nowrap; text-align: left; }
+    .task-table th { color: var(--muted); font-size: 10px; }
+
+    /* ── 数据查询 ── */
+    .tab-bar { display: flex; gap: 0; margin-bottom: 14px; background: var(--panel); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; }
+    .tab-btn { flex: 1; padding: 10px 12px; border: none; background: transparent; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--muted); border-bottom: 3px solid transparent; }
+    .tab-btn:hover { color: var(--text); background: #f8f9fc; }
+    .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); background: #f0f3ff; }
+
+    .filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-bottom: 10px; }
+    .filter-row .fg { display: flex; flex-direction: column; gap: 2px; }
+    .filter-row .fg label { margin-top: 0; }
+
+    .stats { margin-bottom: 8px; font-size: 12px; color: var(--muted); font-weight: 600; }
+
+    .table-wrap { overflow: auto; max-height: 420px; border: 1px solid var(--border); border-radius: 4px; }
+    .scroll-hint { text-align: center; font-size: 10px; color: var(--muted); padding: 2px 0; }
+    .data-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 12px; }
+    .data-table th { text-align: left; padding: 8px 6px; background: #f8f9fc; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; border-bottom: 2px solid var(--border); white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+    .data-table td { padding: 6px; border-bottom: 1px solid #eef0f5; white-space: nowrap; }
+    .data-table tr:hover td { background: #fafbff; }
+    .data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .data-table td.empty { text-align: center; color: var(--muted); padding: 30px; }
+
+    .pager { display: flex; gap: 4px; align-items: center; margin-top: 8px; font-size: 12px; }
+    .pager span { color: var(--muted); margin: 0 6px; }
+    .pager button { min-width: 28px; padding: 4px 8px; }
+
+    .hint { font-size: 11px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>JMH 退税数据平台</h1><div class="sub">数据导入 · 任务管理 · 三表查询</div></div>
+    <button onclick="window.open('/docs','_blank')" style="background:rgba(255,255,255,.15);color:#fff">Swagger</button>
+  </header>
+
+  <main>
+    <div class="layout">
+      <!-- 左侧：任务操作 -->
+      <aside>
+        <!-- 数据导入 -->
+        <div class="panel">
+          <h2>📤 数据导入</h2>
+          <select id="task-type">
+            <option value="CUSTOMS_MATERIAL_IMPORT">报关资料 Excel</option>
+            <option value="CUSTOMS_DECLARATION_IMPORT">报关单 PDF</option>
+            <option value="PURCHASE_INVOICE_IMPORT">进货发票 PDF</option>
+            <option value="FOREX_IMPORT">外汇回款 Excel</option>
+          </select>
+          <div id="file-area"><label>选择文件（可多选）</label><input id="task-file" type="file" accept=".xlsx" multiple><div id="file-hint" class="hint">.xlsx，最大 50 MB</div></div>
+          <div id="refund-fields" style="display:none">
+            <label>输出父目录</label><input id="output-dir" placeholder="D:/JMH/退税输出">
+            <label>申报年月</label><input id="month" value="202512" maxlength="6">
+            <label>付款人</label><input id="payer" value="Hong Kong Cammy Yeson Limited">
+            <div class="check"><input id="overwrite" type="checkbox"><label for="overwrite" style="margin:0;font-weight:400">允许覆盖</label></div>
+          </div>
+          <div id="declaration-extra">
+            <label>申报年月（可选，6位数字如202601）</label><input id="declaration-month" placeholder="202601" maxlength="6" pattern="[0-9]{6}">
+            <label>申报批次（可选，3位数字如001）</label><input id="declaration-batch" placeholder="001" maxlength="3" pattern="[0-9]{3}">
+            <label>出口日期（可选）</label><input id="export-date" type="date">
+          </div>
+          <label>操作人</label><input id="erp-user" value="TEST-UI">
+          <div class="btn-row">
+            <button class="primary" id="submit-task">创建任务</button>
+            <button class="ghost" onclick="refreshTasks()">刷新</button>
+          </div>
+          <div id="form-msg" class="msg"></div>
+        </div>
+
+        <!-- 任务详情 -->
+        <div class="panel">
+          <h2>📋 任务状态</h2>
+          <div id="task-current"><div style="color:var(--muted);font-size:12px">创建任务后自动跟踪</div></div>
+        </div>
+
+        <!-- 最近任务 -->
+        <div class="panel">
+          <h2>🕐 最近任务</h2>
+          <table class="task-table"><thead><tr><th>ID</th><th>类型</th><th>状态</th><th></th></tr></thead><tbody id="task-list"></tbody></table>
+        </div>
+      </aside>
+
+      <!-- 右侧：数据查询 -->
+      <section>
+        <div class="tab-bar">
+          <button class="tab-btn active" data-tab="export">📦 出口明细</button>
+          <button class="tab-btn" data-tab="purchase">🧾 进货库存</button>
+          <button class="tab-btn" data-tab="forex">💵 外汇应收</button>
+        </div>
+
+        <div id="tab-export" class="panel" style="border-radius:0 0 var(--radius) var(--radius); border-top:none">
+          <div class="filter-row">
+            <div class="fg"><label>报关单号</label><input id="ex-customs" placeholder="18位(前缀匹配)" style="width:170px"></div>
+            <div class="fg"><label>合同协议号</label><input id="ex-contract" placeholder="FBA15L7CCK57" style="width:140px"></div>
+            <div class="fg"><label>申报月份</label><input id="ex-month" placeholder="202512" maxlength="6" style="width:90px"></div>
+            <div class="fg"><label>申报批次</label><input id="ex-batch" placeholder="001" maxlength="3" style="width:80px"></div>
+            <div class="fg"><label>关联号</label><input id="ex-relation" placeholder="关联号" style="width:160px"></div>
+            <div class="fg"><label>匹配状态</label><select id="ex-match" style="width:100px"><option value="">全部</option><option value="MATCHED">已匹配</option><option value="UNMATCHED">未匹配</option></select></div>
+            <div class="fg"><label>每页</label><select id="ex-size" style="width:80px"><option>50</option><option>20</option><option>100</option></select></div>
+            <button class="primary" onclick="loadExports(1)">查询</button>
+            <button class="ghost" onclick="$('ex-customs').value='';$('ex-contract').value='';$('ex-month').value='';$('ex-batch').value='';$('ex-relation').value='';$('ex-match').value='';loadExports(1)">重置</button>
+          </div>
+          <div class="stats" id="ex-stats">共 0 条</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <button class="ghost" onclick="selectAllExports()" style="font-size:11px">全选本页</button>
+            <button class="ghost" onclick="selectAllPages()" style="font-size:11px">全选所有页</button>
+            <button class="ghost" onclick="clearExportSelection()" style="font-size:11px">取消全选</button>
+            <button class="primary" id="gen-selected" onclick="generateSelected()" style="font-size:11px">📋 生成选中数据的四张表</button>
+            <span style="font-size:11px;color:var(--muted)" id="sel-count">已选 0 条</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th style="width:30px"><input type="checkbox" id="ex-check-all" onchange="toggleAllExports(this)" style="width:auto;height:auto"></th><th>报关单号</th><th>合同号</th><th>项号</th><th>SKU</th><th>商品名称</th><th>单位</th><th>数量</th><th>FOB</th><th>出口日期</th><th>匹配</th><th>申报年月</th><th>申报批次</th><th>序号</th><th>关联号</th></tr></thead>
+              <tbody id="ex-body"></tbody>
+            </table>
+          </div>
+          <div class="pager" id="ex-pager"></div>
+        </div>
+
+        <div id="tab-purchase" class="panel" style="display:none;border-radius:0 0 var(--radius) var(--radius);border-top:none">
+          <div class="filter-row">
+            <div class="fg"><label>发票号</label><input id="pu-invoice" placeholder="发票号" style="width:160px"></div>
+            <div class="fg"><label>开票日期从</label><input id="pu-date-from" type="date" style="width:130px"></div>
+            <div class="fg"><label>开票日期到</label><input id="pu-date-to" type="date" style="width:130px"></div>
+            <div class="fg"><label>销售方纳税号</label><input id="pu-supplier-tax" placeholder="纳税号" style="width:160px"></div>
+            <div class="fg"><label>购买方纳税号</label><input id="pu-buyer-tax" placeholder="纳税号" style="width:160px"></div>
+            <div class="fg"><label>SKU</label><input id="pu-sku" placeholder="SKU" style="width:140px"></div>
+            <div class="fg"><label>库存状态</label><select id="pu-status" style="width:100px"><option value="">全部</option><option value="AVAILABLE">可用</option><option value="PARTIAL">部分</option><option value="EXHAUSTED">用完</option></select></div>
+            <div class="fg"><label>每页</label><select id="pu-size" style="width:80px"><option>50</option><option>20</option><option>100</option></select></div>
+            <button class="primary" onclick="loadPurchases(1)">查询</button>
+            <button class="ghost" onclick="$('pu-invoice').value='';$('pu-date-from').value='';$('pu-date-to').value='';$('pu-supplier-tax').value='';$('pu-buyer-tax').value='';$('pu-sku').value='';$('pu-status').value='';loadPurchases(1)">重置</button>
+          </div>
+          <div class="stats" id="pu-stats">共 0 条</div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>发票号</th><th>发票日期</th><th>项号</th><th>SKU</th><th>商品名称</th><th>单位</th><th>供应商</th><th>采购数量</th><th>剩余</th><th>单价</th><th>金额</th><th>税率</th><th>税额</th><th>申报年月</th><th>批次</th><th>序号</th><th>关联号</th><th>状态</th></tr></thead>
+              <tbody id="pu-body"></tbody>
+            </table>
+          </div>
+          <div class="pager" id="pu-pager"></div>
+        </div>
+
+        <div id="tab-forex" class="panel" style="display:none;border-radius:0 0 var(--radius) var(--radius);border-top:none">
+          <div class="filter-row">
+            <div class="fg"><label>报关单号</label><input id="fx-customs" placeholder="18位" style="width:160px"></div>
+            <div class="fg"><label>合同号</label><input id="fx-contract" placeholder="可选" style="width:120px"></div>
+            <div class="fg"><label>出口日期从</label><input id="fx-date-from" type="date" style="width:130px"></div>
+            <div class="fg"><label>出口日期到</label><input id="fx-date-to" type="date" style="width:130px"></div>
+            <div class="fg"><label>每页</label><select id="fx-size" style="width:80px"><option>50</option><option>20</option><option>100</option></select></div>
+            <button class="primary" onclick="loadForex(1)">查询</button>
+            <button class="ghost" onclick="$('fx-customs').value='';$('fx-contract').value='';$('fx-date-from').value='';$('fx-date-to').value='';loadForex(1)">重置</button>
+          </div>
+          <div class="stats" id="fx-stats">共 0 条</div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>序号</th><th>合同编号</th><th>报关单号</th><th>出口日期</th><th>出口口岸</th><th>报关合同金额(USD)</th><th>出口金额(USD)</th><th>月度汇率</th><th>回款金额(USD)</th><th>收汇金额(USD)</th><th>核心流水号</th><th>实际汇率</th><th>回单结汇金额(RMB)</th><th>收汇时间</th><th>差额(USD)</th></tr></thead>
+              <tbody id="fx-body"></tbody>
+            </table>
+          </div>
+          <div class="pager" id="fx-pager"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const terminalStates = new Set(['SUCCESS','PARTIAL','FAILED']);
+    let pollTimer = null;
+    let allPagesSelected = false;
+    const state = {
+      export: {page:1,size:50,total:0}, purchase:{page:1,size:50,total:0}, forex:{page:1,size:50,total:0}
+    };
+
+    // ═══════════ 工具 ═══════════
+    async function api(url, opts={}) {
+      const r = await fetch(url, opts);
+      let b; try { b = await r.json(); } catch { throw new Error(`HTTP ${r.status}`); }
+      if (!r.ok || !b.success) throw new Error(b.error?.message || `HTTP ${r.status}`);
+      return b;
+    }
+    const pretty = v => JSON.stringify(v, null, 2);
+    const badge = (v,m) => `<span class="badge ${v}">${v||'-'}</span>`;
+    const num = (v,d) => v!=null ? Number(v).toFixed(d||0) : '-';
+    const txt = v => v!=null ? String(v) : '-';
+    const dt = v => v ? String(v).slice(0,10) : '-';
+
+    function msg(id, t, cls) { const e=$(id); e.textContent=t; e.className=`msg show ${cls}`; }
+    function clearMsg(id) { const e=$(id); e.textContent=''; e.className='msg'; }
+
+    // ═══════════ 任务操作 ═══════════
+    function updateTaskUI() {
+      const t = $('task-type').value;
+      const refund = t === 'REFUND_PACKAGE_GENERATE';
+      $('file-area').style.display = refund ? 'none' : '';
+      $('refund-fields').style.display = refund ? '' : 'none';
+      if (t==='CUSTOMS_DECLARATION_IMPORT' || t==='PURCHASE_INVOICE_IMPORT') {
+        $('task-file').accept='.pdf'; $('file-hint').textContent='.pdf，最大 50 MB';
+      } else {
+        $('task-file').accept='.xlsx'; $('file-hint').textContent='.xlsx，最大 50 MB';
+      }
+    }
+    $('task-type').addEventListener('change', updateTaskUI);
+
+    $('submit-task').addEventListener('click', async () => {
+      clearMsg('form-msg');
+      $('submit-task').disabled = true;
+      try {
+        const t = $('task-type').value;
+        const h = {'X-ERP-User': $('erp-user').value.trim() || 'TEST-UI'};
+        if (t === 'REFUND_PACKAGE_GENERATE') {
+          h['Content-Type'] = 'application/json';
+          const body = JSON.stringify({ task_type:t, output_parent_dir:$('output-dir').value.trim(), declaration_month:$('month').value.trim()||'202512', payer_name:$('payer').value.trim(), overwrite:$('overwrite').checked });
+          const r = await api('/api/v1/tasks', {method:'POST', headers:h, body});
+          msg('form-msg', `任务 #${r.data.id} 已创建`, 'info');
+          watchTask(r.data.id);
+        } else {
+          const files = $('task-file').files;
+          if (!files.length) throw new Error('请先选择文件');
+          const ids = [];
+          for (const file of files) {
+            const body = new FormData(); body.append('task_type', t); body.append('file', file);
+            const m = $('declaration-month').value.trim();
+            if (m) {
+              if (!/^\d{6}$/.test(m)) throw new Error('申报年月须为6位数字，如202601');
+              body.append('declaration_month', m);
+            }
+            const ba = $('declaration-batch').value.trim();
+            if (ba) {
+              if (!/^\d{1,3}$/.test(ba)) throw new Error('申报批次须为1~3位数字，如001');
+              body.append('declaration_batch', ba);
+            }
+            const ed = $('export-date').value;
+            if (ed) body.append('export_date', ed);
+            const r = await api('/api/v1/tasks', {method:'POST', headers:{...h}, body});
+            ids.push(r.data.id);
+          }
+          msg('form-msg', `已创建 ${ids.length} 个任务：#${ids.join(', #')}`, 'info');
+          watchTask(ids[ids.length-1]);
+        }
+        refreshTasks();
+      } catch (e) { msg('form-msg', e.message, 'err'); }
+      finally { $('submit-task').disabled = false; }
+    });
+
+    async function watchTask(id) {
+      if (pollTimer) clearTimeout(pollTimer);
+      try {
+        const r = await api(`/api/v1/tasks/${id}`);
+        renderTask(r.data);
+        if (!terminalStates.has(r.data.task_status)) pollTimer = setTimeout(() => watchTask(id), 1500);
+      } catch (e) { $('task-current').innerHTML = `<div style="color:var(--bad)">${e.message}</div>`; }
+    }
+
+    function renderTask(t) {
+      $('task-current').innerHTML = `
+        <div class="task-row"><span>ID</span><strong>${t.id}</strong></div>
+        <div class="task-row"><span>类型</span><strong>${t.task_type}</strong></div>
+        <div class="task-row"><span>状态</span>${badge(t.task_status)}</div>
+        <div class="task-row"><span>进度</span><strong>${t.progress_current||0} / ${t.progress_total||0}</strong></div>
+        <div class="task-row"><span>完成</span><strong>${t.completed_at||'-'}</strong></div>
+        <pre>${pretty(t)}</pre>`;
+    }
+
+    async function refreshTasks() {
+      try {
+        const r = await api('/api/v1/tasks?page=1&page_size=8');
+        const tb = $('task-list'); tb.replaceChildren();
+        r.data.forEach(t => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${t.id}</td><td>${t.task_type}</td><td>${badge(t.task_status)}</td>`;
+          const act = document.createElement('td');
+          const btn = document.createElement('button');
+          btn.className='ghost'; btn.textContent='查看'; btn.style.fontSize='11px'; btn.style.padding='3px 8px';
+          btn.onclick = () => watchTask(t.id);
+          act.appendChild(btn); tr.appendChild(act);
+          tb.appendChild(tr);
+        });
+      } catch (e) {}
+    }
+
+    // ═══════════ 分页 ═══════════
+    function pagerHtml(prefix, total, page, size) {
+      const pages = Math.ceil(total / size);
+      if (pages <= 1) return `<span>共 ${total} 条</span>`;
+      let h = '';
+      for (let p = 1; p <= Math.min(pages, 20); p++) {
+        if (p === page) h += `<button class="primary">${p}</button>`;
+        else h += `<button class="ghost" onclick="goPage('${prefix}',${p})">${p}</button>`;
+      }
+      h += `<span>共 ${total} 条 / ${pages} 页</span>`;
+      return h;
+    }
+
+    function goPage(prefix, page) {
+      state[prefix].page = page;
+      if (prefix==='export') loadExports(page);
+      else if (prefix==='purchase') loadPurchases(page);
+      else loadForex(page);
+    }
+
+    // ═══════════ 出口明细 ═══════════
+    async function loadExports(page) {
+      const s = state.export; s.page = page||1; s.size = parseInt($('ex-size').value)||50;
+      const p = new URLSearchParams({page:s.page, page_size:s.size});
+      const cn = $('ex-customs').value.trim(), ct = $('ex-contract').value.trim();
+      const mo = $('ex-month').value.trim(), ba = $('ex-batch').value.trim();
+      const rn = $('ex-relation').value.trim(), ms = $('ex-match').value;
+      if (cn) p.set('customs_declaration_no', cn);
+      if (ct) p.set('contract_no', ct);
+      if (mo) p.set('declaration_month', mo);
+      if (ba) p.set('declaration_batch', ba);
+      if (rn) p.set('relation_no', rn);
+      if (ms) p.set('customs_match_status', ms);
+      try {
+        const r = await api(`/api/v1/export-details?${p}`);
+        const rows = r.data||[]; s.total = r.meta?.total||0;
+        $('ex-stats').textContent = `共 ${s.total} 条 · 第 ${s.page} 页`;
+        $('ex-body').innerHTML = rows.length ? rows.map(r => `
+          <tr><td><input type="checkbox" class="ex-cb" value="${r.id}" onchange="updateSelCount()" style="width:auto;height:auto"></td><td title="${txt(r.customs_declaration_no)}">${txt(r.customs_declaration_no).slice(0,22)}</td><td>${txt(r.contract_no)}</td><td>${txt(r.customs_item_no)}</td><td title="${txt(r.sku_normalized)}">${txt(r.sku_normalized).slice(0,16)}</td><td title="${txt(r.export_product_name)}">${txt(r.export_product_name).slice(0,20)}</td><td>${txt(r.unit)}</td><td class="num">${num(r.export_quantity)}</td><td class="num">$${num(r.fob_amount,2)}</td><td>${dt(r.export_date)}</td><td>${badge(r.customs_match_status,{MATCHED:'SUCCESS',UNMATCHED:'PARTIAL'})}</td><td>${txt(r.declaration_month)}</td><td>${txt(r.declaration_batch)}</td><td>${txt(r.sequence_no)}</td><td title="${txt(r.relation_no)}">${txt(r.relation_no).slice(0,24)}</td></tr>`).join('') : `<tr><td colspan="15" class="empty">暂无数据</td></tr>`;
+        $('ex-pager').innerHTML = pagerHtml('export', s.total, s.page, s.size);
+      } catch(e) { $('ex-body').innerHTML = `<tr><td colspan="15" class="empty">${e.message}</td></tr>`; }
+    }
+
+    // ═══════════ 进货库存 ═══════════
+    async function loadPurchases(page) {
+      const s = state.purchase; s.page = page||1; s.size = parseInt($('pu-size').value)||50;
+      const p = new URLSearchParams({page:s.page, page_size:s.size});
+      const inv = $('pu-invoice').value.trim(), df = $('pu-date-from').value, dto = $('pu-date-to').value;
+      const stx = $('pu-supplier-tax').value.trim(), btx = $('pu-buyer-tax').value.trim();
+      const sku = $('pu-sku').value.trim(), st = $('pu-status').value;
+      if (inv) p.set('invoice_no', inv);
+      if (df) p.set('invoice_date_from', df);
+      if (dto) p.set('invoice_date_to', dto);
+      if (stx) p.set('supplier_tax_no', stx);
+      if (btx) p.set('buyer_tax_no', btx);
+      if (sku) p.set('sku_normalized', sku);
+      if (st) p.set('inventory_status', st);
+      try {
+        const r = await api(`/api/v1/purchase-inventory?${p}`);
+        const rows = r.data||[]; s.total = r.meta?.total||0;
+        $('pu-stats').textContent = `共 ${s.total} 条 · 第 ${s.page} 页`;
+        $('pu-body').innerHTML = rows.length ? rows.map(r => `
+          <tr><td title="${txt(r.invoice_no)}">${txt(r.invoice_no).slice(0,18)}</td><td>${dt(r.invoice_date)}</td><td>${txt(r.invoice_item_no)}</td><td title="${txt(r.sku_normalized)}">${txt(r.sku_normalized).slice(0,16)}</td><td title="${txt(r.product_name)}">${txt(r.product_name).slice(0,16)}</td><td>${txt(r.unit)}</td><td title="${txt(r.supplier_name)}">${txt(r.supplier_name).slice(0,10)}</td><td class="num">${num(r.purchased_quantity)}</td><td class="num">${num(r.remaining_quantity)}</td><td class="num">${num(r.unit_price,4)}</td><td class="num">${num(r.taxable_amount,2)}</td><td>${num(r.tax_rate&&r.tax_rate*100,0)}%</td><td class="num">${num(r.tax_amount,2)}</td><td>${txt(r.declaration_month)}</td><td>${txt(r.declaration_batch)}</td><td>${txt(r.sequence_no)}</td><td title="${txt(r.relation_no)}">${txt(r.relation_no).slice(0,18)}</td><td>${badge(r.inventory_status,{AVAILABLE:'SUCCESS',PARTIAL:'PARTIAL',EXHAUSTED:'FAILED'})}</td></tr>`).join('') : `<tr><td colspan="18" class="empty">暂无数据</td></tr>`;
+        $('pu-pager').innerHTML = pagerHtml('purchase', s.total, s.page, s.size);
+      } catch(e) { $('pu-body').innerHTML = `<tr><td colspan="18" class="empty">${e.message}</td></tr>`; }
+    }
+
+    // ═══════════ 外汇应收 ═══════════
+    async function loadForex(page) {
+      const s = state.forex; s.page = page||1; s.size = parseInt($('fx-size').value)||50;
+      const p = new URLSearchParams({page:s.page, page_size:s.size});
+      const c = $('fx-customs').value.trim(), co = $('fx-contract').value.trim();
+      const df = $('fx-date-from').value, dto = $('fx-date-to').value;
+      if (c) p.set('customs_no', c); if (co) p.set('contract_no', co);
+      if (df) p.set('export_date_from', df);
+      if (dto) p.set('export_date_to', dto);
+      try {
+        const r = await api(`/api/v1/forex-receivables?${p}`);
+        const rows = r.data||[]; s.total = r.meta?.total||0;
+        $('fx-stats').textContent = `共 ${s.total} 条 · 第 ${s.page} 页`;
+        $('fx-body').innerHTML = rows.length ? rows.map(r => `
+          <tr><td>${txt(r.id)}</td><td>${txt(r.contract_no)}</td><td title="${txt(r.customs_declaration_no)}">${txt(r.customs_declaration_no).slice(0,22)}</td><td>${dt(r.export_date)}</td><td>${txt(r.customs_port)}</td><td class="num">$${num(r.customs_contract_usd,2)}</td><td class="num">$${num(r.export_amount_usd,2)}</td><td class="num">${num(r.monthly_exchange_rate,6)}</td><td class="num">$${num(r.received_amount_usd,2)}</td><td class="num">$${num(r.received_amount_usd,2)}</td><td>${txt(r.core_transaction_no)}</td><td class="num">${num(r.actual_exchange_rate,6)}</td><td class="num">${num(r.settlement_receipt_rmb,2)}</td><td>${dt(r.receipt_date)}</td><td class="num">$${num(r.difference_usd,2)}</td></tr>`).join('') : `<tr><td colspan="15" class="empty">暂无数据</td></tr>`;
+        $('fx-pager').innerHTML = pagerHtml('forex', s.total, s.page, s.size);
+      } catch(e) { $('fx-body').innerHTML = `<tr><td colspan="15" class="empty">${e.message}</td></tr>`; }
+    }
+
+    // ═══════════ Tab 切换 ═══════════
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.dataset.tab;
+        $('tab-export').style.display = tab==='export'?'':'none';
+        $('tab-purchase').style.display = tab==='purchase'?'':'none';
+        $('tab-forex').style.display = tab==='forex'?'':'none';
+        if (tab==='export') loadExports(state.export.page);
+        else if (tab==='purchase') loadPurchases(state.purchase.page);
+        else loadForex(state.forex.page);
+      });
+    });
+
+    // ═══════════ 多选与生成 ═══════════
+    function updateSelCount() {
+      allPagesSelected = false;
+      const cbs = document.querySelectorAll('.ex-cb:checked');
+      $('sel-count').textContent = `已选 ${cbs.length} 条`;
+    }
+    function toggleAllExports(cb) {
+      document.querySelectorAll('.ex-cb').forEach(c => { c.checked = cb.checked; });
+      updateSelCount();
+    }
+    function selectAllExports() {
+      document.querySelectorAll('.ex-cb').forEach(c => { c.checked = true; });
+      $('ex-check-all').checked = true; updateSelCount();
+    }
+    function selectAllPages() {
+      allPagesSelected = true;
+      document.querySelectorAll('.ex-cb').forEach(c => { c.checked = true; });
+      $('ex-check-all').checked = true;
+      $('sel-count').textContent = `已选全部 ${state.export.total} 条`;
+    }
+    function clearExportSelection() {
+      allPagesSelected = false;
+      document.querySelectorAll('.ex-cb').forEach(c => { c.checked = false; });
+      $('ex-check-all').checked = false; updateSelCount();
+    }
+
+    async function generateSelected() {
+      if (allPagesSelected) {
+        // 全选所有页：不传 export_ids，后端处理全部
+      } else {
+        var ids = [...document.querySelectorAll('.ex-cb:checked')].map(c => c.value);
+        if (!ids.length) { alert('请先勾选出口明细或点击全选所有页'); return; }
+      }
+      const dir = prompt('输出父目录:', 'D:/JMH/退税输出');
+      if (!dir) return;
+      const dm = prompt('申报年月:', '202601');
+      if (!dm || !/^\d{6}$/.test(dm)) { alert('申报年月须6位数字'); return; }
+      $('gen-selected').disabled = true;
+      try {
+        const h = {'Content-Type': 'application/json', 'X-ERP-User': $('erp-user').value.trim() || 'TEST-UI'};
+        const body = JSON.stringify({
+          task_type: 'REFUND_PACKAGE_GENERATE',
+          output_parent_dir: dir.trim(),
+          declaration_month: dm,
+          payer_name: 'Hong Kong Cammy Yeson Limited',
+          overwrite: true,
+          export_ids: allPagesSelected ? null : ids.map(Number)
+        });
+        const r = await api('/api/v1/tasks', {method:'POST', headers:h, body});
+        alert(`任务 #${r.data.id} 已创建，开始生成...`);
+        watchTask(r.data.id);
+        refreshTasks();
+      } catch(e) { alert(e.message); }
+      finally { $('gen-selected').disabled = false; }
+    }
+
+    // ═══════════ 启动 ═══════════
+    updateTaskUI(); refreshTasks(); loadExports(1);
+  </script>
+</body>
+</html>

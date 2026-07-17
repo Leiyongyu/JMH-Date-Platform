@@ -45,8 +45,8 @@
     <select id="selectAll" resultMap="Result">SELECT * FROM purchase_plan</select>
     <select id="selectByStatusText" resultMap="Result">SELECT * FROM purchase_plan WHERE status_text=#{statusText}</select>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO purchase_plan (plan_sn,ppg_sn,product_name,sku,fnsku,pic_url,supplier_id,supplier_name,status_text,status,sid,seller_name,marketplace,expect_arrive_time,remark,quantity_plan,product_id,cg_uid,cg_opt_username,cg_box_pcs,is_combo,is_aux,is_related_process_plan,spu,spu_name,creator_uid,creator_real_name,wid,warehouse_name,purchaser_id,purchaser_name,create_time,plan_remark,attribute_json,file_json,msku_json,perm_uid_json,perm_username_json)
-        VALUES (#{planSn},#{ppgSn},#{productName},#{sku},#{fnsku},#{picUrl},#{supplierId},#{supplierName},#{statusText},#{status},#{sid},#{sellerName},#{marketplace},#{expectArriveTime},#{remark},#{quantityPlan},#{productId},#{cgUid},#{cgOptUsername},#{cgBoxPcs},#{isCombo},#{isAux},#{isRelatedProcessPlan},#{spu},#{spuName},#{creatorUid},#{creatorRealName},#{wid},#{warehouseName},#{purchaserId},#{purchaserName},#{createTime},#{planRemark},#{attributeJson},#{fileJson},#{mskuJson},#{permUidJson},#{permUsernameJson})
+        INSERT INTO purchase_plan (plan_sn,ppg_sn,product_name,sku,fnsku,pic_url,supplier_id,supplier_name,status_text,status,sid,seller_name,marketplace,expect_arrive_time,remark,quantity_plan,product_id,cg_uid,cg_opt_username,cg_box_pcs,is_combo,is_aux,is_related_process_plan,spu,spu_name,creator_uid,creator_real_name,wid,warehouse_name,purchaser_id,purchaser_name,create_time,plan_remark,attribute_json,file_json,msku_json,perm_uid_json,perm_username_json,sync_time)
+        VALUES (#{planSn},#{ppgSn},#{productName},#{sku},#{fnsku},#{picUrl},#{supplierId},#{supplierName},#{statusText},#{status},#{sid},#{sellerName},#{marketplace},#{expectArriveTime},#{remark},#{quantityPlan},#{productId},#{cgUid},#{cgOptUsername},#{cgBoxPcs},#{isCombo},#{isAux},#{isRelatedProcessPlan},#{spu},#{spuName},#{creatorUid},#{creatorRealName},#{wid},#{warehouseName},#{purchaserId},#{purchaserName},#{createTime},#{planRemark},#{attributeJson},#{fileJson},#{mskuJson},#{permUidJson},#{permUsernameJson},NOW())
     </insert>
     <update id="updateById">
         UPDATE purchase_plan SET plan_sn=#{planSn},ppg_sn=#{ppgSn},product_name=#{productName},sku=#{sku},fnsku=#{fnsku},
@@ -57,7 +57,7 @@
         spu=#{spu},spu_name=#{spuName},creator_uid=#{creatorUid},creator_real_name=#{creatorRealName},wid=#{wid},
         warehouse_name=#{warehouseName},purchaser_id=#{purchaserId},purchaser_name=#{purchaserName},create_time=#{createTime},
         plan_remark=#{planRemark},attribute_json=#{attributeJson},file_json=#{fileJson},msku_json=#{mskuJson},
-        perm_uid_json=#{permUidJson},perm_username_json=#{permUsernameJson}
+        perm_uid_json=#{permUidJson},perm_username_json=#{permUsernameJson},sync_time=NOW()
         WHERE id=#{id}
     </update>
 </mapper>

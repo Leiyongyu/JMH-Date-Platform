@@ -22,16 +22,16 @@
         </foreach>
     </select>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO goodcang_grn_list (receiving_code,warehouse_code,reference_no,receiving_status,create_at,ca_address1)
-        VALUES (#{receivingCode},#{warehouseCode},#{referenceNo},#{receivingStatus},#{createAt},#{caAddress1})
+        INSERT INTO goodcang_grn_list (receiving_code,warehouse_code,reference_no,receiving_status,create_at,ca_address1,sync_time)
+        VALUES (#{receivingCode},#{warehouseCode},#{referenceNo},#{receivingStatus},#{createAt},#{caAddress1},NOW())
     </insert>
     <update id="updateById">
-        UPDATE goodcang_grn_list SET warehouse_code=#{warehouseCode},reference_no=#{referenceNo},receiving_status=#{receivingStatus},create_at=#{createAt},ca_address1=#{caAddress1}
+        UPDATE goodcang_grn_list SET warehouse_code=#{warehouseCode},reference_no=#{referenceNo},receiving_status=#{receivingStatus},create_at=#{createAt},ca_address1=#{caAddress1},sync_time=NOW()
         WHERE id=#{id}
     </update>
 
     <update id="updateCaAddress1">
-        UPDATE goodcang_grn_list SET ca_address1 = #{caAddress1} WHERE id = #{id}
+        UPDATE goodcang_grn_list SET ca_address1 = #{caAddress1}, sync_time = NOW() WHERE id = #{id}
     </update>
 
     <select id="selectRecentByCreateAt" resultMap="Result">

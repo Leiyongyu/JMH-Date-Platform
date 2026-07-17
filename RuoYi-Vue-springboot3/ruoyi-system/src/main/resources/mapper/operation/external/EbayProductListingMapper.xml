@@ -45,7 +45,7 @@
         INSERT IGNORE INTO ebay_product_listing (platform,item_id,item_url,picture_url,msku,sku,local_sku,
         title,local_name,attribute,listing_type,listing_type_name,listing_status,listing_status_name,
         price,start_price,accept_price,quantity,auto_restock,product_auto_restock_response,
-        location,dispatch_time_max,listing_start_time,listing_end_time,store_id,store_name,site_code,site_name)
+        location,dispatch_time_max,listing_start_time,listing_end_time,store_id,store_name,site_code,site_name,sync_time)
         VALUES
         <foreach collection="list" item="e" separator=",">
         (#{e.platform},#{e.itemId},#{e.itemUrl},#{e.pictureUrl},#{e.msku},#{e.sku},#{e.localSku},
@@ -53,7 +53,7 @@
         #{e.listingStatus},#{e.listingStatusName},#{e.price},#{e.startPrice},#{e.acceptPrice},
         #{e.quantity},#{e.autoRestock},#{e.productAutoRestockResponse},
         #{e.location},#{e.dispatchTimeMax},#{e.listingStartTime},#{e.listingEndTime},
-        #{e.storeId},#{e.storeName},#{e.siteCode},#{e.siteName})
+        #{e.storeId},#{e.storeName},#{e.siteCode},#{e.siteName},NOW())
         </foreach>
     </insert>
 
@@ -68,7 +68,8 @@
         product_auto_restock_response=#{productAutoRestockResponse},
         location=#{location},dispatch_time_max=#{dispatchTimeMax},
         listing_start_time=#{listingStartTime},listing_end_time=#{listingEndTime},
-        store_id=#{storeId},store_name=#{storeName},site_code=#{siteCode},site_name=#{siteName}
+        store_id=#{storeId},store_name=#{storeName},site_code=#{siteCode},site_name=#{siteName},
+        sync_time=NOW()
         WHERE item_id=#{itemId}
     </update>
 </mapper>

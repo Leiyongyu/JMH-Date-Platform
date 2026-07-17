@@ -7,6 +7,7 @@ import com.ruoyi.system.mapper.operation.external.AmzProductListingMapper;
 import com.ruoyi.system.mapper.operation.external.ShopListMapper;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
 import java.math.BigDecimal;
+import java.sql.Date;
 import java.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,6 +69,7 @@ public class LingxingAmzListingSyncService
                     e.setTagName(extractTagName(row));
                     e.setSmallImageUrl(str(row, "small_image_url"));
                     e.setPrice(bdVal(row, "price"));
+                    e.setListingCreateDate(dateVal(row, "open_date_display"));
                     batchList.add(e);
                 }
                 mapper.batchInsert(batchList);
@@ -118,5 +120,6 @@ public class LingxingAmzListingSyncService
     private String str(Map<String, Object> m, String... ks) { for (String k : ks) { Object v = m.get(k); if (v != null && StringUtils.hasText(v.toString())) return v.toString(); } return null; }
     private Integer intVal(Map<String, Object> m, String... ks) { String s = str(m, ks); if (s == null) return null; try { return Integer.valueOf(s); } catch (Exception e) { return null; } }
     private BigDecimal bdVal(Map<String, Object> m, String... ks) { String s = str(m, ks); if (s == null) return null; try { return new BigDecimal(s); } catch (Exception e) { return null; } }
+    private Date dateVal(Map<String, Object> m, String... ks) { String s = str(m, ks); if (s == null || s.length() < 10) return null; try { return Date.valueOf(s.substring(0, 10)); } catch (Exception e) { return null; } }
     private int getInt(Map<String, Object> m, String k) { Object v = m.get(k); if (v instanceof Number) return ((Number)v).intValue(); return 0; }
 }

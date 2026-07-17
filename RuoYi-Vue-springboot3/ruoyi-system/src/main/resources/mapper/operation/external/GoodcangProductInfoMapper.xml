@@ -17,12 +17,12 @@
     <select id="selectAll" resultMap="Result">SELECT * FROM goodcang_product_info</select>
     <update id="updatePrice">UPDATE goodcang_product_info SET price=#{price} WHERE sku_middle=#{middleCode}</update>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO goodcang_product_info (sku_middle,product_name_cn,real_weight,real_length,real_width,real_height,volume,price)
-        VALUES (#{skuMiddle},#{productNameCn},#{realWeight},#{realLength},#{realWidth},#{realHeight},#{volume},#{price})
+        INSERT INTO goodcang_product_info (sku_middle,product_name_cn,real_weight,real_length,real_width,real_height,volume,price,sync_time)
+        VALUES (#{skuMiddle},#{productNameCn},#{realWeight},#{realLength},#{realWidth},#{realHeight},#{volume},#{price},NOW())
     </insert>
     <update id="updateById">
         UPDATE goodcang_product_info SET product_name_cn=#{productNameCn},real_weight=#{realWeight},
-        real_length=#{realLength},real_width=#{realWidth},real_height=#{realHeight},volume=#{volume},price=#{price}
+        real_length=#{realLength},real_width=#{realWidth},real_height=#{realHeight},volume=#{volume},price=#{price},sync_time=NOW()
         WHERE id=#{id}
     </update>
     <delete id="deleteAll">DELETE FROM goodcang_product_info</delete>
