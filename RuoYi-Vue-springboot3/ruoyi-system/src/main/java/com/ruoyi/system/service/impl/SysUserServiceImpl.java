@@ -1,6 +1,7 @@
 package com.ruoyi.system.service.impl;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import com.ruoyi.common.annotation.DataScope;
+import com.ruoyi.common.constant.Constants;
 import com.ruoyi.common.constant.UserConstants;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
@@ -41,6 +43,8 @@ import com.ruoyi.system.service.ISysUserService;
 public class SysUserServiceImpl implements ISysUserService
 {
     private static final Logger log = LoggerFactory.getLogger(SysUserServiceImpl.class);
+
+    private static final int MAX_SUPER_ADMIN_USERS = 3;
 
     @Autowired
     private SysUserMapper userMapper;
@@ -436,6 +440,7 @@ public class SysUserServiceImpl implements ISysUserService
     {
         if (StringUtils.isNotEmpty(roleIds))
         {
+            checkSuperAdminUserLimit(roleIds);
             // 新增用户与角色管理
             List<SysUserRole> list = new ArrayList<SysUserRole>(roleIds.length);
             for (Long roleId : roleIds)
@@ -447,6 +452,26 @@ public class SysUserServiceImpl implements ISysUserService
             }
             userRoleMapper.batchUserRole(list);
         }
+    }
+
+    private void checkSuperAdminUserLimit(Long[] roleIds)
+    {
+        Long adminRoleId = getAdminRoleId();
+        if (adminRoleId == null || !Arrays.asList(roleIds).contains(adminRoleId))
+        {
+            return;
+        }
+        int current = userRoleMapper.countUserRoleByRoleId(adminRoleId);
+        if (current + 1 > MAX_SUPER_ADMIN_USERS)
+        {
+            throw new ServiceException("超级管理员最多只能授权给" + MAX_SUPER_ADMIN_USERS + "个用户");
+        }
+    }
+
+    private Long getAdminRoleId()
+    {
+        SysRole adminRole = roleMapper.checkRoleKeyUnique(Constants.SUPER_ADMIN);
+        return adminRole == null ? null : adminRole.getRoleId();
     }
 
     /**

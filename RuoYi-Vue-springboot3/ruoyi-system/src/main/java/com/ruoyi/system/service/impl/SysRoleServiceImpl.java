@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.annotation.DataScope;
+import com.ruoyi.common.constant.Constants;
 import com.ruoyi.common.constant.UserConstants;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.exception.ServiceException;
@@ -32,6 +33,8 @@ import com.ruoyi.system.service.ISysRoleService;
 @Service
 public class SysRoleServiceImpl implements ISysRoleService
 {
+    private static final int MAX_SUPER_ADMIN_USERS = 3;
+
     @Autowired
     private SysRoleMapper roleMapper;
 
@@ -182,9 +185,13 @@ public class SysRoleServiceImpl implements ISysRoleService
     @Override
     public void checkRoleAllowed(SysRole role)
     {
-        if (StringUtils.isNotNull(role.getRoleId()) && role.isAdmin())
+        if (StringUtils.isNotNull(role.getRoleId()))
         {
-            throw new ServiceException("不允许操作超级管理员角色");
+            SysRole dbRole = selectRoleById(role.getRoleId());
+            if (dbRole != null && Constants.SUPER_ADMIN.equals(dbRole.getRoleKey()))
+            {
+                throw new ServiceException("不允许停用或删除超级管理员角色");
+            }
         }
     }
 
@@ -412,6 +419,7 @@ public class SysRoleServiceImpl implements ISysRoleService
     @Override
     public int insertAuthUsers(Long roleId, Long[] userIds)
     {
+        checkSuperAdminUserLimit(roleId, userIds);
         // 新增用户与角色管理
         List<SysUserRole> list = new ArrayList<SysUserRole>();
         for (Long userId : userIds)
@@ -422,5 +430,26 @@ public class SysRoleServiceImpl implements ISysRoleService
             list.add(ur);
         }
         return userRoleMapper.batchUserRole(list);
+    }
+
+    private void checkSuperAdminUserLimit(Long roleId, Long[] userIds)
+    {
+        Long adminRoleId = getAdminRoleId();
+        if (roleId == null || adminRoleId == null || roleId.longValue() != adminRoleId.longValue() || StringUtils.isEmpty(userIds))
+        {
+            return;
+        }
+        int current = userRoleMapper.countUserRoleByRoleId(adminRoleId);
+        long adding = Arrays.stream(userIds).filter(StringUtils::isNotNull).distinct().count();
+        if (current + adding > MAX_SUPER_ADMIN_USERS)
+        {
+            throw new ServiceException("超级管理员最多只能授权给" + MAX_SUPER_ADMIN_USERS + "个用户");
+        }
+    }
+
+    private Long getAdminRoleId()
+    {
+        SysRole adminRole = roleMapper.checkRoleKeyUnique(Constants.SUPER_ADMIN);
+        return adminRole == null ? null : adminRole.getRoleId();
     }
 }

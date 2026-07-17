@@ -112,7 +112,6 @@ public class SysRoleController extends BaseController
     @PutMapping
     public AjaxResult edit(@Validated @RequestBody SysRole role)
     {
-        roleService.checkRoleAllowed(role);
         roleService.checkRoleDataScope(role.getRoleId());
         if (!roleService.checkRoleNameUnique(role))
         {
@@ -141,7 +140,6 @@ public class SysRoleController extends BaseController
     @PutMapping("/dataScope")
     public AjaxResult dataScope(@RequestBody SysRole role)
     {
-        roleService.checkRoleAllowed(role);
         roleService.checkRoleDataScope(role.getRoleId());
         return toAjax(roleService.authDataScope(role));
     }

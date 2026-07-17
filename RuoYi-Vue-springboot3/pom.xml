@@ -142,13 +142,6 @@
                 <version>${ruoyi.version}</version>
             </dependency>
 
-            <!-- 代码生成-->
-            <dependency>
-                <groupId>com.ruoyi</groupId>
-                <artifactId>ruoyi-generator</artifactId>
-                <version>${ruoyi.version}</version>
-            </dependency>
-
             <!-- 核心模块-->
             <dependency>
                 <groupId>com.ruoyi</groupId>
@@ -178,7 +171,6 @@
         <module>ruoyi-framework</module>
         <module>ruoyi-system</module>
         <module>ruoyi-quartz</module>
-        <module>ruoyi-generator</module>
         <module>ruoyi-common</module>
     </modules>
     <packaging>pom</packaging>
