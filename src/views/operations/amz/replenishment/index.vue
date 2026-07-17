@@ -100,6 +100,12 @@
           @keyup.enter="handleQuery"
         />
       </el-form-item>
+      <el-form-item label="产品性质" prop="productNature">
+        <el-select v-model="queryParams.productNature" placeholder="全部" clearable style="width: 110px" @change="handleQuery">
+          <el-option label="新品" value="2" />
+          <el-option label="老品" value="1" />
+        </el-select>
+      </el-form-item>
       <el-form-item>
         <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
         <el-button icon="Refresh" @click="resetQuery">重置</el-button>
@@ -241,6 +247,18 @@
           <template #default="scope">
             <el-input v-model="editCache[amzKey(scope.row,'rem')]" size="small" placeholder="备注" clearable
               @blur="onAmzCellBlur(scope.row,'rem')" @keyup.enter="onAmzCellBlur(scope.row,'rem')" @clear="onAmzCellClear(scope.row,'rem')" />
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.key === 'productNature'"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          :fixed="col.fixed || false" :sortable="col.sortable ? 'custom' : false"
+          :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope">
+            <el-tag :type="scope.row.productNature === 2 ? 'success' : 'info'" size="small">
+              {{ scope.row.productNature === 2 ? '新品' : '老品' }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column
@@ -439,6 +457,7 @@ const columnDefs = [
   { key: 'regionGroup', label: '区域组', align: 'center', width: 80 },
   { key: 'principalName', label: '负责人', align: 'center', width: 120, tooltip: true },
   { key: 'productCategory', label: '产品分类', align: 'center', width: 130, format: 'productCategory' },
+  { key: 'productNature', label: '产品性质', align: 'center', width: 95, sortable: true },
   { key: 'rating', label: '评分', align: 'right', width: 80, sortable: true, filterType: 'number' },
   { key: 'reviewCount', label: '评论数', align: 'right', width: 100, sortable: true, filterType: 'number' },
   { key: 'adRate', label: '广告费率', align: 'right', width: 105, sortable: true, format: 'percentNumber', filterType: 'number' },
@@ -490,6 +509,7 @@ const data = reactive({
     asin: undefined,
     principalName: undefined,
     productCategory: undefined,
+    productNature: undefined,
     sortField: undefined,
     sortOrder: undefined
   }
@@ -574,6 +594,7 @@ function buildFilters() {
   if (p.asin) filters.push({ field: 'asin', value: p.asin })
   if (p.principalName) filters.push({ field: 'principalName', value: p.principalName })
   if (p.productCategory) filters.push({ field: 'productCategory', value: p.productCategory })
+  if (p.productNature) filters.push({ field: 'productNature', value: p.productNature })
   if (p.warehouseName && p.warehouseName.length) filters.push({ field: 'warehouseName', value: p.warehouseName.join(',') })
   Object.entries(columnFilters).forEach(([field, f]) => {
     if (hasActiveFilter(field)) { filters.push({ field, type: 'number', operator: f.operator, value: f.value != null ? String(f.value) : undefined, value2: f.value2 != null ? String(f.value2) : undefined }) }
@@ -657,6 +678,7 @@ function resetQuery() {
   queryParams.value.warehouseName = []
   queryParams.value.countryCode = undefined
   queryParams.value.storeCountryCode = []
+  queryParams.value.productNature = undefined
   storeExcludeMode.value = false
   queryParams.value.sortField = undefined
   queryParams.value.sortOrder = undefined
