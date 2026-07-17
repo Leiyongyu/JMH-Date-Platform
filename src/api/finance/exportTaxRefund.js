@@ -2,9 +2,14 @@ import request from '@/utils/request'
 
 const base = '/finance/export-tax-refund'
 
-export function importCustomsMaterial(file) {
+function appendFiles(data, files) {
+  const list = Array.isArray(files) ? files : [files]
+  list.filter(Boolean).forEach(file => data.append('file', file))
+}
+
+export function importCustomsMaterial(files) {
   const data = new FormData()
-  data.append('file', file)
+  appendFiles(data, files)
   return request({
     url: `${base}/tasks/customs-material`,
     method: 'post',
@@ -14,9 +19,9 @@ export function importCustomsMaterial(file) {
   })
 }
 
-export function importCustomsDeclaration(file, params = {}) {
+export function importCustomsDeclaration(files, params = {}) {
   const data = new FormData()
-  data.append('file', file)
+  appendFiles(data, files)
   Object.keys(params).forEach(key => {
     if (params[key] !== undefined && params[key] !== null && params[key] !== '') {
       data.append(key, params[key])
@@ -31,9 +36,9 @@ export function importCustomsDeclaration(file, params = {}) {
   })
 }
 
-export function importPurchaseInvoice(file) {
+export function importPurchaseInvoice(files) {
   const data = new FormData()
-  data.append('file', file)
+  appendFiles(data, files)
   return request({
     url: `${base}/tasks/purchase-invoice`,
     method: 'post',
@@ -43,9 +48,9 @@ export function importPurchaseInvoice(file) {
   })
 }
 
-export function importForex(file) {
+export function importForex(files) {
   const data = new FormData()
-  data.append('file', file)
+  appendFiles(data, files)
   return request({
     url: `${base}/tasks/forex`,
     method: 'post',
