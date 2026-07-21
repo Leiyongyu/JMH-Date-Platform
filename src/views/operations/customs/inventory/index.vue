@@ -80,8 +80,8 @@
         <template #default="{ row }">
           <div class="stock-cell">
             <strong>手动 {{ formatQty(row.remainingStock) }}</strong>
-            <small v-if="Number(row.declaredTotalQty || 0)">已报 {{ formatQty(row.declaredTotalQty) }}</small>
-            <span>自动 {{ formatQty(row.availableRemainingStock ?? row.autoRemainingStock ?? row.remainingStock) }}</span>
+            <small v-if="Number(row.declaredTotalQty || 0)">自动支出 {{ formatQty(row.declaredTotalQty) }}</small>
+            <span>自动 {{ formatQty(row.availableRemainingStock ?? row.autoRemainingStock ?? row.inboundQuantity) }}</span>
           </div>
         </template>
       </el-table-column>
@@ -284,17 +284,24 @@ const WarehouseCell = defineComponent({
       const ElPopover = resolveComponent('el-popover')
       const logs = bucketLogs(props.row, props.bucket)
       const base = props.baseField ? Number(props.row[props.baseField] || 0) : 0
-      const autoBase = props.autoField ? Number((props.row[props.autoField] ?? props.row[props.baseField]) || 0) : base
       const declared = Number(props.row[props.declaredField] || 0)
-      const available = props.unknown ? null : autoBase - declared
-      const trigger = h('div', { class: ['stock-cell', 'has-popover', declared ? 'has-declared' : ''] }, [
+      const trigger = h('div', {
+        class: ['stock-cell', 'has-popover', declared ? 'has-declared' : ''],
+        'data-inventory-id': props.row.id,
+        'data-warehouse-bucket': props.bucket,
+        title: `点击查看 ${bucketLabel(props.bucket)} 报关扣减日志`
+      }, [
         props.unknown
           ? h('strong', { class: 'warehouse-log-link', style: warehouseLinkTextStyle }, `自动 ${formatQty(declared)}`)
           : h('strong', { class: 'warehouse-log-link', style: warehouseLinkTextStyle }, `手动 ${formatQty(base)}`),
-        declared ? h('small', `已报 ${formatQty(declared)}`) : null,
-        props.unknown ? null : h('span', { class: 'warehouse-log-link', style: warehouseLinkTextStyle }, `自动 ${formatQty(available)}`)
+        props.unknown ? null : h('span', { class: 'warehouse-log-link', style: warehouseLinkTextStyle }, `自动 ${formatQty(declared)}`)
       ])
-      return h(ElPopover, { trigger: 'hover', width: 420, placement: 'top' }, {
+      return h(ElPopover, {
+        trigger: 'click',
+        width: 600,
+        placement: 'top',
+        popperClass: 'customs-inventory-log-popper'
+      }, {
         reference: () => trigger,
         default: () => renderWarehouseLogs(props.row, props.bucket, logs)
       })
@@ -398,29 +405,65 @@ function bucketLogs(row, bucket) {
 }
 
 function renderWarehouseLogs(row, bucket, logs) {
+  const declaredTotal = logs.reduce((total, log) => total + Number(log.quantity || 0), 0)
   const children = [
     h('div', { class: 'log-popover-title' }, [
-      h('strong', bucketLabel(bucket)),
-      h('span', `${row.sku || '-'} / ${row.productCode || '-'}`)
+      h('div', { class: 'log-title-main' }, [
+        h('strong', bucketLabel(bucket)),
+        h('span', { title: `${row.sku || '-'} / ${row.productCode || '-'}` }, `${row.sku || '-'} / ${row.productCode || '-'}`)
+      ]),
+      h('div', { class: 'log-title-summary' }, [
+        h('span', `${logs.length} 条记录`),
+        h('strong', `累计扣减 ${formatQty(declaredTotal)} 件`)
+      ])
     ])
   ]
   if (!logs.length) {
     children.push(h('div', { class: 'log-empty' }, '暂无报关记录'))
   } else {
-    children.push(...logs.slice(0, 12).map(log => h('div', { class: 'log-row' }, [
-      h('div', { class: 'log-row-main' }, [
-        h('strong', `${log.sourceType || '-'} ${log.sourceOrderNo || '-'}`),
-        h('span', `${formatQty(log.quantity)} 件`)
+    children.push(h('div', { class: 'log-list' }, logs.map((log, index) => h('article', {
+      class: 'log-row',
+      key: log.id || `${log.declarationNo || ''}-${log.createdTime || ''}-${index}`
+    }, [
+      h('header', { class: 'log-row-main' }, [
+        h('div', { class: 'log-order' }, [
+          h('span', { class: 'log-index' }, `#${index + 1}`),
+          h('span', { class: ['log-source-tag', `is-${String(log.sourceType || 'manual').toLowerCase()}`] }, sourceTypeLabel(log.sourceType)),
+          h('strong', { title: log.sourceOrderNo || '-' }, log.sourceOrderNo || '无来源单号')
+        ]),
+        h('strong', { class: 'log-quantity' }, `扣减 ${formatQty(log.quantity)} 件`)
       ]),
-      h('div', { class: 'log-row-sub' }, [
-        h('span', `编码：${log.productCode || row.productCode || '-'}`),
-        h('span', `货源地：${log.sourceLocation || '-'}`),
-        h('span', `仓库：${log.warehouseName || bucketLabel(bucket)}`),
-        h('span', `SKU：${log.rawSku || log.standardSku || row.sku || '-'}`)
+      h('div', { class: 'log-meta-grid' }, [
+        logMetaItem('原始 SKU', log.rawSku || '-'),
+        logMetaItem('库存 SKU', log.standardSku || row.sku || '-'),
+        logMetaItem('仓库', log.warehouseName || bucketLabel(bucket)),
+        logMetaItem('货源地', log.sourceLocation || '-'),
+        logMetaItem('商品编码', log.productCode || row.productCode || '-', true)
+      ]),
+      h('footer', { class: 'log-row-footer' }, [
+        h('span', { title: log.declarationNo || '-' }, `批次：${log.declarationNo || '-'}`),
+        h('time', formatLogTime(log.createdTime))
       ])
-    ])))
+    ]))))
   }
   return h('div', { class: 'log-popover' }, children)
+}
+
+function logMetaItem(label, value, wide = false) {
+  const text = value === null || value === undefined || value === '' ? '-' : String(value)
+  return h('div', { class: ['log-meta-item', wide ? 'is-wide' : ''] }, [
+    h('span', label),
+    h('strong', { title: text }, text)
+  ])
+}
+
+function sourceTypeLabel(sourceType) {
+  return ({ EBAY: 'eBay备货', FBA: '亚马逊FBA', MANUAL: '手工录入' })[String(sourceType || '').toUpperCase()] || sourceType || '其他来源'
+}
+
+function formatLogTime(value) {
+  if (!value) return '时间：-'
+  return `时间：${String(value).replace('T', ' ').replace(/\.\d+$/, '')}`
 }
 
 function bucketLabel(bucket) {
@@ -771,65 +814,385 @@ getList()
 
 .log-popover {
   display: grid;
-  gap: 8px;
+  gap: 10px;
+  color: #1f2937;
 }
 
 .log-popover-title {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 6px;
+  gap: 18px;
+  padding: 2px 2px 10px;
   border-bottom: 1px solid #ebeef5;
 }
 
-.log-popover-title strong {
-  color: #1f2937;
+.log-title-main,
+.log-title-summary {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
 }
 
-.log-popover-title span {
+.log-title-main strong {
+  color: #1f2937;
+  font-size: 15px;
+}
+
+.log-title-main span {
+  overflow: hidden;
+  max-width: 315px;
   color: #6b7280;
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-title-summary {
+  flex: none;
+  text-align: right;
+}
+
+.log-title-summary span {
+  color: #909399;
+  font-size: 11px;
+}
+
+.log-title-summary strong {
+  color: #c2410c;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-list {
+  display: grid;
+  gap: 10px;
+  max-height: 430px;
+  padding-right: 3px;
+  overflow-y: auto;
 }
 
 .log-row {
   display: grid;
-  gap: 4px;
-  padding: 6px 0;
-  border-bottom: 1px solid #f1f5f9;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
 }
 
 .log-row-main {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.log-row-main strong {
+.log-order {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.log-order strong {
+  overflow: hidden;
   color: #303133;
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.log-row-main span {
+.log-source-tag {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.log-source-tag.is-fba {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.log-source-tag.is-manual {
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+
+.log-quantity {
+  flex: none;
   color: #c2410c;
-  font-size: 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
-.log-row-sub {
+.log-meta-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 3px 8px;
-  color: #6b7280;
+  gap: 7px 16px;
+}
+
+.log-meta-item {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
   font-size: 12px;
 }
 
-.log-row-sub span {
+.log-meta-item.is-wide {
+  grid-column: 1 / -1;
+}
+
+.log-meta-item span {
+  color: #909399;
+}
+
+.log-meta-item strong {
+  overflow: hidden;
+  color: #374151;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-row-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 7px;
+  border-top: 1px dashed #dbe3ec;
+  color: #909399;
+  font-size: 11px;
+}
+
+.log-row-footer span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.log-row-footer time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-more {
+  color: #909399;
+  font-size: 11px;
+  text-align: center;
+}
+
 .log-empty {
   padding: 10px 0;
+  color: #909399;
+  text-align: center;
+}
+</style>
+
+<!-- el-popover 默认 Teleport 到 body，日志样式必须是全局选择器。 -->
+<style>
+.customs-inventory-log-popper.el-popover {
+  padding: 14px 16px;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgb(15 23 42 / 16%);
+}
+
+.customs-inventory-log-popper .log-popover {
+  display: grid;
+  gap: 10px;
+  color: #1f2937;
+}
+
+.customs-inventory-log-popper .log-popover-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 2px 2px 10px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.customs-inventory-log-popper .log-title-main,
+.customs-inventory-log-popper .log-title-summary {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.customs-inventory-log-popper .log-title-main strong {
+  color: #1f2937;
+  font-size: 15px;
+}
+
+.customs-inventory-log-popper .log-title-main span {
+  overflow: hidden;
+  max-width: 350px;
+  color: #6b7280;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customs-inventory-log-popper .log-title-summary {
+  flex: none;
+  text-align: right;
+}
+
+.customs-inventory-log-popper .log-title-summary span {
+  color: #909399;
+  font-size: 11px;
+}
+
+.customs-inventory-log-popper .log-title-summary strong {
+  color: #c2410c;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.customs-inventory-log-popper .log-list {
+  display: grid;
+  gap: 10px;
+  max-height: min(520px, 68vh);
+  padding-right: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.customs-inventory-log-popper .log-list::-webkit-scrollbar {
+  width: 7px;
+}
+
+.customs-inventory-log-popper .log-list::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: #cbd5e1;
+}
+
+.customs-inventory-log-popper .log-row {
+  display: grid;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.customs-inventory-log-popper .log-row-main,
+.customs-inventory-log-popper .log-row-footer,
+.customs-inventory-log-popper .log-order {
+  display: flex;
+  align-items: center;
+}
+
+.customs-inventory-log-popper .log-row-main,
+.customs-inventory-log-popper .log-row-footer {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.customs-inventory-log-popper .log-order {
+  min-width: 0;
+  gap: 7px;
+}
+
+.customs-inventory-log-popper .log-index {
+  flex: none;
+  width: 28px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.customs-inventory-log-popper .log-order strong {
+  overflow: hidden;
+  color: #303133;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customs-inventory-log-popper .log-source-tag {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.customs-inventory-log-popper .log-source-tag.is-fba {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.customs-inventory-log-popper .log-source-tag.is-manual {
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+
+.customs-inventory-log-popper .log-quantity {
+  flex: none;
+  color: #c2410c;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.customs-inventory-log-popper .log-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 16px;
+}
+
+.customs-inventory-log-popper .log-meta-item {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.customs-inventory-log-popper .log-meta-item.is-wide {
+  grid-column: 1 / -1;
+}
+
+.customs-inventory-log-popper .log-meta-item span {
+  color: #909399;
+}
+
+.customs-inventory-log-popper .log-meta-item strong {
+  overflow: hidden;
+  color: #374151;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customs-inventory-log-popper .log-row-footer {
+  padding-top: 7px;
+  border-top: 1px dashed #dbe3ec;
+  color: #909399;
+  font-size: 11px;
+}
+
+.customs-inventory-log-popper .log-row-footer span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customs-inventory-log-popper .log-row-footer time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.customs-inventory-log-popper .log-empty {
+  padding: 18px 0;
   color: #909399;
   text-align: center;
 }

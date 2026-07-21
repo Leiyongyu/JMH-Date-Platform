@@ -163,11 +163,12 @@
                   <el-input v-model="entry.row.descriptionCn" size="small" placeholder="商品名称" />
                   <el-autocomplete v-model="entry.row.sku" clearable size="small" placeholder="输入或搜索SKU"
                     :fetch-suggestions="queryProductSuggestions" value-key="sku" :trigger-on-focus="false"
+                    @input="value => handleSkuInput(entry.row, value)"
                     @select="option => selectProductOption(entry.row, option)">
                     <template #default="{ item }">
                       <div class="sku-option">
-                        <span>{{ item.sku }}</span>
-                        <small>{{ item.descriptionCn || item.productName || '-' }}</small>
+                        <span>{{ item.declarationSku || item.sku }}</span>
+                        <small>{{ item.standardSku || item.sku }} · {{ item.descriptionCn || item.productName || '-' }}</small>
                       </div>
                     </template>
                   </el-autocomplete>
@@ -477,7 +478,7 @@ function createHeader() {
 
 function createEmptyItem() {
   return {
-    _key: ++keySeed, _boxKey: `box-${++boxKeySeed}`, productCode: '', sku: '', descriptionCn: '', model: '', unit: '个',
+    _key: ++keySeed, _boxKey: `box-${++boxKeySeed}`, productCode: '', sku: '', standardSku: '', declarationSku: '', descriptionCn: '', model: '', unit: '个',
     unitPriceUsd: 0, currency: 'USD', singleWeight: 0, quantity: 1,
     hsCode: '', hsDescription: '', originCountry: '中国', destinationCountry: '美国',
     sourceLocation: '', exemption: '', boxNo: null, boxCount: 1, sourceOrderNo: '', orderTotalCbm: null, isTax: null,
@@ -546,7 +547,10 @@ function formatNumber(value, precision = 0) {
   return precision > 0 ? number.toFixed(precision) : number.toString()
 }
 
+let productSearchSequence = 0
+
 async function queryProductSuggestions(keyword, callback) {
+  const sequence = ++productSearchSequence
   if (!keyword || !keyword.trim()) {
     callback([])
     return
@@ -554,14 +558,17 @@ async function queryProductSuggestions(keyword, callback) {
   searching.value = true
   try {
     const response = await searchCustomsProducts(keyword.trim())
+    if (sequence !== productSearchSequence) return
     const suggestions = (response.data || []).map(item => ({
       ...item,
-      value: item.sku || item.descriptionCn || item.productName || ''
+      standardSku: item.standardSku || item.sku || '',
+      declarationSku: item.declarationSku || item.sku || '',
+      value: item.declarationSku || item.sku || item.descriptionCn || item.productName || ''
     }))
     productOptions.value = suggestions
     callback(suggestions)
   } catch (error) {
-    callback([])
+    if (sequence === productSearchSequence) callback([])
   } finally {
     searching.value = false
   }
@@ -569,6 +576,8 @@ async function queryProductSuggestions(keyword, callback) {
 
 function selectProductOption(row, product) {
   if (!product) return
+  const standardSku = product.standardSku || product.sku || ''
+  const declarationSku = product.declarationSku || product.sku || ''
   const quantity = row.quantity || 1
   const key = row._key
   const boxFields = ['boxNo', 'boxCount', 'packingGrossWeight', 'packingCbm', 'boxLength', 'boxWidth', 'boxHeight']
@@ -577,6 +586,9 @@ function selectProductOption(row, product) {
     return result
   }, {})
   Object.assign(row, JSON.parse(JSON.stringify(product)), { quantity, _key: key })
+  row.standardSku = standardSku
+  row.declarationSku = declarationSku
+  row.sku = declarationSku
   boxFields.forEach(field => {
     if (currentBox[field] !== undefined && currentBox[field] !== null && currentBox[field] !== '') {
       row[field] = currentBox[field]
@@ -585,9 +597,20 @@ function selectProductOption(row, product) {
   row.hsCode = product.hsCode || ''
 }
 
+function handleSkuInput(row, value) {
+  if (!row.declarationSku || normalize(value) === normalize(row.declarationSku)) return
+  row.standardSku = ''
+  row.declarationSku = ''
+}
+
 function productToRow(product) {
+  const standardSku = product.standardSku || product.sku || ''
+  const declarationSku = product.declarationSku || product.sku || ''
   return {
     ...JSON.parse(JSON.stringify(product)),
+    sku: declarationSku,
+    standardSku,
+    declarationSku,
     quantity: Number(product.quantity || 1),
     boxCount: Number(product.boxCount || 1),
     orderTotalCbm: product.orderTotalCbm ?? null,
@@ -858,18 +881,21 @@ async function confirmStockOrderLink() {
     proxy.$modal.msgWarning('请先选择备货单')
     return
   }
-  const stockSkuKeys = collectSelectedStockSkuKeys()
-  if (!stockSkuKeys.length) {
+  const selectedStockKeys = collectSelectedStockSkuKeys()
+  if (!selectedStockKeys.length) {
     proxy.$modal.msgWarning('请至少选择一个备货单SKU')
     return
   }
   stockDialog.saving = true
   try {
-    const response = await loadStockOrderProducts({
+    const payload = {
       overseasOrderNos: stockDialog.selectedOrderNos,
-      stockSkuKeys,
       taxOverrides: collectTaxOverrides(stockDialog.orders, 'overseasOrderNo', 'stock')
-    })
+    }
+    // 全选时只传单号，避免将数百/数千个“单号|SKU”拼入请求和 SQL IN 条件。
+    const stockSkuFilter = buildStockSkuFilter(selectedStockKeys)
+    if (stockSkuFilter !== null) payload.stockSkuKeys = stockSkuFilter
+    const response = await loadStockOrderProducts(payload)
     const result = normalizeLinkResult(response.data)
     const rows = result.products.map(productToRow)
     applyLinkMissing(stockDialog, result)
@@ -953,18 +979,20 @@ async function confirmFbaShipmentLink() {
     proxy.$modal.msgWarning('请先选择FBA货件')
     return
   }
-  const fbaSkuKeys = collectSelectedFbaSkuKeys()
-  if (!fbaSkuKeys.length) {
+  const selectedFbaKeys = collectSelectedFbaSkuKeys()
+  if (!selectedFbaKeys.length) {
     proxy.$modal.msgWarning('请至少选择一个FBA货件SKU')
     return
   }
   fbaDialog.saving = true
   try {
-    const response = await loadFbaShipmentProducts({
+    const payload = {
       shipmentIds: fbaDialog.selectedShipmentIds,
-      fbaSkuKeys,
       taxOverrides: collectTaxOverrides(fbaDialog.shipments, 'shipmentId', 'fba')
-    })
+    }
+    const fbaSkuFilter = buildFbaSkuFilter(selectedFbaKeys)
+    if (fbaSkuFilter !== null) payload.fbaSkuKeys = fbaSkuFilter
+    const response = await loadFbaShipmentProducts(payload)
     const result = normalizeLinkResult(response.data)
     const rows = result.products.map(productToRow)
     applyLinkMissing(fbaDialog, result)
@@ -1040,6 +1068,13 @@ function collectSelectedStockSkuKeys() {
   return Array.from(new Set(keys))
 }
 
+function buildStockSkuFilter(selectedKeys) {
+  const selectedOrders = new Set(stockDialog.selectedOrderNos)
+  const total = stockDialog.orders.reduce((count, order) =>
+    count + (selectedOrders.has(order.overseasOrderNo) ? (order.items || []).length : 0), 0)
+  return total > 0 && selectedKeys.length === total ? null : selectedKeys
+}
+
 function collectSelectedFbaSkuKeys() {
   const selectedShipments = new Set(fbaDialog.selectedShipmentIds)
   const keys = []
@@ -1050,6 +1085,13 @@ function collectSelectedFbaSkuKeys() {
     })
   })
   return Array.from(new Set(keys))
+}
+
+function buildFbaSkuFilter(selectedKeys) {
+  const selectedShipments = new Set(fbaDialog.selectedShipmentIds)
+  const total = fbaDialog.shipments.reduce((count, shipment) =>
+    count + (selectedShipments.has(shipment.shipmentId) ? (shipment.items || []).length : 0), 0)
+  return total > 0 && selectedKeys.length === total ? null : selectedKeys
 }
 
 function collectTaxOverrides(rows, sourceKey, mode) {
@@ -1086,7 +1128,7 @@ function linkMissingCount(result) {
 
 function canMergeCustomsProduct(existing, incoming) {
   if (Number(existing.isTax) !== 1 || Number(incoming.isTax) !== 1) return false
-  return normalize(existing.sku) === normalize(incoming.sku)
+  return normalize(existing.standardSku || existing.sku) === normalize(incoming.standardSku || incoming.sku)
     && normalize(existing.sourceLocation) === normalize(incoming.sourceLocation)
 }
 
@@ -1284,7 +1326,7 @@ async function handleSaveProducts() {
 function toProductPayload(item) {
   return {
     id: item.id,
-    sku: item.sku,
+    sku: item.standardSku || item.sku,
     productCode: item.productCode,
     descriptionCn: item.descriptionCn,
     model: item.model,
