@@ -16,6 +16,10 @@ public class CustomsDeclarationItem extends CustomsProduct implements Serializab
     private String warehouseBucket;
     private String warehouseName;
     private String matchStatus;
+    /** 来源 SKU 是否命中出入库清单。 */
+    private Boolean inventoryMatched;
+    /** 来源 SKU 是否具备可用于报关的商品资料。 */
+    private Boolean productMatched;
     private BigDecimal orderTotalCbm;
     private BigDecimal totalPrice;
     private BigDecimal totalWeight;
@@ -38,6 +42,10 @@ public class CustomsDeclarationItem extends CustomsProduct implements Serializab
     public void setWarehouseName(String warehouseName) { this.warehouseName = warehouseName; }
     public String getMatchStatus() { return matchStatus; }
     public void setMatchStatus(String matchStatus) { this.matchStatus = matchStatus; }
+    public Boolean getInventoryMatched() { return inventoryMatched; }
+    public void setInventoryMatched(Boolean inventoryMatched) { this.inventoryMatched = inventoryMatched; }
+    public Boolean getProductMatched() { return productMatched; }
+    public void setProductMatched(Boolean productMatched) { this.productMatched = productMatched; }
     public BigDecimal getOrderTotalCbm() { return orderTotalCbm; }
     public void setOrderTotalCbm(BigDecimal orderTotalCbm) { this.orderTotalCbm = orderTotalCbm; }
     public BigDecimal getTotalPrice() { return totalPrice; }

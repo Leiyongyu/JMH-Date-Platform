@@ -21,6 +21,14 @@ from modules.tax_refund.repository import (
     get_refund_forex_rows,
     get_refund_purchases,
 )
+from modules.tax_refund.inventory_service import (
+    confirm_generation,
+    get_generation_by_task,
+    mark_generation_published,
+    release_generation,
+    reserve_plan,
+)
+from modules.tax_refund.customs_numbers import customs_item_number
 
 
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
@@ -37,12 +45,17 @@ class WorkflowOptions:
     overwrite: bool = False
     payer_name: str = "Hong Kong Cammy Yeson Limited"
     export_ids: list[int] | None = None
+    task_id: int | None = None
+    idempotency_key: str | None = None
+    operator_id: str = "ERP"
+    operator_name: str = "ERP"
 
 
 @dataclass(slots=True)
 class WorkflowResult:
     success: bool = False
     output_dir: str | None = None
+    generation_id: int | None = None
     supplier_count: int = 0
     generated_files: int = 0
     purchase_rows: int = 0
@@ -194,11 +207,8 @@ def _write_mapped_rows(
 
 
 def _customs_item_number(row: dict[str, Any]) -> str:
-    customs_no = _text(row.get("customs_declaration_no"))
-    item_no = _text(row.get("customs_item_no")).lstrip("0") or "0"
-    if len(customs_no) >= 21 and customs_no[-3:] == item_no.zfill(3):
-        return customs_no
-    return f"{customs_no}{item_no.zfill(3)}"
+    return customs_item_number(
+        row.get("customs_declaration_no"), row.get("customs_item_no"))
 
 
 def _product_code(value: Any) -> str:
@@ -215,36 +225,6 @@ def _exchange_rate(value: Any) -> Decimal | None:
 
 class RefundWorkflow:
     """从当前退税数据库生成按供货方分组的三套申报文件。"""
-
-    def _writeback_allocations(self, plan: list[dict[str, Any]]) -> None:
-        """将分配结果（申报年月、批次、关联号）回写到进货库存表。"""
-        from infrastructure.database import get_conn
-        conn = get_conn()
-        cursor = conn.cursor()
-        try:
-            updated = 0
-            for item in plan:
-                for purchase in item["purchases"]:
-                    lot_id = purchase.get("lot_id")
-                    if not lot_id:
-                        continue
-                    cursor.execute(
-                        "UPDATE purchase_inventory SET declaration_month=%s, "
-                        "declaration_batch=%s, sequence_no=%s, relation_no=%s "
-                        "WHERE id=%s",
-                        (
-                            purchase["申报年月"],
-                            purchase["申报批次"],
-                            None,  # 序号在进货表中暂无，由出口明细表持有
-                            purchase["关联号"],
-                            lot_id,
-                        ),
-                    )
-                    updated += cursor.rowcount
-            conn.commit()
-        finally:
-            cursor.close()
-            conn.close()
 
     purchase_mapping = {
         "申报年月": "申报年月",
@@ -321,13 +301,34 @@ class RefundWorkflow:
 
     def run(self, options: WorkflowOptions) -> WorkflowResult:
         result = WorkflowResult()
+        generation_id = None
+        inventory_committed = False
+        staging = None
         try:
+            if options.task_id is None:
+                raise RefundWorkflowError("正式生成退税文件必须关联API任务ID")
+            existing = get_generation_by_task(options.task_id)
+            if existing and existing["generation_status"] == "COMMITTED":
+                return self._result_from_generation(existing)
+            if existing and existing["generation_status"] == "FILE_PENDING":
+                staging = Path(existing["staging_directory"])
+                target = Path(existing["output_directory"])
+                if not target.exists():
+                    if not staging.exists():
+                        raise RefundWorkflowError("库存已扣减，但待发布临时目录不存在，请人工检查")
+                    staging.replace(target)
+                mark_generation_published(existing["id"], str(target))
+                existing["generation_status"] = "COMMITTED"
+                return self._result_from_generation(existing)
+            if existing and existing["generation_status"] in ("PREPARING", "RESERVED"):
+                release_generation(existing["id"], "任务恢复时释放上次未完成的库存预占")
+
             info = self.validate(options)
             output_parent = Path(info["output_parent_dir"])
             target = Path(info["target_dir"])
             # 始终加时间戳，避免覆盖
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            target = target.parent / f"汇总_{ts}"
+            target = target.parent / f"汇总_{ts}_{options.task_id}"
             output_parent.mkdir(parents=True, exist_ok=True)
 
             plan = self._build_plan(options, result)
@@ -337,23 +338,49 @@ class RefundWorkflow:
             staging = output_parent / f".汇总.tmp-{uuid.uuid4().hex[:8]}"
             staging.mkdir(parents=True)
             try:
+                generation_id = reserve_plan(
+                    task_id=options.task_id,
+                    idempotency_key=options.idempotency_key,
+                    declaration_month=options.declaration_month,
+                    operator_id=options.operator_id,
+                    operator_name=options.operator_name,
+                    target_dir=str(target),
+                    staging_dir=str(staging),
+                    plan=plan,
+                )
+                result.generation_id = generation_id
                 self._generate(staging, plan, options, result)
-                self._writeback_allocations(plan)
                 result.success = True
                 result.output_dir = str(target)
                 (staging / "生成结果.json").write_text(
                     json.dumps(result.to_dict(), ensure_ascii=False, indent=2, default=str),
                     encoding="utf-8",
                 )
+                confirm_generation(generation_id, result.to_dict(), options.operator_id)
+                inventory_committed = True
                 staging.replace(target)
+                mark_generation_published(generation_id, str(target))
             except Exception:
-                if staging.exists():
+                if generation_id and not inventory_committed:
+                    release_generation(generation_id, "退税文件生成失败，已释放库存预占")
+                if staging.exists() and not inventory_committed:
                     shutil.rmtree(staging, ignore_errors=True)
                 raise
         except Exception as exc:
             result.success = False
             result.output_dir = None
             result.errors.append(str(exc))
+        return result
+
+    @staticmethod
+    def _result_from_generation(generation: dict[str, Any]) -> WorkflowResult:
+        payload = generation.get("result_payload") or {}
+        fields = WorkflowResult.__dataclass_fields__
+        values = {key: value for key, value in payload.items() if key in fields}
+        result = WorkflowResult(**values)
+        result.success = True
+        result.generation_id = int(generation["id"])
+        result.output_dir = generation.get("output_directory")
         return result
 
     def _build_plan(
@@ -439,6 +466,8 @@ class RefundWorkflow:
                     allocation = {
                         "lot_id": lot["id"],
                         "export_id": export["id"],
+                        "allocated_quantity": allocated,
+                        "match_mode": "RELATION",
                         "申报年月": options.declaration_month,
                         "申报批次": None,
                         "关联号": None,
@@ -450,7 +479,7 @@ class RefundWorkflow:
                         "出口商品代码": _product_code(export.get("export_product_code")),
                         "出口商品名称": _text(export.get("export_product_name")) or _text(lot.get("product_name")),
                         "计量单位": _text(lot.get("unit")) or _text(export.get("unit")),
-                        "数量": float(lot.get("purchased_quantity")),
+                        "数量": float(allocated),
                         "计税金额": _money(lot.get("taxable_amount")),
                         "征税率": _rate_percent(lot.get("tax_rate")),
                         "退税率": _rate_percent(lot.get("refund_rate")),
@@ -501,6 +530,8 @@ class RefundWorkflow:
                 allocation = {
                     "lot_id": lot["id"],
                     "export_id": export["id"],
+                    "allocated_quantity": allocated,
+                    "match_mode": "SKU",
                     "申报年月": options.declaration_month,
                     "申报批次": None,
                     "关联号": None,

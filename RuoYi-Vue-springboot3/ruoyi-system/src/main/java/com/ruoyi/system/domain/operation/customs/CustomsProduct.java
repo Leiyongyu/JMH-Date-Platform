@@ -10,6 +10,10 @@ public class CustomsProduct implements Serializable
 
     private Long id;
     private String sku;
+    /** 库存中的完整 SKU，用于匹配和库存扣减。 */
+    private String standardSku;
+    /** 报关页面及报关文件使用的 SKU。 */
+    private String declarationSku;
     private String productCode;
     private String descriptionCn;
     private String model;
@@ -43,6 +47,10 @@ public class CustomsProduct implements Serializable
     public void setId(Long id) { this.id = id; }
     public String getSku() { return sku; }
     public void setSku(String sku) { this.sku = sku; }
+    public String getStandardSku() { return standardSku; }
+    public void setStandardSku(String standardSku) { this.standardSku = standardSku; }
+    public String getDeclarationSku() { return declarationSku; }
+    public void setDeclarationSku(String declarationSku) { this.declarationSku = declarationSku; }
     public String getProductCode() { return productCode; }
     public void setProductCode(String productCode) { this.productCode = productCode; }
     public String getDescriptionCn() { return descriptionCn; }

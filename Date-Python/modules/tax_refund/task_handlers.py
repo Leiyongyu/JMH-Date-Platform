@@ -1,14 +1,6 @@
-"""统一 ERP API 任务的后台执行器。"""
+"""退税领域任务处理器；执行统一交给 infrastructure.task_queue。"""
 
-from concurrent.futures import ThreadPoolExecutor
-
-from modules.tax_refund.repository import (
-    get_task,
-    mark_task_failed,
-    mark_task_running,
-    mark_task_success,
-    update_task_progress,
-)
+from modules.tax_refund.repository import update_task_progress
 from modules.tax_refund.repository import insert_excel_item, set_excel_items_old_version
 from modules.tax_refund.repository import upsert_export_detail
 from modules.tax_refund.repository import count_allocations
@@ -25,6 +17,8 @@ from modules.tax_refund.parsers.export_matcher import match_and_enrich_export_re
 from modules.tax_refund.parsers.forex_import import confirm_forex_import, preview_forex_import
 from modules.tax_refund.parsers.invoice_pdf import parse_invoice_pdf_full
 from modules.tax_refund.workflow import RefundWorkflow, WorkflowOptions
+from modules.tax_refund.inventory_service import reverse_generation
+from infrastructure.task_queue import get_task_queue, register_handler
 
 
 TASK_CUSTOMS_MATERIAL = 'CUSTOMS_MATERIAL_IMPORT'
@@ -32,6 +26,7 @@ TASK_CUSTOMS_DECLARATION = 'CUSTOMS_DECLARATION_IMPORT'
 TASK_PURCHASE_INVOICE = 'PURCHASE_INVOICE_IMPORT'
 TASK_FOREX = 'FOREX_IMPORT'
 TASK_REFUND_PACKAGE = 'REFUND_PACKAGE_GENERATE'
+TASK_REFUND_REVERSE = 'REFUND_PACKAGE_REVERSE'
 
 TASK_TYPES = {
     TASK_CUSTOMS_MATERIAL,
@@ -39,6 +34,7 @@ TASK_TYPES = {
     TASK_PURCHASE_INVOICE,
     TASK_FOREX,
     TASK_REFUND_PACKAGE,
+    TASK_REFUND_REVERSE,
 }
 
 FILE_TASK_EXTENSIONS = {
@@ -48,31 +44,9 @@ FILE_TASK_EXTENSIONS = {
     TASK_FOREX: '.xlsx',
 }
 
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='erp-api-task')
-
-
 def submit_task(task_id):
-    """提交后台执行；任务状态和结果均持久化到数据库。"""
-    _executor.submit(execute_task, task_id)
-
-
-def execute_task(task_id):
-    task = get_task(task_id)
-    if not task:
-        return
-    mark_task_running(task_id)
-    try:
-        handler = {
-            TASK_CUSTOMS_MATERIAL: _import_customs_material,
-            TASK_CUSTOMS_DECLARATION: _import_customs_declaration,
-            TASK_PURCHASE_INVOICE: _import_purchase_invoice,
-            TASK_FOREX: _import_forex,
-            TASK_REFUND_PACKAGE: _generate_refund_package,
-        }[task['task_type']]
-        result, status = handler(task_id, task)
-        mark_task_success(task_id, result, status=status)
-    except Exception as exc:
-        mark_task_failed(task_id, str(exc))
+    """兼容现有路由；所有任务统一进入可靠任务队列。"""
+    get_task_queue().enqueue(task_id)
 
 
 def _file_context(task, import_type):
@@ -91,6 +65,7 @@ def _file_context(task, import_type):
     return path, payload, batch_id
 
 
+@register_handler(TASK_CUSTOMS_MATERIAL)
 def _import_customs_material(task_id, task):
     path, payload, batch_id = _file_context(task, 'CUSTOMS_EXCEL')
     contract_no, format_version, items, error = parse_customs_excel(path)
@@ -130,6 +105,7 @@ def _import_customs_material(task_id, task):
     }, ('SUCCESS' if not errors else 'PARTIAL')
 
 
+@register_handler(TASK_CUSTOMS_DECLARATION)
 def _import_customs_declaration(task_id, task):
     path, payload, batch_id = _file_context(task, 'CUSTOMS_PDF')
     records, stats = parse_customs_pdf_full(path, task.get('file_sha256'), batch_id,
@@ -165,6 +141,7 @@ def _import_customs_declaration(task_id, task):
     }, 'SUCCESS'
 
 
+@register_handler(TASK_PURCHASE_INVOICE)
 def _import_purchase_invoice(task_id, task):
     path, payload, batch_id = _file_context(task, 'INVOICE_PDF')
     decl_month = str(payload.get('declaration_month') or '').strip() or None
@@ -206,6 +183,7 @@ def _import_purchase_invoice(task_id, task):
     }, status
 
 
+@register_handler(TASK_FOREX)
 def _import_forex(task_id, task):
     duplicate = check_duplicate_file(task.get('file_sha256'), 'FOREX_EXCEL')
     if duplicate and duplicate[1] == 'SUCCESS':
@@ -237,6 +215,7 @@ def _import_forex(task_id, task):
     }, 'SUCCESS'
 
 
+@register_handler(TASK_REFUND_PACKAGE)
 def _generate_refund_package(task_id, task):
     payload = task.get('request_payload') or {}
     options = WorkflowOptions(
@@ -246,6 +225,10 @@ def _generate_refund_package(task_id, task):
         payer_name=str(
             payload.get('payer_name') or 'Hong Kong Cammy Yeson Limited').strip(),
         export_ids=payload.get('export_ids'),
+        task_id=task_id,
+        idempotency_key=task.get('idempotency_key'),
+        operator_id=str(task.get('operator_id') or task.get('created_by') or 'ERP'),
+        operator_name=str(task.get('operator_name') or task.get('created_by') or 'ERP'),
     )
     update_task_progress(task_id, 0, 1)
     result = RefundWorkflow().run(options)
@@ -253,6 +236,21 @@ def _generate_refund_package(task_id, task):
         raise ValueError('; '.join(result.errors) or '退税汇总生成失败')
     update_task_progress(task_id, 1, 1)
     return result.to_dict(), 'SUCCESS'
+
+
+@register_handler(TASK_REFUND_REVERSE)
+def _reverse_refund_package(task_id, task):
+    payload = task.get('request_payload') or {}
+    update_task_progress(task_id, 0, 1)
+    result = reverse_generation(
+        generation_id=int(payload['generation_id']),
+        operator_id=str(task.get('operator_id') or task.get('created_by') or 'ERP'),
+        operator_name=str(task.get('operator_name') or task.get('created_by') or 'ERP'),
+        reason=str(payload.get('reason') or '').strip(),
+        reverse_task_id=task_id,
+    )
+    update_task_progress(task_id, 1, 1)
+    return result, 'SUCCESS'
 
 
 def _as_bool(value):

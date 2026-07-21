@@ -230,7 +230,9 @@ public class CustomsDeclarationExportService
             int excelRow = rowIndex + 1;
             setNumber(sheet, rowIndex, 0, i + 1);
             set(sheet, rowIndex, 1, item.getDescriptionCn());
-            set(sheet, rowIndex, 2, item.getSku());
+            // 页面、库存和生成日志保留完整 SKU；仅报关文件使用括号内编码。
+            set(sheet, rowIndex, 2, defaultValue(
+                    item.getDeclarationSku(), CustomsSkuUtils.declarationSku(item.getSku())));
             set(sheet, rowIndex, 3, defaultValue(item.getModel(), "无型号"));
             set(sheet, rowIndex, 4, defaultValue(item.getUnit(), "PIECE"));
             setNumber(sheet, rowIndex, 5, item.getQuantity());

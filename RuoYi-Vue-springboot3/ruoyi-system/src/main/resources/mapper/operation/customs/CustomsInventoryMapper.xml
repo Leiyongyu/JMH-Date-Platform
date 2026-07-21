@@ -64,7 +64,22 @@
                 )
             </if>
         </where>
-        ORDER BY id
+        <choose>
+            <when test="keyword != null and keyword != ''">
+                ORDER BY
+                    CASE
+                        WHEN UPPER(sku) = UPPER(#{keyword}) THEN 0
+                        WHEN UPPER(sku) = UPPER(normalize_customs_sku_key(#{keyword})) THEN 1
+                        WHEN sku REGEXP '^[0-9]' THEN 2
+                        WHEN UPPER(sku) LIKE 'JMH%' THEN 3
+                        ELSE 4
+                    END,
+                    id DESC
+            </when>
+            <otherwise>
+                ORDER BY id
+            </otherwise>
+        </choose>
     </select>
 
     <select id="selectById" resultMap="CustomsInventoryResult">

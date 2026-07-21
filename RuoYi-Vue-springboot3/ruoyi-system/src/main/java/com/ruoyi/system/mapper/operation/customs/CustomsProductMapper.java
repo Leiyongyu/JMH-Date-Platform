@@ -11,7 +11,9 @@ import org.apache.ibatis.annotations.Param;
 
 public interface CustomsProductMapper
 {
-    List<CustomsProduct> search(@Param("keyword") String keyword, @Param("limit") int limit);
+    List<CustomsProduct> search(@Param("keyword") String keyword,
+                                @Param("skuOnly") boolean skuOnly,
+                                @Param("limit") int limit);
 
     CustomsProduct selectBySku(@Param("sku") String sku);
 
@@ -28,24 +30,12 @@ public interface CustomsProductMapper
     List<CustomsDeclarationItem> selectProductsByStockOrders(@Param("orders") List<String> orders,
                                                              @Param("stockSkuKeys") List<String> stockSkuKeys);
 
-    List<String> selectMissingSkusByStockOrders(@Param("orders") List<String> orders,
-                                                @Param("stockSkuKeys") List<String> stockSkuKeys);
-
-    List<String> selectMissingInventorySkusByStockOrders(@Param("orders") List<String> orders,
-                                                         @Param("stockSkuKeys") List<String> stockSkuKeys);
-
     List<CustomsFbaShipmentOption> searchFbaShipments(@Param("keyword") String keyword, @Param("limit") int limit);
 
     List<CustomsFbaShipmentSkuOption> selectFbaShipmentSkuOptions(@Param("shipments") List<String> shipments);
 
     List<CustomsDeclarationItem> selectProductsByFbaShipments(@Param("shipments") List<String> shipments,
                                                               @Param("fbaSkuKeys") List<String> fbaSkuKeys);
-
-    List<String> selectMissingSkusByFbaShipments(@Param("shipments") List<String> shipments,
-                                                 @Param("fbaSkuKeys") List<String> fbaSkuKeys);
-
-    List<String> selectMissingInventorySkusByFbaShipments(@Param("shipments") List<String> shipments,
-                                                          @Param("fbaSkuKeys") List<String> fbaSkuKeys);
 
     int batchInsert(@Param("products") List<CustomsProduct> products);
 

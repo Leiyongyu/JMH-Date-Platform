@@ -120,6 +120,54 @@ public class TaxRefundPythonClient
         return get("/forex-receivables", params);
     }
 
+    public Map<String, Object> importEbayFinance(MultipartFile file, String erpUser)
+    {
+        try
+        {
+            String boundary = "----JmhEbayFinance" + UUID.randomUUID().toString().replace("-", "");
+            byte[] body = multipartBody(boundary, null, file, Map.of());
+            HttpRequest request = baseRequest("/ebay-finance/import", erpUser)
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(body)).build();
+            return send(request);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    public Map<String, Object> listEbayFinance(Map<String, ?> params)
+    {
+        return get("/ebay-finance", params);
+    }
+
+    public Map<String, Object> listEbayFinanceImports(Map<String, ?> params)
+    {
+        return get("/ebay-finance/imports", params);
+    }
+
+    public Map<String, Object> getEbayFinance(Long id)
+    {
+        return get("/ebay-finance/" + id, Map.of());
+    }
+
+    public Map<String, Object> updateEbayFinance(Long id, Map<String, Object> payload, String erpUser)
+    {
+        try
+        {
+            String json = objectMapper.writeValueAsString(payload == null ? Map.of() : payload);
+            HttpRequest request = baseRequest("/ebay-finance/" + id, erpUser)
+                    .header("Content-Type", "application/json;charset=utf-8")
+                    .PUT(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8)).build();
+            return send(request);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
     private Map<String, Object> get(String path, Map<String, ?> params)
     {
         try
@@ -183,7 +231,10 @@ public class TaxRefundPythonClient
     private byte[] multipartBody(String boundary, String taskType, MultipartFile[] files, Map<String, String> fields) throws IOException
     {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        writeField(out, boundary, "task_type", taskType);
+        if (StringUtils.hasText(taskType))
+        {
+            writeField(out, boundary, "task_type", taskType);
+        }
         if (fields != null)
         {
             for (Map.Entry<String, String> entry : fields.entrySet())

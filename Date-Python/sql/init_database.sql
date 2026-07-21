@@ -11,6 +11,8 @@ CREATE DATABASE IF NOT EXISTS export_tax_refund
 
 USE export_tax_refund;
 
+SET FOREIGN_KEY_CHECKS = 0;
+
 DROP TABLE IF EXISTS api_task;
 
 -- -----------------------------------------------------------
@@ -56,6 +58,15 @@ CREATE TABLE api_task (
     stored_file_path VARCHAR(1000) NULL,
     file_sha256 CHAR(64) NULL,
     created_by VARCHAR(64) NOT NULL DEFAULT 'ERP',
+    operator_id VARCHAR(64) NULL COMMENT 'ERP操作人ID',
+    operator_name VARCHAR(100) NULL COMMENT 'ERP操作人姓名快照',
+    idempotency_key CHAR(64) NULL COMMENT '请求幂等键SHA-256',
+    retry_count INT NOT NULL DEFAULT 0,
+    max_retries INT NOT NULL DEFAULT 3,
+    next_retry_at DATETIME(3) NULL,
+    worker_id VARCHAR(64) NULL,
+    heartbeat_at DATETIME(3) NULL,
+    lease_expires_at DATETIME(3) NULL,
     started_at DATETIME(3) NULL,
     completed_at DATETIME(3) NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -63,7 +74,9 @@ CREATE TABLE api_task (
     PRIMARY KEY (id),
     KEY idx_api_task_type_status (task_type, task_status),
     KEY idx_api_task_created_at (created_at),
-    KEY idx_api_task_file_hash (file_sha256)
+    KEY idx_api_task_file_hash (file_sha256),
+    UNIQUE KEY uk_api_task_idempotency (idempotency_key),
+    KEY idx_api_task_recovery (task_status, lease_expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='ERP调用Python服务的统一任务资源';
 
@@ -74,7 +87,7 @@ DROP TABLE IF EXISTS export_detail;
 CREATE TABLE export_detail (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '出口商品明细主键',
     customs_excel_item_id BIGINT NULL COMMENT '匹配的报关资料Excel商品主键',
-    customs_declaration_no VARCHAR(30) NOT NULL COMMENT '海关出口货物报关单编号',
+    customs_declaration_no VARCHAR(30) NOT NULL COMMENT '21位报关商品编号：18位报关单号+3位商品项号',
     customs_item_no VARCHAR(10) NOT NULL COMMENT '报关单内商品项号，不作为申报批次',
     declaration_date DATE NULL COMMENT '报关单申报日期',
     export_date DATE NULL COMMENT '报关单出口日期',
@@ -99,6 +112,9 @@ CREATE TABLE export_detail (
     sequence_no CHAR(8) NULL COMMENT '申报任务内8位序号，库存分配确认后生成',
     relation_no VARCHAR(40) NULL COMMENT '申报关联号，由申报年月、批次和序号拼接生成',
     declaration_status VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT '申报状态：PENDING待匹配、PARTIAL部分分配、ALLOCATED分配完成、DECLARED已申报、CANCELLED已取消',
+    inventory_allocation_status VARCHAR(20) NOT NULL DEFAULT 'UNALLOCATED' COMMENT 'UNALLOCATED/RESERVED/ALLOCATED/REVERSED',
+    latest_refund_generation_id BIGINT NULL COMMENT '最近一次退税生成批次ID',
+    inventory_allocated_at DATETIME(3) NULL COMMENT '库存正式扣减时间',
     declared_product_code VARCHAR(20) NULL COMMENT '退税申报商品代码，业务确认后填写',
     tax_business_type VARCHAR(50) NULL COMMENT '退免税业务类型',
     remark VARCHAR(1000) NULL COMMENT '人工备注、解析异常或业务补充说明',
@@ -149,7 +165,8 @@ CREATE TABLE purchase_inventory (
     unit VARCHAR(50) NULL COMMENT '发票商品计量单位',
     purchased_quantity DECIMAL(20,6) NOT NULL COMMENT '发票商品采购数量或入库数量',
     allocated_quantity DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '已被有效申报分配占用的数量缓存',
-    remaining_quantity DECIMAL(20,6) NOT NULL COMMENT '当前可分配剩余数量缓存，等于采购数量减已分配数量',
+    reserved_quantity DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '已预占但尚未确认的数量',
+    remaining_quantity DECIMAL(20,6) NOT NULL COMMENT '当前可分配剩余数量',
     unit_price DECIMAL(20,8) NULL COMMENT '发票商品不含税单价',
     taxable_amount DECIMAL(20,2) NOT NULL COMMENT '发票商品行不含税金额，即进货申报计税金额来源',
     tax_rate DECIMAL(8,6) NULL COMMENT '发票商品征税率，小数存储，如13%存0.130000',
@@ -157,6 +174,13 @@ CREATE TABLE purchase_inventory (
     tax_amount DECIMAL(20,2) NOT NULL COMMENT '发票商品行税额',
     refundable_tax_amount DECIMAL(20,2) NULL COMMENT '该库存批次可退税额总额，最终按分配数量拆分',
     inventory_status VARCHAR(20) NOT NULL DEFAULT 'AVAILABLE' COMMENT '库存状态：AVAILABLE可用、PARTIAL部分使用、EXHAUSTED已用完、LOCKED锁定、CANCELLED作废',
+    last_allocated_at DATETIME(3) NULL COMMENT '最近一次正式扣减时间',
+    last_allocation_task_id BIGINT NULL COMMENT '最近一次库存操作任务ID',
+    version INT NOT NULL DEFAULT 0 COMMENT '库存并发版本号',
+    declaration_month CHAR(6) NULL,
+    declaration_batch CHAR(3) NULL,
+    sequence_no CHAR(8) NULL,
+    relation_no VARCHAR(40) NULL,
     remark VARCHAR(1000) NULL COMMENT '人工备注、发票解析异常或库存调整说明',
     source_file_name VARCHAR(255) NOT NULL COMMENT '来源发票PDF文件名',
     source_file_hash CHAR(64) NOT NULL COMMENT '来源发票PDF的SHA-256摘要',
@@ -178,12 +202,80 @@ CREATE TABLE purchase_inventory (
     KEY idx_purchase_import_batch (import_batch_id),
     CONSTRAINT fk_purchase_import_batch FOREIGN KEY (import_batch_id) REFERENCES import_batch (id),
     CONSTRAINT chk_purchase_quantity CHECK (purchased_quantity >= 0 AND allocated_quantity >= 0 AND remaining_quantity >= 0),
-    CONSTRAINT chk_purchase_allocation CHECK (allocated_quantity + remaining_quantity = purchased_quantity)
+    CONSTRAINT chk_purchase_allocation CHECK (allocated_quantity + reserved_quantity + remaining_quantity = purchased_quantity)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='增值税发票商品库存及可申报剩余数量表';
 
+DROP TABLE IF EXISTS refund_inventory_allocation;
+DROP TABLE IF EXISTS refund_generation;
 DROP TABLE IF EXISTS export_purchase_allocation;
 DROP TABLE IF EXISTS declaration_task;
+
+CREATE TABLE refund_generation (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    api_task_id BIGINT NOT NULL,
+    idempotency_key VARCHAR(128) NULL,
+    declaration_month CHAR(6) NOT NULL,
+    output_directory VARCHAR(1000) NULL,
+    staging_directory VARCHAR(1000) NULL,
+    generation_status VARCHAR(20) NOT NULL DEFAULT 'PREPARING',
+    generated_by_id VARCHAR(64) NOT NULL,
+    generated_by_name VARCHAR(100) NOT NULL,
+    generated_at DATETIME(3) NULL,
+    committed_at DATETIME(3) NULL,
+    reversed_at DATETIME(3) NULL,
+    reversed_by_id VARCHAR(64) NULL,
+    reversed_by_name VARCHAR(100) NULL,
+    reversal_reason VARCHAR(1000) NULL,
+    result_payload JSON NULL,
+    error_message TEXT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_refund_generation_task (api_task_id),
+    UNIQUE KEY uk_refund_generation_idempotency (idempotency_key),
+    KEY idx_refund_generation_status_time (generation_status, created_at),
+    CONSTRAINT fk_refund_generation_task FOREIGN KEY (api_task_id) REFERENCES api_task (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='退税文件生成批次';
+
+CREATE TABLE refund_inventory_allocation (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    generation_id BIGINT NOT NULL,
+    api_task_id BIGINT NOT NULL,
+    entry_type VARCHAR(20) NOT NULL DEFAULT 'ALLOCATION',
+    allocation_status VARCHAR(20) NOT NULL,
+    reversal_of_id BIGINT NULL,
+    export_detail_id BIGINT NOT NULL,
+    customs_declaration_no VARCHAR(30) NOT NULL,
+    customs_item_no VARCHAR(10) NOT NULL,
+    purchase_inventory_id BIGINT NOT NULL,
+    invoice_no VARCHAR(50) NOT NULL,
+    invoice_item_no INT NOT NULL,
+    invoice_date DATE NOT NULL,
+    supplier_tax_no VARCHAR(30) NOT NULL,
+    sku_original VARCHAR(200) NULL,
+    sku_normalized VARCHAR(200) NULL,
+    relation_no VARCHAR(40) NULL,
+    quantity_before DECIMAL(20,6) NOT NULL,
+    allocated_quantity DECIMAL(20,6) NOT NULL,
+    quantity_after DECIMAL(20,6) NOT NULL,
+    operated_by_id VARCHAR(64) NOT NULL,
+    operated_by_name VARCHAR(100) NOT NULL,
+    operated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_refund_allocation_generation (generation_id, allocation_status),
+    KEY idx_refund_allocation_inventory (purchase_inventory_id, operated_at),
+    KEY idx_refund_allocation_export (export_detail_id, operated_at),
+    KEY idx_refund_allocation_invoice (invoice_no, invoice_item_no),
+    KEY idx_refund_allocation_sku_time (sku_normalized, operated_at),
+    CONSTRAINT fk_refund_allocation_generation FOREIGN KEY (generation_id) REFERENCES refund_generation (id),
+    CONSTRAINT fk_refund_allocation_task FOREIGN KEY (api_task_id) REFERENCES api_task (id),
+    CONSTRAINT fk_refund_allocation_export FOREIGN KEY (export_detail_id) REFERENCES export_detail (id),
+    CONSTRAINT fk_refund_allocation_inventory FOREIGN KEY (purchase_inventory_id) REFERENCES purchase_inventory (id),
+    CONSTRAINT fk_refund_allocation_reversal FOREIGN KEY (reversal_of_id) REFERENCES refund_inventory_allocation (id),
+    CONSTRAINT chk_refund_allocation_quantity CHECK (allocated_quantity > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='退税库存分配及冲销审计流水';
 
 -- -----------------------------------------------------------
 -- 6. 外汇 — 报关单应收表
@@ -264,5 +356,7 @@ CREATE TABLE forex_receipt_allocation (
     CONSTRAINT fk_allocation_receipt FOREIGN KEY (receipt_id) REFERENCES forex_receipt (id),
     CONSTRAINT fk_allocation_receivable FOREIGN KEY (receivable_id) REFERENCES forex_export_receivable (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='回款与报关单分配关系';
+
+SET FOREIGN_KEY_CHECKS = 1;
 
 DROP TABLE IF EXISTS sku_unit_conversion;

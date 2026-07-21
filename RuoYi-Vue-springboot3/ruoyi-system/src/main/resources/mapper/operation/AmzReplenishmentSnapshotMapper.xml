@@ -189,7 +189,10 @@
                                 ANY_VALUE(COALESCE(pc.category, '')) AS product_category,
                                 CASE
                                     WHEN ANY_VALUE(pl.listing_create_date) IS NOT NULL
-                                     AND DATEDIFF(CURDATE(), ANY_VALUE(pl.listing_create_date)) &lt;= 60 THEN 2
+                                     AND DATEDIFF(CURDATE(), ANY_VALUE(pl.listing_create_date)) &lt;=
+                                         CASE WHEN UPPER(SUBSTRING_INDEX(ANY_VALUE(COALESCE(sl.store_name, '')), '-', -1)) = 'EU'
+                                              THEN 90 ELSE 60 END
+                                    THEN 2
                                     ELSE 1
                                 END AS product_nature,
                                 ANY_VALUE(NULLIF(pl.last_star, '')) AS rating,

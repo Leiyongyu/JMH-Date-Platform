@@ -112,15 +112,22 @@ app = application
 
 # ── 直接运行 ──
 if __name__ == '__main__':
+    import sys
     import uvicorn
 
     port = int(os.environ.get('PORT', '5000'))
-    debug = os.environ.get('DEBUG', 'true').lower() in ('1', 'true', 'yes', 'on')
+    reload_requested = os.environ.get('UVICORN_RELOAD', 'false').lower() in (
+        '1', 'true', 'yes', 'on')
+    running_under_debugger = sys.gettrace() is not None or 'pydevd' in sys.modules
+    reload_enabled = reload_requested and not running_under_debugger
     print('=' * 60)
     print('  JMH Python 数据服务（FastAPI）')
     print(f'  DB: {settings.db_host}:{settings.db_port}/{settings.db_name}')
     print(f'  API:     http://127.0.0.1:{port}/api/v1')
     print(f'  Swagger: http://127.0.0.1:{port}/docs')
     print(f'  Workers: {settings.task_max_workers}')
+    print(f'  Reload:  {reload_enabled}')
     print('=' * 60)
-    uvicorn.run('app:app', host='0.0.0.0', port=port, reload=debug)
+    # PyCharm 调试器与 Uvicorn reload 都会派生子进程，两者不能同时启用。
+    target = 'app:app' if reload_enabled else app
+    uvicorn.run(target, host='0.0.0.0', port=port, reload=reload_enabled)

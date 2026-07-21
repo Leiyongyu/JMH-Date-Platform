@@ -168,21 +168,33 @@ public class CustomsInventoryService
                     row.getDeclaredFbaUkQty(), row.getDeclaredFbaUsQty(), row.getDeclaredFbaFrQty(),
                     row.getDeclaredUnknownWarehouseQty());
             row.setDeclaredTotalQty(total);
-            row.setAvailableRemainingStock(autoBase(row.getAutoRemainingStock(), row.getRemainingStock()).subtract(total));
+            // “自动仓库”表示系统根据报关日志累计生成的支出，不是手动仓库余额。
+            row.setAutoCzechWarehouseQty(nvl(row.getDeclaredCzechWarehouseQty()));
+            row.setAutoUkWarehouseQty(nvl(row.getDeclaredUkWarehouseQty()));
+            row.setAutoUsWarehouseQty(nvl(row.getDeclaredUsWarehouseQty()));
+            row.setAutoDeWarehouseQty(nvl(row.getDeclaredDeWarehouseQty()));
+            row.setAutoFbaDeQty(nvl(row.getDeclaredFbaDeQty()));
+            row.setAutoFbaUkQty(nvl(row.getDeclaredFbaUkQty()));
+            row.setAutoFbaUsQty(nvl(row.getDeclaredFbaUsQty()));
+            row.setAutoFbaFrQty(nvl(row.getDeclaredFbaFrQty()));
+            BigDecimal autoRemaining = nvl(row.getInboundQuantity()).subtract(total);
+            row.setAutoRemainingStock(autoRemaining);
+            row.setAvailableRemainingStock(autoRemaining);
         }
     }
 
     private void initializeAutoStock(CustomsInventoryItem item)
     {
-        item.setAutoCzechWarehouseQty(nvl(item.getAutoCzechWarehouseQty(), item.getCzechWarehouseQty()));
-        item.setAutoUkWarehouseQty(nvl(item.getAutoUkWarehouseQty(), item.getUkWarehouseQty()));
-        item.setAutoUsWarehouseQty(nvl(item.getAutoUsWarehouseQty(), item.getUsWarehouseQty()));
-        item.setAutoDeWarehouseQty(nvl(item.getAutoDeWarehouseQty(), item.getDeWarehouseQty()));
-        item.setAutoFbaDeQty(nvl(item.getAutoFbaDeQty(), item.getFbaDeQty()));
-        item.setAutoFbaUkQty(nvl(item.getAutoFbaUkQty(), item.getFbaUkQty()));
-        item.setAutoFbaUsQty(nvl(item.getAutoFbaUsQty(), item.getFbaUsQty()));
-        item.setAutoFbaFrQty(nvl(item.getAutoFbaFrQty(), item.getFbaFrQty()));
-        item.setAutoRemainingStock(nvl(item.getAutoRemainingStock(), item.getRemainingStock()));
+        // 新记录尚无系统生成日志：自动支出从 0 开始，自动剩余等于入库数量。
+        item.setAutoCzechWarehouseQty(BigDecimal.ZERO);
+        item.setAutoUkWarehouseQty(BigDecimal.ZERO);
+        item.setAutoUsWarehouseQty(BigDecimal.ZERO);
+        item.setAutoDeWarehouseQty(BigDecimal.ZERO);
+        item.setAutoFbaDeQty(BigDecimal.ZERO);
+        item.setAutoFbaUkQty(BigDecimal.ZERO);
+        item.setAutoFbaUsQty(BigDecimal.ZERO);
+        item.setAutoFbaFrQty(BigDecimal.ZERO);
+        item.setAutoRemainingStock(nvl(item.getInboundQuantity()));
     }
 
     private void normalizeDateFields(CustomsInventoryItem item)
@@ -243,16 +255,6 @@ public class CustomsInventoryService
     private BigDecimal nvl(BigDecimal value)
     {
         return value == null ? BigDecimal.ZERO : value;
-    }
-
-    private BigDecimal nvl(BigDecimal value, BigDecimal fallback)
-    {
-        return value == null ? fallback : value;
-    }
-
-    private BigDecimal autoBase(BigDecimal autoValue, BigDecimal manualFallback)
-    {
-        return autoValue == null ? nvl(manualFallback) : autoValue;
     }
 
     private BigDecimal sum(BigDecimal... values)

@@ -39,8 +39,15 @@ GET  /api/v1/tasks
 GET /api/v1/customs-material-items
 GET /api/v1/export-details
 GET /api/v1/purchase-inventory
+GET /api/v1/refund-generations
+GET /api/v1/inventory-allocations
 GET /api/v1/forex-receivables
+POST /api/v1/export-details/export
+POST /api/v1/purchase-inventory/export
+POST /api/v1/forex-receivables/export
 ```
+
+三个 `POST .../export` 接口均支持 `{"ids":[1,2]}` 导出选中数据，以及 `{"ids":null}` 导出全部有效数据，响应为 `.xlsx` 文件流。
 
 当前任务类型：
 
@@ -49,6 +56,7 @@ GET /api/v1/forex-receivables
 - `PURCHASE_INVOICE_IMPORT`
 - `FOREX_IMPORT`
 - `REFUND_PACKAGE_GENERATE`
+- `REFUND_PACKAGE_REVERSE`
 
 完整请求和响应说明见 [`docs/ERP_API_INTEGRATION.md`](docs/ERP_API_INTEGRATION.md)。
 
@@ -58,7 +66,8 @@ GET /api/v1/forex-receivables
 2. 上传报关单 `.pdf`，按“合同协议号 + 标准化项号”匹配并形成完整出口明细。
 3. 上传进货发票 `.pdf`，按发票号增量保存进货库存。
 4. 上传外汇 `.xlsx`，只解析 `Sheet1`，按报关单号增量保存。
-5. 汇总任务从数据库读取进货、出口和外汇数据，按 SKU/FIFO 分配并生成最终文件夹。
+5. 汇总任务按 `SKU + 供应商` 在事务内 FIFO 预占库存，可跨多张发票，再生成最终文件夹并确认扣减。
+6. 失败任务自动释放预占；冲销任务返还库存并保留完整扣减与冲销流水。
 
 ## 模块边界
 

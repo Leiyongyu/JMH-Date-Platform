@@ -27,18 +27,22 @@ def _normalize(row):
 
 
 def create_task(task_type, request_payload=None, original_file_name=None,
-                stored_file_path=None, file_sha256=None, created_by='ERP'):
+                stored_file_path=None, file_sha256=None, created_by='ERP',
+                operator_id=None, operator_name=None, idempotency_key=None):
     conn = get_conn()
     cursor = conn.cursor()
     try:
         cursor.execute('''
             INSERT INTO api_task (
                 task_type, task_status, request_payload,
-                original_file_name, stored_file_path, file_sha256, created_by
-            ) VALUES (%s, 'PENDING', %s, %s, %s, %s, %s)
+                original_file_name, stored_file_path, file_sha256, created_by,
+                operator_id, operator_name, idempotency_key
+            ) VALUES (%s, 'PENDING', %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)
         ''', (
             task_type, _json_dump(request_payload), original_file_name,
             stored_file_path, file_sha256, created_by,
+            operator_id or created_by, operator_name or created_by, idempotency_key,
         ))
         task_id = cursor.lastrowid
         conn.commit()

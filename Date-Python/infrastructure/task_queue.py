@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import json
 import time
 from abc import ABC, abstractmethod
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -53,10 +54,17 @@ class ThreadPoolTaskQueue(TaskQueue):
             _fail_task(task_id, f"未找到任务处理器: {task_type}")
             return
 
-        _mark_running(task_id)
+        # 数据库条件更新充当任务租约；重复提交同一任务时只有一个执行者能获得租约。
+        if not _mark_running(task_id):
+            logger.info("task_enqueue_skipped task_id=%d status=%s", task_id, task.get("task_status"))
+            return
         future = self._executor.submit(_run_handler, task_id, handler)
         self._futures[task_id] = future
-        future.add_done_callback(lambda f: self._futures.pop(task_id, None))
+        def cleanup(done: Future) -> None:
+            # 旧尝试结束时不能误删同一 task_id 的重试 Future。
+            if self._futures.get(task_id) is done:
+                self._futures.pop(task_id, None)
+        future.add_done_callback(cleanup)
 
     def cancel(self, task_id: int) -> bool:
         future = self._futures.get(task_id)
@@ -135,13 +143,23 @@ def _load_task(task_id: int) -> dict | None:
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute("SELECT * FROM api_task WHERE id = %s", (task_id,))
-        return cursor.fetchone()
+        task = cursor.fetchone()
+        if task:
+            for field in ("request_payload", "result_payload"):
+                value = task.get(field)
+                if isinstance(value, (str, bytes, bytearray)):
+                    try:
+                        task[field] = json.loads(value)
+                    except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+                        # 保留原值，让具体处理器给出可定位的业务错误。
+                        pass
+        return task
     finally:
         cursor.close()
         conn.close()
 
 
-def _mark_running(task_id: int) -> None:
+def _mark_running(task_id: int) -> bool:
     import os
     worker_id = f"{os.uname().nodename}:{os.getpid()}" if hasattr(os, "uname") else f"win:{os.getpid()}"
     conn = get_conn()
@@ -157,7 +175,9 @@ def _mark_running(task_id: int) -> None:
                 error_message = NULL
             WHERE id = %s AND task_status = 'PENDING'
         """, (worker_id, task_id))
+        acquired = cursor.rowcount == 1
         conn.commit()
+        return acquired
     finally:
         cursor.close()
         conn.close()
@@ -182,7 +202,12 @@ def _fail_task(task_id: int, message: str) -> None:
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "UPDATE api_task SET task_status='FAILED', error_message=%s, completed_at=NOW(3) WHERE id=%s",
+            """
+            UPDATE api_task
+            SET task_status='FAILED', error_message=%s, completed_at=NOW(3),
+                worker_id=NULL, heartbeat_at=NULL, lease_expires_at=NULL
+            WHERE id=%s
+            """,
             (message[:10000], task_id),
         )
         conn.commit()

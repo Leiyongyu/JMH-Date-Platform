@@ -28,26 +28,48 @@ CREATE FUNCTION `normalize_customs_sku_key`(p_sku VARCHAR(512)) RETURNS varchar(
     NO SQL
     DETERMINISTIC
 BEGIN
+    DECLARE normalized_sku VARCHAR(512);
     DECLARE prefix VARCHAR(255);
     DECLARE dash_pos INT;
+    DECLARE half_parenthesis_pos INT;
+    DECLARE full_parenthesis_pos INT;
+    DECLARE parenthesis_pos INT DEFAULT 0;
     DECLARE segment VARCHAR(255);
     DECLARE rest VARCHAR(512);
 
-    IF p_sku IS NULL OR p_sku = '' THEN
+    IF p_sku IS NULL OR REGEXP_REPLACE(p_sku, '^[[:space:]]+|[[:space:]]+$', '') = '' THEN
         RETURN '';
     END IF;
 
-    SET dash_pos = INSTR(p_sku, '-');
+    SET normalized_sku = REGEXP_REPLACE(p_sku, '^[[:space:]]+|[[:space:]]+$', '');
+    SET half_parenthesis_pos = INSTR(normalized_sku, '(');
+    SET full_parenthesis_pos = INSTR(normalized_sku, '（');
+    IF half_parenthesis_pos > 0 AND full_parenthesis_pos > 0 THEN
+        SET parenthesis_pos = LEAST(half_parenthesis_pos, full_parenthesis_pos);
+    ELSEIF half_parenthesis_pos > 0 THEN
+        SET parenthesis_pos = half_parenthesis_pos;
+    ELSEIF full_parenthesis_pos > 0 THEN
+        SET parenthesis_pos = full_parenthesis_pos;
+    END IF;
+    IF parenthesis_pos > 1 THEN
+        SET normalized_sku = REGEXP_REPLACE(
+            LEFT(normalized_sku, parenthesis_pos - 1),
+            '^[[:space:]]+|[[:space:]]+$',
+            ''
+        );
+    END IF;
+
+    SET dash_pos = INSTR(normalized_sku, '-');
     IF dash_pos = 0 THEN
-        RETURN p_sku;
+        RETURN normalized_sku;
     END IF;
 
-    SET prefix = UPPER(SUBSTRING_INDEX(p_sku, '-', 1));
+    SET prefix = UPPER(SUBSTRING_INDEX(normalized_sku, '-', 1));
     IF prefix LIKE '%PC%' THEN
-        RETURN p_sku;
+        RETURN normalized_sku;
     END IF;
 
-    SET rest = p_sku;
+    SET rest = normalized_sku;
     segment_loop: LOOP
         SET dash_pos = INSTR(rest, '-');
         IF dash_pos = 0 THEN
@@ -67,7 +89,7 @@ BEGIN
         SET rest = SUBSTRING(rest, dash_pos + 1);
     END LOOP segment_loop;
 
-    RETURN p_sku;
+    RETURN normalized_sku;
 END$$
 DELIMITER ;
 

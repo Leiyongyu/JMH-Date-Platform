@@ -3,6 +3,7 @@ from io import BytesIO
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from modules.tax_refund.customs_numbers import customs_item_number
 
 
 EXPORT_HEADERS = (
@@ -13,11 +14,8 @@ EXPORT_HEADERS = (
 
 
 def _customs_item_number(row):
-    customs_no = str(row.get('customs_declaration_no') or '').strip()
-    item_no = str(row.get('customs_item_no') or '').strip().lstrip('0') or '0'
-    if len(customs_no) >= 21 and customs_no[-3:] == item_no.zfill(3):
-        return customs_no
-    return f'{customs_no}{item_no.zfill(3)}'
+    return customs_item_number(
+        row.get('customs_declaration_no'), row.get('customs_item_no'))
 
 
 def _tax_product_code(value):

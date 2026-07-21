@@ -74,19 +74,21 @@ public class CustomsProductService
         Map<String, String> mapping = resolveStandardSkus(List.of(value));
         String standardSku = mapping.get(value);
         // Search by original keyword, normalized key, and standard SKU
+        boolean skuOnly = value.matches(".*\\d.*");
         Set<String> seenKeys = new HashSet<>();
         List<CustomsProduct> results = new ArrayList<>();
-        addSearchResults(results, seenKeys, value);
+        addSearchResults(results, seenKeys, value, skuOnly);
         String normalized = normalizeSkuKey(value);
-        if (!normalized.equals(value) && !normalized.isEmpty()) addSearchResults(results, seenKeys, normalized);
+        if (!normalized.equals(value) && !normalized.isEmpty()) addSearchResults(results, seenKeys, normalized, skuOnly);
         if (standardSku != null && !standardSku.equals(value) && !standardSku.equals(normalized))
-            addSearchResults(results, seenKeys, standardSku);
+            addSearchResults(results, seenKeys, standardSku, skuOnly);
+        results.forEach(this::decorateSkuFields);
         return results;
     }
 
-    private void addSearchResults(List<CustomsProduct> results, Set<String> seenKeys, String term)
+    private void addSearchResults(List<CustomsProduct> results, Set<String> seenKeys, String term, boolean skuOnly)
     {
-        for (CustomsProduct p : productMapper.search(term, 20))
+        for (CustomsProduct p : productMapper.search(term, skuOnly, 20))
         {
             String key = productKey(p);
             if (!key.isEmpty() && seenKeys.add(key)) results.add(p);
@@ -150,13 +152,13 @@ public class CustomsProductService
         List<String> selectedSkuKeys = normalizeSkus(stockSkuKeys);
         if (stockSkuKeys != null && selectedSkuKeys.isEmpty())
             throw new IllegalArgumentException("请至少选择一个备货单SKU");
-        List<CustomsDeclarationItem> products = productMapper.selectProductsByStockOrders(orders, selectedSkuKeys);
+        List<CustomsDeclarationItem> sourceRows = productMapper.selectProductsByStockOrders(orders, selectedSkuKeys);
+        LinkRows linkRows = splitLinkRows(sourceRows);
+        List<CustomsDeclarationItem> products = linkRows.products();
         applyTaxOverrides(products, taxOverrides);
         // 只有匹配到出入库清单的 SKU 才会被批次价格覆盖；纯历史记录保持历史单价。
         applyBatchPrices(new ArrayList<CustomsProduct>(products));
-        List<String> missingSkus = productMapper.selectMissingSkusByStockOrders(orders, selectedSkuKeys);
-        List<String> missingInventorySkus = productMapper.selectMissingInventorySkusByStockOrders(orders, selectedSkuKeys);
-        return buildLinkResult(products, missingSkus, missingInventorySkus, "EBAY");
+        return buildLinkResult(products, linkRows.missingSkus(), linkRows.missingInventorySkus(), "EBAY");
     }
 
     public Map<String, Object> linkFbaShipments(List<String> shipmentIds)
@@ -176,15 +178,50 @@ public class CustomsProductService
         List<String> selectedSkuKeys = normalizeSkus(fbaSkuKeys);
         if (fbaSkuKeys != null && selectedSkuKeys.isEmpty())
             throw new IllegalArgumentException("请至少选择一个FBA货件SKU");
-        List<CustomsDeclarationItem> products = productMapper.selectProductsByFbaShipments(shipments, selectedSkuKeys);
+        List<CustomsDeclarationItem> sourceRows = productMapper.selectProductsByFbaShipments(shipments, selectedSkuKeys);
+        LinkRows linkRows = splitLinkRows(sourceRows);
+        List<CustomsDeclarationItem> products = linkRows.products();
         applyFbaTax(products, shipments);
         applyTaxOverrides(products, taxOverrides);
         // 含税/库存商品沿用采购数量 + 剩余库存倒推批次价；历史兜底记录不受影响。
         applyBatchPrices(new ArrayList<CustomsProduct>(products));
-        List<String> missingSkus = productMapper.selectMissingSkusByFbaShipments(shipments, selectedSkuKeys);
-        List<String> missingInventorySkus = productMapper.selectMissingInventorySkusByFbaShipments(shipments, selectedSkuKeys);
-        return buildLinkResult(products, missingSkus, missingInventorySkus, "FBA");
+        return buildLinkResult(products, linkRows.missingSkus(), linkRows.missingInventorySkus(), "FBA");
     }
+
+    /**
+     * SQL 一次返回来源明细和匹配状态。缺失列表在内存中派生，避免为同一批 SKU
+     * 再执行两套库存/商品相关子查询。
+     */
+    private LinkRows splitLinkRows(List<CustomsDeclarationItem> sourceRows)
+    {
+        List<CustomsDeclarationItem> products = new ArrayList<>();
+        Set<String> missingSkus = new LinkedHashSet<>();
+        Set<String> missingInventorySkus = new LinkedHashSet<>();
+        for (CustomsDeclarationItem row : sourceRows == null ? List.<CustomsDeclarationItem>of() : sourceRows)
+        {
+            String rawSku = defaultValue(trim(row.getRawSku()), trim(row.getSku()));
+            if (!Boolean.TRUE.equals(row.getInventoryMatched()) && !rawSku.isEmpty())
+                missingInventorySkus.add(rawSku);
+            if (!Boolean.TRUE.equals(row.getProductMatched()))
+            {
+                if (!rawSku.isEmpty()) missingSkus.add(rawSku);
+                // 缺少库存/商品资料时仍保留来源行、原数量和箱信息，供页面补录；
+                // 不能退化成 buildLinkResult 中数量为 1 的占位行，否则整单数量会被静默缩减。
+                row.setSku(rawSku);
+                row.setStandardSku(rawSku);
+                row.setDeclarationSku(CustomsSkuUtils.declarationSku(rawSku));
+                row.setMatchStatus("MISSING_PRODUCT");
+                products.add(row);
+                continue;
+            }
+            products.add(row);
+        }
+        return new LinkRows(products, new ArrayList<>(missingSkus), new ArrayList<>(missingInventorySkus));
+    }
+
+    private record LinkRows(List<CustomsDeclarationItem> products,
+                            List<String> missingSkus,
+                            List<String> missingInventorySkus) {}
 
     private void applyTaxOverrides(List<CustomsDeclarationItem> products, Map<String, Integer> taxOverrides)
     {
@@ -672,6 +709,10 @@ public class CustomsProductService
         CustomsDeclarationItem item = new CustomsDeclarationItem();
         item.setId(product.getId());
         item.setSku(product.getSku());
+        String standardSku = defaultValue(product.getStandardSku(), product.getSku());
+        item.setStandardSku(standardSku);
+        item.setDeclarationSku(defaultValue(
+                product.getDeclarationSku(), CustomsSkuUtils.declarationSku(standardSku)));
         item.setProductCode(product.getProductCode());
         item.setDescriptionCn(product.getDescriptionCn());
         item.setModel(product.getModel());
@@ -704,6 +745,8 @@ public class CustomsProductService
             item.setWarehouseBucket(declarationItem.getWarehouseBucket());
             item.setWarehouseName(declarationItem.getWarehouseName());
             item.setMatchStatus(declarationItem.getMatchStatus());
+            item.setInventoryMatched(declarationItem.getInventoryMatched());
+            item.setProductMatched(declarationItem.getProductMatched());
             item.setOrderTotalCbm(declarationItem.getOrderTotalCbm());
         }
         return item;
@@ -734,7 +777,8 @@ public class CustomsProductService
             log.setSourceOrderNo(sourceOrderNo);
             log.setSourceLineId(sourceLineId);
             log.setRawSku(defaultValue(item.getRawSku(), sku));
-            log.setStandardSku(sku);
+            // 页面 sku 可能是括号内的报关编码；库存扣减必须使用完整库存 SKU。
+            log.setStandardSku(defaultValue(item.getStandardSku(), sku));
             log.setProductCode(trim(item.getProductCode()));
             log.setSourceLocation(trim(item.getSourceLocation()));
             log.setWarehouseBucket(bucket);
@@ -855,27 +899,15 @@ public class CustomsProductService
     /** Normalize a raw SKU (possibly with brand prefix) to a key for matching against customs_inventory_list. */
     private String normalizeSkuKey(String rawSku)
     {
-        if (rawSku == null || rawSku.isEmpty()) return "";
-        String s = rawSku.trim();
-        int firstDash = s.indexOf('-');
-        if (firstDash < 0) return s;
-        String prefix = s.substring(0, firstDash);
-        // PC 前缀原样保留
-        if (prefix.toUpperCase().contains("PC")) return s;
-        // 从第一个包含数字的段开始；该段去掉前导非数字字符；后续段全部保留
-        String[] parts = s.split("-");
-        for (int i = 0; i < parts.length; i++)
-        {
-            if (parts[i].matches(".*\\d+.*"))
-            {
-                String first = parts[i].replaceAll("^[^0-9]+", "");
-                if (first.isEmpty()) continue;
-                StringBuilder sb = new StringBuilder(first);
-                for (int j = i + 1; j < parts.length; j++) sb.append("-").append(parts[j]);
-                return sb.toString();
-            }
-        }
-        return s;
+        return CustomsSkuUtils.normalizeMatchKey(rawSku);
+    }
+
+    private void decorateSkuFields(CustomsProduct product)
+    {
+        if (product == null) return;
+        String standardSku = defaultValue(product.getStandardSku(), product.getSku());
+        product.setStandardSku(standardSku);
+        product.setDeclarationSku(CustomsSkuUtils.declarationSku(standardSku));
     }
 
     /** Resolve raw SKUs to standard customs_inventory_list SKUs. Returns rawSku → standardSku map (null if not found). */

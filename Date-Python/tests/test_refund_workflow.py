@@ -3,7 +3,9 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
-from modules.tax_refund.workflow import RefundWorkflow, WorkflowOptions, WorkflowResult
+from modules.tax_refund.workflow import (
+    RefundWorkflow, WorkflowOptions, WorkflowResult, _customs_item_number,
+)
 
 
 def purchase(row_id, supplier, sku, quantity, tax_amount, refundable):
@@ -44,6 +46,22 @@ def export(row_id, item_no, sku, quantity, sequence):
 
 
 class RefundWorkflowTests(unittest.TestCase):
+    def test_customs_item_number_is_18_digit_base_plus_3_digit_item(self):
+        self.assertEqual(
+            '531620260000035324001',
+            _customs_item_number({
+                'customs_declaration_no': '531620260000035324',
+                'customs_item_no': '1',
+            }),
+        )
+        self.assertEqual(
+            '531620260000035324002',
+            _customs_item_number({
+                'customs_declaration_no': '531620260000035324001',
+                'customs_item_no': '2',
+            }),
+        )
+
     @patch('modules.tax_refund.workflow.get_refund_forex_rows', return_value=[])
     @patch('modules.tax_refund.workflow.get_refund_exports')
     @patch('modules.tax_refund.workflow.get_refund_purchases')
@@ -81,6 +99,28 @@ class RefundWorkflowTests(unittest.TestCase):
         self.assertEqual([], plan)
         self.assertEqual(1, result.unmatched_export_rows)
         self.assertIn('MISSING-SKU', result.warnings[0])
+
+    @patch('modules.tax_refund.workflow.get_refund_forex_rows', return_value=[])
+    @patch('modules.tax_refund.workflow.get_refund_exports')
+    @patch('modules.tax_refund.workflow.get_refund_purchases')
+    def test_fifo_allocation_spans_multiple_invoices(
+            self, purchase_source, export_source, _forex_source):
+        purchase_source.return_value = [
+            purchase(1, 'SUPPLIER-A', 'SKU-A', 5, 65, 65),
+            purchase(2, 'SUPPLIER-A', 'SKU-A', 20, 260, 260),
+        ]
+        export_source.return_value = [export(101, 1, 'SKU-A', 10, 1)]
+        result = WorkflowResult()
+
+        plan = RefundWorkflow()._build_plan(
+            WorkflowOptions(output_parent_dir='unused', declaration_month='202601'), result)
+
+        self.assertEqual([1, 2], [row['lot_id'] for row in plan[0]['purchases']])
+        self.assertEqual([5.0, 5.0], [row['数量'] for row in plan[0]['purchases']])
+        self.assertEqual(
+            [Decimal('5'), Decimal('5')],
+            [row['allocated_quantity'] for row in plan[0]['purchases']],
+        )
 
 
 if __name__ == '__main__':

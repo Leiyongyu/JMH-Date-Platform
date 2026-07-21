@@ -9,9 +9,11 @@
 """
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from infrastructure.database import get_conn
+from modules.tax_refund.customs_numbers import customs_base_number, customs_item_number
 
 # ── 桥接：尚未迁移到新 repository 的函数 ──
 from models.api_task import (  # noqa: F401
@@ -158,13 +160,19 @@ EXPORT_WRITE_FIELDS = (
 
 
 def upsert_export_detail(data: dict) -> tuple[int, bool]:
+    # export_detail 从入库开始即保存21位编号：18位报关单号 + 3位商品项号。
+    full_customs_no = customs_item_number(
+        data.get('customs_declaration_no'), data.get('customs_item_no'))
+    data['customs_declaration_no'] = full_customs_no
+    base_customs_no = full_customs_no[:18]
     conn = get_conn()
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "SELECT id FROM export_detail WHERE customs_declaration_no = %s "
-            "AND customs_item_no = %s AND is_deleted = 0",
-            (data['customs_declaration_no'], data['customs_item_no']))
+            "SELECT id FROM export_detail WHERE LEFT(customs_declaration_no, 18) = %s "
+            "AND CAST(customs_item_no AS UNSIGNED) = %s AND is_deleted = 0 "
+            "ORDER BY (customs_declaration_no = %s) DESC, id LIMIT 1",
+            (base_customs_no, int(full_customs_no[-3:]), full_customs_no))
         existing_id = cursor.fetchone()
         existing_id = existing_id[0] if existing_id else None
 
@@ -172,7 +180,7 @@ def upsert_export_detail(data: dict) -> tuple[int, bool]:
         if existing_id:
             update_fields = tuple(
                 f for f in EXPORT_WRITE_FIELDS
-                if f not in ('customs_declaration_no', 'customs_item_no', 'created_by'))
+                if f not in ('customs_item_no', 'created_by'))
             assignments = ', '.join(f'{f} = %({f})s' for f in update_fields)
             values['id'] = existing_id
             cursor.execute(
@@ -209,14 +217,15 @@ def upsert_export_detail(data: dict) -> tuple[int, bool]:
 
 
 def get_existing_export_identities(customs_declaration_no: str) -> dict:
+    base_customs_no = customs_base_number(customs_declaration_no)
     conn = get_conn()
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute("""
             SELECT customs_item_no, declaration_month, declaration_batch, sequence_no, relation_no
             FROM export_detail
-            WHERE customs_declaration_no = %s AND is_deleted = 0
-        """, (customs_declaration_no,))
+            WHERE LEFT(customs_declaration_no, 18) = %s AND is_deleted = 0
+        """, (base_customs_no,))
         rows = cursor.fetchall()
     finally:
         cursor.close()
@@ -268,19 +277,92 @@ def get_all_exports(page=1, per_page=50, **filters) -> tuple[list[dict], int]:
     return rows, total
 
 
+def get_exports_for_excel(ids: list[int] | None = None) -> list[dict]:
+    clauses = ['is_deleted = 0']
+    params: list[Any] = []
+    if ids is not None:
+        clauses.append(f"id IN ({','.join(['%s'] * len(ids))})")
+        params.extend(ids)
+    conn = get_conn()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            f"SELECT * FROM export_detail WHERE {' AND '.join(clauses)} "
+            "ORDER BY customs_declaration_no, CAST(customs_item_no AS UNSIGNED), id",
+            params,
+        )
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+
 # ── 进货库存 ──
 
 def insert_purchase_inventory(data: dict) -> int:
     conn = get_conn()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     try:
+        conn.start_transaction()
+        cursor.execute(
+            """
+            SELECT id, invoice_date, supplier_tax_no, sku_normalized, unit,
+                   purchased_quantity, allocated_quantity, reserved_quantity
+            FROM purchase_inventory
+            WHERE invoice_no=%s AND invoice_item_no=%s AND is_deleted=0
+            FOR UPDATE
+            """,
+            (data['invoice_no'], data['invoice_item_no']),
+        )
+        existing = cursor.fetchone()
+        if existing and (
+            Decimal(str(existing.get('allocated_quantity') or 0)) > 0
+            or Decimal(str(existing.get('reserved_quantity') or 0)) > 0
+        ):
+            immutable_fields = (
+                'invoice_date', 'supplier_tax_no', 'sku_normalized', 'unit',
+                'purchased_quantity',
+            )
+            changed = []
+            for field in immutable_fields:
+                old = existing.get(field)
+                new = data.get(field)
+                if field == 'purchased_quantity':
+                    equal = Decimal(str(old or 0)) == Decimal(str(new or 0))
+                else:
+                    equal = str(old or '').strip() == str(new or '').strip()
+                if not equal:
+                    changed.append(field)
+            if changed:
+                raise ValueError(
+                    f"发票 {data['invoice_no']} 第{data['invoice_item_no']}行已有库存扣减或预占，"
+                    f"禁止覆盖关键字段: {', '.join(changed)}"
+                )
+            cursor.execute(
+                """
+                UPDATE purchase_inventory
+                SET source_file_name=%s, source_file_hash=%s, source_page_no=%s,
+                    parse_confidence=%s, parse_status=%s, import_batch_id=%s,
+                    updated_by=%s
+                WHERE id=%s
+                """,
+                (
+                    data.get('source_file_name'), data.get('source_file_hash'),
+                    data.get('source_page_no'), data.get('parse_confidence'),
+                    data.get('parse_status'), data.get('import_batch_id'),
+                    data.get('created_by'), existing['id'],
+                ),
+            )
+            conn.commit()
+            return int(existing['id'])
+
         sql = """
             INSERT INTO purchase_inventory (
                 invoice_no, invoice_date, invoice_item_no,
                 supplier_name, supplier_tax_no, buyer_name, buyer_tax_no,
                 tax_type, product_name, product_specification,
                 sku_original, sku_normalized, unit,
-                purchased_quantity, allocated_quantity, remaining_quantity,
+                purchased_quantity, allocated_quantity, reserved_quantity, remaining_quantity,
                 unit_price, taxable_amount, tax_rate, refund_rate,
                 tax_amount, refundable_tax_amount, inventory_status,
                 declaration_month, declaration_batch, sequence_no, relation_no, remark,
@@ -291,7 +373,7 @@ def insert_purchase_inventory(data: dict) -> int:
                 %(supplier_name)s, %(supplier_tax_no)s, %(buyer_name)s, %(buyer_tax_no)s,
                 %(tax_type)s, %(product_name)s, %(product_specification)s,
                 %(sku_original)s, %(sku_normalized)s, %(unit)s,
-                %(purchased_quantity)s, 0, %(purchased_quantity)s,
+                %(purchased_quantity)s, 0, 0, %(purchased_quantity)s,
                 %(unit_price)s, %(taxable_amount)s, %(tax_rate)s, %(refund_rate)s,
                 %(tax_amount)s, %(refundable_tax_amount)s, 'AVAILABLE',
                 %(declaration_month)s, %(declaration_batch)s, %(sequence_no)s, %(relation_no)s, %(remark)s,
@@ -306,7 +388,10 @@ def insert_purchase_inventory(data: dict) -> int:
                 product_name = VALUES(product_name), product_specification = VALUES(product_specification),
                 sku_original = VALUES(sku_original), sku_normalized = VALUES(sku_normalized),
                 unit = VALUES(unit), purchased_quantity = VALUES(purchased_quantity),
-                remaining_quantity = VALUES(purchased_quantity) - allocated_quantity,
+                remaining_quantity = VALUES(purchased_quantity) - allocated_quantity - reserved_quantity,
+                inventory_status = CASE
+                    WHEN allocated_quantity = 0 AND reserved_quantity = 0 THEN 'AVAILABLE'
+                    ELSE inventory_status END,
                 unit_price = VALUES(unit_price), taxable_amount = VALUES(taxable_amount),
                 tax_rate = VALUES(tax_rate), refund_rate = VALUES(refund_rate),
                 tax_amount = VALUES(tax_amount),
@@ -322,7 +407,10 @@ def insert_purchase_inventory(data: dict) -> int:
         """
         cursor.execute(sql, data)
         conn.commit()
-        return cursor.lastrowid
+        return int(cursor.lastrowid or (existing['id'] if existing else 0))
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         cursor.close()
         conn.close()
@@ -366,6 +454,26 @@ def get_all_inventory(page=1, per_page=50, **filters) -> tuple[list[dict], int]:
     return rows, total
 
 
+def get_inventory_for_excel(ids: list[int] | None = None) -> list[dict]:
+    clauses = ['is_deleted = 0']
+    params: list[Any] = []
+    if ids is not None:
+        clauses.append(f"id IN ({','.join(['%s'] * len(ids))})")
+        params.extend(ids)
+    conn = get_conn()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            f"SELECT * FROM purchase_inventory WHERE {' AND '.join(clauses)} "
+            "ORDER BY invoice_date, invoice_no, invoice_item_no, id",
+            params,
+        )
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+
 # ── 外汇 ──
 
 def list_receivables(page=1, per_page=50, **filters) -> tuple[list[dict], int]:
@@ -397,7 +505,7 @@ def list_receivables(page=1, per_page=50, **filters) -> tuple[list[dict], int]:
     try:
         cursor.execute(
             f"SELECT r.*, COALESCE(SUM(a.allocated_amount_usd), 0) AS received_amount_usd, "
-            f"rec.core_transaction_no, rec.receipt_date, rec.actual_exchange_rate, "
+            f"rec.core_transaction_no, rec.receipt_date, rec.receipt_total_usd, rec.actual_exchange_rate, "
             f"rec.settlement_receipt_rmb, rec.difference_usd "
             f"FROM forex_export_receivable r "
             f"LEFT JOIN forex_receipt_allocation a ON a.receivable_id = r.id "
@@ -412,3 +520,29 @@ def list_receivables(page=1, per_page=50, **filters) -> tuple[list[dict], int]:
         cursor.close()
         conn.close()
     return rows, total
+
+
+def get_receivables_for_excel(ids: list[int] | None = None) -> list[dict]:
+    clauses = ['r.is_deleted = 0']
+    params: list[Any] = []
+    if ids is not None:
+        clauses.append(f"r.id IN ({','.join(['%s'] * len(ids))})")
+        params.extend(ids)
+    conn = get_conn()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            f"SELECT r.*, COALESCE(SUM(a.allocated_amount_usd), 0) AS received_amount_usd, "
+            f"rec.core_transaction_no, rec.receipt_date, rec.receipt_total_usd, "
+            f"rec.actual_exchange_rate, rec.settlement_receipt_rmb, rec.difference_usd "
+            f"FROM forex_export_receivable r "
+            f"LEFT JOIN forex_receipt_allocation a ON a.receivable_id = r.id "
+            f"LEFT JOIN forex_receipt rec ON rec.id = a.receipt_id AND rec.is_deleted = 0 "
+            f"WHERE {' AND '.join(clauses)} GROUP BY r.id, rec.id "
+            "ORDER BY r.export_date, r.id, rec.receipt_date, rec.id",
+            params,
+        )
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()

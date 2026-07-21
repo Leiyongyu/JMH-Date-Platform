@@ -43,6 +43,7 @@ def get_refund_exports():
                    tax_business_type, remark
             FROM export_detail
             WHERE is_deleted = 0 AND customs_match_status = 'MATCHED'
+              AND inventory_allocation_status IN ('UNALLOCATED','REVERSED')
             ORDER BY customs_declaration_no,
                      CAST(customs_item_no AS UNSIGNED), id
         """)

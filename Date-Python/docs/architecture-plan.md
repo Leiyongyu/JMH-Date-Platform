@@ -1,9 +1,21 @@
-# JMH Python 数据服务 — 架构优化方案 v2
+# JMH Python 数据服务 — 架构方案与实施记录 v3
 
 > 方向稿，不是一次性全面实施的计划。
 > 核心原则：**模块化单体 + 垂直领域切片 + 渐进式改进**。
 
 ## 实施记录
+
+### 2026-07-21：退税库存 FIFO、审计流水与任务统一
+
+- 保留 `purchase_inventory` 作为发票库存批次，新增 `reserved_quantity`、版本号和最近扣减任务字段。
+- 新增 `refund_generation`，记录退税文件生成任务、ERP 操作人、输出目录和生命周期。
+- 新增不可物理删除的 `refund_inventory_allocation`，记录预占、正式扣减、释放和冲销关联的报关单与进货发票。
+- `REFUND_PACKAGE_GENERATE` 改为事务预占 → 临时目录生成 → 正式扣减 → 原子发布目录。
+- 新增 `REFUND_PACKAGE_REVERSE`。冲销保留原扣减记录并新增 `REVERSAL` 流水。
+- 进货发票已有预占或扣减时，禁止覆盖日期、供应商、SKU、单位和采购数量。
+- 删除退税模块私有线程池，所有处理器统一通过 `infrastructure.task_queue` 注册和执行。
+- ERP 操作人由 `X-ERP-User-Id`、`X-ERP-User-Name` 传入，生成批次和流水保存 ID 与姓名快照。
+- 新增 `GET /refund-generations`、`GET /inventory-allocations` 和增量脚本 `sql/20260721_refund_inventory_allocation.sql`。
 
 ### 2026-07-16 下午
 - 企业收汇情况表：新增模板 + `_write_enterprise_receipt` 方法 + 汇总版收汇情况表
@@ -76,8 +88,10 @@ Date-Python/
 ├── modules/                          # 业务模块（垂直切片）
 │   ├── tax_refund/
 │   │   ├── repository.py             # ✅ 数据访问层（连接池，替换旧 models/*.py 裸 SQL）
-│   │   ├── schemas.py                # 桥接到旧 schemas/api_v1.py
-│   │   ├── task_handlers.py          # 任务处理器注册入口
+│   │   ├── inventory_service.py      # ✅ FIFO预占、确认、释放、冲销及审计查询
+│   │   ├── workflow.py               # ✅ 退税文件生成编排
+│   │   ├── schemas.py                # FastAPI/Pydantic 请求响应模型
+│   │   ├── task_handlers.py          # ✅ 统一任务队列处理器注册入口
 │   │   └── parsers/__init__.py       # 桥接到旧 services/*.py 解析器
 │   ├── finance/                      # 预留
 │   ├── data_cleaning/                # 预留
@@ -134,8 +148,13 @@ Date-Python/
 | `GET` | `/api/v1/tasks` | 保持 |
 | `GET` | `/api/v1/customs-material-items` | 保持 |
 | `GET` | `/api/v1/export-details` | 保持 |
+| `POST` | `/api/v1/export-details/export` | 出口明细 Excel 导出（选中/全部） |
 | `GET` | `/api/v1/purchase-inventory` | 保持 |
+| `POST` | `/api/v1/purchase-inventory/export` | 进货明细 Excel 导出（选中/全部） |
+| `GET` | `/api/v1/refund-generations` | 新增：生成批次审计 |
+| `GET` | `/api/v1/inventory-allocations` | 新增：库存扣减流水 |
 | `GET` | `/api/v1/forex-receivables` | 保持 |
+| `POST` | `/api/v1/forex-receivables/export` | 回款汇总 Excel 导出（选中/全部） |
 
 **新模块**使用领域前缀，不与现有路径冲突：
 
@@ -153,15 +172,14 @@ Date-Python/
 
 ## 3. 技术决策（逐项说明）
 
-### 3.1 数据库：SQLAlchemy 2.0 同步 + Repository 层
+### 3.1 数据库：mysql-connector-python 连接池 + Repository/Service 层
 
-| 维度 | 现状 | 第一阶段 | 远期 |
-|------|------|---------|------|
-| 连接 | `mysql.connector.connect()` 每次新建 | SQLAlchemy `create_engine` + QueuePool | 不变 |
-| 查询 | 裸 SQL 字符串散落在 models/ | Repository 封装，service 不碰 SQL | 不变 |
-| 连接池 | 无 | pool_size=5, max_overflow=10 | 按需调整 |
-| 迁移 | 手动 `.sql` 文件 | Alembic baseline + 增量 | 同上 |
-| 事务 | 手动 commit/rollback | `session.begin()` 上下文管理器 | 同上 |
+| 维度 | 当前实现 | 远期选择 |
+|------|----------|----------|
+| 连接 | `MySQLConnectionPool`，默认 pool_size=5 | 并发量增长后再评估 SQLAlchemy |
+| 查询 | 新功能集中在模块 Repository/Service；旧 `models/` 渐进迁移 | 完成旧模型清理 |
+| 迁移 | `sql/init_database.sql` + 日期命名增量脚本 | Python 版本稳定后启用 Alembic |
+| 事务 | mysql-connector 显式 `start_transaction/commit/rollback` | 保持清晰事务边界 |
 
 **为什么不用异步**：
 - Excel 解析、PDF 提取、FIFO 计算都是同步 CPU 密集型
@@ -169,18 +187,14 @@ Date-Python/
 - 线程池执行 `ThreadPoolExecutor` 搭配同步 Session 简单可靠
 - 将来真有高并发 I/O 场景，可以局部引入 `AsyncSession`，不必一步到位
 
-**Repository 层示例**：
+**事务服务示例**：
 ```python
-# modules/tax_refund/repository.py
-from sqlalchemy.orm import Session
-from infrastructure.database import SessionLocal
-
-def get_purchases_for_refund(session: Session) -> list[dict]:
-    """只读查询，返回原始 dict 而非 ORM 对象，方便 service 层解耦"""
-    rows = session.execute(
-        "SELECT id, invoice_no, ... FROM purchase_inventory WHERE is_deleted=0 AND ..."
-    ).mappings().all()
-    return [dict(r) for r in rows]
+# modules/tax_refund/inventory_service.py
+conn = get_conn()
+conn.start_transaction()
+cursor.execute("SELECT ... FROM purchase_inventory ... FOR UPDATE")
+# 校验 FIFO 后执行预占并写审计流水
+conn.commit()
 ```
 
 ### 3.2 配置：pydantic-settings，密码无默认值
@@ -228,7 +242,7 @@ JMH_JMH_DB_PASSWORD=1qaz!QAZ
 
 ### 3.3 任务可靠性
 
-当前只有一个 `submit_task(task_id) → ThreadPoolExecutor`。需要补齐：
+当前任务统一由 `infrastructure.task_queue.ThreadPoolTaskQueue` 执行，领域模块只注册处理器：
 
 ```python
 # infrastructure/task_queue.py
@@ -311,13 +325,42 @@ api_task (统一)
   ├── request_payload (JSON)  ← 领域参数
   └── result_payload  (JSON)  ← 领域结果
 
-领域结果表（只存业务数据，不存状态机）
+领域结果表（只存业务生命周期与审计，不替代统一任务状态机）
+  ├── refund_generation      (api_task_id UNIQUE FK → api_task)
+  ├── refund_inventory_allocation
   ├── customs_test_result    (api_task_id FK → api_task)
   ├── cleaning_job_result    (api_task_id FK → api_task)
   └── report_instance        (api_task_id FK → api_task)
 ```
 
-### 3.5 日志：structlog
+### 3.5 退税库存一致性设计
+
+库存恒等式：
+
+```text
+purchased_quantity = allocated_quantity + reserved_quantity + remaining_quantity
+```
+
+状态流：
+
+```text
+api_task: PENDING → RUNNING → SUCCESS/FAILED
+refund_generation: PREPARING → RESERVED → FILE_PENDING → COMMITTED → REVERSED
+                          └→ FAILED（预占全部释放）
+```
+
+核心规则：
+
+1. 库存池使用 `sku_normalized + supplier_tax_no`，同一供应商内按发票日期 FIFO，可跨多张发票。
+2. 事务使用 `SELECT ... FOR UPDATE` 锁定出口和库存；锁后再次校验数量与 FIFO 顺序。
+3. 文件生成期间只增加 `reserved_quantity`，失败时返还 `remaining_quantity`。
+4. 文件生成完成后把预占转为 `allocated_quantity`，生成批次进入 `FILE_PENDING`。
+5. 临时目录原子发布成功后进入 `COMMITTED`；发布失败由同一任务重试，不再次扣库存。
+6. `refund_generation.api_task_id` 唯一；ERP 的 `Idempotency-Key` 防止网络重试创建重复任务。
+7. 冲销不删除原流水，新增 `REVERSAL` 流水并返还库存。
+8. 流水保存报关单、发票、SKU、操作人快照，源数据后续变化不影响历史审计。
+
+### 3.6 日志：structlog
 
 ```python
 # app/core/logging.py
@@ -342,7 +385,7 @@ logger = structlog.get_logger()
 logger.info("task_started", task_id=123, task_type="FOREX_IMPORT")
 ```
 
-### 3.6 异常层次结构
+### 3.7 异常层次结构
 
 ```python
 # app/core/errors.py
@@ -383,7 +426,7 @@ async def handle_app_error(request, exc: AppError):
     )
 ```
 
-### 3.7 Java/Vue 不在本项目范围
+### 3.8 Java/Vue 不在本项目范围
 
 本项目只负责 Python 端。与 Java/Vue 的对接通过 OpenAPI 文档（`/docs`、`/openapi.json`）交付：
 
@@ -594,7 +637,7 @@ CREATE TABLE report_instance (
 
 ### 阶段 2：任务可靠性与 Repository
 
-- [ ] `infrastructure/task_queue.py` — 线程池实现 + 幂等/重试/恢复
+- [x] `infrastructure/task_queue.py` — 线程池实现 + 幂等/重试/恢复
 - [ ] `api_task` 表增加可靠性字段（Alembic 增量迁移）
 - [ ] `modules/tax_refund/repository.py` — 替换 `models/*.py` 中的裸 SQL
 - [ ] Service 层通过 Repository 获取数据
@@ -605,7 +648,8 @@ CREATE TABLE report_instance (
 
 - [ ] `migrations/versions/001_baseline.py` — 映照当前表结构
 - [ ] 对现有数据库 `alembic stamp 001_baseline`
-- [ ] `migrations/versions/002_task_reliability.py` — 加幂等/重试字段
+- [x] `sql/20260716_task_reliability.sql` — 加幂等/重试字段
+- [x] `sql/20260721_refund_inventory_allocation.sql` — 库存预占、流水和冲销
 - [ ] 将 `services/*.py` 迁移到 `modules/tax_refund/parsers/`
 - [ ] 将 `api/v1_router.py` 拆为 `app/api/v1/tasks.py` + `app/api/v1/resources.py`
 - [ ] 路径完全不变，只做代码位置整理

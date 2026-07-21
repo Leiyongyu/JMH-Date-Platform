@@ -111,7 +111,8 @@
             <label>申报批次（可选，3位数字如001）</label><input id="declaration-batch" placeholder="001" maxlength="3" pattern="[0-9]{3}">
             <label>出口日期（可选）</label><input id="export-date" type="date">
           </div>
-          <label>操作人</label><input id="erp-user" value="TEST-UI">
+          <label>操作人ID</label><input id="erp-user" value="TEST-UI">
+          <label>操作人姓名</label><input id="erp-user-name" value="测试用户">
           <div class="btn-row">
             <button class="primary" id="submit-task">创建任务</button>
             <button class="ghost" onclick="refreshTasks()">刷新</button>
@@ -157,6 +158,8 @@
             <button class="ghost" onclick="selectAllExports()" style="font-size:11px">全选本页</button>
             <button class="ghost" onclick="selectAllPages()" style="font-size:11px">全选所有页</button>
             <button class="ghost" onclick="clearExportSelection()" style="font-size:11px">取消全选</button>
+            <button class="primary" onclick="exportExcel('export', false)" style="font-size:11px">⬇ 导出选中</button>
+            <button class="ghost" onclick="exportExcel('export', true)" style="font-size:11px">⬇ 导出全部</button>
             <button class="primary" id="gen-selected" onclick="generateSelected()" style="font-size:11px">📋 生成选中数据的四张表</button>
             <span style="font-size:11px;color:var(--muted)" id="sel-count">已选 0 条</span>
           </div>
@@ -183,9 +186,15 @@
             <button class="ghost" onclick="$('pu-invoice').value='';$('pu-date-from').value='';$('pu-date-to').value='';$('pu-supplier-tax').value='';$('pu-buyer-tax').value='';$('pu-sku').value='';$('pu-status').value='';loadPurchases(1)">重置</button>
           </div>
           <div class="stats" id="pu-stats">共 0 条</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <button class="ghost" onclick="togglePageChecks('pu-cb', true)" style="font-size:11px">全选本页</button>
+            <button class="ghost" onclick="togglePageChecks('pu-cb', false)" style="font-size:11px">取消全选</button>
+            <button class="primary" onclick="exportExcel('purchase', false)" style="font-size:11px">⬇ 导出选中</button>
+            <button class="ghost" onclick="exportExcel('purchase', true)" style="font-size:11px">⬇ 导出全部</button>
+          </div>
           <div class="table-wrap">
             <table class="data-table">
-              <thead><tr><th>发票号</th><th>发票日期</th><th>项号</th><th>SKU</th><th>商品名称</th><th>单位</th><th>供应商</th><th>采购数量</th><th>剩余</th><th>单价</th><th>金额</th><th>税率</th><th>税额</th><th>申报年月</th><th>批次</th><th>序号</th><th>关联号</th><th>状态</th></tr></thead>
+              <thead><tr><th><input type="checkbox" onchange="togglePageChecks('pu-cb', this.checked)" style="width:auto;height:auto"></th><th>发票号</th><th>发票日期</th><th>项号</th><th>SKU</th><th>商品名称</th><th>单位</th><th>供应商</th><th>采购数量</th><th>已扣减</th><th>预占</th><th>剩余</th><th>单价</th><th>金额</th><th>税率</th><th>税额</th><th>申报年月</th><th>批次</th><th>序号</th><th>关联号</th><th>状态</th></tr></thead>
               <tbody id="pu-body"></tbody>
             </table>
           </div>
@@ -203,9 +212,15 @@
             <button class="ghost" onclick="$('fx-customs').value='';$('fx-contract').value='';$('fx-date-from').value='';$('fx-date-to').value='';loadForex(1)">重置</button>
           </div>
           <div class="stats" id="fx-stats">共 0 条</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <button class="ghost" onclick="togglePageChecks('fx-cb', true)" style="font-size:11px">全选本页</button>
+            <button class="ghost" onclick="togglePageChecks('fx-cb', false)" style="font-size:11px">取消全选</button>
+            <button class="primary" onclick="exportExcel('forex', false)" style="font-size:11px">⬇ 导出选中</button>
+            <button class="ghost" onclick="exportExcel('forex', true)" style="font-size:11px">⬇ 导出全部</button>
+          </div>
           <div class="table-wrap">
             <table class="data-table">
-              <thead><tr><th>序号</th><th>合同编号</th><th>报关单号</th><th>出口日期</th><th>出口口岸</th><th>报关合同金额(USD)</th><th>出口金额(USD)</th><th>月度汇率</th><th>回款金额(USD)</th><th>收汇金额(USD)</th><th>核心流水号</th><th>实际汇率</th><th>回单结汇金额(RMB)</th><th>收汇时间</th><th>差额(USD)</th></tr></thead>
+              <thead><tr><th><input type="checkbox" onchange="togglePageChecks('fx-cb', this.checked)" style="width:auto;height:auto"></th><th>序号</th><th>合同编号</th><th>报关单号</th><th>出口日期</th><th>出口口岸</th><th>报关合同金额(USD)</th><th>出口金额(USD)</th><th>月度汇率</th><th>分配回款(USD)</th><th>银行回款总额(USD)</th><th>核心流水号</th><th>实际汇率</th><th>回单结汇金额(RMB)</th><th>收汇时间</th><th>差额(USD)</th></tr></thead>
               <tbody id="fx-body"></tbody>
             </table>
           </div>
@@ -259,9 +274,11 @@
       $('submit-task').disabled = true;
       try {
         const t = $('task-type').value;
-        const h = {'X-ERP-User': $('erp-user').value.trim() || 'TEST-UI'};
+        const userId = $('erp-user').value.trim() || 'TEST-UI';
+        const userName = $('erp-user-name').value.trim() || userId;
+        const h = {'X-ERP-User-Id': userId, 'X-ERP-User-Name': encodeURIComponent(userName)};
         if (t === 'REFUND_PACKAGE_GENERATE') {
-          h['Content-Type'] = 'application/json';
+          h['Content-Type'] = 'application/json'; h['Idempotency-Key'] = crypto.randomUUID();
           const body = JSON.stringify({ task_type:t, output_parent_dir:$('output-dir').value.trim(), declaration_month:$('month').value.trim()||'202512', payer_name:$('payer').value.trim(), overwrite:$('overwrite').checked });
           const r = await api('/api/v1/tasks', {method:'POST', headers:h, body});
           msg('form-msg', `任务 #${r.data.id} 已创建`, 'info');
@@ -393,9 +410,9 @@
         const rows = r.data||[]; s.total = r.meta?.total||0;
         $('pu-stats').textContent = `共 ${s.total} 条 · 第 ${s.page} 页`;
         $('pu-body').innerHTML = rows.length ? rows.map(r => `
-          <tr><td title="${txt(r.invoice_no)}">${txt(r.invoice_no).slice(0,18)}</td><td>${dt(r.invoice_date)}</td><td>${txt(r.invoice_item_no)}</td><td title="${txt(r.sku_normalized)}">${txt(r.sku_normalized).slice(0,16)}</td><td title="${txt(r.product_name)}">${txt(r.product_name).slice(0,16)}</td><td>${txt(r.unit)}</td><td title="${txt(r.supplier_name)}">${txt(r.supplier_name).slice(0,10)}</td><td class="num">${num(r.purchased_quantity)}</td><td class="num">${num(r.remaining_quantity)}</td><td class="num">${num(r.unit_price,4)}</td><td class="num">${num(r.taxable_amount,2)}</td><td>${num(r.tax_rate&&r.tax_rate*100,0)}%</td><td class="num">${num(r.tax_amount,2)}</td><td>${txt(r.declaration_month)}</td><td>${txt(r.declaration_batch)}</td><td>${txt(r.sequence_no)}</td><td title="${txt(r.relation_no)}">${txt(r.relation_no).slice(0,18)}</td><td>${badge(r.inventory_status,{AVAILABLE:'SUCCESS',PARTIAL:'PARTIAL',EXHAUSTED:'FAILED'})}</td></tr>`).join('') : `<tr><td colspan="18" class="empty">暂无数据</td></tr>`;
+          <tr><td><input type="checkbox" class="pu-cb" value="${r.id}" style="width:auto;height:auto"></td><td title="${txt(r.invoice_no)}">${txt(r.invoice_no).slice(0,18)}</td><td>${dt(r.invoice_date)}</td><td>${txt(r.invoice_item_no)}</td><td title="${txt(r.sku_normalized)}">${txt(r.sku_normalized).slice(0,16)}</td><td title="${txt(r.product_name)}">${txt(r.product_name).slice(0,16)}</td><td>${txt(r.unit)}</td><td title="${txt(r.supplier_name)}">${txt(r.supplier_name).slice(0,10)}</td><td class="num">${num(r.purchased_quantity)}</td><td class="num">${num(r.allocated_quantity)}</td><td class="num">${num(r.reserved_quantity)}</td><td class="num">${num(r.remaining_quantity)}</td><td class="num">${num(r.unit_price,4)}</td><td class="num">${num(r.taxable_amount,2)}</td><td>${num(r.tax_rate&&r.tax_rate*100,0)}%</td><td class="num">${num(r.tax_amount,2)}</td><td>${txt(r.declaration_month)}</td><td>${txt(r.declaration_batch)}</td><td>${txt(r.sequence_no)}</td><td title="${txt(r.relation_no)}">${txt(r.relation_no).slice(0,18)}</td><td>${badge(r.inventory_status,{AVAILABLE:'SUCCESS',PARTIAL:'PARTIAL',RESERVED:'PARTIAL',EXHAUSTED:'FAILED'})}</td></tr>`).join('') : `<tr><td colspan="21" class="empty">暂无数据</td></tr>`;
         $('pu-pager').innerHTML = pagerHtml('purchase', s.total, s.page, s.size);
-      } catch(e) { $('pu-body').innerHTML = `<tr><td colspan="18" class="empty">${e.message}</td></tr>`; }
+      } catch(e) { $('pu-body').innerHTML = `<tr><td colspan="21" class="empty">${e.message}</td></tr>`; }
     }
 
     // ═══════════ 外汇应收 ═══════════
@@ -412,9 +429,9 @@
         const rows = r.data||[]; s.total = r.meta?.total||0;
         $('fx-stats').textContent = `共 ${s.total} 条 · 第 ${s.page} 页`;
         $('fx-body').innerHTML = rows.length ? rows.map(r => `
-          <tr><td>${txt(r.id)}</td><td>${txt(r.contract_no)}</td><td title="${txt(r.customs_declaration_no)}">${txt(r.customs_declaration_no).slice(0,22)}</td><td>${dt(r.export_date)}</td><td>${txt(r.customs_port)}</td><td class="num">$${num(r.customs_contract_usd,2)}</td><td class="num">$${num(r.export_amount_usd,2)}</td><td class="num">${num(r.monthly_exchange_rate,6)}</td><td class="num">$${num(r.received_amount_usd,2)}</td><td class="num">$${num(r.received_amount_usd,2)}</td><td>${txt(r.core_transaction_no)}</td><td class="num">${num(r.actual_exchange_rate,6)}</td><td class="num">${num(r.settlement_receipt_rmb,2)}</td><td>${dt(r.receipt_date)}</td><td class="num">$${num(r.difference_usd,2)}</td></tr>`).join('') : `<tr><td colspan="15" class="empty">暂无数据</td></tr>`;
+          <tr><td><input type="checkbox" class="fx-cb" value="${r.id}" style="width:auto;height:auto"></td><td>${txt(r.id)}</td><td>${txt(r.contract_no)}</td><td title="${txt(r.customs_declaration_no)}">${txt(r.customs_declaration_no).slice(0,22)}</td><td>${dt(r.export_date)}</td><td>${txt(r.customs_port)}</td><td class="num">$${num(r.customs_contract_usd,2)}</td><td class="num">$${num(r.export_amount_usd,2)}</td><td class="num">${num(r.monthly_exchange_rate,6)}</td><td class="num">$${num(r.received_amount_usd,2)}</td><td class="num">$${num(r.receipt_total_usd,2)}</td><td>${txt(r.core_transaction_no)}</td><td class="num">${num(r.actual_exchange_rate,6)}</td><td class="num">${num(r.settlement_receipt_rmb,2)}</td><td>${dt(r.receipt_date)}</td><td class="num">$${num(r.difference_usd,2)}</td></tr>`).join('') : `<tr><td colspan="16" class="empty">暂无数据</td></tr>`;
         $('fx-pager').innerHTML = pagerHtml('forex', s.total, s.page, s.size);
-      } catch(e) { $('fx-body').innerHTML = `<tr><td colspan="15" class="empty">${e.message}</td></tr>`; }
+      } catch(e) { $('fx-body').innerHTML = `<tr><td colspan="16" class="empty">${e.message}</td></tr>`; }
     }
 
     // ═══════════ Tab 切换 ═══════════
@@ -458,6 +475,66 @@
       $('ex-check-all').checked = false; updateSelCount();
     }
 
+    function togglePageChecks(className, checked) {
+      document.querySelectorAll(`.${className}`).forEach(c => { c.checked = checked; });
+    }
+
+    function selectedIds(className) {
+      return [...document.querySelectorAll(`.${className}:checked`)]
+        .map(c => Number(c.value))
+        .filter(Number.isInteger);
+    }
+
+    function downloadFileName(response, fallback) {
+      const disposition = response.headers.get('content-disposition') || '';
+      const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+      if (utf8Match) {
+        try { return decodeURIComponent(utf8Match[1]); } catch (_) {}
+      }
+      const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+      return plainMatch ? plainMatch[1] : fallback;
+    }
+
+    async function exportExcel(kind, exportAll) {
+      const configs = {
+        export: {url:'/api/v1/export-details/export', checkClass:'ex-cb', fallback:'export_details.xlsx'},
+        purchase: {url:'/api/v1/purchase-inventory/export', checkClass:'pu-cb', fallback:'purchase_details.xlsx'},
+        forex: {url:'/api/v1/forex-receivables/export', checkClass:'fx-cb', fallback:'forex_receivables.xlsx'}
+      };
+      const config = configs[kind];
+      let ids = null;
+      if (!exportAll && !(kind === 'export' && allPagesSelected)) {
+        ids = selectedIds(config.checkClass);
+        if (!ids.length) { alert('请先勾选需要导出的数据'); return; }
+      }
+      try {
+        const response = await fetch(config.url, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ids})
+        });
+        if (!response.ok) {
+          let message = `导出失败（HTTP ${response.status}）`;
+          try {
+            const detail = await response.json();
+            message = detail.error?.message || detail.detail || message;
+          } catch (_) {}
+          throw new Error(message);
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = downloadFileName(response, config.fallback);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert(e.message || '导出失败');
+      }
+    }
+
     async function generateSelected() {
       if (allPagesSelected) {
         // 全选所有页：不传 export_ids，后端处理全部
@@ -471,7 +548,9 @@
       if (!dm || !/^\d{6}$/.test(dm)) { alert('申报年月须6位数字'); return; }
       $('gen-selected').disabled = true;
       try {
-        const h = {'Content-Type': 'application/json', 'X-ERP-User': $('erp-user').value.trim() || 'TEST-UI'};
+        const userId = $('erp-user').value.trim() || 'TEST-UI';
+        const userName = $('erp-user-name').value.trim() || userId;
+        const h = {'Content-Type': 'application/json', 'X-ERP-User-Id': userId, 'X-ERP-User-Name': encodeURIComponent(userName), 'Idempotency-Key': crypto.randomUUID()};
         const body = JSON.stringify({
           task_type: 'REFUND_PACKAGE_GENERATE',
           output_parent_dir: dir.trim(),
