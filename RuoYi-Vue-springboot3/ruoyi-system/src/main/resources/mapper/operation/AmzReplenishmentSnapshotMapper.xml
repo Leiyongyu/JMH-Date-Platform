@@ -20,6 +20,7 @@
         <result property="reviewCount" column="review_count" />
         <result property="adRate" column="ad_rate" />
         <result property="profitRate30d" column="profit_rate_30d" />
+        <result property="profitRate90d" column="profit_rate_90d" />
         <result property="refundRate90d" column="refund_rate_90d" />
         <result property="purchasedQty" column="purchased_qty" />
         <result property="domesticStock" column="domestic_stock" />
@@ -44,6 +45,25 @@
         <result property="calcTime" column="calc_time" />
         <result property="imageUrl" column="image_url" />
     </resultMap>
+
+    <!-- 查询按区域路由到独立快照表；“全部”只做只读 UNION ALL。 -->
+    <sql id="amzSnapshotSource">
+        <choose>
+            <when test="regionGroup == 'US'">amz_replenishment_us_snapshot</when>
+            <when test="regionGroup == 'EU'">amz_replenishment_eu_snapshot</when>
+            <otherwise>
+                (SELECT * FROM amz_replenishment_us_snapshot
+                 UNION ALL
+                 SELECT * FROM amz_replenishment_eu_snapshot)
+            </otherwise>
+        </choose>
+    </sql>
+
+    <sql id="amzAllSnapshotSource">
+        (SELECT * FROM amz_replenishment_us_snapshot
+         UNION ALL
+         SELECT * FROM amz_replenishment_eu_snapshot)
+    </sql>
 
     <sql id="amzWeightedDailyExpr">
         (ROUND(COALESCE(MAX(rs.sales_14d),0) / 14, 2) * COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5)
@@ -108,8 +128,53 @@
     <!-- ==================================================================== -->
     <!-- 核心：INSERT...SELECT 聚合生成快照（from 旧项目 SQL）                    -->
     <!-- ==================================================================== -->
-    <insert id="insertByListing">
-        INSERT INTO amz_replenishment_snapshot (
+    <!-- US/EU 公式片段有意分开定义。当前字段一致，但后续可独立修改任一组而不影响另一组。 -->
+    <sql id="amzUsProductNatureExpr">
+        CASE
+            WHEN ANY_VALUE(pl.listing_create_date) IS NOT NULL
+             AND DATEDIFF(CURDATE(), ANY_VALUE(pl.listing_create_date)) &lt;= 60
+            THEN 2 ELSE 1
+        END
+    </sql>
+
+    <sql id="amzEuProductNatureExpr">
+        CASE
+            WHEN ANY_VALUE(pl.listing_create_date) IS NOT NULL
+             AND DATEDIFF(CURDATE(), ANY_VALUE(pl.listing_create_date)) &lt;= 90
+            THEN 2 ELSE 1
+        END
+    </sql>
+
+    <sql id="amzUsWeightedDailyExpr">
+        (ROUND(COALESCE(MAX(rs.sales_14d),0) / 14, 2) * COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5)
+        + ROUND(COALESCE(MAX(rs.sales_30d),0) / 30, 2) * COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4)
+        + ROUND(COALESCE(MAX(rs.sales_60d),0) / 60, 2) * COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1))
+    </sql>
+
+    <sql id="amzEuWeightedDailyExpr">
+        (ROUND(COALESCE(MAX(rs.sales_14d),0) / 14, 2) * COALESCE(ANY_VALUE(fc.sales_weight_14d),0.2)
+        + ROUND(COALESCE(MAX(rs.sales_30d),0) / 30, 2) * COALESCE(ANY_VALUE(fc.sales_weight_30d),0.35)
+        + ROUND(COALESCE(MAX(rs.sales_60d),0) / 60, 2) * COALESCE(ANY_VALUE(fc.sales_weight_60d),0.45))
+    </sql>
+
+    <sql id="amzUsRawCalculationColumns">
+        ROUND(base.weighted_daily_sales * base.month_multiplier, 2) AS avg_monthly_sales,
+        ROUND(base.weighted_daily_sales * base.safety_days, 2) AS safety_stock,
+        ROUND(base.weighted_daily_sales * base.ship_days, 2) - base.fba_deduct AS ship_qty,
+        ROUND(base.weighted_daily_sales * base.replenish_days, 2)
+            - base.domestic_deduct - base.purchased_deduct - base.fba_deduct - base.pending_deduct AS raw_replenish
+    </sql>
+
+    <sql id="amzEuRawCalculationColumns">
+        ROUND(base.weighted_daily_sales * base.month_multiplier, 2) AS avg_monthly_sales,
+        ROUND(base.weighted_daily_sales * base.safety_days, 2) AS safety_stock,
+        ROUND(base.weighted_daily_sales * base.ship_days, 2) - base.fba_deduct AS ship_qty,
+        ROUND(base.weighted_daily_sales * base.replenish_days, 2)
+            - base.domestic_deduct - base.purchased_deduct - base.fba_deduct - base.pending_deduct AS raw_replenish
+    </sql>
+
+    <sql id="insertByListingSql">
+        INSERT INTO ${snapshotTable} (
             sid, seller_sku, warehouse_sku, warehouse_name, asin, tag_name, principal_name, store_name,
             price, product_category, product_nature, rating, review_count, ad_rate, profit_rate_30d, refund_rate_90d,
             purchased_qty, domestic_stock, pending_ship_qty, fba_stock, fba_inbound, fba_inbound_working, total_inventory,
@@ -157,14 +222,7 @@
                            END AS base_replenish
                     FROM (
                         SELECT base.*,
-                               ROUND(base.weighted_daily_sales * base.month_multiplier, 2) AS avg_monthly_sales,
-                               ROUND(base.weighted_daily_sales * base.safety_days, 2) AS safety_stock,
-                               ROUND(base.weighted_daily_sales * base.ship_days, 2) - base.fba_deduct AS ship_qty,
-                               ROUND(base.weighted_daily_sales * base.replenish_days, 2)
-                                   - base.domestic_deduct
-                                   - base.purchased_deduct
-                                   - base.fba_deduct
-                                   - base.pending_deduct AS raw_replenish
+                               <include refid="${rawCalculationFragment}" />
                         FROM (
                             SELECT
                                 COALESCE(pl.sid, 0) AS sid,
@@ -187,14 +245,7 @@
                                 ANY_VALUE(pl.principal_name) AS principal_name,
                                 ANY_VALUE(COALESCE(sl.store_name, '')) AS store_name,
                                 ANY_VALUE(COALESCE(pc.category, '')) AS product_category,
-                                CASE
-                                    WHEN ANY_VALUE(pl.listing_create_date) IS NOT NULL
-                                     AND DATEDIFF(CURDATE(), ANY_VALUE(pl.listing_create_date)) &lt;=
-                                         CASE WHEN UPPER(SUBSTRING_INDEX(ANY_VALUE(COALESCE(sl.store_name, '')), '-', -1)) = 'EU'
-                                              THEN 90 ELSE 60 END
-                                    THEN 2
-                                    ELSE 1
-                                END AS product_nature,
+                                <include refid="${productNatureFragment}" /> AS product_nature,
                                 ANY_VALUE(NULLIF(pl.last_star, '')) AS rating,
                                 ANY_VALUE(pl.review_num) AS review_count,
                                 ANY_VALUE(op.spend_rate * 100) AS ad_rate,
@@ -214,9 +265,7 @@
                                 ROUND(COALESCE(MAX(rs.sales_14d), 0) / 14, 2) AS sales_speed_14d,
                                 ROUND(COALESCE(MAX(rs.sales_30d), 0) / 30, 2) AS sales_speed_30d,
                                 ROUND(COALESCE(MAX(rs.sales_60d), 0) / 60, 2) AS sales_speed_60d,
-                                (ROUND(COALESCE(MAX(rs.sales_14d),0) / 14, 2) * COALESCE(ANY_VALUE(fc.sales_weight_14d),0.5)
-                                    + ROUND(COALESCE(MAX(rs.sales_30d),0) / 30, 2) * COALESCE(ANY_VALUE(fc.sales_weight_30d),0.4)
-                                    + ROUND(COALESCE(MAX(rs.sales_60d),0) / 60, 2) * COALESCE(ANY_VALUE(fc.sales_weight_60d),0.1)) AS weighted_daily_sales,
+                                <include refid="${weightedDailyFragment}" /> AS weighted_daily_sales,
                                 COALESCE(ANY_VALUE(fc.month_multiplier), 30) AS month_multiplier,
                                 COALESCE(ANY_VALUE(fc.safety_days), 90) AS safety_days,
                                 COALESCE(ANY_VALUE(fc.ship_days), 90) AS ship_days,
@@ -226,12 +275,14 @@
                                 ANY_VALUE(fc.max_replenish_qty) AS max_replenish_qty,
                                 COALESCE(ANY_VALUE(fc.round_mode), 'NONE') AS round_mode,
                                 (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_domestic_stock),1) = 1 THEN COALESCE(MAX(wd.product_valid_num),0) ELSE 0 END) AS domestic_deduct,
-                                (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_purchased_qty),1) = 1 THEN COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) ELSE 0 END) AS purchased_deduct,
+                                (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_purchased_qty),1) = 1
+                                      THEN COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)),0) + COALESCE(MAX(wd.product_qc_num),0)
+                                      ELSE 0 END) AS purchased_deduct,
                                 (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_stock),1) = 1 THEN COALESCE(MAX(pi.fba_stock),0) ELSE 0 END
                                     + CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_inbound),1) = 1 THEN COALESCE(MAX(pi.fba_inbound),0) ELSE 0 END) AS fba_deduct,
                                 (CASE WHEN COALESCE(ANY_VALUE(fc.deduct_pending_ship_qty),1) = 1 THEN COALESCE(MAX(wd.product_lock_num),0) ELSE 0 END
                                     + CASE WHEN COALESCE(ANY_VALUE(fc.deduct_fba_inbound_working),0) = 1 THEN COALESCE(MAX(pi.fba_inbound_working),0) ELSE 0 END) AS pending_deduct,
-                                ANY_VALUE(COALESCE(fc.region_group, 'US')) AS region_group,
+                                ANY_VALUE(fc.region_group) AS region_group,
                                 ANY_VALUE(pl.small_image_url) AS image_url
                             FROM amz_product_listing pl
                             LEFT JOIN shop_list sl ON sl.sid = pl.sid AND sl.platform_code = '10001'
@@ -247,7 +298,8 @@
                             LEFT JOIN amz_restock_summary rs ON rs.sid = pl.sid AND rs.msku = pl.seller_sku
                             LEFT JOIN amz_product_performance_inventory pi ON pi.sid = pl.sid AND pi.seller_sku = pl.seller_sku
                             LEFT JOIN warehouse wh ON wh.wid = wd.wid
-                            LEFT JOIN amz_replenishment_formula_config fc ON fc.enabled = 1
+                            INNER JOIN amz_replenishment_formula_config fc ON fc.enabled = 1
+                                AND fc.region_group = ${regionLiteral}
                                 AND FIND_IN_SET(store_wh.name, fc.marketplaces) > 0
                             GROUP BY COALESCE(pl.sid, 0), pl.seller_sku, COALESCE(wd.sku, pl.local_sku, ''), COALESCE(wd.wid, 0)
                         ) base
@@ -255,6 +307,34 @@
                 ) calc
             ) limited
         ) final
+    </sql>
+
+    <insert id="insertUsByListing">
+        <include refid="insertByListingSql">
+            <property name="snapshotTable" value="amz_replenishment_us_snapshot" />
+            <property name="regionLiteral" value="'US'" />
+            <property name="productNatureFragment" value="amzUsProductNatureExpr" />
+            <property name="weightedDailyFragment" value="amzUsWeightedDailyExpr" />
+            <property name="rawCalculationFragment" value="amzUsRawCalculationColumns" />
+        </include>
+    </insert>
+
+    <update id="updateUsProfitRate90d">
+        UPDATE amz_replenishment_us_snapshot s
+        LEFT JOIN amz_order_profit_90d p
+          ON p.sid = s.sid AND p.seller_sku = s.seller_sku
+        SET s.profit_rate_90d = p.gross_margin * 100
+        WHERE s.batch_no = #{batchNo}
+    </update>
+
+    <insert id="insertEuByListing">
+        <include refid="insertByListingSql">
+            <property name="snapshotTable" value="amz_replenishment_eu_snapshot" />
+            <property name="regionLiteral" value="'EU'" />
+            <property name="productNatureFragment" value="amzEuProductNatureExpr" />
+            <property name="weightedDailyFragment" value="amzEuWeightedDailyExpr" />
+            <property name="rawCalculationFragment" value="amzEuRawCalculationColumns" />
+        </include>
     </insert>
 
     <!-- ==================================================================== -->
@@ -265,7 +345,7 @@
                s.store_name, s.image_url,
                COALESCE(o.product_category, s.product_category) AS product_category,
                COALESCE(o.remark, '') AS remark,
-               s.product_nature, s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
+               s.product_nature, s.rating, s.review_count, s.ad_rate, s.profit_rate_30d, s.profit_rate_90d,
                s.refund_rate_90d, s.tag_name,
                s.purchased_qty AS purchased_qty,
                s.domestic_stock, s.pending_ship_qty, s.fba_stock,
@@ -276,7 +356,7 @@
                s.avg_monthly_sales,
                s.safety_stock, s.ship_qty, s.replenish_qty, s.restock_days,
                s.region_group, s.calc_time
-        FROM amz_replenishment_snapshot s
+        FROM <include refid="amzSnapshotSource" /> s
         LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = o.sid AND s.seller_sku = o.seller_sku
         <where>
             and s.current_flag = 1
@@ -371,6 +451,16 @@
                     <when test="profit_rate_30d_op == 'isNull'"> and profit_rate_30d is null </when>
                     <when test="profit_rate_30d_op == 'isNotNull'"> and profit_rate_30d is not null </when>
                     <when test="profit_rate_30d_val != null"> and profit_rate_30d ${profit_rate_30d_op} #{profit_rate_30d_val} </when>
+                </choose>
+            </if>
+            <if test="profit_rate_90d_op != null">
+                <choose>
+                    <when test="profit_rate_90d_op == 'between' and profit_rate_90d_val != null and profit_rate_90d_val2 != null">
+                        and profit_rate_90d between #{profit_rate_90d_val} and #{profit_rate_90d_val2}
+                    </when>
+                    <when test="profit_rate_90d_op == 'isNull'"> and profit_rate_90d is null </when>
+                    <when test="profit_rate_90d_op == 'isNotNull'"> and profit_rate_90d is not null </when>
+                    <when test="profit_rate_90d_val != null"> and profit_rate_90d ${profit_rate_90d_op} #{profit_rate_90d_val} </when>
                 </choose>
             </if>
             <if test="refund_rate_90d_op != null">
@@ -593,7 +683,7 @@
 
     <!-- distinct 候选值 -->
     <select id="selectDistinctValues" parameterType="map" resultType="string">
-        select distinct t.`${column}` from amz_replenishment_snapshot t
+        select distinct t.`${column}` from <include refid="amzSnapshotSource" /> t
         where t.current_flag = 1
           and t.`${column}` is not null and t.`${column}` != ''
         <if test="keyword != null and keyword != ''">and t.`${column}` like concat('%', #{keyword}, '%')</if>
@@ -602,7 +692,7 @@
 
     <select id="selectSalesBreakdown" resultType="map">
         SELECT store_name AS storeName, ${column} AS `value`
-        FROM amz_replenishment_snapshot
+        FROM <include refid="amzAllSnapshotSource" />
         WHERE warehouse_sku = #{warehouseSku}
           AND current_flag = 1
           AND store_name IS NOT NULL AND store_name != ''
@@ -617,7 +707,7 @@
     <select id="selectSalesBreakdownByFilters" parameterType="map" resultType="map">
         SELECT s.store_name AS storeName,
                ROUND(SUM(COALESCE(s.`${breakdownColumn}`, 0)), 2) AS `value`
-        FROM amz_replenishment_snapshot s
+        FROM <include refid="amzSnapshotSource" /> s
         LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = o.sid AND s.seller_sku = o.seller_sku
         <where>
             and s.current_flag = 1
@@ -667,6 +757,7 @@
             <if test="review_count_op != null"><choose><when test="review_count_op == 'between' and review_count_val != null and review_count_val2 != null">and review_count between #{review_count_val} and #{review_count_val2}</when><when test="review_count_op == 'isNull'"> and review_count is null </when><when test="review_count_op == 'isNotNull'"> and review_count is not null </when><when test="review_count_val != null"> and review_count ${review_count_op} #{review_count_val} </when></choose></if>
             <if test="ad_rate_op != null"><choose><when test="ad_rate_op == 'between' and ad_rate_val != null and ad_rate_val2 != null">and ad_rate between #{ad_rate_val} and #{ad_rate_val2}</when><when test="ad_rate_op == 'isNull'"> and ad_rate is null </when><when test="ad_rate_op == 'isNotNull'"> and ad_rate is not null </when><when test="ad_rate_val != null"> and ad_rate ${ad_rate_op} #{ad_rate_val} </when></choose></if>
             <if test="profit_rate_30d_op != null"><choose><when test="profit_rate_30d_op == 'between' and profit_rate_30d_val != null and profit_rate_30d_val2 != null">and profit_rate_30d between #{profit_rate_30d_val} and #{profit_rate_30d_val2}</when><when test="profit_rate_30d_op == 'isNull'"> and profit_rate_30d is null </when><when test="profit_rate_30d_op == 'isNotNull'"> and profit_rate_30d is not null </when><when test="profit_rate_30d_val != null"> and profit_rate_30d ${profit_rate_30d_op} #{profit_rate_30d_val} </when></choose></if>
+            <if test="profit_rate_90d_op != null"><choose><when test="profit_rate_90d_op == 'between' and profit_rate_90d_val != null and profit_rate_90d_val2 != null">and profit_rate_90d between #{profit_rate_90d_val} and #{profit_rate_90d_val2}</when><when test="profit_rate_90d_op == 'isNull'"> and profit_rate_90d is null </when><when test="profit_rate_90d_op == 'isNotNull'"> and profit_rate_90d is not null </when><when test="profit_rate_90d_val != null"> and profit_rate_90d ${profit_rate_90d_op} #{profit_rate_90d_val} </when></choose></if>
             <if test="refund_rate_90d_op != null"><choose><when test="refund_rate_90d_op == 'between' and refund_rate_90d_val != null and refund_rate_90d_val2 != null">and refund_rate_90d between #{refund_rate_90d_val} and #{refund_rate_90d_val2}</when><when test="refund_rate_90d_op == 'isNull'"> and refund_rate_90d is null </when><when test="refund_rate_90d_op == 'isNotNull'"> and refund_rate_90d is not null </when><when test="refund_rate_90d_val != null"> and refund_rate_90d ${refund_rate_90d_op} #{refund_rate_90d_val} </when></choose></if>
             <if test="purchased_qty_op != null"><choose><when test="purchased_qty_op == 'between' and purchased_qty_val != null and purchased_qty_val2 != null">and purchased_qty between #{purchased_qty_val} and #{purchased_qty_val2}</when><when test="purchased_qty_op == 'isNull'"> and purchased_qty is null </when><when test="purchased_qty_op == 'isNotNull'"> and purchased_qty is not null </when><when test="purchased_qty_val != null"> and purchased_qty ${purchased_qty_op} #{purchased_qty_val} </when></choose></if>
             <if test="domestic_stock_op != null"><choose><when test="domestic_stock_op == 'between' and domestic_stock_val != null and domestic_stock_val2 != null">and domestic_stock between #{domestic_stock_val} and #{domestic_stock_val2}</when><when test="domestic_stock_op == 'isNull'"> and domestic_stock is null </when><when test="domestic_stock_op == 'isNotNull'"> and domestic_stock is not null </when><when test="domestic_stock_val != null"> and domestic_stock ${domestic_stock_op} #{domestic_stock_val} </when></choose></if>
@@ -700,7 +791,7 @@
                s.store_name, s.image_url,
                COALESCE(o.product_category, s.product_category) AS product_category,
                COALESCE(o.remark, '') AS remark,
-               s.product_nature, s.rating, s.review_count, s.ad_rate, s.profit_rate_30d,
+               s.product_nature, s.rating, s.review_count, s.ad_rate, s.profit_rate_30d, s.profit_rate_90d,
                s.refund_rate_90d, s.tag_name,
                s.purchased_qty AS purchased_qty,
                s.domestic_stock, s.pending_ship_qty, s.fba_stock,
@@ -710,7 +801,7 @@
                ROUND(COALESCE(s.sales_60d, 0) / 60, 2) AS sales_speed_60d,
                s.avg_monthly_sales,
                s.safety_stock, s.ship_qty, s.replenish_qty, s.restock_days, s.calc_time
-        FROM amz_replenishment_snapshot s
+        FROM <include refid="amzSnapshotSource" /> s
         LEFT JOIN amz_replenishment_override o ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = o.sid AND s.seller_sku = o.seller_sku
         <where>
             and s.current_flag = 1
@@ -736,6 +827,7 @@
             <when test="sortField == 'reviewCount'">order by review_count</when>
             <when test="sortField == 'adRate'">order by ad_rate</when>
             <when test="sortField == 'profitRate30d'">order by profit_rate_30d</when>
+            <when test="sortField == 'profitRate90d'">order by profit_rate_90d</when>
             <when test="sortField == 'refundRate90d'">order by refund_rate_90d</when>
             <when test="sortField == 'productNature'">order by product_nature</when>
             <when test="sortField == 'domesticStock'">order by domestic_stock</when>
@@ -766,15 +858,23 @@
     <!-- ==================================================================== -->
     <!-- 写入                                                              -->
     <!-- ==================================================================== -->
-    <delete id="deleteAll">DELETE FROM amz_replenishment_snapshot</delete>
-
-    <update id="activateBatch">
-        UPDATE amz_replenishment_snapshot
+    <update id="activateUsBatch">
+        UPDATE amz_replenishment_us_snapshot
         SET current_flag = CASE WHEN batch_no = #{batchNo} THEN 1 ELSE 0 END
     </update>
 
-    <delete id="deleteNonCurrent">
-        DELETE FROM amz_replenishment_snapshot
+    <update id="activateEuBatch">
+        UPDATE amz_replenishment_eu_snapshot
+        SET current_flag = CASE WHEN batch_no = #{batchNo} THEN 1 ELSE 0 END
+    </update>
+
+    <delete id="deleteUsNonCurrent">
+        DELETE FROM amz_replenishment_us_snapshot
+        WHERE current_flag = 0
+    </delete>
+
+    <delete id="deleteEuNonCurrent">
+        DELETE FROM amz_replenishment_eu_snapshot
         WHERE current_flag = 0
     </delete>
 

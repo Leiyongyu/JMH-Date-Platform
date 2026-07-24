@@ -47,11 +47,17 @@ public class UnifiedExportService
 
     public void exportAmzReplenishment(ExportRequest req, HttpServletResponse response) throws Exception
     {
-        List<String> allowed = Arrays.asList("sid","sellerSku","warehouseSku","warehouseName","asin","principalName",
+        List<String> allowed = new ArrayList<>(Arrays.asList("sid","sellerSku","warehouseSku","warehouseName","asin","principalName",
             "price","storeName","productCategory","rating","reviewCount","adRate","profitRate30d","refundRate90d",
             "productNature","purchasedQty","domesticStock","pendingShipQty","fbaStock","fbaInbound","fbaInboundWorking","totalInventory",
             "sales7d","sales14d","sales30d","sales60d","salesSpeed14d","salesSpeed30d","salesSpeed60d",
-            "avgMonthlySales","safetyStock","shipQty","replenishQty","restockDays","calcTime");
+            "avgMonthlySales","safetyStock","shipQty","replenishQty","restockDays","calcTime"));
+        boolean usRegion = req.getFilters() != null && req.getFilters().stream()
+                .anyMatch(item -> "regionGroup".equals(item.getField()) && "US".equals(item.getValue()));
+        if (usRegion)
+        {
+            allowed.add("profitRate90d");
+        }
         List<String> keys = resolveKeys(req, allowed);
         List<Map<String, Object>> data = fetchAmzReplenishmentData(req, keys);
         writeExcel(response, "Amazon补货数据", data, resolveColumns(req, keys, allowed, amzReplenishmentTitles()));
@@ -266,6 +272,7 @@ public class UnifiedExportService
         m.put("avgMonthlySales", s.getAvgMonthlySales()); m.put("safetyStock", s.getSafetyStock());
         m.put("shipQty", s.getShipQty()); m.put("replenishQty", s.getReplenishQty()); m.put("restockDays", s.getRestockDays());
         m.put("calcTime", s.getCalcTime());
+        m.put("profitRate90d", formatPercentText(s.getProfitRate90d()));
         return filterMap(m, keys);
     }
 
@@ -341,6 +348,7 @@ public class UnifiedExportService
         t.put("salesSpeed14d","14日均销"); t.put("salesSpeed30d","30日均销"); t.put("salesSpeed60d","60日均销");
         t.put("avgMonthlySales","平均月销量"); t.put("safetyStock","安全库存"); t.put("shipQty","发货量");
         t.put("replenishQty","补货量"); t.put("restockDays","补货时间"); t.put("calcTime","计算时间");
+        t.put("profitRate90d","90天利润率");
         return t;
     }
 }

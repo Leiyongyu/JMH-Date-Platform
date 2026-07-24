@@ -11,8 +11,9 @@ public interface IAmzReplenishmentSnapshotService
 {
     List<AmzReplenishmentSnapshot> selectAmzReplenishmentSnapshotList(AmzReplenishmentSnapshot snapshot);
     List<AmzReplenishmentSnapshot> search(EbayReplenishmentSearchRequest req);
-    List<String> distinctValues(String field, String keyword);
+    List<String> distinctValues(String field, String keyword, String regionGroup);
     int refreshSnapshot();
+    int refreshSnapshot(String regionGroup);
     /** 按仓库SKU查询各店铺销量明细 */
     List<Map<String, Object>> salesBreakdown(String warehouseSku, String field, List<String> storeNames);
     /** 按当前AMZ筛选条件查询各店铺销量明细 */

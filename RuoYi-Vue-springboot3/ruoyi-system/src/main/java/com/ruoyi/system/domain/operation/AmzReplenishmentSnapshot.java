@@ -57,6 +57,9 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     @Excel(name = "30天利润率")
     private BigDecimal profitRate30d;
 
+    @Excel(name = "90天利润率")
+    private BigDecimal profitRate90d;
+
     @Excel(name = "90天退款率")
     private BigDecimal refundRate90d;
 
@@ -160,6 +163,8 @@ public class AmzReplenishmentSnapshot extends BaseEntity
     public void setAdRate(BigDecimal adRate) { this.adRate = adRate; }
     public BigDecimal getProfitRate30d() { return profitRate30d; }
     public void setProfitRate30d(BigDecimal profitRate30d) { this.profitRate30d = profitRate30d; }
+    public BigDecimal getProfitRate90d() { return profitRate90d; }
+    public void setProfitRate90d(BigDecimal profitRate90d) { this.profitRate90d = profitRate90d; }
     public BigDecimal getRefundRate90d() { return refundRate90d; }
     public void setRefundRate90d(BigDecimal refundRate90d) { this.refundRate90d = refundRate90d; }
     public Integer getPurchasedQty() { return purchasedQty; }

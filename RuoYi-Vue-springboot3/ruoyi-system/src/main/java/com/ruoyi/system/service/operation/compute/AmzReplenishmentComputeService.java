@@ -4,8 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import com.ruoyi.system.mapper.operation.AmzReplenishmentSnapshotMapper;
-
 /**
  * AMZ补货计算引擎 —— 使用 INSERT...SELECT SQL 一次性聚合。
  * 从旧项目 AmazonComputeService.refreshSnapshot() + AmzInventoryOverviewMapper.insertByListing() 移植。
@@ -26,11 +24,14 @@ public class AmzReplenishmentComputeService
 {
     private static final Logger log = LoggerFactory.getLogger(AmzReplenishmentComputeService.class);
 
-    private final AmzReplenishmentSnapshotMapper snapshotMapper;
+    private final AmzUsReplenishmentRefreshService usRefreshService;
+    private final AmzEuReplenishmentRefreshService euRefreshService;
 
-    public AmzReplenishmentComputeService(AmzReplenishmentSnapshotMapper snapshotMapper)
+    public AmzReplenishmentComputeService(AmzUsReplenishmentRefreshService usRefreshService,
+                                          AmzEuReplenishmentRefreshService euRefreshService)
     {
-        this.snapshotMapper = snapshotMapper;
+        this.usRefreshService = usRefreshService;
+        this.euRefreshService = euRefreshService;
     }
 
     /**
@@ -41,12 +42,12 @@ public class AmzReplenishmentComputeService
     {
         log.info("==== AMZ补货快照 INSERT...SELECT 开始 ====");
         long start = System.currentTimeMillis();
-        String batchNo = "AMZ_REPL-" + System.currentTimeMillis();
-        int rows = snapshotMapper.insertByListing(batchNo);
-        if (rows > 0)
-        {
-            snapshotMapper.activateBatch(batchNo);
-        }
+        String suffix = String.valueOf(System.currentTimeMillis());
+        String usBatchNo = "AMZ_REPL_US-" + suffix;
+        String euBatchNo = "AMZ_REPL_EU-" + suffix;
+        int usRows = usRefreshService.refresh(usBatchNo);
+        int euRows = euRefreshService.refresh(euBatchNo);
+        int rows = usRows + euRows;
         log.info("==== AMZ补货快照 INSERT...SELECT 完成: {} 条 耗时{}ms ====", rows, System.currentTimeMillis() - start);
     }
 }

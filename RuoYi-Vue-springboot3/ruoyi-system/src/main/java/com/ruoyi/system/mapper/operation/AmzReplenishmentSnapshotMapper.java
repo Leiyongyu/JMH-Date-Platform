@@ -11,7 +11,9 @@ public interface AmzReplenishmentSnapshotMapper
 
     List<AmzReplenishmentSnapshot> search(Map<String, Object> params);
 
-    List<String> selectDistinctValues(@Param("column") String column, @Param("keyword") String keyword);
+    List<String> selectDistinctValues(@Param("column") String column,
+                                      @Param("keyword") String keyword,
+                                      @Param("regionGroup") String regionGroup);
 
     /** 按仓库SKU查询各店铺销量明细 */
     List<Map<String, Object>> selectSalesBreakdown(@Param("warehouseSku") String warehouseSku,
@@ -21,11 +23,17 @@ public interface AmzReplenishmentSnapshotMapper
     /** 按当前筛选条件查询各店铺销量明细 */
     List<Map<String, Object>> selectSalesBreakdownByFilters(Map<String, Object> params);
 
-    int insertByListing(@Param("batchNo") String batchNo);
+    int insertUsByListing(@Param("batchNo") String batchNo);
 
-    int deleteAll();
+    int updateUsProfitRate90d(@Param("batchNo") String batchNo);
 
-    int activateBatch(@Param("batchNo") String batchNo);
+    int insertEuByListing(@Param("batchNo") String batchNo);
 
-    int deleteNonCurrent();
+    int activateUsBatch(@Param("batchNo") String batchNo);
+
+    int activateEuBatch(@Param("batchNo") String batchNo);
+
+    int deleteUsNonCurrent();
+
+    int deleteEuNonCurrent();
 }

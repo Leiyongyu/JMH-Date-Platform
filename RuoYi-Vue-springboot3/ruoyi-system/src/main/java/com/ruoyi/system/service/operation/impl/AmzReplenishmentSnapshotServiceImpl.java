@@ -7,7 +7,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot;
@@ -15,7 +14,8 @@ import com.ruoyi.system.domain.operation.AmzSalesBreakdownRequest;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.mapper.operation.AmzReplenishmentSnapshotMapper;
 import com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService;
-import com.ruoyi.system.service.operation.compute.AmzReplenishmentComputeService;
+import com.ruoyi.system.service.operation.compute.AmzEuReplenishmentRefreshService;
+import com.ruoyi.system.service.operation.compute.AmzUsReplenishmentRefreshService;
 
 @Service
 public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSnapshotService
@@ -24,7 +24,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
 
     private static final Set<String> SORT_FIELDS = Set.of(
         "storeName", "sellerSku", "warehouseSku", "asin", "price", "rating", "reviewCount",
-        "adRate", "profitRate30d", "refundRate90d", "domesticStock", "pendingShipQty",
+        "adRate", "profitRate30d", "profitRate90d", "refundRate90d", "domesticStock", "pendingShipQty",
         "fbaStock", "fbaInbound", "fbaInboundWorking", "totalInventory", "sales7d", "sales14d",
         "sales30d", "sales60d", "salesSpeed14d", "salesSpeed30d", "salesSpeed60d",
         "avgMonthlySales", "safetyStock", "shipQty", "replenishQty", "restockDays", "productNature"
@@ -38,6 +38,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         NUM_MAP.put("rating","rating"); NUM_MAP.put("reviewCount","review_count");
         NUM_MAP.put("price","price");
         NUM_MAP.put("adRate","ad_rate"); NUM_MAP.put("profitRate30d","profit_rate_30d");
+        NUM_MAP.put("profitRate90d","profit_rate_90d");
         NUM_MAP.put("refundRate90d","refund_rate_90d"); NUM_MAP.put("purchasedQty","purchased_qty");
         NUM_MAP.put("domesticStock","domestic_stock"); NUM_MAP.put("pendingShipQty","pending_ship_qty");
         NUM_MAP.put("fbaStock","fba_stock"); NUM_MAP.put("fbaInbound","fba_inbound");
@@ -64,7 +65,8 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
     private static final Set<String> ALLOWED_FIELDS = FIELD_TO_COL.keySet();
 
     @Autowired private AmzReplenishmentSnapshotMapper mapper;
-    @Autowired private AmzReplenishmentComputeService computeService;
+    @Autowired private AmzUsReplenishmentRefreshService usRefreshService;
+    @Autowired private AmzEuReplenishmentRefreshService euRefreshService;
 
     @Override
     public List<AmzReplenishmentSnapshot> selectAmzReplenishmentSnapshotList(AmzReplenishmentSnapshot snap)
@@ -80,11 +82,13 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
     }
 
     @Override
-    public List<String> distinctValues(String field, String keyword)
+    public List<String> distinctValues(String field, String keyword, String regionGroup)
     {
         String col = FIELD_TO_COL.get(field);
         if (col == null) return Collections.emptyList();
-        return mapper.selectDistinctValues(col, keyword != null ? keyword.trim() : null);
+        if (!"US".equals(regionGroup) && !"EU".equals(regionGroup))
+            throw new IllegalArgumentException("区域分组仅支持 US 或 EU");
+        return mapper.selectDistinctValues(col, keyword != null ? keyword.trim() : null, regionGroup);
     }
 
     @Override
@@ -108,22 +112,42 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
     }
 
     @Override
-    @Transactional
     public int refreshSnapshot()
     {
         log.info("==== AMZ补货快照刷新 开始 ====");
         long t = System.currentTimeMillis();
-        String batchNo = newBatchNo("AMZ_REPL");
-        int rows = mapper.insertByListing(batchNo);
-        if (rows <= 0)
-        {
-            log.warn("==== AMZ replenishment snapshot refresh returned empty result, keep current snapshot ====");
-            return 0;
-        }
-        mapper.activateBatch(batchNo);
-        mapper.deleteNonCurrent();
-        log.info("==== AMZ补货快照刷新 完成: {} 条 耗时{}ms ====", rows, System.currentTimeMillis() - t);
+        int usRows = refreshUsSnapshot();
+        int euRows = refreshEuSnapshot();
+        int rows = usRows + euRows;
+        log.info("==== AMZ补货快照刷新 完成: US={} 条, EU={} 条, 合计={} 条, 耗时{}ms ====",
+                usRows, euRows, rows, System.currentTimeMillis() - t);
         return rows;
+    }
+
+    @Override
+    public int refreshSnapshot(String regionGroup)
+    {
+        if ("US".equals(regionGroup))
+        {
+            return refreshUsSnapshot();
+        }
+        if ("EU".equals(regionGroup))
+        {
+            return refreshEuSnapshot();
+        }
+        throw new IllegalArgumentException("区域分组仅支持 US 或 EU");
+    }
+
+    private int refreshUsSnapshot()
+    {
+        String batchNo = newBatchNo("AMZ_REPL_US");
+        return usRefreshService.refresh(batchNo);
+    }
+
+    private int refreshEuSnapshot()
+    {
+        String batchNo = newBatchNo("AMZ_REPL_EU");
+        return euRefreshService.refresh(batchNo);
     }
 
     private String newBatchNo(String prefix)

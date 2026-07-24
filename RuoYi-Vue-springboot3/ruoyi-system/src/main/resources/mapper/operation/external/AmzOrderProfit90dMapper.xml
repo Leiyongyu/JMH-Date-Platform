@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.AmzOrderProfit90dMapper">
+    <insert id="batchUpsert">
+        INSERT INTO amz_order_profit_90d (sid, seller_sku, gross_margin, sync_time) VALUES
+        <foreach collection="list" item="e" separator=",">
+            (#{e.sid}, #{e.sellerSku}, #{e.grossMargin}, NOW())
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+            gross_margin = VALUES(gross_margin),
+            sync_time = NOW()
+    </insert>
+
+    <delete id="deleteNotSyncedSince">
+        DELETE FROM amz_order_profit_90d
+        WHERE sync_time &lt; #{syncStartedAt}
+    </delete>
+</mapper>

@@ -1,5 +1,6 @@
 package com.ruoyi.web.controller.operation;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import jakarta.servlet.http.HttpServletResponse;
@@ -19,18 +20,15 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.common.enums.BusinessType;
-import com.ruoyi.common.utils.poi.ExcelUtil;
 import java.math.BigDecimal;
 import java.util.Map;
 
-import com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot;
 import com.ruoyi.system.domain.operation.AmzSalesBreakdownRequest;
 import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
 import com.ruoyi.system.domain.operation.ExportRequest;
 import com.ruoyi.system.domain.operation.external.AmzReplenishmentOverride;
 import com.ruoyi.system.mapper.operation.external.AmzReplenishmentOverrideMapper;
 import com.ruoyi.system.mapper.operation.external.AmzWarehouseInventoryDetailMapper;
-import com.ruoyi.system.mapper.operation.external.ShopListMapper;
 import com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService;
 import com.ruoyi.system.service.operation.UnifiedExportService;
 import com.github.pagehelper.PageHelper;
@@ -50,23 +48,24 @@ public class AmzReplenishmentController extends BaseController
     @Autowired
     private AmzWarehouseInventoryDetailMapper inventoryMapper;
     @Autowired
-    private ShopListMapper shopListMapper;
-    @Autowired
     private RedisCache redisCache;
 
-    // ====== 基础列表 ======
+    // ====== 美国组 / 欧洲组独立查询 ======
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
-    @GetMapping("/list")
-    public TableDataInfo list(AmzReplenishmentSnapshot snapshot)
+    @PostMapping("/us/search")
+    public TableDataInfo searchUs(@RequestBody EbayReplenishmentSearchRequest req)
     {
-        startPage();
-        return getDataTable(snapshotService.selectAmzReplenishmentSnapshotList(snapshot));
+        return searchInternal(forceRegion(req, "US"));
     }
 
-    // ====== 增强搜索 ======
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
-    @PostMapping("/search")
-    public TableDataInfo search(@RequestBody EbayReplenishmentSearchRequest req)
+    @PostMapping("/eu/search")
+    public TableDataInfo searchEu(@RequestBody EbayReplenishmentSearchRequest req)
+    {
+        return searchInternal(forceRegion(req, "EU"));
+    }
+
+    private TableDataInfo searchInternal(EbayReplenishmentSearchRequest req)
     {
         PageHelper.startPage(req.getPageNum() != null ? req.getPageNum() : 1,
                              req.getPageSize() != null ? req.getPageSize() : 20);
@@ -74,75 +73,101 @@ public class AmzReplenishmentController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
-    @GetMapping("/distinct-values")
-    public AjaxResult distinctValues(@RequestParam String field, @RequestParam(required = false) String keyword)
+    @GetMapping("/us/distinct-values")
+    public AjaxResult distinctUsValues(@RequestParam String field, @RequestParam(required = false) String keyword)
     {
-        return AjaxResult.success(snapshotService.distinctValues(field, keyword));
+        return AjaxResult.success(snapshotService.distinctValues(field, keyword, "US"));
     }
 
-    /** 从 shop_list 取 Amazon 店铺名称列表 */
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
-    @GetMapping("/store-names")
-    public AjaxResult storeNames()
+    @GetMapping("/eu/distinct-values")
+    public AjaxResult distinctEuValues(@RequestParam String field, @RequestParam(required = false) String keyword)
     {
-        return AjaxResult.success(shopListMapper.selectStoreNamesByPlatform("10001"));
+        return AjaxResult.success(snapshotService.distinctValues(field, keyword, "EU"));
     }
 
-    /** AMZ中转仓仓库名称列表 (wid 18677/19561/18678/18679/18680) */
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
-    @GetMapping("/warehouse-names")
-    public AjaxResult warehouseNames()
+    @GetMapping("/us/store-names")
+    public AjaxResult usStoreNames()
     {
-        return AjaxResult.success(inventoryMapper.selectWarehouseNamesForAmz());
+        return AjaxResult.success(snapshotService.distinctValues("storeName", null, "US"));
     }
 
-    /** 按仓库SKU查询各店铺销量明细 */
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
-    @GetMapping("/sales-breakdown")
-    public AjaxResult salesBreakdown(@RequestParam String warehouseSku, @RequestParam String field,
-                                      @RequestParam(required = false) String storeNames)
+    @GetMapping("/eu/store-names")
+    public AjaxResult euStoreNames()
     {
-        List<String> stores = storeNames != null && !storeNames.isEmpty()
-                ? java.util.Arrays.asList(storeNames.split(",")) : null;
-        return AjaxResult.success(snapshotService.salesBreakdown(warehouseSku, field, stores));
+        return AjaxResult.success(snapshotService.distinctValues("storeName", null, "EU"));
     }
 
-    /** 按当前AMZ列表筛选条件查询各店铺销量明细 */
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
-    @PostMapping("/sales-breakdown/search")
-    public AjaxResult salesBreakdownByFilters(@RequestBody AmzSalesBreakdownRequest req)
+    @GetMapping("/us/warehouse-names")
+    public AjaxResult usWarehouseNames()
     {
+        return AjaxResult.success(snapshotService.distinctValues("warehouseName", null, "US"));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
+    @GetMapping("/eu/warehouse-names")
+    public AjaxResult euWarehouseNames()
+    {
+        return AjaxResult.success(snapshotService.distinctValues("warehouseName", null, "EU"));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
+    @PostMapping("/us/sales-breakdown/search")
+    public AjaxResult usSalesBreakdown(@RequestBody AmzSalesBreakdownRequest req)
+    {
+        forceRegion(req, "US");
         return AjaxResult.success(snapshotService.salesBreakdown(req));
     }
 
-    // ====== 刷新 ======
-    @Log(title = "Amazon补货", businessType = BusinessType.OTHER)
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
-    @PostMapping("/refresh")
-    public AjaxResult refresh()
+    @PostMapping("/eu/sales-breakdown/search")
+    public AjaxResult euSalesBreakdown(@RequestBody AmzSalesBreakdownRequest req)
     {
-        return withLock("lock:sync:lingxing:amz", 1800, "AMZ数据同步或刷新正在执行中，请稍后再试", () -> {
-            snapshotService.refreshSnapshot();
-            return success();
-        });
+        forceRegion(req, "EU");
+        return AjaxResult.success(snapshotService.salesBreakdown(req));
     }
 
-    // ====== 导出 ======
-    @Log(title = "Amazon补货", businessType = BusinessType.EXPORT)
-    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:export')")
-    @PostMapping("/export")
-    public void export(@RequestBody ExportRequest req, HttpServletResponse response) throws Exception
+    // ====== 两套独立刷新 ======
+    @Log(title = "Amazon美国组补货", businessType = BusinessType.OTHER)
+    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
+    @PostMapping("/us/refresh")
+    public AjaxResult refreshUs()
     {
-        withLock("lock:export:amz:replenishment", 300, "AMZ补货导出正在执行中，请稍后再试", () -> {
-            exportService.exportAmzReplenishment(req, response);
-            return null;
-        });
+        return refreshRegion("US");
+    }
+
+    @Log(title = "Amazon欧洲组补货", businessType = BusinessType.OTHER)
+    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
+    @PostMapping("/eu/refresh")
+    public AjaxResult refreshEu()
+    {
+        return refreshRegion("EU");
+    }
+
+    // ====== 两套独立导出 ======
+    @Log(title = "Amazon美国组补货", businessType = BusinessType.EXPORT)
+    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:export')")
+    @PostMapping("/us/export")
+    public void exportUs(@RequestBody ExportRequest req, HttpServletResponse response) throws Exception
+    {
+        exportRegion(forceRegion(req, "US"), response, "us");
+    }
+
+    @Log(title = "Amazon欧洲组补货", businessType = BusinessType.EXPORT)
+    @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:export')")
+    @PostMapping("/eu/export")
+    public void exportEu(@RequestBody ExportRequest req, HttpServletResponse response) throws Exception
+    {
+        exportRegion(forceRegion(req, "EU"), response, "eu");
     }
 
     /** 保存人工覆盖：产品分类/已采购数量 */
     @Log(title = "AMZ补货-人工覆盖", businessType = BusinessType.UPDATE)
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
-    @PostMapping("/override")
+    @PostMapping({"/us/override", "/eu/override"})
     public AjaxResult saveOverride(@RequestBody Map<String, Object> body)
     {
         String sid = body.get("sid") != null ? String.valueOf(body.get("sid")) : null;
@@ -171,13 +196,55 @@ public class AmzReplenishmentController extends BaseController
     /** 直接修改库存表的待到货量（已采购数量 = quantity_receive + product_qc_num） */
     @Log(title = "AMZ补货-修改已采购", businessType = BusinessType.UPDATE)
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
-    @PostMapping("/update-qty-receive")
+    @PostMapping({"/us/update-qty-receive", "/eu/update-qty-receive"})
     public AjaxResult updateQtyReceive(@RequestBody Map<String, Object> body)
     {
         String warehouseSku = (String) body.get("warehouseSku");
+        String warehouseName = (String) body.get("warehouseName");
+        if (warehouseSku == null || warehouseSku.isBlank() || warehouseName == null || warehouseName.isBlank())
+            return error("仓库SKU和仓库名称必填");
         BigDecimal v = body.get("value") != null ? new BigDecimal(String.valueOf(body.get("value"))) : BigDecimal.ZERO;
-        inventoryMapper.updateQuantityReceive(warehouseSku, v);
+        int rows = inventoryMapper.updateQuantityReceive(warehouseSku, warehouseName, v);
+        if (rows <= 0) return error("未找到对应仓库的SKU库存记录");
         return success();
+    }
+
+    private EbayReplenishmentSearchRequest forceRegion(EbayReplenishmentSearchRequest req, String region)
+    {
+        if (req == null) req = new EbayReplenishmentSearchRequest();
+        List<EbayReplenishmentSearchRequest.FilterItem> filters = req.getFilters() == null
+                ? new ArrayList<>() : new ArrayList<>(req.getFilters());
+        filters.removeIf(item -> "regionGroup".equals(item.getField()));
+        filters.add(new EbayReplenishmentSearchRequest.FilterItem("regionGroup", region));
+        req.setFilters(filters);
+        return req;
+    }
+
+    private ExportRequest forceRegion(ExportRequest req, String region)
+    {
+        if (req == null) req = new ExportRequest();
+        List<EbayReplenishmentSearchRequest.FilterItem> filters = req.getFilters() == null
+                ? new ArrayList<>() : new ArrayList<>(req.getFilters());
+        filters.removeIf(item -> "regionGroup".equals(item.getField()));
+        filters.add(new EbayReplenishmentSearchRequest.FilterItem("regionGroup", region));
+        req.setFilters(filters);
+        return req;
+    }
+
+    private AjaxResult refreshRegion(String region)
+    {
+        return withLock("lock:sync:lingxing:amz", 1800, "AMZ数据同步或刷新正在执行中，请稍后再试", () -> {
+            snapshotService.refreshSnapshot(region);
+            return success();
+        });
+    }
+
+    private void exportRegion(ExportRequest req, HttpServletResponse response, String region) throws Exception
+    {
+        withLock("lock:export:amz:replenishment:" + region, 300, "AMZ补货导出正在执行中，请稍后再试", () -> {
+            exportService.exportAmzReplenishment(req, response);
+            return null;
+        });
     }
 
     // ==================== 锁工具 ====================

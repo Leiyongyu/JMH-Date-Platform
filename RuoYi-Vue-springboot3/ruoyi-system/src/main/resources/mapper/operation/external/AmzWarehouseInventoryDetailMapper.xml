@@ -31,7 +31,10 @@
     <delete id="deleteAll">DELETE FROM amz_warehouse_inventory_detail</delete>
 
     <update id="updateQuantityReceive">
-        UPDATE amz_warehouse_inventory_detail SET quantity_receive = #{val}, sync_time = NOW() WHERE sku = #{sku}
+        UPDATE amz_warehouse_inventory_detail d
+        INNER JOIN warehouse w ON w.wid = d.wid
+        SET d.quantity_receive = #{val}, d.sync_time = NOW()
+        WHERE d.sku = #{sku} AND w.name = #{warehouseName}
     </update>
 
     <select id="selectWarehouseNamesForAmz" resultType="string">

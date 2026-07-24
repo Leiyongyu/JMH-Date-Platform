@@ -122,6 +122,21 @@ CREATE TABLE `amz_order_profit`  (
 ) ENGINE = InnoDB AUTO_INCREMENT = 213542 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Amazon订单利润表(MSKU维度)' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
+-- Table structure for amz_order_profit_90d
+-- ----------------------------
+DROP TABLE IF EXISTS `amz_order_profit_90d`;
+CREATE TABLE `amz_order_profit_90d`  (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `sid` int NOT NULL COMMENT '店铺ID',
+  `seller_sku` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Seller SKU / MSKU',
+  `gross_margin` decimal(10, 4) NULL DEFAULT NULL COMMENT '最近90天毛利率（接口原始小数）',
+  `sync_time` datetime NULL DEFAULT NULL COMMENT '本地最近同步时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_amz_order_profit_90d_sid_sku`(`sid` ASC, `seller_sku` ASC) USING BTREE,
+  INDEX `idx_amz_order_profit_90d_sync_time`(`sync_time` ASC) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Amazon最近90天订单利润表(MSKU维度)' ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
 -- Table structure for amz_product_category
 -- ----------------------------
 DROP TABLE IF EXISTS `amz_product_category`;
