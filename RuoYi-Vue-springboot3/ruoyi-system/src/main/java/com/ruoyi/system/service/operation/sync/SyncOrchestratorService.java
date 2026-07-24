@@ -127,7 +127,7 @@ public class SyncOrchestratorService
                 false, false, true,
                 () -> SpringUtils.getBean(AmzRestockSummarySyncService.class).syncAll()),
             new StepDef("amz_product_inventory", "领星-Amazon产品表现库存", "bd/productPerformance/openApi/asinList",
-                false, false, true,
+                true, false, true,
                 () -> SpringUtils.getBean(AmzProductPerformanceInventorySyncService.class).syncAll()),
             new StepDef("amz_warehouse_inventory", "领星-Amazon库存明细", "erp/sc/routing/data/local_inventory/inventoryDetails",
                 false, false, true,

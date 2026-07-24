@@ -3,7 +3,6 @@ package com.ruoyi.system.service.operation.external.lingxing;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.system.domain.operation.external.AmzProductPerformanceInventory;
-import com.ruoyi.system.mapper.operation.external.AmzProductPerformanceInventoryMapper;
 import com.ruoyi.system.mapper.operation.external.ShopListMapper;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
 import java.time.LocalDate;
@@ -28,19 +27,19 @@ public class AmzProductPerformanceInventorySyncService
     private static final int LOOKBACK_DAYS = 90;
 
     private final LingxingGatewayService gw;
-    private final AmzProductPerformanceInventoryMapper mapper;
     private final ShopListMapper shopMapper;
     private final ObjectMapper om;
+    private final AmzProductPerformanceInventoryReplaceService replaceService;
 
     public AmzProductPerformanceInventorySyncService(LingxingGatewayService gw,
-                                                     AmzProductPerformanceInventoryMapper mapper,
                                                      ShopListMapper shopMapper,
-                                                     ObjectMapper om)
+                                                     ObjectMapper om,
+                                                     AmzProductPerformanceInventoryReplaceService replaceService)
     {
         this.gw = gw;
-        this.mapper = mapper;
         this.shopMapper = shopMapper;
         this.om = om;
+        this.replaceService = replaceService;
     }
 
     public OperationSyncResult syncAll() throws Exception
@@ -50,9 +49,8 @@ public class AmzProductPerformanceInventorySyncService
         if (sidStrings.isEmpty())
             return OperationSyncResult.success("amz_product_inventory", "领星-Amazon产品表现库存", API, 0, 0, System.currentTimeMillis() - start);
 
-        mapper.deleteAll();
         Set<String> seen = new HashSet<>();
-        int total = 0;
+        List<AmzProductPerformanceInventory> allRows = new ArrayList<>();
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.minusDays(LOOKBACK_DAYS - 1L);
 
@@ -80,18 +78,15 @@ public class AmzProductPerformanceInventorySyncService
                 List<Map<String, Object>> rows = getList(data, "list");
                 if (rows.isEmpty()) break;
 
-                List<AmzProductPerformanceInventory> batch = new ArrayList<>();
                 for (Map<String, Object> row : rows)
                 {
                     AmzProductPerformanceInventory entity = toEntity(row);
                     if (entity == null) continue;
                     String key = entity.getSid() + "|" + entity.getSellerSku();
-                    if (seen.add(key)) batch.add(entity);
-                }
-                if (!batch.isEmpty())
-                {
-                    mapper.batchInsert(batch);
-                    total += batch.size();
+                    if (seen.add(key))
+                    {
+                        allRows.add(entity);
+                    }
                 }
 
                 int remoteTotal = getInt(data, "total");
@@ -103,8 +98,66 @@ public class AmzProductPerformanceInventorySyncService
             if (i + SID_BATCH_SIZE < sidStrings.size()) Thread.sleep(10000);
         }
 
-        LOG.info("领星-Amazon产品表现库存同步完成: {} 条", total);
-        return OperationSyncResult.success("amz_product_inventory", "领星-Amazon产品表现库存", API, total, total, System.currentTimeMillis() - start);
+        InventoryQuality quality = validateInventory(allRows);
+        int inserted = replaceService.replaceAll(allRows);
+        LOG.info("领星-Amazon产品表现库存同步完成: {} 条, 有库存记录={} 条, "
+                        + "FBA在库合计={}, FBA在途合计={}, FBA计划入库合计={}",
+                inserted, quality.positiveRows, quality.fbaStockTotal,
+                quality.fbaInboundTotal, quality.fbaInboundWorkingTotal);
+        return OperationSyncResult.success("amz_product_inventory", "领星-Amazon产品表现库存",
+                API, inserted, inserted, System.currentTimeMillis() - start);
+    }
+
+    private InventoryQuality validateInventory(List<AmzProductPerformanceInventory> rows)
+    {
+        if (rows == null || rows.isEmpty())
+        {
+            throw new IllegalStateException("领星-Amazon产品表现库存返回0条，保留原库存数据");
+        }
+
+        long positiveRows = 0;
+        long fbaStockTotal = 0;
+        long fbaInboundTotal = 0;
+        long fbaInboundWorkingTotal = 0;
+        for (AmzProductPerformanceInventory row : rows)
+        {
+            long stock = nonNegative(row.getFbaStock());
+            long inbound = nonNegative(row.getFbaInbound());
+            long inboundWorking = nonNegative(row.getFbaInboundWorking());
+            fbaStockTotal += stock;
+            fbaInboundTotal += inbound;
+            fbaInboundWorkingTotal += inboundWorking;
+            if (stock > 0 || inbound > 0 || inboundWorking > 0) positiveRows++;
+        }
+
+        if (rows.size() >= 100 && positiveRows == 0)
+        {
+            throw new IllegalStateException("领星-Amazon产品表现库存异常：返回"
+                    + rows.size() + "条，但所有FBA库存、在途和计划入库均为0；已拒绝覆盖原库存数据");
+        }
+        return new InventoryQuality(positiveRows, fbaStockTotal, fbaInboundTotal, fbaInboundWorkingTotal);
+    }
+
+    private long nonNegative(Integer value)
+    {
+        return value == null ? 0L : Math.max(value.longValue(), 0L);
+    }
+
+    private static class InventoryQuality
+    {
+        private final long positiveRows;
+        private final long fbaStockTotal;
+        private final long fbaInboundTotal;
+        private final long fbaInboundWorkingTotal;
+
+        private InventoryQuality(long positiveRows, long fbaStockTotal,
+                                 long fbaInboundTotal, long fbaInboundWorkingTotal)
+        {
+            this.positiveRows = positiveRows;
+            this.fbaStockTotal = fbaStockTotal;
+            this.fbaInboundTotal = fbaInboundTotal;
+            this.fbaInboundWorkingTotal = fbaInboundWorkingTotal;
+        }
     }
 
     private AmzProductPerformanceInventory toEntity(Map<String, Object> row)
