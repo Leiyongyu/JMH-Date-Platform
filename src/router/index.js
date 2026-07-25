@@ -89,6 +89,19 @@ export const constantRoutes = [
         meta: { title: '个人中心', icon: 'user' }
       }
     ]
+  },
+  {
+    path: '/lingxing-api-test',
+    component: Layout,
+    hidden: true,
+    children: [
+      {
+        path: '',
+        component: () => import('@/views/tools/lingxingApiTest/index.vue'),
+        name: 'LingxingApiTest',
+        meta: { title: '领星接口测试', noCache: true }
+      }
+    ]
   }
 ]
 
