@@ -79,7 +79,7 @@ public class SyncOrchestratorService
         }
     }
 
-    // ==================== 6 条链路 ====================
+    // ==================== 7 条链路 ====================
 
     enum Chain
     {
@@ -152,6 +152,21 @@ public class SyncOrchestratorService
             new StepDef("stock_order_detail", "领星-备货单详情", "basicOpen/overSeaWarehouse/stockOrder/detail",
                 false, false, true,
                 () -> SpringUtils.getBean(OverseasStockOrderDetailSyncService.class).sync())
+        )),
+        STA_SHIPMENT("sta_shipment", "STA发货链路", Arrays.asList(
+            new StepDef("lingxing_sta_inbound_plan", "领星-STA任务列表",
+                "amzStaServer/openapi/inbound-plan/page",
+                true, true, true,
+                () -> {
+                    Map<String, Object> result = SpringUtils
+                            .getBean(LingxingStaInboundPlanSyncService.class).syncAuto();
+                    int total = ((Number) result.getOrDefault("remoteTotal", 0L)).intValue();
+                    int saved = ((Number) result.getOrDefault("savedPlans", 0)).intValue();
+                    long elapsed = ((Number) result.getOrDefault("durationMs", 0L)).longValue();
+                    return OperationSyncResult.successAllowEmpty(
+                            "lingxing_sta_inbound_plan", "领星-STA任务列表",
+                            "amzStaServer/openapi/inbound-plan/page", total, saved, elapsed);
+                })
         )),
         GOODCANG("goodcang", "谷仓数据同步", Arrays.asList(
             new StepDef("gc_warehouse", "谷仓-仓库信息", "/base_data/get_warehouse",

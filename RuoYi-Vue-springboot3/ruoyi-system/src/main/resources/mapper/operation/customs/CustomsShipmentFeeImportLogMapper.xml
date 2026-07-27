@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.customs.CustomsShipmentFeeImportLogMapper">
+
+    <resultMap id="LogResult" type="com.ruoyi.system.domain.operation.customs.CustomsShipmentFeeImportLog">
+        <id property="id" column="id"/>
+        <result property="batchId" column="batch_id"/>
+        <result property="businessType" column="business_type"/>
+        <result property="batchNo" column="batch_no"/>
+        <result property="originalFileName" column="original_file_name"/>
+        <result property="orderSn" column="order_sn"/>
+        <result property="sourceRows" column="source_rows"/>
+        <result property="sourceRowCount" column="source_row_count"/>
+        <result property="status" column="status"/>
+        <result property="errorStage" column="error_stage"/>
+        <result property="errorCode" column="error_code"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="exceptionType" column="exception_type"/>
+        <result property="stackTrace" column="stack_trace"/>
+        <result property="requestId" column="request_id"/>
+        <result property="lingxingResponseTime" column="lingxing_response_time"/>
+        <result property="attemptCount" column="attempt_count"/>
+        <result property="requestBody" column="request_body"/>
+        <result property="responseBody" column="response_body"/>
+        <result property="sourceData" column="source_data"/>
+        <result property="operator" column="operator"/>
+        <result property="uploadTime" column="upload_time"/>
+        <result property="startTime" column="start_time"/>
+        <result property="successTime" column="success_time"/>
+        <result property="failedTime" column="failed_time"/>
+        <result property="durationMs" column="duration_ms"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO customs_shipment_fee_import_log
+        (batch_id, business_type, order_sn, source_rows, source_row_count, status, error_stage, error_code,
+         error_message, exception_type, stack_trace, request_id, lingxing_response_time,
+         attempt_count, request_body, response_body, source_data, operator, upload_time, start_time)
+        VALUES
+        (#{batchId}, #{businessType}, #{orderSn}, #{sourceRows}, #{sourceRowCount}, #{status}, #{errorStage}, #{errorCode},
+         #{errorMessage}, #{exceptionType}, #{stackTrace}, #{requestId}, #{lingxingResponseTime},
+         #{attemptCount}, #{requestBody}, #{responseBody}, #{sourceData}, #{operator}, #{uploadTime}, #{startTime})
+    </insert>
+
+    <update id="updateResult">
+        UPDATE customs_shipment_fee_import_log
+        SET status = #{status},
+            error_stage = #{errorStage},
+            error_code = #{errorCode},
+            error_message = #{errorMessage},
+            exception_type = #{exceptionType},
+            stack_trace = #{stackTrace},
+            request_id = #{requestId},
+            lingxing_response_time = #{lingxingResponseTime},
+            attempt_count = #{attemptCount},
+            request_body = #{requestBody},
+            response_body = #{responseBody},
+            success_time = #{successTime},
+            failed_time = #{failedTime},
+            duration_ms = #{durationMs},
+            update_time = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectList" resultMap="LogResult">
+        SELECT l.id, l.batch_id, l.business_type, b.batch_no, b.original_file_name, l.order_sn, l.source_rows,
+               l.source_row_count, l.status, l.error_stage, l.error_code, l.error_message,
+               l.exception_type, l.stack_trace, l.request_id, l.lingxing_response_time,
+               l.attempt_count, l.request_body, l.response_body, l.source_data, l.operator,
+               l.upload_time, l.start_time, l.success_time, l.failed_time, l.duration_ms,
+               l.create_time, l.update_time
+        FROM customs_shipment_fee_import_log l
+        INNER JOIN customs_shipment_fee_import_batch b ON b.id = l.batch_id
+        <where>
+            <if test="businessType != null and businessType != ''">
+                AND l.business_type = #{businessType}
+            </if>
+            <if test="batchNo != null and batchNo != ''">
+                AND b.batch_no LIKE CONCAT('%', #{batchNo}, '%')
+            </if>
+            <if test="orderSn != null and orderSn != ''">
+                AND l.order_sn LIKE CONCAT('%', #{orderSn}, '%')
+            </if>
+            <if test="status != null and status != ''">
+                AND l.status = #{status}
+            </if>
+            <if test="operator != null and operator != ''">
+                AND l.operator LIKE CONCAT('%', #{operator}, '%')
+            </if>
+            <if test="beginTime != null and beginTime != ''">
+                AND l.upload_time &gt;= #{beginTime}
+            </if>
+            <if test="endTime != null and endTime != ''">
+                AND l.upload_time &lt;= #{endTime}
+            </if>
+        </where>
+        ORDER BY l.id DESC
+    </select>
+</mapper>

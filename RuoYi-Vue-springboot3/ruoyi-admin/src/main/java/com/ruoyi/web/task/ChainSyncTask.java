@@ -15,5 +15,6 @@ public class ChainSyncTask
     public void runAmzChain()        { SpringUtils.getBean(SyncOrchestratorService.class).execute("amz"); }
     public void runFbaChain()        { SpringUtils.getBean(SyncOrchestratorService.class).execute("fba"); }
     public void runStockOrderChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("stock_order"); }
+    public void runStaShipmentChain(){ SpringUtils.getBean(SyncOrchestratorService.class).execute("sta_shipment"); }
     public void runGoodcangChain()   { SpringUtils.getBean(SyncOrchestratorService.class).execute("goodcang"); }
 }

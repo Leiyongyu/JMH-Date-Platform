@@ -22,7 +22,7 @@
           v-hasPermi="['customs:shipmentFee:import']"
           @click="selectPackingFile"
         >
-          {{ packingImporting ? '正在逐个STA提交' : '上传装箱信息' }}
+          {{ packingImporting ? '正在提交文件' : '上传装箱信息' }}
         </el-button>
       </div>
       <input
@@ -59,11 +59,12 @@
       :closable="false"
       show-icon
       class="upload-tip"
-      title="装箱信息会真实提交到领星"
+      title="装箱信息会保存到领星ERP"
     >
       <template #default>
-        严格按“装箱信息模版.xlsx”15列表头解析；按“STA编号 + 店铺”逐个提交，
-        店铺名称精确匹配 shop_list 的 Amazon SID，同一货件ID下每个Excel行表示一个箱子。
+        严格按最新版“装箱信息模版.xlsx”的11列表头解析，只需填写FBA货件号、箱规、SKU、申报量及重量等装箱数据。
+        后端会根据货件号自动补齐STA编号、SID、领星内部货件ID和真实MSKU；本地没有该货件时会先自动补拉STA任务。
+        每个Excel行表示一个箱子；本操作只读取Sheet1，由后台按货件逐个保存，可在批次和明细日志中查看结果，不提交亚马逊。
       </template>
     </el-alert>
 
@@ -77,7 +78,7 @@
       <div class="result-grid">
         <div><span>文件</span><strong>{{ latestResult.fileName }}</strong></div>
         <div><span>读取行数</span><strong>{{ latestResult.readRows || 0 }}</strong></div>
-        <div><span>{{ latestResult.businessType === 'PACKING_INFO' ? 'STA任务数' : '发货单数' }}</span><strong>{{ latestResult.totalShipments || 0 }}</strong></div>
+        <div><span>{{ latestResult.businessType === 'PACKING_INFO' ? '货件保存任务数' : '发货单数' }}</span><strong>{{ latestResult.totalShipments || 0 }}</strong></div>
         <div class="success"><span>成功</span><strong>{{ latestResult.successCount || 0 }}</strong></div>
         <div class="failed"><span>失败</span><strong>{{ latestResult.failedCount || 0 }}</strong></div>
         <div><span>耗时</span><strong>{{ formatDuration(latestResult.durationMs) }}</strong></div>
@@ -98,6 +99,7 @@
           </el-form-item>
           <el-form-item label="状态">
             <el-select v-model="batchQuery.status" clearable placeholder="全部" style="width: 160px">
+              <el-option label="排队中" value="QUEUED" />
               <el-option label="执行中" value="RUNNING" />
               <el-option label="成功" value="SUCCESS" />
               <el-option label="部分成功" value="PARTIAL_SUCCESS" />
@@ -165,7 +167,7 @@
             </el-select>
           </el-form-item>
           <el-form-item label="业务单号">
-            <el-input v-model="logQuery.orderSn" clearable placeholder="发货单号/STA编号" @keyup.enter="queryLogs" />
+            <el-input v-model="logQuery.orderSn" clearable placeholder="发货单号/货件号" @keyup.enter="queryLogs" />
           </el-form-item>
           <el-form-item label="批次号">
             <el-input v-model="logQuery.batchNo" clearable placeholder="输入批次号" @keyup.enter="queryLogs" />
@@ -265,9 +267,9 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="resultDialogVisible" title="上传结果" width="760px">
+    <el-dialog v-model="resultDialogVisible" title="提交结果" width="760px">
       <el-result
-        :icon="latestResult.failedCount ? 'warning' : 'success'"
+        :icon="resultIcon"
         :title="resultTitle"
         :sub-title="`批次号：${latestResult.batchNo || '-'}`"
       />
@@ -293,7 +295,7 @@
 </template>
 
 <script setup name="CustomsShipmentFee">
-import { computed, getCurrentInstance, reactive, ref } from 'vue'
+import { computed, getCurrentInstance, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   importPackingInfo,
   importShipmentFee,
@@ -309,6 +311,7 @@ const fileInputRef = ref()
 const packingFileInputRef = ref()
 const resultDialogVisible = ref(false)
 const latestResult = ref({})
+let progressTimer
 
 const batchLoading = ref(false)
 const batchList = ref([])
@@ -338,7 +341,17 @@ const logQuery = reactive({
 
 const resultTitle = computed(() => {
   const result = latestResult.value
+  if (result.status === 'QUEUED') return `已进入后台队列，共 ${result.totalShipments || 0} 个货件`
+  if (result.status === 'RUNNING') {
+    const completed = (result.successCount || 0) + (result.failedCount || 0)
+    return `后台处理中 ${completed}/${result.totalShipments || 0}`
+  }
   return `成功 ${result.successCount || 0} 个，失败 ${result.failedCount || 0} 个`
+})
+
+const resultIcon = computed(() => {
+  if (['QUEUED', 'RUNNING'].includes(latestResult.value.status)) return 'info'
+  return latestResult.value.failedCount ? 'warning' : 'success'
 })
 
 function selectFile() {
@@ -387,7 +400,7 @@ async function handlePackingFileChange(event) {
   }
   try {
     await proxy.$modal.confirm(
-      `确认上传“${file.name}”并逐个STA向领星提交装箱信息吗？此操作会真实修改领星数据。`
+      `确认上传“${file.name}”并逐个货件保存装箱信息到领星ERP吗？本操作不会提交到亚马逊。`
     )
   } catch {
     return
@@ -398,7 +411,7 @@ async function handlePackingFileChange(event) {
     const response = await importPackingInfo(file)
     latestResult.value = response.data || {}
     resultDialogVisible.value = true
-    proxy.$modal.msgSuccess('装箱信息处理完成')
+    proxy.$modal.msgSuccess(`文件已提交，后台将逐个处理货件。批次号：${latestResult.value.batchNo || '-'}`)
     await Promise.all([loadBatches(), loadLogs()])
   } finally {
     packingImporting.value = false
@@ -411,6 +424,17 @@ function loadBatches() {
     .then(response => {
       batchList.value = response.rows || []
       batchTotal.value = response.total || 0
+      const current = batchList.value.find(row => row.batchNo === latestResult.value.batchNo)
+      if (current) {
+        latestResult.value = {
+          ...latestResult.value,
+          status: current.status,
+          successCount: current.successCount,
+          failedCount: current.failedCount,
+          totalShipments: current.totalShipments,
+          durationMs: current.durationMs
+        }
+      }
     })
     .finally(() => {
       batchLoading.value = false
@@ -501,6 +525,7 @@ function formatDuration(value) {
 
 function statusLabel(status) {
   const labels = {
+    QUEUED: '排队中',
     RUNNING: '执行中',
     PROCESSING: '处理中',
     SUCCESS: '成功',
@@ -519,6 +544,7 @@ function businessTypeLabel(value) {
 
 function batchStatusType(status) {
   return {
+    QUEUED: 'info',
     RUNNING: 'warning',
     SUCCESS: 'success',
     PARTIAL_SUCCESS: 'warning',
@@ -534,8 +560,20 @@ function logStatusType(status) {
   }[status] || 'info'
 }
 
-loadBatches()
-loadLogs()
+onMounted(() => {
+  loadBatches()
+  loadLogs()
+  progressTimer = window.setInterval(() => {
+    const hasRunningBatch = batchList.value.some(
+      row => row.businessType === 'PACKING_INFO' && ['QUEUED', 'RUNNING'].includes(row.status)
+    )
+    if (hasRunningBatch) Promise.all([loadBatches(), loadLogs()])
+  }, 2500)
+})
+
+onBeforeUnmount(() => {
+  if (progressTimer) window.clearInterval(progressTimer)
+})
 </script>
 
 <style scoped lang="scss">

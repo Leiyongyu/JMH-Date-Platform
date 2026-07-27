@@ -35,6 +35,11 @@ public interface ShopListMapper
     List<ShopList> selectByPlatformStatus(@Param("platformCode") String platformCode,
                                           @Param("status") Integer status);
 
+    /** 按平台和店铺名称精确匹配有效店铺，用于外部接口SID解析。 */
+    List<ShopList> selectByStoreName(@Param("platformCode") String platformCode,
+                                     @Param("storeName") String storeName,
+                                     @Param("status") Integer status);
+
     /** 内部类：联合键 */
     class ShopListKey
     {

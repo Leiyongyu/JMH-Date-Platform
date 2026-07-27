@@ -14,6 +14,7 @@ import com.ruoyi.system.service.operation.external.lingxing.AmzWarehouseInventor
 import com.ruoyi.system.service.operation.external.lingxing.LingxingAmzListingSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingEbaySyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingInventorySyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingLogisticsChannelSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingPurchaseOrderSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingPurchasePlanSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingShopSyncService;
@@ -56,6 +57,8 @@ public class OperationSyncTask
             () -> SpringUtils.getBean(LingxingWarehouseSyncService.class).syncWarehouses()); }
     public void syncLingxingShop() { exec("shop_list", "领星-店铺列表", "pb/mp/shop/v2/getSellerList", LOCK_LINGXING_BASE,
             () -> SpringUtils.getBean(LingxingShopSyncService.class).syncShops()); }
+    public void syncLingxingLogisticsChannel() { exec("lingxing_logistics_channel", "领星-头程物流渠道", "erp/sc/data/local_inventory/channelList", LOCK_LINGXING_BASE,
+            () -> SpringUtils.getBean(LingxingLogisticsChannelSyncService.class).syncAll()); }
     public void syncEbayListing() { exec("ebay_listing", "领星-eBay商品刊登", "basicOpen/multiplatform/ebay/list", LOCK_LINGXING_EBAY,
             () -> SpringUtils.getBean(LingxingEbaySyncService.class).syncAll()); }
     public void syncGoodcangProduct() { exec("goodcang_product", "谷仓-商品信息", "/product/get_product_sku_list", LOCK_GOODCANG,
@@ -128,6 +131,7 @@ public class OperationSyncTask
     public void runAmzChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("amz"); }
     public void runFbaChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("fba"); }
     public void runStockOrderChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("stock_order"); }
+    public void runStaShipmentChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("sta_shipment"); }
     public void runGoodcangChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("goodcang"); }
 
     // ==================== 内部方法 ====================

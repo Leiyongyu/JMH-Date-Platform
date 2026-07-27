@@ -8,3 +8,12 @@ export function queryLingxingApi(data) {
     timeout: 5 * 60 * 1000
   })
 }
+
+export function syncStaInboundPlan(shipmentId) {
+  return request({
+    url: '/operations/lingxing/sta-inbound-plan/sync',
+    method: 'post',
+    params: { shipmentId },
+    timeout: 5 * 60 * 1000
+  })
+}

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.customs.CustomsShipmentFeeImportBatchMapper">
+
+    <resultMap id="BatchResult" type="com.ruoyi.system.domain.operation.customs.CustomsShipmentFeeImportBatch">
+        <id property="id" column="id"/>
+        <result property="businessType" column="business_type"/>
+        <result property="batchNo" column="batch_no"/>
+        <result property="originalFileName" column="original_file_name"/>
+        <result property="fileSize" column="file_size"/>
+        <result property="fileSha256" column="file_sha256"/>
+        <result property="totalRows" column="total_rows"/>
+        <result property="totalShipments" column="total_shipments"/>
+        <result property="successCount" column="success_count"/>
+        <result property="failedCount" column="failed_count"/>
+        <result property="status" column="status"/>
+        <result property="operator" column="operator"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="uploadTime" column="upload_time"/>
+        <result property="startTime" column="start_time"/>
+        <result property="finishTime" column="finish_time"/>
+        <result property="durationMs" column="duration_ms"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO customs_shipment_fee_import_batch
+        (business_type, batch_no, original_file_name, file_size, file_sha256, total_rows, total_shipments,
+         success_count, failed_count, status, operator, error_message, upload_time, start_time)
+        VALUES
+        (#{businessType}, #{batchNo}, #{originalFileName}, #{fileSize}, #{fileSha256}, #{totalRows}, #{totalShipments},
+         #{successCount}, #{failedCount}, #{status}, #{operator}, #{errorMessage}, #{uploadTime}, #{startTime})
+    </insert>
+
+    <update id="updateResult">
+        UPDATE customs_shipment_fee_import_batch
+        SET total_rows = #{totalRows},
+            total_shipments = #{totalShipments},
+            success_count = #{successCount},
+            failed_count = #{failedCount},
+            status = #{status},
+            error_message = #{errorMessage},
+            finish_time = #{finishTime},
+            duration_ms = #{durationMs},
+            update_time = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectList" resultMap="BatchResult">
+        SELECT id, business_type, batch_no, original_file_name, file_size, file_sha256, total_rows, total_shipments,
+               success_count, failed_count, status, operator, error_message, upload_time, start_time,
+               finish_time, duration_ms, create_time, update_time
+        FROM customs_shipment_fee_import_batch
+        <where>
+            <if test="businessType != null and businessType != ''">
+                AND business_type = #{businessType}
+            </if>
+            <if test="batchNo != null and batchNo != ''">
+                AND batch_no LIKE CONCAT('%', #{batchNo}, '%')
+            </if>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="operator != null and operator != ''">
+                AND operator LIKE CONCAT('%', #{operator}, '%')
+            </if>
+        </where>
+        ORDER BY id DESC
+    </select>
+</mapper>

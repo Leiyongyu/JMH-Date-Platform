@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.LingxingStaInboundPlanMapper">
+
+    <insert id="upsertPlan" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO lingxing_sta_inbound_plan (
+            record_key, inbound_plan_id, sid, plan_name, status, position_type,
+            gmt_create, gmt_modified,
+            sync_time, create_time, update_time
+        ) VALUES (
+            #{recordKey}, #{inboundPlanId}, #{sid}, #{planName}, #{status},
+            #{positionType}, #{gmtCreate}, #{gmtModified},
+            #{syncTime}, #{createTime}, #{updateTime}
+        )
+        ON DUPLICATE KEY UPDATE
+            inbound_plan_id = VALUES(inbound_plan_id),
+            sid = VALUES(sid),
+            plan_name = VALUES(plan_name),
+            status = VALUES(status),
+            position_type = VALUES(position_type),
+            gmt_create = VALUES(gmt_create),
+            gmt_modified = VALUES(gmt_modified),
+            sync_time = VALUES(sync_time),
+            update_time = VALUES(update_time),
+            id = LAST_INSERT_ID(id)
+    </insert>
+
+    <delete id="deleteItemsByRecordKey">
+        DELETE FROM lingxing_sta_inbound_plan_item
+        WHERE record_key = #{recordKey}
+    </delete>
+
+    <insert id="batchInsertItems">
+        INSERT INTO lingxing_sta_inbound_plan_item (
+            record_key, inbound_plan_id, item_index, asin, fnsku, msku, parent_asin,
+            product_name, quantity, sku, title, url,
+            create_time, update_time
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+            (
+                #{item.recordKey}, #{item.inboundPlanId}, #{item.itemIndex},
+                #{item.asin}, #{item.fnsku},
+                #{item.msku}, #{item.parentAsin}, #{item.productName}, #{item.quantity},
+                #{item.sku}, #{item.title}, #{item.url},
+                #{item.createTime}, #{item.updateTime}
+            )
+        </foreach>
+    </insert>
+
+    <delete id="deleteShipmentsByRecordKey">
+        DELETE FROM lingxing_sta_inbound_plan_shipment
+        WHERE record_key = #{recordKey}
+    </delete>
+
+    <insert id="batchInsertShipments">
+        INSERT INTO lingxing_sta_inbound_plan_shipment (
+            record_key, inbound_plan_id, shipment_index, shipment_id,
+            shipment_confirmation_id, create_time, update_time
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+            (
+                #{item.recordKey}, #{item.inboundPlanId},
+                #{item.shipmentIndex}, #{item.shipmentId},
+                #{item.shipmentConfirmationId},
+                #{item.createTime}, #{item.updateTime}
+            )
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+            record_key = VALUES(record_key),
+            inbound_plan_id = VALUES(inbound_plan_id),
+            shipment_index = VALUES(shipment_index),
+            shipment_id = VALUES(shipment_id),
+            shipment_confirmation_id = VALUES(shipment_confirmation_id),
+            update_time = VALUES(update_time)
+    </insert>
+
+    <select id="countByInboundPlanId" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM lingxing_sta_inbound_plan
+        WHERE inbound_plan_id = #{inboundPlanId}
+    </select>
+
+    <select id="countAllPlans" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM lingxing_sta_inbound_plan
+    </select>
+
+    <select id="selectPackingContextByShipmentNo"
+            resultType="com.ruoyi.system.domain.operation.external.LingxingStaPackingContext">
+        SELECT
+            p.record_key AS recordKey,
+            p.inbound_plan_id AS inboundPlanId,
+            p.sid AS sid,
+            s.shipment_id AS shipmentId,
+            s.shipment_confirmation_id AS shipmentConfirmationId
+        FROM lingxing_sta_inbound_plan_shipment s
+        INNER JOIN lingxing_sta_inbound_plan p
+          ON p.record_key = s.record_key
+        WHERE s.shipment_confirmation_id = #{shipmentNo}
+           OR s.shipment_id = #{shipmentNo}
+        ORDER BY
+            CASE WHEN s.shipment_confirmation_id = #{shipmentNo} THEN 0 ELSE 1 END,
+            p.gmt_modified DESC,
+            p.id DESC
+    </select>
+
+    <select id="selectMskuBySkuOrMsku" resultType="java.lang.String">
+        SELECT DISTINCT msku
+        FROM lingxing_sta_inbound_plan_item
+        WHERE record_key = #{recordKey}
+          AND (sku = #{skuOrMsku} OR msku = #{skuOrMsku})
+          AND msku IS NOT NULL
+          AND msku &lt;&gt; ''
+        ORDER BY CASE WHEN msku = #{skuOrMsku} THEN 0 ELSE 1 END, msku
+    </select>
+
+</mapper>

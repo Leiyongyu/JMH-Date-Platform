@@ -1,4 +1,4 @@
--- 6 条同步链路 Quartz 任务。可重复执行：已存在 invoke_target 时跳过。
+-- 7 条同步链路 Quartz 任务。可重复执行：已存在 invoke_target 时跳过。
 -- 旧的单接口任务建议在若依页面手动暂停，保留手动补跑入口。
 
 INSERT INTO sys_job (
@@ -48,4 +48,12 @@ INSERT INTO sys_job (
 SELECT '链路-谷仓数据同步', 'OPERATION', 'operationSyncTask.runGoodcangChain()', '0 30 2 * * ?',
        '1', '1', '0', 'SYSTEM', NOW(), '谷仓链路：warehouse → product → grn_list → grn_detail'
 WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE invoke_target IN ('operationSyncTask.runGoodcangChain', 'operationSyncTask.runGoodcangChain()'));
+
+INSERT INTO sys_job (
+  job_name, job_group, invoke_target, cron_expression,
+  misfire_policy, concurrent, status, create_by, create_time, remark
+)
+SELECT 'STA发货链路同步', 'OPERATION', 'operationSyncTask.runStaShipmentChain()', '0 0 3 * * ?',
+       '1', '1', '0', 'SYSTEM', NOW(), 'STA发货链路：空表同步最近一年，非空同步最近3个自然日'
+WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE invoke_target IN ('operationSyncTask.runStaShipmentChain', 'operationSyncTask.runStaShipmentChain()'));
 

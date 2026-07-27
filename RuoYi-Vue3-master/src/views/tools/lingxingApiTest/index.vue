@@ -46,6 +46,44 @@
       </el-form>
     </el-card>
 
+    <el-card shadow="never" class="result-card">
+      <template #header>
+        <div class="card-header">
+          <span>STA任务同步测试</span>
+          <el-tag type="primary">最近一年 / 创建时间</el-tag>
+        </div>
+      </template>
+      <el-alert
+        title="按货件ID或货件单号精确查询，dateType固定为1，保存STA任务及全部商品明细到本地数据库。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="mb16"
+      />
+      <el-form :inline="true">
+        <el-form-item label="货件ID/货件单号">
+          <el-input
+            v-model="staShipmentId"
+            clearable
+            style="width: 280px"
+            placeholder="例如 FBA19JSMN5B7"
+          />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="staSyncLoading" @click="handleStaSync">
+            拉取并保存到本地表
+          </el-button>
+        </el-form-item>
+      </el-form>
+      <el-input
+        v-if="staSyncResult"
+        :model-value="JSON.stringify(staSyncResult, null, 2)"
+        type="textarea"
+        :rows="10"
+        readonly
+      />
+    </el-card>
+
     <el-card v-if="result" shadow="never" class="result-card">
       <template #header>
         <span>调用结果</span>
@@ -67,12 +105,15 @@
 
 <script setup>
 import { computed, getCurrentInstance, reactive, ref } from 'vue'
-import { queryLingxingApi } from '@/api/operations/lingxingApiTest'
+import { queryLingxingApi, syncStaInboundPlan } from '@/api/operations/lingxingApiTest'
 
 const { proxy } = getCurrentInstance()
 const formRef = ref()
 const loading = ref(false)
 const result = ref(null)
+const staShipmentId = ref('FBA19JSMN5B7')
+const staSyncLoading = ref(false)
+const staSyncResult = ref(null)
 
 const shipmentDetailExample = () => ({
   testName: 'shipment-detail',
@@ -132,6 +173,22 @@ function handleQuery() {
       loading.value = false
     }
   })
+}
+
+async function handleStaSync() {
+  const shipmentId = staShipmentId.value?.trim()
+  if (!shipmentId) {
+    proxy.$modal.msgError('请输入货件ID或货件单号')
+    return
+  }
+  staSyncLoading.value = true
+  try {
+    const response = await syncStaInboundPlan(shipmentId)
+    staSyncResult.value = response.data
+    proxy.$modal.msgSuccess('STA任务及商品明细已保存')
+  } finally {
+    staSyncLoading.value = false
+  }
 }
 </script>
 

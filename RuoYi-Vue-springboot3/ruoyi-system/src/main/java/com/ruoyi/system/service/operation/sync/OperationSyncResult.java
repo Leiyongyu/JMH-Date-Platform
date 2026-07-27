@@ -49,6 +49,25 @@ public class OperationSyncResult
         return r;
     }
 
+    /**
+     * 成功完成同步，允许接口在本次时间窗口内没有返回数据。
+     * 适用于增量任务，避免“最近几天无新增”被误判为失败。
+     */
+    public static OperationSyncResult successAllowEmpty(String syncType, String syncName, String apiPath,
+                                                        int totalCount, int successCount, long elapsedMs)
+    {
+        OperationSyncResult r = new OperationSyncResult();
+        r.syncType = syncType;
+        r.syncName = syncName;
+        r.apiPath = apiPath;
+        r.status = STATUS_SUCCESS;
+        r.totalCount = totalCount;
+        r.successCount = successCount;
+        r.failCount = 0;
+        r.elapsedMs = elapsedMs;
+        return r;
+    }
+
     public static OperationSyncResult failed(String syncType, String syncName, String apiPath,
                                               String errorMessage, long elapsedMs)
     {

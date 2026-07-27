@@ -79,4 +79,12 @@
         ORDER BY store_name
     </select>
 
+    <select id="selectByStoreName" resultMap="ShopListResult">
+        SELECT * FROM shop_list
+        WHERE platform_code = #{platformCode}
+          AND TRIM(store_name) = TRIM(#{storeName})
+        <if test="status != null">AND status = #{status}</if>
+        ORDER BY id
+    </select>
+
 </mapper>
