@@ -5,6 +5,7 @@ import com.ruoyi.system.domain.operation.customs.CustomsShipmentFeeImportBatch;
 import com.ruoyi.system.domain.operation.customs.CustomsShipmentFeeImportLog;
 import com.ruoyi.system.mapper.operation.customs.CustomsShipmentFeeImportBatchMapper;
 import com.ruoyi.system.mapper.operation.customs.CustomsShipmentFeeImportLogMapper;
+import com.ruoyi.system.mapper.operation.external.LingxingLogisticsChannelMapper;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingGatewayService;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -52,7 +53,7 @@ public class CustomsShipmentFeeImportService
             DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
     private static final List<String> EXPECTED_HEADERS = List.of(
-            "发货单号", "物流商id", "物流渠道商id", "运输类型", "单号类型",
+            "发货单号", "物流商", "渠道商", "运输类型", "单号类型",
             "费用明细-预估费用", "单价", "单价币种", "物流费用", "物流费用币种",
             "预估费用备注", "预估费用-其他费id", "其他费金额", "其他费币种",
             "费用明细-实际费用", "税费币种", "实重（单位：KG）", "体积（单位：m³）",
@@ -60,7 +61,7 @@ public class CustomsShipmentFeeImportService
             "实际费用-其他费id", "其他费金额", "其他费币种", "物流商单号", "跟踪号");
 
     private static final String[] SOURCE_KEYS = {
-            "order_sn", "logistics_provider_id", "logistics_channel_id",
+            "order_sn", "logistics_channel_id", "logistics_provider_id",
             "transport_type", "order_type_code",
             "estimate_chargeable_weight", "estimate_price", "estimate_price_currency",
             "estimate_logistics_fee", "estimate_logistics_fee_currency", "estimate_remark",
@@ -74,17 +75,20 @@ public class CustomsShipmentFeeImportService
 
     private final CustomsShipmentFeeImportBatchMapper batchMapper;
     private final CustomsShipmentFeeImportLogMapper logMapper;
+    private final LingxingLogisticsChannelMapper logisticsChannelMapper;
     private final LingxingGatewayService gatewayService;
     private final ObjectMapper objectMapper;
 
     public CustomsShipmentFeeImportService(
             CustomsShipmentFeeImportBatchMapper batchMapper,
             CustomsShipmentFeeImportLogMapper logMapper,
+            LingxingLogisticsChannelMapper logisticsChannelMapper,
             LingxingGatewayService gatewayService,
             ObjectMapper objectMapper)
     {
         this.batchMapper = batchMapper;
         this.logMapper = logMapper;
+        this.logisticsChannelMapper = logisticsChannelMapper;
         this.gatewayService = gatewayService;
         this.objectMapper = objectMapper;
     }
@@ -344,12 +348,23 @@ public class CustomsShipmentFeeImportService
         List<String> errors = new ArrayList<>();
         for (int col = 0; col < COLUMN_COUNT; col++)
         {
-            if (!EXPECTED_HEADERS.get(col).equals(actual.get(col)))
+            if (!isSupportedHeader(col, actual.get(col)))
                 errors.add(columnName(col) + "列应为“" + EXPECTED_HEADERS.get(col)
                         + "”，实际为“" + actual.get(col) + "”");
         }
         if (!errors.isEmpty())
             throw new IllegalArgumentException("模板表头不匹配：" + String.join("；", errors));
+    }
+
+    private boolean isSupportedHeader(int col, String actual)
+    {
+        if (EXPECTED_HEADERS.get(col).equals(actual)) return true;
+        // B列“物流商”映射具体渠道 id，C列“渠道商”映射 provider.id；
+        // 兼容此前使用过的带“id”表头，避免历史文件无法重新导入。
+        return (col == 1 && Set.of(
+                "物流商id", "物流渠道商id").contains(actual))
+                || (col == 2 && Set.of(
+                "渠道商id", "物流渠道id", "物流渠道商id").contains(actual));
     }
 
     private Map<String, List<ExcelRow>> groupRows(List<ExcelRow> rows)
@@ -367,12 +382,15 @@ public class CustomsShipmentFeeImportService
     private List<String> validateRows(List<ExcelRow> rows)
     {
         List<String> errors = new ArrayList<>();
+        boolean hasLogisticsChannelData = logisticsChannelMapper.countAll() > 0;
         for (ExcelRow row : rows)
         {
             String prefix = "第" + row.rowNo + "行";
             required(row, 0, "发货单号", prefix, errors);
-            requiredInteger(row, 1, "物流商id", prefix, errors);
-            requiredInteger(row, 2, "物流渠道商id", prefix, errors);
+            Integer channelId = requiredInteger(row, 1, "物流商", prefix, errors);
+            Integer providerId = requiredInteger(row, 2, "渠道商", prefix, errors);
+            validateLogisticsChannel(
+                    prefix, providerId, channelId, hasLogisticsChannelData, errors);
             Integer transportType = requiredInteger(row, 3, "运输类型", prefix, errors);
             Integer orderType = optionalInteger(row, 4, "单号类型", prefix, errors);
             validateTransportOrderType(prefix, transportType, orderType, errors);
@@ -399,6 +417,27 @@ public class CustomsShipmentFeeImportService
         validateSameOrderSn(rows, errors);
         validateConsistent(rows, errors);
         return errors;
+    }
+
+    private void validateLogisticsChannel(
+            String prefix, Integer providerId, Integer channelId,
+            boolean hasLogisticsChannelData, List<String> errors)
+    {
+        if (providerId == null || channelId == null
+                || !hasLogisticsChannelData)
+            return;
+        if (logisticsChannelMapper.countByIdAndProvider(
+                channelId.longValue(), providerId.longValue()) > 0)
+            return;
+        if (logisticsChannelMapper.countByIdAndProvider(
+                providerId.longValue(), channelId.longValue()) > 0)
+        {
+            errors.add(prefix + "物流商和渠道商填反了：物流商应填"
+                    + providerId + "，渠道商应填" + channelId);
+            return;
+        }
+        errors.add(prefix + "物流商“" + channelId + "”与渠道商“"
+                + providerId + "”在已同步的物流渠道表中不是有效组合");
     }
 
     private void validateTransportOrderType(
@@ -456,8 +495,8 @@ public class CustomsShipmentFeeImportService
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("order_sn", trim(first.value(0)));
         item.put("tax_fee_type", 3);
-        item.put("logistics_provider_id", integerValue(first.value(1)));
-        item.put("logistics_channel_id", integerValue(first.value(2)));
+        item.put("logistics_provider_id", integerValue(first.value(2)));
+        item.put("logistics_channel_id", integerValue(first.value(1)));
         item.put("logistics_list_type", 1);
 
         Map<String, Object> tracking = new LinkedHashMap<>();

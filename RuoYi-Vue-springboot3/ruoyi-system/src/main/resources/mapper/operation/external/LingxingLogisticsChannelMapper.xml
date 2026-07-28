@@ -31,4 +31,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             )
         </foreach>
     </insert>
+
+    <select id="countAll" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM lingxing_logistics_channel
+    </select>
+
+    <select id="countByIdAndProvider" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM lingxing_logistics_channel
+        WHERE id = #{channelId}
+          AND provider_id = #{providerId}
+    </select>
 </mapper>

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.AmzPerformanceRankingMapper">
+
+    <select id="selectLatestProfitMonth" resultType="String">
+        SELECT MAX(stat_month) FROM amz_monthly_order_profit
+    </select>
+
+    <delete id="deleteByStatMonth">
+        DELETE FROM amz_performance_ranking WHERE stat_month = #{statMonth}
+    </delete>
+
+    <insert id="rebuildByStatMonth">
+        INSERT INTO amz_performance_ranking (
+            stat_month, principal_name, gross_profit, amount, refund_amount,
+            create_time, update_time
+        )
+        SELECT
+            p.stat_month,
+            COALESCE(NULLIF(pl.principal_name, ''), '未分配'),
+            SUM(COALESCE(p.gross_profit, 0)),
+            SUM(COALESCE(p.amount, 0)),
+            SUM(COALESCE(p.refund_amount, 0)),
+            NOW(), NOW()
+        FROM amz_monthly_order_profit p
+        JOIN amz_product_listing pl
+          ON pl.asin = p.asin
+         AND CAST(pl.sid AS CHAR) COLLATE utf8mb4_unicode_ci = p.sid
+         AND pl.seller_sku = p.seller_sku
+        WHERE p.stat_month = #{statMonth}
+        GROUP BY
+            p.stat_month,
+            COALESCE(NULLIF(pl.principal_name, ''), '未分配')
+    </insert>
+
+    <select id="selectList" resultType="java.util.LinkedHashMap">
+        SELECT
+            id AS id,
+            stat_month AS statMonth,
+            principal_name AS principalNames,
+            gross_profit AS grossProfit,
+            amount AS amount,
+            refund_amount AS refundAmount,
+            update_time AS updateTime
+        FROM amz_performance_ranking
+        WHERE stat_month =
+        <choose>
+            <when test="statMonth != null and statMonth != ''">#{statMonth}</when>
+            <otherwise>(SELECT MAX(x.stat_month) FROM amz_performance_ranking x)</otherwise>
+        </choose>
+        <if test="principalName != null and principalName != ''">
+            AND principal_name LIKE CONCAT('%', #{principalName}, '%')
+        </if>
+        ORDER BY gross_profit DESC, amount DESC, id
+    </select>
+</mapper>

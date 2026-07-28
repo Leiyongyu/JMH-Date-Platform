@@ -13,7 +13,7 @@
           v-hasPermi="['customs:shipmentFee:import']"
           @click="selectFile"
         >
-          {{ importing ? '正在逐单上传' : '上传发货单号' }}
+          {{ importing ? '正在逐单上传' : '上传发货单物流费用明细' }}
         </el-button>
         <el-button
           type="success"
@@ -49,8 +49,9 @@
       title="上传会真实修改领星数据"
     >
       <template #default>
-        当前仅读取 Sheet1 第一列“发货单号”，并按发货单号逐单提交；
-        不上传物流信息、费用信息或空数组，避免覆盖领星已有数据。单条失败不会终止后续发货单。
+        读取 Sheet1 的发货单号、物流商与渠道商、跟踪信息及预估/实际费用，并按发货单号逐单提交。
+        B列“物流商”填写渠道记录的 id（如9146），C列“渠道商”填写渠道数据中的 provider.id（如2819）；
+        单条失败不会终止后续发货单。
       </template>
     </el-alert>
 

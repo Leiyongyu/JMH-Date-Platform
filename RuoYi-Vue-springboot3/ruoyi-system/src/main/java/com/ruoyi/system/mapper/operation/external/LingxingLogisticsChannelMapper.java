@@ -9,4 +9,10 @@ public interface LingxingLogisticsChannelMapper
     int deleteAll();
 
     int batchInsert(@Param("list") List<LingxingLogisticsChannel> list);
+
+    int countAll();
+
+    int countByIdAndProvider(
+            @Param("channelId") Long channelId,
+            @Param("providerId") Long providerId);
 }
