@@ -136,13 +136,39 @@ CREATE TABLE IF NOT EXISTS `amz_monthly_order_profit` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Amazon月度完整订单利润表(MSKU维度)';
 
+CREATE TABLE IF NOT EXISTS `amz_performance_owner_rule` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `stat_month` char(7) NOT NULL COMMENT '统计月份YYYY-MM',
+  `group_code` varchar(16) NOT NULL COMMENT '组别：EU、US1、US2',
+  `rule_type` varchar(32) NOT NULL COMMENT '规则类型：BRAND、OTH_CODE、STORE',
+  `match_key` varchar(200) NOT NULL COMMENT '匹配键：品牌、中间码或店铺中文名',
+  `principal_name` varchar(100) NOT NULL COMMENT '负责人',
+  `source_file_name` varchar(255) DEFAULT NULL COMMENT '来源Excel文件名',
+  `source_sheet` varchar(64) DEFAULT NULL COMMENT '来源sheet',
+  `source_row` int DEFAULT NULL COMMENT '来源行号',
+  `imported_by` varchar(64) DEFAULT NULL COMMENT '导入人',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_amz_owner_rule_month_group_type_key`
+    (`stat_month`,`group_code`,`rule_type`,`match_key`),
+  KEY `idx_amz_owner_rule_month_owner` (`stat_month`,`principal_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Amazon月度绩效负责人匹配规则';
+
+UPDATE `amz_performance_owner_rule`
+SET `principal_name` = '未分配',
+    `update_time` = NOW()
+WHERE TRIM(`principal_name`) IN ('待定', '待到');
+
 CREATE TABLE IF NOT EXISTS `amz_performance_ranking` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
   `stat_month` char(7) NOT NULL COMMENT '统计月份YYYY-MM',
-  `principal_name` varchar(200) NOT NULL COMMENT 'Listing负责人，来自amz_product_listing',
+  `principal_name` varchar(200) NOT NULL COMMENT '按月度负责人规则匹配后的负责人',
   `gross_profit` decimal(20,6) NOT NULL DEFAULT 0 COMMENT '负责人汇总毛利润',
   `amount` decimal(20,6) NOT NULL DEFAULT 0 COMMENT '负责人汇总销售额',
   `refund_amount` decimal(20,6) NOT NULL DEFAULT 0 COMMENT '负责人汇总退款金额',
+  `net_sales_amount` decimal(20,6) NOT NULL DEFAULT 0 COMMENT '净销售额=销售额-退款金额',
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),

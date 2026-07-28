@@ -2,6 +2,7 @@ package com.ruoyi.system.service.finance;
 
 import com.ruoyi.system.mapper.operation.external.AmzPerformanceRankingMapper;
 import java.time.YearMonth;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,15 @@ public class PerformanceRankingService
 
         mapper.deleteByStatMonth(targetMonth);
         int rows = mapper.rebuildByStatMonth(targetMonth);
-        return Map.of("statMonth", targetMonth, "rows", rows);
+        int sourceRows = mapper.countScopedProfitRows(targetMonth);
+        int unmatchedRows = mapper.countUnmatchedProfitRows(targetMonth);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("statMonth", targetMonth);
+        result.put("rows", rows);
+        result.put("sourceRows", sourceRows);
+        result.put("matchedRows", sourceRows - unmatchedRows);
+        result.put("unmatchedRows", unmatchedRows);
+        result.put("ruleCount", mapper.countOwnerRules(targetMonth));
+        return result;
     }
 }

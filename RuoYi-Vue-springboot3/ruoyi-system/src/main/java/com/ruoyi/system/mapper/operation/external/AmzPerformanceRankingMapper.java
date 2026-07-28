@@ -13,6 +13,12 @@ public interface AmzPerformanceRankingMapper
 
     int rebuildByStatMonth(@Param("statMonth") String statMonth);
 
+    int countScopedProfitRows(@Param("statMonth") String statMonth);
+
+    int countUnmatchedProfitRows(@Param("statMonth") String statMonth);
+
+    int countOwnerRules(@Param("statMonth") String statMonth);
+
     List<Map<String, Object>> selectList(
             @Param("statMonth") String statMonth,
             @Param("principalName") String principalName);

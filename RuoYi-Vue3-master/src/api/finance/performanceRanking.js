@@ -15,3 +15,23 @@ export function refreshPerformanceRanking(statMonth) {
     params: { statMonth }
   })
 }
+
+export function importPerformanceOwnerRules(file) {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/finance/performance-ranking/owner-rules/import',
+    method: 'post',
+    headers: { 'Content-Type': 'multipart/form-data' },
+    data,
+    timeout: 120000
+  })
+}
+
+export function getPerformanceOwnerRuleSummary(statMonth) {
+  return request({
+    url: '/finance/performance-ranking/owner-rules/summary',
+    method: 'get',
+    params: { statMonth }
+  })
+}
