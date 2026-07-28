@@ -1,5 +1,17 @@
 <template>
   <div class="app-container">
+    <el-card shadow="never" class="platform-card">
+      <div class="platform-switch">
+        <div>
+          <div class="platform-heading">综合绩效排名</div>
+          <div class="platform-hint">
+            AMZ 与 eBay 保持各自负责人匹配规则，最终按月份和负责人合并排名
+          </div>
+        </div>
+        <el-tag type="primary" effect="light">AMZ + eBay</el-tag>
+      </div>
+    </el-card>
+
     <el-card shadow="never" class="filter-card">
       <el-form ref="queryRef" :model="query" inline label-width="82px">
         <el-form-item label="统计月份" prop="statMonth">
@@ -27,12 +39,31 @@
             重新匹配并汇总
           </el-button>
           <el-button
+            type="primary"
+            plain
+            icon="Upload"
+            :loading="profitImporting"
+            v-hasPermi="['finance:performanceRanking:edit']"
+            @click="openProfitImportDialog"
+          >
+            导入 eBay 月度利润表
+          </el-button>
+          <el-button
             type="warning"
             icon="Upload"
             v-hasPermi="['finance:performanceRanking:edit']"
-            @click="openImportDialog"
+            @click="openOwnerImportDialog('AMZ')"
           >
-            导入负责人配置
+            导入 AMZ 负责人配置
+          </el-button>
+          <el-button
+            type="warning"
+            plain
+            icon="Upload"
+            v-hasPermi="['finance:performanceRanking:edit']"
+            @click="openOwnerImportDialog('EBAY')"
+          >
+            导入 eBay 负责人配置
           </el-button>
         </el-form-item>
       </el-form>
@@ -42,8 +73,8 @@
       <template #header>
         <div class="card-header">
           <div>
-            <span class="title">Amazon 月度绩效排名</span>
-            <span class="subtitle">按负责人降序排名，金额统一为 CNY</span>
+            <span class="title">月度综合绩效排名</span>
+            <span class="subtitle">同一负责人在 AMZ 与 eBay 的金额合并，金额统一为 CNY</span>
           </div>
           <el-tag type="success">{{ displayedMonth || '最新月份' }}</el-tag>
         </div>
@@ -57,8 +88,9 @@
         show-icon
       >
         <template #title>
-          {{ lastRefreshStats.statMonth }} 共匹配 {{ lastRefreshStats.matchedRows || 0 }} 条利润数据，
-          未分配 {{ lastRefreshStats.unmatchedRows || 0 }} 条，生成 {{ lastRefreshStats.rows || 0 }} 条负责人汇总
+          {{ lastRefreshStats.statMonth }} 共处理 AMZ {{ lastRefreshStats.amzProfitRows || 0 }} 条、
+          eBay {{ lastRefreshStats.ebayProfitRows || 0 }} 条利润数据，未分配
+          {{ lastRefreshStats.unmatchedRows || 0 }} 条，生成 {{ lastRefreshStats.rows || 0 }} 条综合负责人汇总
         </template>
       </el-alert>
     </el-card>
@@ -69,10 +101,10 @@
           <div class="ranking-header">
             <div>
               <div class="ranking-title">毛利润排名</div>
-              <div class="ranking-description">各负责人毛利润对比</div>
+              <div class="ranking-description">AMZ 与 eBay 各负责人毛利润合计</div>
             </div>
             <el-tag v-if="grossProfitRanking.length" type="success" effect="light">
-              第1名：{{ grossProfitRanking[0].principalNames }}
+              {{ grossProfitRanking[0].principalNames }}
             </el-tag>
           </div>
         </template>
@@ -87,7 +119,7 @@
               <div class="ranking-description">净销售额 = 销售额 - 退款金额</div>
             </div>
             <el-tag v-if="netSalesRanking.length" type="primary" effect="light">
-              第1名：{{ netSalesRanking[0].principalNames }}
+              {{ netSalesRanking[0].principalNames }}
             </el-tag>
           </div>
         </template>
@@ -96,12 +128,52 @@
     </div>
 
     <el-dialog
-      v-model="importDialogVisible"
-      title="导入月度负责人配置"
+      v-model="profitDialogVisible"
+      title="导入 eBay 月度利润表"
       width="560px"
       append-to-body
       :close-on-click-modal="false"
-      @closed="resetImportDialog"
+      @closed="resetProfitImportDialog"
+    >
+      <el-form :model="profitImportForm" label-width="92px">
+        <el-form-item label="利润表" required>
+          <el-upload
+            ref="profitUploadRef"
+            class="owner-upload"
+            drag
+            accept=".xlsx,.xls"
+            :auto-upload="false"
+            :limit="1"
+            :on-change="handleProfitFileChange"
+            :on-remove="handleProfitFileRemove"
+          >
+            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+            <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
+            <template #tip>
+              <div class="el-upload__tip">
+                文件名必须包含年月，例如 ebay-202606-利润表.xlsx；读取 sheet1 的
+                SKU、利润、商品销售额、应收运费和退款金额；销售额 = 商品销售额 + 应收运费，
+                净销售额 = 销售额 - 退款金额。同月再次导入会整月覆盖。
+              </div>
+            </template>
+          </el-upload>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="profitDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="profitImporting" @click="submitEbayProfit">
+          导入并重新汇总
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="ownerImportDialogVisible"
+      :title="`导入${ownerImportPlatform === 'AMZ' ? 'AMZ' : 'eBay'}月度负责人配置`"
+      width="560px"
+      append-to-body
+      :close-on-click-modal="false"
+      @closed="resetOwnerImportDialog"
     >
       <el-form :model="importForm" label-width="92px">
         <el-form-item label="Excel文件" required>
@@ -119,8 +191,7 @@
             <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
             <template #tip>
               <div class="el-upload__tip">
-                自动读取 EU-品牌、EU-OTH、US1、US2 四个sheet中的全部“YYYYMM负责人”列；
-                相同月份、组别和匹配键覆盖，其余数据保留。
+                {{ ownerImportTip }}
               </div>
             </template>
           </el-upload>
@@ -132,7 +203,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="importDialogVisible = false">取消</el-button>
+        <el-button @click="ownerImportDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="importing" @click="submitOwnerRules">
           开始增量导入
         </el-button>
@@ -145,6 +216,8 @@
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import * as echarts from 'echarts'
 import {
+  importEbayPerformanceOwnerRules,
+  importEbayPerformanceProfit,
   importPerformanceOwnerRules,
   listPerformanceRanking,
   refreshPerformanceRanking
@@ -155,9 +228,13 @@ const loading = ref(false)
 const rows = ref([])
 const refreshing = ref(false)
 const importing = ref(false)
-const importDialogVisible = ref(false)
+const profitImporting = ref(false)
+const ownerImportDialogVisible = ref(false)
+const profitDialogVisible = ref(false)
 const uploadRef = ref()
+const profitUploadRef = ref()
 const lastRefreshStats = ref()
+const ownerImportPlatform = ref('AMZ')
 const queryRef = ref()
 const grossProfitChartRef = ref()
 const netSalesChartRef = ref()
@@ -173,8 +250,14 @@ const importForm = reactive({
   file: undefined,
   rebuildAfterImport: true
 })
+const profitImportForm = reactive({
+  file: undefined
+})
 
 const displayedMonth = computed(() => query.statMonth || rows.value[0]?.statMonth || '')
+const ownerImportTip = computed(() => ownerImportPlatform.value === 'AMZ'
+  ? '自动读取 EU-品牌、EU-OTH、US1、US2 四个sheet中的全部“YYYYMM负责人”列；相同月份、组别和匹配键覆盖，其余数据保留。'
+  : '只读取 Sheet1：第一列为品牌，后续为“YYYYMM负责人”列；相同月份和品牌覆盖，其余数据保留。')
 const grossProfitRanking = computed(() => sortRanking('grossProfit'))
 const netSalesRanking = computed(() => sortRanking('netSalesAmount'))
 
@@ -192,14 +275,15 @@ function sortRanking(field) {
 function buildChartOption(ranking, field, color, seriesName) {
   const hasData = ranking.length > 0
   const showZoom = ranking.length > 10
+  const zoomEnd = Math.min(100, (10 / Math.max(ranking.length, 1)) * 100)
   return {
     color: [color],
     animationDuration: 700,
     grid: {
-      left: 70,
-      right: 28,
-      top: 52,
-      bottom: showZoom ? 104 : 78,
+      left: 24,
+      right: showZoom ? 92 : 72,
+      top: 28,
+      bottom: 54,
       containLabel: true
     },
     tooltip: {
@@ -213,22 +297,11 @@ function buildChartOption(ranking, field, color, seriesName) {
       }
     },
     xAxis: {
-      type: 'category',
-      data: ranking.map((item, index) => `第${index + 1}名\n${item.principalNames || '未分配'}`),
-      axisTick: { alignWithLabel: true },
-      axisLabel: {
-        interval: 0,
-        rotate: ranking.length > 6 ? 32 : 0,
-        color: '#475569',
-        fontSize: 12,
-        lineHeight: 18
-      },
-      axisLine: { lineStyle: { color: '#cbd5e1' } }
-    },
-    yAxis: {
       type: 'value',
       name: '金额（CNY）',
-      nameTextStyle: { color: '#64748b', padding: [0, 0, 8, 0] },
+      nameLocation: 'middle',
+      nameGap: 38,
+      nameTextStyle: { color: '#64748b' },
       axisLabel: {
         color: '#64748b',
         formatter(value) {
@@ -239,15 +312,36 @@ function buildChartOption(ranking, field, color, seriesName) {
       },
       splitLine: { lineStyle: { color: '#eef2f7' } }
     },
+    yAxis: {
+      type: 'category',
+      inverse: true,
+      data: ranking.map(item => item.principalNames || '未分配'),
+      axisTick: { show: false },
+      axisLabel: {
+        color: '#475569',
+        fontSize: 13,
+        margin: 12
+      },
+      axisLine: { lineStyle: { color: '#cbd5e1' } }
+    },
     dataZoom: showZoom
       ? [
-          { type: 'inside', start: 0, end: Math.min(100, (10 / ranking.length) * 100) },
+          {
+            type: 'inside',
+            yAxisIndex: 0,
+            start: 0,
+            end: zoomEnd
+          },
           {
             type: 'slider',
-            height: 18,
-            bottom: 8,
+            yAxisIndex: 0,
+            orient: 'vertical',
+            width: 16,
+            right: 10,
+            top: 28,
+            bottom: 54,
             start: 0,
-            end: Math.min(100, (10 / ranking.length) * 100),
+            end: zoomEnd,
             brushSelect: false
           }
         ]
@@ -256,18 +350,18 @@ function buildChartOption(ranking, field, color, seriesName) {
       {
         name: seriesName,
         type: 'bar',
-        barMaxWidth: 48,
+        barMaxWidth: 34,
         data: ranking.map(item => Number(item[field] || 0)),
         itemStyle: {
-          borderRadius: [6, 6, 0, 0],
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          borderRadius: [0, 6, 6, 0],
+          color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
             { offset: 0, color },
             { offset: 1, color: `${color}99` }
           ])
         },
         label: {
           show: true,
-          position: 'top',
+          position: 'right',
           color: '#334155',
           fontSize: 11,
           formatter: params => formatMoney(params.value)
@@ -292,7 +386,12 @@ async function renderCharts() {
   if (grossProfitChartRef.value) {
     grossProfitChart ||= echarts.init(grossProfitChartRef.value)
     grossProfitChart.setOption(
-      buildChartOption(grossProfitRanking.value, 'grossProfit', '#16a34a', '毛利润'),
+      buildChartOption(
+        grossProfitRanking.value,
+        'grossProfit',
+        '#16a34a',
+        '毛利润'
+      ),
       true
     )
   }
@@ -339,7 +438,7 @@ async function handleRefresh() {
         `汇总完成，但有${result.unmatchedRows}条利润数据归入未分配，请检查当月负责人配置`
       )
     } else {
-      proxy.$modal.msgSuccess(`负责人匹配完成，共生成${result.rows || 0}条汇总数据`)
+      proxy.$modal.msgSuccess(`综合负责人匹配完成，共生成${result.rows || 0}条汇总数据`)
     }
     query.pageNum = 1
     await loadData()
@@ -348,10 +447,11 @@ async function handleRefresh() {
   }
 }
 
-function openImportDialog() {
+function openOwnerImportDialog(platform) {
+  ownerImportPlatform.value = platform
   importForm.file = undefined
   importForm.rebuildAfterImport = true
-  importDialogVisible.value = true
+  ownerImportDialogVisible.value = true
 }
 
 function handleFileChange(uploadFile) {
@@ -362,7 +462,7 @@ function handleFileRemove() {
   importForm.file = undefined
 }
 
-function resetImportDialog() {
+function resetOwnerImportDialog() {
   uploadRef.value?.clearFiles()
   importForm.file = undefined
 }
@@ -375,18 +475,62 @@ async function submitOwnerRules() {
 
   importing.value = true
   try {
-    const response = await importPerformanceOwnerRules(importForm.file)
+    const importApi = ownerImportPlatform.value === 'AMZ'
+      ? importPerformanceOwnerRules
+      : importEbayPerformanceOwnerRules
+    const response = await importApi(importForm.file)
     const result = response.data || {}
-    proxy.$modal.msgSuccess(
-      `负责人配置导入完成：${result.sheets?.length || 0}个sheet、${result.monthCount || 0}个月份，共写入${result.importedRows || 0}条规则`
-    )
+    const sourceDescription = ownerImportPlatform.value === 'AMZ'
+      ? `${result.sheets?.length || 0}个sheet`
+      : `Sheet1`
+    proxy.$modal.msgSuccess(`负责人配置导入完成：${sourceDescription}、${result.monthCount || 0}个月份，共写入${result.importedRows || 0}条规则`)
     query.pageNum = 1
     const rebuildAfterImport = importForm.rebuildAfterImport
-    importDialogVisible.value = false
+    ownerImportDialogVisible.value = false
     if (rebuildAfterImport) await handleRefresh()
     else await loadData()
   } finally {
     importing.value = false
+  }
+}
+
+function openProfitImportDialog() {
+  profitImportForm.file = undefined
+  profitDialogVisible.value = true
+}
+
+function handleProfitFileChange(uploadFile) {
+  profitImportForm.file = uploadFile.raw
+}
+
+function handleProfitFileRemove() {
+  profitImportForm.file = undefined
+}
+
+function resetProfitImportDialog() {
+  profitUploadRef.value?.clearFiles()
+  profitImportForm.file = undefined
+}
+
+async function submitEbayProfit() {
+  if (!profitImportForm.file) {
+    proxy.$modal.msgError('请选择 eBay 月度利润表Excel文件')
+    return
+  }
+
+  profitImporting.value = true
+  try {
+    const response = await importEbayPerformanceProfit(profitImportForm.file)
+    const result = response.data || {}
+    query.statMonth = result.statMonth
+    query.pageNum = 1
+    profitDialogVisible.value = false
+    proxy.$modal.msgSuccess(
+      `${result.statMonth || ''} eBay利润表导入完成，共${result.insertedRows || 0}条，正在重新匹配负责人`
+    )
+    await handleRefresh()
+  } finally {
+    profitImporting.value = false
   }
 }
 
@@ -408,6 +552,15 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.platform-card { margin-bottom: 16px; border-radius: 10px; }
+.platform-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.platform-heading { color: #1e293b; font-size: 18px; font-weight: 650; }
+.platform-hint { margin-top: 5px; color: #64748b; font-size: 12px; }
 .filter-card { margin-bottom: 16px; }
 .summary-card { margin-bottom: 16px; }
 .card-header { display: flex; align-items: center; justify-content: space-between; }
@@ -444,6 +597,7 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
+  .platform-switch,
   .card-header,
   .ranking-header { align-items: flex-start; flex-direction: column; }
   .subtitle { display: block; margin: 5px 0 0; }

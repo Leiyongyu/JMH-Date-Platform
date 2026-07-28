@@ -35,3 +35,35 @@ export function getPerformanceOwnerRuleSummary(statMonth) {
     params: { statMonth }
   })
 }
+
+export function importEbayPerformanceProfit(file) {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/finance/performance-ranking/ebay/profit/import',
+    method: 'post',
+    headers: { 'Content-Type': 'multipart/form-data' },
+    data,
+    timeout: 120000
+  })
+}
+
+export function importEbayPerformanceOwnerRules(file) {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/finance/performance-ranking/ebay/owner-rules/import',
+    method: 'post',
+    headers: { 'Content-Type': 'multipart/form-data' },
+    data,
+    timeout: 120000
+  })
+}
+
+export function getEbayPerformanceOwnerRuleSummary(statMonth) {
+  return request({
+    url: '/finance/performance-ranking/ebay/owner-rules/summary',
+    method: 'get',
+    params: { statMonth }
+  })
+}

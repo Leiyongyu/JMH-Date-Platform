@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.EbayPerformanceProfitMapper">
+
+    <delete id="deleteByStatMonth">
+        DELETE FROM ebay_monthly_performance_profit
+        WHERE stat_month = #{statMonth}
+    </delete>
+
+    <insert id="insertBatch">
+        INSERT INTO ebay_monthly_performance_profit (
+            stat_month, sku, brand_code, image_url, multi_variant,
+            gross_profit, product_sales_amount, receivable_shipping_amount,
+            sales_amount, refund_amount, net_sales_amount,
+            source_file_name, source_sheet, source_row, imported_by,
+            create_time, update_time
+        )
+        VALUES
+        <foreach collection="rows" item="row" separator=",">
+            (
+                #{row.statMonth}, #{row.sku}, #{row.brandCode},
+                #{row.imageUrl}, #{row.multiVariant},
+                #{row.grossProfit}, #{row.productSalesAmount},
+                #{row.receivableShippingAmount}, #{row.salesAmount},
+                #{row.refundAmount},
+                #{row.netSalesAmount}, #{row.sourceFileName},
+                #{row.sourceSheet}, #{row.sourceRow}, #{row.importedBy},
+                NOW(), NOW()
+            )
+        </foreach>
+    </insert>
+</mapper>

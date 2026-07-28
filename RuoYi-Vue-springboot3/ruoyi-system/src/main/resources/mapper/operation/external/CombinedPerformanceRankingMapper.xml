@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.CombinedPerformanceRankingMapper">
+
+    <select id="selectLatestSourceMonth" resultType="String">
+        SELECT MAX(source_month)
+        FROM (
+            SELECT MAX(stat_month) AS source_month
+            FROM amz_monthly_order_profit
+            UNION ALL
+            SELECT MAX(stat_month) AS source_month
+            FROM ebay_monthly_performance_profit
+        ) source_months
+    </select>
+
+    <select id="countAmzProfitRows" resultType="int">
+        SELECT COUNT(*)
+        FROM amz_monthly_order_profit
+        WHERE stat_month = #{statMonth}
+    </select>
+
+    <select id="countEbayProfitRows" resultType="int">
+        SELECT COUNT(*)
+        FROM ebay_monthly_performance_profit
+        WHERE stat_month = #{statMonth}
+    </select>
+
+    <delete id="deleteByStatMonth">
+        DELETE FROM combined_performance_ranking
+        WHERE stat_month = #{statMonth}
+    </delete>
+
+    <insert id="rebuildByStatMonth">
+        INSERT INTO combined_performance_ranking (
+            stat_month, principal_name, gross_profit, net_sales_amount,
+            create_time, update_time
+        )
+        SELECT
+            source.stat_month,
+            source.principal_name,
+            SUM(source.gross_profit) AS gross_profit,
+            SUM(source.net_sales_amount) AS net_sales_amount,
+            NOW(), NOW()
+        FROM (
+            SELECT
+                stat_month,
+                principal_name,
+                COALESCE(gross_profit, 0) AS gross_profit,
+                COALESCE(net_sales_amount, 0) AS net_sales_amount
+            FROM amz_performance_ranking
+            WHERE stat_month = #{statMonth}
+
+            UNION ALL
+
+            SELECT
+                stat_month,
+                principal_name,
+                COALESCE(gross_profit, 0) AS gross_profit,
+                COALESCE(net_sales_amount, 0) AS net_sales_amount
+            FROM ebay_performance_ranking
+            WHERE stat_month = #{statMonth}
+        ) source
+        GROUP BY source.stat_month, source.principal_name
+    </insert>
+
+    <select id="selectList" resultType="java.util.LinkedHashMap">
+        SELECT
+            id AS id,
+            stat_month AS statMonth,
+            principal_name AS principalNames,
+            gross_profit AS grossProfit,
+            net_sales_amount AS netSalesAmount,
+            update_time AS updateTime
+        FROM combined_performance_ranking
+        WHERE stat_month =
+        <choose>
+            <when test="statMonth != null and statMonth != ''">#{statMonth}</when>
+            <otherwise>
+                (SELECT MAX(x.stat_month) FROM combined_performance_ranking x)
+            </otherwise>
+        </choose>
+        <if test="principalName != null and principalName != ''">
+            AND principal_name LIKE CONCAT('%', #{principalName}, '%')
+        </if>
+        ORDER BY gross_profit DESC, net_sales_amount DESC, id
+    </select>
+</mapper>

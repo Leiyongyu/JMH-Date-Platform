@@ -97,8 +97,14 @@
               ON us1_store.stat_month = p.stat_month
              AND us1_store.group_code = 'US1'
              AND us1_store.rule_type = 'STORE'
-             AND us1_store.match_key =
-                    SUBSTRING_INDEX(SUBSTRING_INDEX(s.store_name, '-', 2), '-', -1)
+             AND us1_store.match_key = CASE
+                    WHEN SUBSTRING_INDEX(
+                        SUBSTRING_INDEX(s.store_name, '-', 2), '-', -1
+                    ) = '重庆茁凯' THEN '邱存帅'
+                    ELSE SUBSTRING_INDEX(
+                        SUBSTRING_INDEX(s.store_name, '-', 2), '-', -1
+                    )
+                 END
             LEFT JOIN amz_performance_owner_rule us2_store
               ON us2_store.stat_month = p.stat_month
              AND us2_store.group_code = 'US2'
@@ -186,8 +192,14 @@
               ON us1_store.stat_month = p.stat_month
              AND us1_store.group_code = 'US1'
              AND us1_store.rule_type = 'STORE'
-             AND us1_store.match_key =
-                    SUBSTRING_INDEX(SUBSTRING_INDEX(s.store_name, '-', 2), '-', -1)
+             AND us1_store.match_key = CASE
+                    WHEN SUBSTRING_INDEX(
+                        SUBSTRING_INDEX(s.store_name, '-', 2), '-', -1
+                    ) = '重庆茁凯' THEN '邱存帅'
+                    ELSE SUBSTRING_INDEX(
+                        SUBSTRING_INDEX(s.store_name, '-', 2), '-', -1
+                    )
+                 END
             LEFT JOIN amz_performance_owner_rule us2_store
               ON us2_store.stat_month = p.stat_month
              AND us2_store.group_code = 'US2'
