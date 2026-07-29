@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.LingxingShipmentOrderMappingMapper">
+
+    <select id="countAll" resultType="int">
+        SELECT COUNT(*) FROM lingxing_shipment_order_mapping
+    </select>
+
+    <insert id="batchUpsert">
+        INSERT INTO lingxing_shipment_order_mapping (
+            shipment_id, shipment_sn, shipment_list_id, sid, store_name,
+            order_status, shipment_status, is_delete,
+            remote_create_time, remote_update_time,
+            sync_time, create_time, update_time
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+            (
+                #{item.shipmentId}, #{item.shipmentSn}, #{item.shipmentListId},
+                #{item.sid}, #{item.storeName}, #{item.orderStatus},
+                #{item.shipmentStatus}, #{item.isDelete},
+                #{item.remoteCreateTime}, #{item.remoteUpdateTime},
+                #{item.syncTime}, #{item.createTime}, #{item.updateTime}
+            )
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+            shipment_sn = VALUES(shipment_sn),
+            shipment_list_id = VALUES(shipment_list_id),
+            sid = VALUES(sid),
+            store_name = VALUES(store_name),
+            order_status = VALUES(order_status),
+            shipment_status = VALUES(shipment_status),
+            is_delete = VALUES(is_delete),
+            remote_create_time = VALUES(remote_create_time),
+            remote_update_time = VALUES(remote_update_time),
+            sync_time = VALUES(sync_time),
+            update_time = VALUES(update_time)
+    </insert>
+
+    <select id="selectShipmentSnByShipmentId" resultType="java.lang.String">
+        SELECT shipment_sn
+        FROM lingxing_shipment_order_mapping
+        WHERE shipment_id = #{shipmentId}
+          AND shipment_sn IS NOT NULL
+          AND shipment_sn &lt;&gt; ''
+        LIMIT 1
+    </select>
+</mapper>

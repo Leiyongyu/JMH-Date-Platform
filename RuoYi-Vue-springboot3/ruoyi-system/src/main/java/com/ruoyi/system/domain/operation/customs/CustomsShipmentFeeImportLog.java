@@ -13,6 +13,7 @@ public class CustomsShipmentFeeImportLog implements Serializable
     private String businessType;
     private String batchNo;
     private String originalFileName;
+    private String shipmentId;
     private String orderSn;
     private String sourceRows;
     private Integer sourceRowCount;
@@ -47,6 +48,8 @@ public class CustomsShipmentFeeImportLog implements Serializable
     public void setBatchNo(String batchNo) { this.batchNo = batchNo; }
     public String getOriginalFileName() { return originalFileName; }
     public void setOriginalFileName(String originalFileName) { this.originalFileName = originalFileName; }
+    public String getShipmentId() { return shipmentId; }
+    public void setShipmentId(String shipmentId) { this.shipmentId = shipmentId; }
     public String getOrderSn() { return orderSn; }
     public void setOrderSn(String orderSn) { this.orderSn = orderSn; }
     public String getSourceRows() { return sourceRows; }

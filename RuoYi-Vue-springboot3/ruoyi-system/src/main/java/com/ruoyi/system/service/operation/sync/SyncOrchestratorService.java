@@ -154,6 +154,11 @@ public class SyncOrchestratorService
                 () -> SpringUtils.getBean(OverseasStockOrderDetailSyncService.class).sync())
         )),
         STA_SHIPMENT("sta_shipment", "STA发货链路", Arrays.asList(
+            new StepDef("lingxing_shipment_order_mapping", "领星-货件与发货单映射",
+                "erp/sc/routing/storage/shipment/getInboundShipmentList",
+                true, false, true,
+                () -> SpringUtils.getBean(
+                        LingxingShipmentOrderMappingSyncService.class).syncAll()),
             new StepDef("lingxing_sta_inbound_plan", "领星-STA任务列表",
                 "amzStaServer/openapi/inbound-plan/page",
                 true, true, true,

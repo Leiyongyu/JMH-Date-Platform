@@ -6,6 +6,7 @@ import com.ruoyi.system.service.operation.external.lingxing.LingxingAuthService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingApiProbeService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingGatewayService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingLogisticsChannelSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingShipmentOrderMappingSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingShipmentDetailProbeService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingStaInboundPlanSyncService;
 import java.util.LinkedHashMap;
@@ -29,13 +30,16 @@ public class LingxingOpenApiController extends BaseController
     private final LingxingApiProbeService apiProbeService;
     private final LingxingLogisticsChannelSyncService logisticsChannelSyncService;
     private final LingxingStaInboundPlanSyncService staInboundPlanSyncService;
+    private final LingxingShipmentOrderMappingSyncService shipmentOrderMappingSyncService;
 
     public LingxingOpenApiController(LingxingAuthService authService,
                                     LingxingGatewayService gatewayService,
                                     LingxingShipmentDetailProbeService shipmentDetailProbeService,
                                     LingxingApiProbeService apiProbeService,
                                     LingxingLogisticsChannelSyncService logisticsChannelSyncService,
-                                    LingxingStaInboundPlanSyncService staInboundPlanSyncService)
+                                    LingxingStaInboundPlanSyncService staInboundPlanSyncService,
+                                    LingxingShipmentOrderMappingSyncService
+                                            shipmentOrderMappingSyncService)
     {
         this.authService = authService;
         this.gatewayService = gatewayService;
@@ -43,6 +47,7 @@ public class LingxingOpenApiController extends BaseController
         this.apiProbeService = apiProbeService;
         this.logisticsChannelSyncService = logisticsChannelSyncService;
         this.staInboundPlanSyncService = staInboundPlanSyncService;
+        this.shipmentOrderMappingSyncService = shipmentOrderMappingSyncService;
     }
 
     @PreAuthorize("@ss.hasPermi('operations:lingxing:test')")
@@ -113,6 +118,16 @@ public class LingxingOpenApiController extends BaseController
             @RequestParam(defaultValue = "FBA19JSMN5B7") String shipmentId) throws Exception
     {
         return success(staInboundPlanSyncService.syncByShipmentId(shipmentId));
+    }
+
+    /** 测试单个FBA货件号并保存其发货单号映射；全量/增量由STA链路执行。 */
+    @PreAuthorize("@ss.hasPermi('operations:lingxing:test')")
+    @PostMapping("/shipment-order-mapping/sync")
+    public AjaxResult syncShipmentOrderMapping(
+            @RequestParam("shipmentId") String shipmentId) throws Exception
+    {
+        return success(
+                shipmentOrderMappingSyncService.syncByShipmentId(shipmentId));
     }
 
     /**

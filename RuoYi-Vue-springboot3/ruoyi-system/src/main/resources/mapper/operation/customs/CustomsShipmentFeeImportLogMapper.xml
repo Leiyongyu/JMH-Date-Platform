@@ -8,6 +8,7 @@
         <result property="businessType" column="business_type"/>
         <result property="batchNo" column="batch_no"/>
         <result property="originalFileName" column="original_file_name"/>
+        <result property="shipmentId" column="shipment_id"/>
         <result property="orderSn" column="order_sn"/>
         <result property="sourceRows" column="source_rows"/>
         <result property="sourceRowCount" column="source_row_count"/>
@@ -35,11 +36,11 @@
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO customs_shipment_fee_import_log
-        (batch_id, business_type, order_sn, source_rows, source_row_count, status, error_stage, error_code,
+        (batch_id, business_type, shipment_id, order_sn, source_rows, source_row_count, status, error_stage, error_code,
          error_message, exception_type, stack_trace, request_id, lingxing_response_time,
          attempt_count, request_body, response_body, source_data, operator, upload_time, start_time)
         VALUES
-        (#{batchId}, #{businessType}, #{orderSn}, #{sourceRows}, #{sourceRowCount}, #{status}, #{errorStage}, #{errorCode},
+        (#{batchId}, #{businessType}, #{shipmentId}, #{orderSn}, #{sourceRows}, #{sourceRowCount}, #{status}, #{errorStage}, #{errorCode},
          #{errorMessage}, #{exceptionType}, #{stackTrace}, #{requestId}, #{lingxingResponseTime},
          #{attemptCount}, #{requestBody}, #{responseBody}, #{sourceData}, #{operator}, #{uploadTime}, #{startTime})
     </insert>
@@ -65,7 +66,8 @@
     </update>
 
     <select id="selectList" resultMap="LogResult">
-        SELECT l.id, l.batch_id, l.business_type, b.batch_no, b.original_file_name, l.order_sn, l.source_rows,
+        SELECT l.id, l.batch_id, l.business_type, b.batch_no, b.original_file_name,
+               l.shipment_id, l.order_sn, l.source_rows,
                l.source_row_count, l.status, l.error_stage, l.error_code, l.error_message,
                l.exception_type, l.stack_trace, l.request_id, l.lingxing_response_time,
                l.attempt_count, l.request_body, l.response_body, l.source_data, l.operator,
@@ -81,7 +83,10 @@
                 AND b.batch_no LIKE CONCAT('%', #{batchNo}, '%')
             </if>
             <if test="orderSn != null and orderSn != ''">
-                AND l.order_sn LIKE CONCAT('%', #{orderSn}, '%')
+                AND (
+                    l.order_sn LIKE CONCAT('%', #{orderSn}, '%')
+                    OR l.shipment_id LIKE CONCAT('%', #{orderSn}, '%')
+                )
             </if>
             <if test="status != null and status != ''">
                 AND l.status = #{status}

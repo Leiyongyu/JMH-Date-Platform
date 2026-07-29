@@ -17,3 +17,11 @@ export function syncStaInboundPlan(shipmentId) {
     timeout: 5 * 60 * 1000
   })
 }
+
+export function syncShipmentOrderMapping(shipmentId) {
+  return request({
+    url: '/operations/lingxing/shipment-order-mapping/sync',
+    method: 'post',
+    params: shipmentId ? { shipmentId } : {}
+  })
+}

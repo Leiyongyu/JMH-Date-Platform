@@ -49,6 +49,41 @@
     <el-card shadow="never" class="result-card">
       <template #header>
         <div class="card-header">
+          <span>货件号与发货单号映射测试</span>
+          <el-tag type="primary">写入本地映射表</el-tag>
+        </div>
+      </template>
+      <el-form :inline="true">
+        <el-form-item label="FBA货件单号">
+          <el-input
+            v-model="mappingShipmentId"
+            clearable
+            style="width: 280px"
+            placeholder="例如 FBA15LQTB3Q6"
+          />
+        </el-form-item>
+        <el-form-item>
+          <el-button
+            type="primary"
+            :loading="mappingSyncLoading"
+            @click="handleMappingSync"
+          >
+            查询并保存映射
+          </el-button>
+        </el-form-item>
+      </el-form>
+      <el-input
+        v-if="mappingSyncResult"
+        :model-value="JSON.stringify(mappingSyncResult, null, 2)"
+        type="textarea"
+        :rows="8"
+        readonly
+      />
+    </el-card>
+
+    <el-card shadow="never" class="result-card">
+      <template #header>
+        <div class="card-header">
           <span>STA任务同步测试</span>
           <el-tag type="primary">最近一年 / 创建时间</el-tag>
         </div>
@@ -105,12 +140,19 @@
 
 <script setup>
 import { computed, getCurrentInstance, reactive, ref } from 'vue'
-import { queryLingxingApi, syncStaInboundPlan } from '@/api/operations/lingxingApiTest'
+import {
+  queryLingxingApi,
+  syncShipmentOrderMapping,
+  syncStaInboundPlan
+} from '@/api/operations/lingxingApiTest'
 
 const { proxy } = getCurrentInstance()
 const formRef = ref()
 const loading = ref(false)
 const result = ref(null)
+const mappingShipmentId = ref('FBA15LQTB3Q6')
+const mappingSyncLoading = ref(false)
+const mappingSyncResult = ref(null)
 const staShipmentId = ref('FBA19JSMN5B7')
 const staSyncLoading = ref(false)
 const staSyncResult = ref(null)
@@ -141,6 +183,22 @@ function resetShipmentDetail() {
   Object.assign(form, shipmentDetailExample())
   result.value = null
   formRef.value?.clearValidate()
+}
+
+async function handleMappingSync() {
+  const shipmentId = mappingShipmentId.value?.trim()
+  if (!shipmentId) {
+    proxy.$modal.msgError('请输入FBA货件单号')
+    return
+  }
+  mappingSyncLoading.value = true
+  try {
+    const response = await syncShipmentOrderMapping(shipmentId)
+    mappingSyncResult.value = response.data
+    proxy.$modal.msgSuccess('货件与发货单映射已保存')
+  } finally {
+    mappingSyncLoading.value = false
+  }
 }
 
 function handleQuery() {

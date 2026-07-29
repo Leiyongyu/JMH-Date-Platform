@@ -49,9 +49,10 @@
       title="上传会真实修改领星数据"
     >
       <template #default>
-        读取 Sheet1 的发货单号、物流商与渠道商、跟踪信息及预估/实际费用，并按发货单号逐单提交。
+        读取 Sheet1 的货件单号、物流商与渠道商、跟踪信息及预估/实际费用；
+        后端会先将货件单号匹配为领星发货单号，再逐单提交物流费用。
         B列“物流商”填写渠道记录的 id（如9146），C列“渠道商”填写渠道数据中的 provider.id（如2819）；
-        单条失败不会终止后续发货单。
+        单条失败不会终止后续货件。
       </template>
     </el-alert>
 
@@ -79,7 +80,7 @@
       <div class="result-grid">
         <div><span>文件</span><strong>{{ latestResult.fileName }}</strong></div>
         <div><span>读取行数</span><strong>{{ latestResult.readRows || 0 }}</strong></div>
-        <div><span>{{ latestResult.businessType === 'PACKING_INFO' ? '货件保存任务数' : '发货单数' }}</span><strong>{{ latestResult.totalShipments || 0 }}</strong></div>
+        <div><span>货件任务数</span><strong>{{ latestResult.totalShipments || 0 }}</strong></div>
         <div class="success"><span>成功</span><strong>{{ latestResult.successCount || 0 }}</strong></div>
         <div class="failed"><span>失败</span><strong>{{ latestResult.failedCount || 0 }}</strong></div>
         <div><span>耗时</span><strong>{{ formatDuration(latestResult.durationMs) }}</strong></div>
@@ -236,7 +237,8 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="orderSn" label="业务单号" min-width="210" show-overflow-tooltip />
+          <el-table-column prop="shipmentId" label="货件单号" min-width="175" show-overflow-tooltip />
+          <el-table-column prop="orderSn" label="发货单号" min-width="160" show-overflow-tooltip />
           <el-table-column label="状态" width="90" align="center">
             <template #default="{ row }">
               <el-tag :type="logStatusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
@@ -281,7 +283,8 @@
         size="small"
         max-height="360"
       >
-        <el-table-column prop="orderSn" label="业务单号" min-width="200" />
+        <el-table-column prop="shipmentId" label="货件单号" min-width="175" />
+        <el-table-column prop="orderSn" label="发货单号" min-width="160" />
         <el-table-column prop="sourceRows" label="Excel行" width="90" />
         <el-table-column prop="stage" label="失败阶段" width="120" />
         <el-table-column prop="code" label="错误码" width="130" />

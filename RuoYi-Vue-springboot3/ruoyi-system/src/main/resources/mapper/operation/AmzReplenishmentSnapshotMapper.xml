@@ -683,11 +683,18 @@
 
     <!-- distinct 候选值 -->
     <select id="selectDistinctValues" parameterType="map" resultType="string">
-        select distinct t.`${column}` from <include refid="amzSnapshotSource" /> t
+        select distinct t.`${column}`
+        from <include refid="amzSnapshotSource" /> t
+        <if test="column == 'store_name'">
+            inner join shop_list sl
+              on sl.sid = cast(t.sid as char) collate utf8mb4_unicode_ci
+             and sl.platform_code = '10001'
+        </if>
         where t.current_flag = 1
           and t.`${column}` is not null and t.`${column}` != ''
         <if test="keyword != null and keyword != ''">and t.`${column}` like concat('%', #{keyword}, '%')</if>
-        order by t.`${column}` limit 50
+        order by t.`${column}`
+        <if test="column != 'store_name'">limit 50</if>
     </select>
 
     <select id="selectSalesBreakdown" resultType="map">

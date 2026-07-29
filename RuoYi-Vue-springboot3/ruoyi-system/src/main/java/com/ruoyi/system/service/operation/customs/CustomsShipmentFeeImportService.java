@@ -6,6 +6,7 @@ import com.ruoyi.system.domain.operation.customs.CustomsShipmentFeeImportLog;
 import com.ruoyi.system.mapper.operation.customs.CustomsShipmentFeeImportBatchMapper;
 import com.ruoyi.system.mapper.operation.customs.CustomsShipmentFeeImportLogMapper;
 import com.ruoyi.system.mapper.operation.external.LingxingLogisticsChannelMapper;
+import com.ruoyi.system.mapper.operation.external.LingxingShipmentOrderMappingMapper;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingGatewayService;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -53,7 +54,7 @@ public class CustomsShipmentFeeImportService
             DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
     private static final List<String> EXPECTED_HEADERS = List.of(
-            "发货单号", "物流商", "渠道商", "运输类型", "单号类型",
+            "货件单号", "物流商", "渠道商", "运输类型", "单号类型",
             "费用明细-预估费用", "单价", "单价币种", "物流费用", "物流费用币种",
             "预估费用备注", "预估费用-其他费id", "其他费金额", "其他费币种",
             "费用明细-实际费用", "税费币种", "实重（单位：KG）", "体积（单位：m³）",
@@ -61,7 +62,7 @@ public class CustomsShipmentFeeImportService
             "实际费用-其他费id", "其他费金额", "其他费币种", "物流商单号", "跟踪号");
 
     private static final String[] SOURCE_KEYS = {
-            "order_sn", "logistics_channel_id", "logistics_provider_id",
+            "shipment_id", "logistics_channel_id", "logistics_provider_id",
             "transport_type", "order_type_code",
             "estimate_chargeable_weight", "estimate_price", "estimate_price_currency",
             "estimate_logistics_fee", "estimate_logistics_fee_currency", "estimate_remark",
@@ -76,6 +77,7 @@ public class CustomsShipmentFeeImportService
     private final CustomsShipmentFeeImportBatchMapper batchMapper;
     private final CustomsShipmentFeeImportLogMapper logMapper;
     private final LingxingLogisticsChannelMapper logisticsChannelMapper;
+    private final LingxingShipmentOrderMappingMapper shipmentOrderMappingMapper;
     private final LingxingGatewayService gatewayService;
     private final ObjectMapper objectMapper;
 
@@ -83,12 +85,14 @@ public class CustomsShipmentFeeImportService
             CustomsShipmentFeeImportBatchMapper batchMapper,
             CustomsShipmentFeeImportLogMapper logMapper,
             LingxingLogisticsChannelMapper logisticsChannelMapper,
+            LingxingShipmentOrderMappingMapper shipmentOrderMappingMapper,
             LingxingGatewayService gatewayService,
             ObjectMapper objectMapper)
     {
         this.batchMapper = batchMapper;
         this.logMapper = logMapper;
         this.logisticsChannelMapper = logisticsChannelMapper;
+        this.shipmentOrderMappingMapper = shipmentOrderMappingMapper;
         this.gatewayService = gatewayService;
         this.objectMapper = objectMapper;
     }
@@ -171,6 +175,7 @@ public class CustomsShipmentFeeImportService
             {
                 failedCount++;
                 Map<String, Object> failure = new LinkedHashMap<>();
+                failure.put("shipmentId", result.shipmentId);
                 failure.put("orderSn", result.orderSn);
                 failure.put("sourceRows", rowNumbers(shipmentRows));
                 failure.put("stage", result.errorStage);
@@ -189,7 +194,7 @@ public class CustomsShipmentFeeImportService
         batch.setFinishTime(finishedAt);
         batch.setDurationMs(Duration.between(startedAt, finishedAt).toMillis());
         batch.setErrorMessage(failedCount == 0 ? null
-                : "共 " + failedCount + " 个发货单失败，请查看发货单日志");
+                : "共 " + failedCount + " 个货件失败，请查看上传明细日志");
         batchMapper.updateResult(batch);
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -211,10 +216,12 @@ public class CustomsShipmentFeeImportService
             CustomsShipmentFeeImportBatch batch, List<ExcelRow> rows)
     {
         LocalDateTime startedAt = LocalDateTime.now();
-        String orderSn = trim(rows.get(0).value(0));
+        String shipmentId = trim(rows.get(0).value(0));
+        String orderSn = resolveOrderSn(shipmentId);
         CustomsShipmentFeeImportLog log = new CustomsShipmentFeeImportLog();
         log.setBatchId(batch.getId());
         log.setBusinessType(BUSINESS_TYPE);
+        log.setShipmentId(shipmentId);
         log.setOrderSn(orderSn);
         log.setSourceRows(rowNumbers(rows));
         log.setSourceRowCount(rows.size());
@@ -227,12 +234,17 @@ public class CustomsShipmentFeeImportService
         logMapper.insert(log);
 
         List<String> validationErrors = validateRows(rows);
+        if (!StringUtils.hasText(orderSn))
+        {
+            validationErrors.add("货件单号“" + shipmentId
+                    + "”未匹配到发货单号，请先执行STA发货链路同步");
+        }
         Map<String, Object> request = null;
         if (validationErrors.isEmpty())
         {
             try
             {
-                request = buildRequest(rows, validationErrors);
+                request = buildRequest(rows, orderSn, validationErrors);
             }
             catch (Exception e)
             {
@@ -244,7 +256,8 @@ public class CustomsShipmentFeeImportService
             String message = String.join("；", validationErrors);
             finishFailed(log, startedAt, "VALIDATION", "EXCEL_VALIDATION",
                     message, null, null, request, 0);
-            return ProcessResult.failed(orderSn, "VALIDATION", "EXCEL_VALIDATION", message);
+            return ProcessResult.failed(
+                    shipmentId, orderSn, "VALIDATION", "EXCEL_VALIDATION", message);
         }
 
         Map<String, Object> response = null;
@@ -272,7 +285,7 @@ public class CustomsShipmentFeeImportService
             String message = safeMessage(lastException);
             finishFailed(log, startedAt, "API_EXCEPTION", lastException.getClass().getSimpleName(),
                     message, lastException, null, request, attempts);
-            return ProcessResult.failed(orderSn, "API_EXCEPTION",
+            return ProcessResult.failed(shipmentId, orderSn, "API_EXCEPTION",
                     lastException.getClass().getSimpleName(), message);
         }
 
@@ -291,7 +304,7 @@ public class CustomsShipmentFeeImportService
             log.setSuccessTime(successAt);
             log.setDurationMs(Duration.between(startedAt, successAt).toMillis());
             logMapper.updateResult(log);
-            return ProcessResult.success(orderSn);
+            return ProcessResult.success(shipmentId, orderSn);
         }
 
         String code = response == null ? "EMPTY_RESPONSE" : valueText(response.get("code"));
@@ -300,7 +313,17 @@ public class CustomsShipmentFeeImportService
                         "领星接口返回失败");
         finishFailed(log, startedAt, "LINGXING_API", code, message,
                 null, response, request, attempts);
-        return ProcessResult.failed(orderSn, "LINGXING_API", code, message);
+        return ProcessResult.failed(
+                shipmentId, orderSn, "LINGXING_API", code, message);
+    }
+
+    private String resolveOrderSn(String shipmentId)
+    {
+        if (!StringUtils.hasText(shipmentId)) return null;
+        String value = shipmentId.trim();
+        // 兼容旧版以SP发货单号为首列的历史模板。
+        if (value.toUpperCase(Locale.ROOT).startsWith("SP")) return value;
+        return trim(shipmentOrderMappingMapper.selectShipmentSnByShipmentId(value));
     }
 
     private List<ExcelRow> parseWorkbook(byte[] fileBytes) throws Exception
@@ -359,6 +382,7 @@ public class CustomsShipmentFeeImportService
     private boolean isSupportedHeader(int col, String actual)
     {
         if (EXPECTED_HEADERS.get(col).equals(actual)) return true;
+        if (col == 0 && "发货单号".equals(actual)) return true;
         // B列“物流商”映射具体渠道 id，C列“渠道商”映射 provider.id；
         // 兼容此前使用过的带“id”表头，避免历史文件无法重新导入。
         return (col == 1 && Set.of(
@@ -372,8 +396,9 @@ public class CustomsShipmentFeeImportService
         Map<String, List<ExcelRow>> grouped = new LinkedHashMap<>();
         for (ExcelRow row : rows)
         {
-            String orderSn = trim(row.value(0));
-            String key = StringUtils.hasText(orderSn) ? orderSn : "__ROW_" + row.rowNo;
+            String shipmentId = trim(row.value(0));
+            String key = StringUtils.hasText(shipmentId)
+                    ? shipmentId : "__ROW_" + row.rowNo;
             grouped.computeIfAbsent(key, unused -> new ArrayList<>()).add(row);
         }
         return grouped;
@@ -386,7 +411,7 @@ public class CustomsShipmentFeeImportService
         for (ExcelRow row : rows)
         {
             String prefix = "第" + row.rowNo + "行";
-            required(row, 0, "发货单号", prefix, errors);
+            required(row, 0, "货件单号", prefix, errors);
             Integer channelId = requiredInteger(row, 1, "物流商", prefix, errors);
             Integer providerId = requiredInteger(row, 2, "渠道商", prefix, errors);
             validateLogisticsChannel(
@@ -414,7 +439,7 @@ public class CustomsShipmentFeeImportService
             required(row, 26, "物流商单号", prefix, errors);
             required(row, 27, "跟踪号", prefix, errors);
         }
-        validateSameOrderSn(rows, errors);
+        validateSameShipmentId(rows, errors);
         validateConsistent(rows, errors);
         return errors;
     }
@@ -460,12 +485,12 @@ public class CustomsShipmentFeeImportService
         if (!valid) errors.add(prefix + "运输类型与单号类型组合不符合领星规则");
     }
 
-    private void validateSameOrderSn(List<ExcelRow> rows, List<String> errors)
+    private void validateSameShipmentId(List<ExcelRow> rows, List<String> errors)
     {
         Set<String> values = new LinkedHashSet<>();
         for (ExcelRow row : rows)
             if (StringUtils.hasText(trim(row.value(0)))) values.add(trim(row.value(0)));
-        if (values.size() > 1) errors.add("同一组中存在不同发货单号：" + values);
+        if (values.size() > 1) errors.add("同一组中存在不同货件单号：" + values);
     }
 
     private void validateConsistent(List<ExcelRow> rows, List<String> errors)
@@ -483,17 +508,17 @@ public class CustomsShipmentFeeImportService
                 if (StringUtils.hasText(value)) values.add(value);
             }
             if (values.size() > 1)
-                errors.add("同一发货单的“" + EXPECTED_HEADERS.get(col)
+                errors.add("同一货件的“" + EXPECTED_HEADERS.get(col)
                         + "”存在多个不同值：" + values);
         }
     }
 
     private Map<String, Object> buildRequest(
-            List<ExcelRow> rows, List<String> errors)
+            List<ExcelRow> rows, String orderSn, List<String> errors)
     {
         ExcelRow first = rows.get(0);
         Map<String, Object> item = new LinkedHashMap<>();
-        item.put("order_sn", trim(first.value(0)));
+        item.put("order_sn", orderSn);
         item.put("tax_fee_type", 3);
         item.put("logistics_provider_id", integerValue(first.value(2)));
         item.put("logistics_channel_id", integerValue(first.value(1)));
@@ -901,31 +926,37 @@ public class CustomsShipmentFeeImportService
     private static class ProcessResult
     {
         final boolean success;
+        final String shipmentId;
         final String orderSn;
         final String errorStage;
         final String errorCode;
         final String errorMessage;
 
         private ProcessResult(
-                boolean success, String orderSn, String errorStage,
+                boolean success, String shipmentId, String orderSn, String errorStage,
                 String errorCode, String errorMessage)
         {
             this.success = success;
+            this.shipmentId = shipmentId;
             this.orderSn = orderSn;
             this.errorStage = errorStage;
             this.errorCode = errorCode;
             this.errorMessage = errorMessage;
         }
 
-        static ProcessResult success(String orderSn)
+        static ProcessResult success(String shipmentId, String orderSn)
         {
-            return new ProcessResult(true, orderSn, null, null, null);
+            return new ProcessResult(
+                    true, shipmentId, orderSn, null, null, null);
         }
 
         static ProcessResult failed(
-                String orderSn, String errorStage, String errorCode, String errorMessage)
+                String shipmentId, String orderSn, String errorStage,
+                String errorCode, String errorMessage)
         {
-            return new ProcessResult(false, orderSn, errorStage, errorCode, errorMessage);
+            return new ProcessResult(
+                    false, shipmentId, orderSn,
+                    errorStage, errorCode, errorMessage);
         }
     }
 }
