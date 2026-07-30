@@ -68,6 +68,7 @@ public class OperationSyncLogServiceImpl implements IOperationSyncLogService
         log.setSuccessCount(result.getSuccessCount());
         log.setFailCount(result.getFailCount());
         log.setErrorMessage(truncate(result.getErrorMessage(), 2000));
+        log.setRequestParams(truncate(result.getRequestParams(), 4000));
 
         try
         {

@@ -3,25 +3,36 @@
     <el-card shadow="never" class="platform-card">
       <div class="platform-switch">
         <div>
-          <div class="platform-heading">综合绩效排名</div>
+          <div class="platform-heading">{{ platformTitle }}绩效排名</div>
           <div class="platform-hint">
-            AMZ 与 eBay 保持各自负责人匹配规则，最终按月份和负责人合并排名
+            {{ platformHint }}
           </div>
         </div>
-        <el-tag type="primary" effect="light">AMZ + eBay</el-tag>
+        <el-radio-group v-model="query.platform" @change="handlePlatformChange">
+          <el-radio-button value="combined">综合</el-radio-button>
+          <el-radio-button value="amazon">AMZ</el-radio-button>
+          <el-radio-button value="ebay">eBay</el-radio-button>
+        </el-radio-group>
       </div>
     </el-card>
 
     <el-card shadow="never" class="filter-card">
       <el-form ref="queryRef" :model="query" inline label-width="82px">
         <el-form-item label="统计月份" prop="statMonth">
-          <el-date-picker
+          <el-select
             v-model="query.statMonth"
-            type="month"
-            value-format="YYYY-MM"
             placeholder="默认最新月份"
             clearable
-          />
+            style="width: 260px"
+            @change="handleQuery"
+          >
+            <el-option
+              v-for="month in monthOptions"
+              :key="month.stat_month"
+              :label="monthLabel(month)"
+              :value="month.stat_month"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="负责人" prop="principalName">
           <el-input v-model="query.principalName" clearable placeholder="Listing负责人" @keyup.enter="handleQuery" />
@@ -73,8 +84,8 @@
       <template #header>
         <div class="card-header">
           <div>
-            <span class="title">月度综合绩效排名</span>
-            <span class="subtitle">同一负责人在 AMZ 与 eBay 的金额合并，金额统一为 CNY</span>
+            <span class="title">月度{{ platformTitle }}绩效排名</span>
+            <span class="subtitle">{{ rankingSubtitle }}</span>
           </div>
           <el-tag type="success">{{ displayedMonth || '最新月份' }}</el-tag>
         </div>
@@ -90,7 +101,7 @@
         <template #title>
           {{ lastRefreshStats.statMonth }} 共处理 AMZ {{ lastRefreshStats.amzProfitRows || 0 }} 条、
           eBay {{ lastRefreshStats.ebayProfitRows || 0 }} 条利润数据，未分配
-          {{ lastRefreshStats.unmatchedRows || 0 }} 条，生成 {{ lastRefreshStats.rows || 0 }} 条综合负责人汇总
+          {{ lastRefreshStats.unmatchedRows || 0 }} 条，生成 {{ lastRefreshStats.rows || 0 }} 条{{ platformTitle }}负责人汇总
         </template>
       </el-alert>
     </el-card>
@@ -101,7 +112,7 @@
           <div class="ranking-header">
             <div>
               <div class="ranking-title">毛利润排名</div>
-              <div class="ranking-description">AMZ 与 eBay 各负责人毛利润合计</div>
+              <div class="ranking-description">{{ platformTitle }}各负责人毛利润</div>
             </div>
             <el-tag v-if="grossProfitRanking.length" type="success" effect="light">
               {{ grossProfitRanking[0].principalNames }}
@@ -216,6 +227,7 @@
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import * as echarts from 'echarts'
 import {
+  getPerformanceMonths,
   importEbayPerformanceOwnerRules,
   importEbayPerformanceProfit,
   importPerformanceOwnerRules,
@@ -226,6 +238,8 @@ import {
 const { proxy } = getCurrentInstance()
 const loading = ref(false)
 const rows = ref([])
+const monthOptions = ref([])
+const actualMonth = ref('')
 const refreshing = ref(false)
 const importing = ref(false)
 const profitImporting = ref(false)
@@ -243,6 +257,7 @@ let netSalesChart
 const query = reactive({
   pageNum: 1,
   pageSize: 1000,
+  platform: 'combined',
   statMonth: undefined,
   principalName: undefined
 })
@@ -254,7 +269,18 @@ const profitImportForm = reactive({
   file: undefined
 })
 
-const displayedMonth = computed(() => query.statMonth || rows.value[0]?.statMonth || '')
+const displayedMonth = computed(() => actualMonth.value || query.statMonth || '')
+const platformTitle = computed(() => ({
+  combined: '综合',
+  amazon: 'AMZ',
+  ebay: 'eBay'
+}[query.platform] || '综合'))
+const platformHint = computed(() => query.platform === 'combined'
+  ? 'AMZ 与 eBay 保持各自负责人匹配规则，最终按月份和负责人合并排名'
+  : `查看 Python 绩效服务生成的${platformTitle.value}负责人月度排名`)
+const rankingSubtitle = computed(() => query.platform === 'combined'
+  ? '同一负责人在 AMZ 与 eBay 的金额合并，金额统一为 CNY'
+  : `${platformTitle.value}负责人排名，金额统一为 CNY`)
 const ownerImportTip = computed(() => ownerImportPlatform.value === 'AMZ'
   ? '自动读取 EU-品牌、EU-OTH、US1、US2 四个sheet中的全部“YYYYMM负责人”列；相同月份、组别和匹配键覆盖，其余数据保留。'
   : '只读取 Sheet1：第一列为品牌，后续为“YYYYMM负责人”列；相同月份和品牌覆盖，其余数据保留。')
@@ -409,10 +435,28 @@ async function loadData() {
   try {
     const response = await listPerformanceRanking(query)
     rows.value = response.rows || []
+    actualMonth.value = response.statMonth || query.statMonth || ''
     await renderCharts()
   } finally {
     loading.value = false
   }
+}
+
+async function loadMonths(selectLatest = false) {
+  const response = await getPerformanceMonths(60)
+  monthOptions.value = response.data || []
+  if ((selectLatest || !query.statMonth) && monthOptions.value.length) {
+    query.statMonth = monthOptions.value[0].stat_month
+  }
+}
+
+function monthLabel(month) {
+  const ready = [
+    `AMZ${month.amazon_ready ? '✓' : '—'}`,
+    `eBay${month.ebay_ready ? '✓' : '—'}`,
+    `综合${month.combined_ready ? '✓' : '—'}`
+  ].join(' / ')
+  return `${month.stat_month}（${ready}）`
 }
 
 function handleQuery() {
@@ -420,30 +464,61 @@ function handleQuery() {
   loadData()
 }
 
-function resetQuery() {
-  queryRef.value?.resetFields()
+function handlePlatformChange() {
   query.pageNum = 1
   loadData()
 }
 
+function resetQuery() {
+  queryRef.value?.resetFields()
+  query.pageNum = 1
+  if (monthOptions.value.length) query.statMonth = monthOptions.value[0].stat_month
+  loadData()
+}
+
 async function handleRefresh() {
+  if (!query.statMonth) {
+    proxy.$modal.msgError('请选择需要刷新的统计月份')
+    return
+  }
   refreshing.value = true
   try {
-    const response = await refreshPerformanceRanking(query.statMonth)
+    const response = await refreshPerformanceRanking(query.statMonth, query.platform)
     const result = response.data || {}
-    lastRefreshStats.value = result
-    if (!query.statMonth) query.statMonth = result.statMonth
-    if ((result.unmatchedRows || 0) > 0) {
+    lastRefreshStats.value = normalizeRefresh(result)
+    if ((lastRefreshStats.value.unmatchedRows || 0) > 0) {
       proxy.$modal.msgWarning(
-        `汇总完成，但有${result.unmatchedRows}条利润数据归入未分配，请检查当月负责人配置`
+        `汇总完成，但有${lastRefreshStats.value.unmatchedRows}条利润数据归入未分配，请检查当月负责人配置`
       )
     } else {
-      proxy.$modal.msgSuccess(`综合负责人匹配完成，共生成${result.rows || 0}条汇总数据`)
+      proxy.$modal.msgSuccess(
+        `${platformTitle.value}负责人匹配完成，共生成${lastRefreshStats.value.rows || 0}条汇总数据`
+      )
     }
+    await loadMonths()
     query.pageNum = 1
     await loadData()
   } finally {
     refreshing.value = false
+  }
+}
+
+function normalizeRefresh(result = {}) {
+  const resultPlatform = result.platform || query.platform
+  const rankingRows = resultPlatform === 'amazon'
+    ? result.amz_ranking_rows
+    : resultPlatform === 'ebay'
+      ? result.ebay_ranking_rows
+      : result.combined_ranking_rows
+  return {
+    statMonth: result.stat_month || result.statMonth || query.statMonth,
+    rows: rankingRows ?? result.rows ?? 0,
+    sourceRows: result.source_rows ?? result.sourceRows ?? 0,
+    matchedRows: result.matched_rows ?? result.matchedRows ?? 0,
+    unmatchedRows: result.unmatched_rows ?? result.unmatchedRows ?? 0,
+    amzProfitRows: result.amz_profit_rows ?? result.amzProfitRows ?? 0,
+    ebayProfitRows: result.ebay_profit_rows ?? result.ebayProfitRows ?? 0,
+    partial: result.partial || false
   }
 }
 
@@ -478,17 +553,24 @@ async function submitOwnerRules() {
     const importApi = ownerImportPlatform.value === 'AMZ'
       ? importPerformanceOwnerRules
       : importEbayPerformanceOwnerRules
-    const response = await importApi(importForm.file)
+    const response = await importApi(
+      importForm.file,
+      importForm.rebuildAfterImport,
+      query.statMonth
+    )
     const result = response.data || {}
     const sourceDescription = ownerImportPlatform.value === 'AMZ'
-      ? `${result.sheets?.length || 0}个sheet`
+      ? 'AMZ负责人工作簿'
       : `Sheet1`
-    proxy.$modal.msgSuccess(`负责人配置导入完成：${sourceDescription}、${result.monthCount || 0}个月份，共写入${result.importedRows || 0}条规则`)
+    proxy.$modal.msgSuccess(`负责人配置导入完成：${sourceDescription}、${result.month_count || 0}个月份，共写入${result.imported_rows || 0}条规则`)
     query.pageNum = 1
     const rebuildAfterImport = importForm.rebuildAfterImport
     ownerImportDialogVisible.value = false
-    if (rebuildAfterImport) await handleRefresh()
-    else await loadData()
+    if (rebuildAfterImport && result.refreshes?.length) {
+      lastRefreshStats.value = normalizeRefresh(result.refreshes[0])
+    }
+    await loadMonths()
+    await loadData()
   } finally {
     importing.value = false
   }
@@ -520,15 +602,17 @@ async function submitEbayProfit() {
 
   profitImporting.value = true
   try {
-    const response = await importEbayPerformanceProfit(profitImportForm.file)
+    const response = await importEbayPerformanceProfit(profitImportForm.file, true)
     const result = response.data || {}
-    query.statMonth = result.statMonth
+    query.statMonth = result.stat_month
     query.pageNum = 1
     profitDialogVisible.value = false
     proxy.$modal.msgSuccess(
-      `${result.statMonth || ''} eBay利润表导入完成，共${result.insertedRows || 0}条，正在重新匹配负责人`
+      `${result.stat_month || ''} eBay利润表导入完成，共${result.inserted_rows || 0}条`
     )
-    await handleRefresh()
+    if (result.refresh) lastRefreshStats.value = normalizeRefresh(result.refresh)
+    await loadMonths()
+    await loadData()
   } finally {
     profitImporting.value = false
   }
@@ -539,9 +623,10 @@ function resizeCharts() {
   netSalesChart?.resize()
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('resize', resizeCharts)
-  loadData()
+  await loadMonths(true)
+  await loadData()
 })
 
 onBeforeUnmount(() => {

@@ -8,20 +8,29 @@ export function listPerformanceRanking(query) {
   })
 }
 
-export function refreshPerformanceRanking(statMonth) {
+export function getPerformanceMonths(limit = 12) {
   return request({
-    url: '/finance/performance-ranking/refresh',
-    method: 'post',
-    params: { statMonth }
+    url: '/finance/performance-ranking/months',
+    method: 'get',
+    params: { limit }
   })
 }
 
-export function importPerformanceOwnerRules(file) {
+export function refreshPerformanceRanking(statMonth, platform = 'combined') {
+  return request({
+    url: '/finance/performance-ranking/refresh',
+    method: 'post',
+    params: { statMonth, platform }
+  })
+}
+
+export function importPerformanceOwnerRules(file, rebuild = true, statMonth) {
   const data = new FormData()
   data.append('file', file)
   return request({
     url: '/finance/performance-ranking/owner-rules/import',
     method: 'post',
+    params: { rebuild, statMonth },
     headers: { 'Content-Type': 'multipart/form-data' },
     data,
     timeout: 120000
@@ -36,24 +45,26 @@ export function getPerformanceOwnerRuleSummary(statMonth) {
   })
 }
 
-export function importEbayPerformanceProfit(file) {
+export function importEbayPerformanceProfit(file, rebuild = true) {
   const data = new FormData()
   data.append('file', file)
   return request({
     url: '/finance/performance-ranking/ebay/profit/import',
     method: 'post',
+    params: { rebuild },
     headers: { 'Content-Type': 'multipart/form-data' },
     data,
     timeout: 120000
   })
 }
 
-export function importEbayPerformanceOwnerRules(file) {
+export function importEbayPerformanceOwnerRules(file, rebuild = true, statMonth) {
   const data = new FormData()
   data.append('file', file)
   return request({
     url: '/finance/performance-ranking/ebay/owner-rules/import',
     method: 'post',
+    params: { rebuild, statMonth },
     headers: { 'Content-Type': 'multipart/form-data' },
     data,
     timeout: 120000

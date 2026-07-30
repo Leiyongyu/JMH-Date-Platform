@@ -3,6 +3,7 @@ package com.ruoyi.system.service.operation.sync;
 import com.ruoyi.system.domain.operation.TaskStatus;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Unified result model for external sync tasks.
@@ -29,6 +30,9 @@ public class OperationSyncResult
     private String errorMessage;
     private long elapsedMs;
     private List<FailureItem> failures = new ArrayList<>();
+    private String requestParams;
+    private String businessSummary;
+    private Map<String, Object> details;
 
     public static OperationSyncResult success(String syncType, String syncName, String apiPath,
                                                int totalCount, int successCount, long elapsedMs)
@@ -134,6 +138,8 @@ public class OperationSyncResult
         if (syncLogId != null) sb.append("，同步日志ID=").append(syncLogId);
         String detail = firstErrorSummary(180);
         if (detail != null && !detail.isEmpty()) sb.append("，").append(detail);
+        if (businessSummary != null && !businessSummary.isEmpty())
+            sb.append("，").append(truncate(businessSummary, 300));
         return sb.toString();
     }
 
@@ -221,6 +227,15 @@ public class OperationSyncResult
 
     public List<FailureItem> getFailures() { return failures; }
     public void setFailures(List<FailureItem> failures) { this.failures = failures; }
+
+    public String getRequestParams() { return requestParams; }
+    public void setRequestParams(String requestParams) { this.requestParams = requestParams; }
+
+    public String getBusinessSummary() { return businessSummary; }
+    public void setBusinessSummary(String businessSummary) { this.businessSummary = businessSummary; }
+
+    public Map<String, Object> getDetails() { return details; }
+    public void setDetails(Map<String, Object> details) { this.details = details; }
 
     private static String safe(String s)
     {
