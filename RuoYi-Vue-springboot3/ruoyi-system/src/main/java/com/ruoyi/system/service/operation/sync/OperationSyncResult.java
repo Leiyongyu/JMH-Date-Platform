@@ -120,8 +120,12 @@ public class OperationSyncResult
         sb.append(syncName).append(" 执行");
         if (STATUS_SUCCESS.equals(status)) sb.append("成功");
         else if (STATUS_PARTIAL.equals(status) || STATUS_PARTIAL_SUCCESS.equals(status)) sb.append("部分成功");
-        else if (STATUS_TIMEOUT.equals(status)) sb.append("超时");
         else if (STATUS_SKIPPED.equals(status)) sb.append("跳过");
+        else if (errorMessage != null
+                && (errorMessage.contains("执行超时")
+                    || errorMessage.contains("任务超时")
+                    || errorMessage.toLowerCase().contains("timeout")))
+            sb.append("超时");
         else sb.append("失败");
         sb.append("，总数").append(totalCount);
         sb.append("，成功").append(successCount);

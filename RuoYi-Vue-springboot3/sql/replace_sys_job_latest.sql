@@ -1,6 +1,7 @@
 -- 将部署机 sys_job 替换为当前最新调度方案。
 -- 执行建议：停止后端 -> 执行本脚本 -> 启动后端，让 Quartz 从数据库重新加载任务。
--- 规则：旧 operationSyncTask 单接口任务保留但暂停；新 chainSyncTask 六条链路任务启用。
+-- 规则：旧 operationSyncTask 单接口任务保留但暂停；
+-- 六条链路任务和FBA库存月度快照任务启用。
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -21,7 +22,11 @@ SET status = '1',
     update_time = NOW(),
     remark = CONCAT(IFNULL(remark, ''), IF(INSTR(IFNULL(remark, ''), '；已切换为链路调度，自动任务暂停') > 0, '', '；已切换为链路调度，自动任务暂停'))
 WHERE job_group = 'OPERATION'
-  AND invoke_target LIKE 'operationSyncTask.%';
+  AND invoke_target LIKE 'operationSyncTask.%'
+  AND invoke_target NOT IN (
+    'operationSyncTask.syncAmzFbaInventorySnapshot',
+    'operationSyncTask.syncAmzFbaInventorySnapshot()'
+  );
 
 -- 3) 清理错误格式/重复链路任务，只保留带 () 的标准格式。
 DELETE FROM sys_job
@@ -57,6 +62,47 @@ ON DUPLICATE KEY UPDATE
   update_by = VALUES(update_by),
   update_time = VALUES(update_time),
   remark = VALUES(remark);
+
+-- 4.1) 独立低频任务：每月1日22:30拉取当前年月FBA库存完整快照。
+UPDATE sys_job
+SET job_name = '领星-Amazon FBA库存月度快照',
+    job_group = 'OPERATION',
+    invoke_target = 'operationSyncTask.syncAmzFbaInventorySnapshot()',
+    cron_expression = '0 30 22 1 * ?',
+    misfire_policy = '2',
+    concurrent = '1',
+    status = '0',
+    update_by = 'SYSTEM',
+    update_time = NOW(),
+    remark = '每月1日22:30全量拉取当前年月；同年月整月覆盖，不同年月新增保留'
+WHERE invoke_target IN (
+  'operationSyncTask.syncAmzFbaInventorySnapshot',
+  'operationSyncTask.syncAmzFbaInventorySnapshot()'
+);
+
+INSERT INTO sys_job (
+  job_name, job_group, invoke_target, cron_expression,
+  misfire_policy, concurrent, status, create_by, create_time, remark
+)
+SELECT
+  '领星-Amazon FBA库存月度快照',
+  'OPERATION',
+  'operationSyncTask.syncAmzFbaInventorySnapshot()',
+  '0 30 22 1 * ?',
+  '2',
+  '1',
+  '0',
+  'SYSTEM',
+  NOW(),
+  '每月1日22:30全量拉取当前年月；同年月整月覆盖，不同年月新增保留'
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM sys_job
+  WHERE invoke_target IN (
+    'operationSyncTask.syncAmzFbaInventorySnapshot',
+    'operationSyncTask.syncAmzFbaInventorySnapshot()'
+  )
+);
 
 -- 5) 如果部署库里已存在同 invoke_target 但 job_id 不同的重复链路任务，保留 225-230，删除重复项。
 DELETE j

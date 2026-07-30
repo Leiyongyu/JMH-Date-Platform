@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.AmzFbaInventoryAgeGroupSummaryMapper">
+
+    <delete id="deleteByPullMonth">
+        DELETE FROM amz_fba_inventory_age_group_summary
+        WHERE pull_month = #{pullMonth}
+    </delete>
+
+    <insert id="insertFromSnapshot">
+        INSERT INTO amz_fba_inventory_age_group_summary (
+            pull_month, region_code, region_name, group_code, group_name,
+            shop_count, source_row_count,
+            inventory_0_90_qty, inventory_0_90_cost,
+            inventory_91_180_qty, inventory_91_180_cost,
+            inventory_181_plus_qty, inventory_181_plus_cost,
+            total_inventory_qty, total_inventory_cost,
+            pulled_at, create_time, update_time
+        )
+        SELECT
+            grouped.pull_month,
+            CASE WHEN grouped.group_code = 'EU' THEN 'EU' ELSE 'US' END,
+            CASE WHEN grouped.group_code = 'EU' THEN '欧洲组' ELSE '美国组' END,
+            grouped.group_code,
+            grouped.group_code,
+            COUNT(DISTINCT CASE WHEN grouped.sid > 0 THEN grouped.sid END),
+            COUNT(*),
+            COALESCE(SUM(grouped.inv_age_0_to_90_days), 0),
+            COALESCE(SUM(
+                CASE
+                    WHEN REPLACE(TRIM(COALESCE(grouped.inv_age_0_to_90_price, '')), ',', '')
+                         REGEXP '^-?[0-9]+([.][0-9]+)?$'
+                    THEN CAST(REPLACE(TRIM(grouped.inv_age_0_to_90_price), ',', '')
+                              AS DECIMAL(24, 6))
+                    ELSE 0
+                END
+            ), 0),
+            COALESCE(SUM(grouped.inv_age_91_to_180_days), 0),
+            COALESCE(SUM(
+                CASE
+                    WHEN REPLACE(TRIM(COALESCE(grouped.inv_age_91_to_180_price, '')), ',', '')
+                         REGEXP '^-?[0-9]+([.][0-9]+)?$'
+                    THEN CAST(REPLACE(TRIM(grouped.inv_age_91_to_180_price), ',', '')
+                              AS DECIMAL(24, 6))
+                    ELSE 0
+                END
+            ), 0),
+            COALESCE(SUM(grouped.inv_age_181_to_270_days), 0)
+                + COALESCE(SUM(grouped.inv_age_271_to_365_days), 0)
+                + COALESCE(SUM(grouped.inv_age_365_plus_days), 0),
+            COALESCE(SUM(
+                CASE
+                    WHEN REPLACE(TRIM(COALESCE(grouped.inv_age_181_to_270_price, '')), ',', '')
+                         REGEXP '^-?[0-9]+([.][0-9]+)?$'
+                    THEN CAST(REPLACE(TRIM(grouped.inv_age_181_to_270_price), ',', '')
+                              AS DECIMAL(24, 6))
+                    ELSE 0
+                END
+            ), 0)
+                + COALESCE(SUM(
+                    CASE
+                        WHEN REPLACE(TRIM(COALESCE(grouped.inv_age_271_to_365_price, '')), ',', '')
+                             REGEXP '^-?[0-9]+([.][0-9]+)?$'
+                        THEN CAST(REPLACE(TRIM(grouped.inv_age_271_to_365_price), ',', '')
+                                  AS DECIMAL(24, 6))
+                        ELSE 0
+                    END
+                ), 0)
+                + COALESCE(SUM(
+                    CASE
+                        WHEN REPLACE(TRIM(COALESCE(grouped.inv_age_365_plus_price, '')), ',', '')
+                             REGEXP '^-?[0-9]+([.][0-9]+)?$'
+                        THEN CAST(REPLACE(TRIM(grouped.inv_age_365_plus_price), ',', '')
+                                  AS DECIMAL(24, 6))
+                        ELSE 0
+                    END
+                ), 0),
+            COALESCE(SUM(grouped.inv_age_0_to_90_days), 0)
+                + COALESCE(SUM(grouped.inv_age_91_to_180_days), 0)
+                + COALESCE(SUM(grouped.inv_age_181_to_270_days), 0)
+                + COALESCE(SUM(grouped.inv_age_271_to_365_days), 0)
+                + COALESCE(SUM(grouped.inv_age_365_plus_days), 0),
+            COALESCE(SUM(
+                CASE
+                    WHEN REPLACE(TRIM(COALESCE(grouped.inv_age_0_to_90_price, '')), ',', '')
+                         REGEXP '^-?[0-9]+([.][0-9]+)?$'
+                    THEN CAST(REPLACE(TRIM(grouped.inv_age_0_to_90_price), ',', '')
+                              AS DECIMAL(24, 6))
+                    ELSE 0
+                END
+            ), 0)
+                + COALESCE(SUM(
+                    CASE
+                        WHEN REPLACE(TRIM(COALESCE(grouped.inv_age_91_to_180_price, '')), ',', '')
+                             REGEXP '^-?[0-9]+([.][0-9]+)?$'
+                        THEN CAST(REPLACE(TRIM(grouped.inv_age_91_to_180_price), ',', '')
+                                  AS DECIMAL(24, 6))
+                        ELSE 0
+                    END
+                ), 0)
+                + COALESCE(SUM(
+                    CASE
+                        WHEN REPLACE(TRIM(COALESCE(grouped.inv_age_181_to_270_price, '')), ',', '')
+                             REGEXP '^-?[0-9]+([.][0-9]+)?$'
+                        THEN CAST(REPLACE(TRIM(grouped.inv_age_181_to_270_price), ',', '')
+                                  AS DECIMAL(24, 6))
+                        ELSE 0
+                    END
+                ), 0)
+                + COALESCE(SUM(
+                    CASE
+                        WHEN REPLACE(TRIM(COALESCE(grouped.inv_age_271_to_365_price, '')), ',', '')
+                             REGEXP '^-?[0-9]+([.][0-9]+)?$'
+                        THEN CAST(REPLACE(TRIM(grouped.inv_age_271_to_365_price), ',', '')
+                                  AS DECIMAL(24, 6))
+                        ELSE 0
+                    END
+                ), 0)
+                + COALESCE(SUM(
+                    CASE
+                        WHEN REPLACE(TRIM(COALESCE(grouped.inv_age_365_plus_price, '')), ',', '')
+                             REGEXP '^-?[0-9]+([.][0-9]+)?$'
+                        THEN CAST(REPLACE(TRIM(grouped.inv_age_365_plus_price), ',', '')
+                                  AS DECIMAL(24, 6))
+                        ELSE 0
+                    END
+                ), 0),
+            MAX(grouped.pulled_at),
+            NOW(),
+            NOW()
+        FROM (
+            SELECT
+                snapshot.*,
+                CASE
+                    WHEN shop.store_name LIKE 'EU-%'
+                         OR (
+                             snapshot.sid = 0
+                             AND (
+                                 snapshot.seller_group_name LIKE 'EU-%'
+                                 OR snapshot.name LIKE 'AMZ-EU-%'
+                             )
+                         )
+                        THEN 'EU'
+                    WHEN shop.store_name LIKE 'US1-%' THEN 'US1'
+                    WHEN shop.store_name LIKE 'US2-%' THEN 'US2'
+                    WHEN shop.store_name LIKE 'US3-%' THEN 'US3'
+                    ELSE NULL
+                END AS group_code
+            FROM amz_fba_inventory_monthly_snapshot snapshot
+            LEFT JOIN (
+                SELECT sid, MAX(store_name) AS store_name
+                FROM shop_list
+                WHERE platform_code = '10001'
+                  AND sid IS NOT NULL
+                GROUP BY sid
+            ) shop
+              ON CAST(snapshot.sid AS CHAR CHARACTER SET utf8mb4)
+                    COLLATE utf8mb4_unicode_ci
+               = shop.sid COLLATE utf8mb4_unicode_ci
+            WHERE snapshot.pull_month = #{pullMonth}
+        ) grouped
+        WHERE grouped.group_code IN ('EU', 'US1', 'US2', 'US3')
+        GROUP BY grouped.pull_month, grouped.group_code
+    </insert>
+
+    <select id="selectLatestPullMonth" resultType="String">
+        SELECT MAX(pull_month)
+        FROM amz_fba_inventory_age_group_summary
+    </select>
+
+    <select id="selectList" resultType="java.util.LinkedHashMap">
+        SELECT
+            id, pull_month, region_code, region_name, group_code, group_name,
+            shop_count, source_row_count,
+            inventory_0_90_qty, inventory_0_90_cost,
+            inventory_91_180_qty, inventory_91_180_cost,
+            inventory_181_plus_qty, inventory_181_plus_cost,
+            total_inventory_qty, total_inventory_cost, pulled_at
+        FROM amz_fba_inventory_age_group_summary
+        WHERE pull_month =
+        <choose>
+            <when test="pullMonth != null and pullMonth != ''">
+                #{pullMonth}
+            </when>
+            <otherwise>
+                (SELECT MAX(x.pull_month)
+                 FROM amz_fba_inventory_age_group_summary x)
+            </otherwise>
+        </choose>
+        ORDER BY FIELD(group_code, 'EU', 'US1', 'US2', 'US3')
+    </select>
+
+    <select id="selectSummary" resultType="java.util.LinkedHashMap">
+        SELECT
+            pull_month,
+            COUNT(*) AS group_count,
+            COALESCE(SUM(inventory_0_90_qty), 0) AS inventory_0_90_qty,
+            COALESCE(SUM(inventory_0_90_cost), 0) AS inventory_0_90_cost,
+            COALESCE(SUM(inventory_91_180_qty), 0) AS inventory_91_180_qty,
+            COALESCE(SUM(inventory_91_180_cost), 0) AS inventory_91_180_cost,
+            COALESCE(SUM(inventory_181_plus_qty), 0) AS inventory_181_plus_qty,
+            COALESCE(SUM(inventory_181_plus_cost), 0) AS inventory_181_plus_cost,
+            COALESCE(SUM(total_inventory_qty), 0) AS total_inventory_qty,
+            COALESCE(SUM(total_inventory_cost), 0) AS total_inventory_cost,
+            MAX(pulled_at) AS pulled_at
+        FROM amz_fba_inventory_age_group_summary
+        WHERE pull_month =
+        <choose>
+            <when test="pullMonth != null and pullMonth != ''">
+                #{pullMonth}
+            </when>
+            <otherwise>
+                (SELECT MAX(x.pull_month)
+                 FROM amz_fba_inventory_age_group_summary x)
+            </otherwise>
+        </choose>
+        GROUP BY pull_month
+    </select>
+</mapper>

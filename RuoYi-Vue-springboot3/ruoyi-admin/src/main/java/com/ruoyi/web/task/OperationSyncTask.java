@@ -21,6 +21,7 @@ import com.ruoyi.system.service.operation.external.lingxing.LingxingPurchasePlan
 import com.ruoyi.system.service.operation.external.lingxing.LingxingShopSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingStatementSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.AmzFbaShipmentSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.AmzFbaInventorySnapshotSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingWarehouseSyncService;
 import com.ruoyi.system.service.operation.sync.OperationSyncContext;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
@@ -102,6 +103,8 @@ public class OperationSyncTask
             () -> SpringUtils.getBean(AmzProductPerformanceInventorySyncService.class).syncAll()); }
     public void syncAmzWarehouseInventory() { exec("amz_warehouse_inventory", "领星-Amazon库存明细", "erp/sc/routing/data/local_inventory/inventoryDetails", LOCK_LINGXING_AMZ,
             () -> SpringUtils.getBean(AmzWarehouseInventorySyncService.class).syncAll()); }
+    public void syncAmzFbaInventorySnapshot() { exec("amz_fba_inventory_snapshot", "领星-Amazon FBA库存月度快照", "basicOpen/openapi/storage/fbaWarehouseDetail", LOCK_LINGXING_AMZ,
+            () -> SpringUtils.getBean(AmzFbaInventorySnapshotSyncService.class).syncCurrentMonth()); }
     public void refreshAmzReplenishmentSnapshot() { exec("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment", LOCK_LINGXING_AMZ,
             () -> { int rows = SpringUtils.getBean(com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService.class).refreshSnapshot();
                     return OperationSyncResult.success("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment", rows, rows, 0); }); }
