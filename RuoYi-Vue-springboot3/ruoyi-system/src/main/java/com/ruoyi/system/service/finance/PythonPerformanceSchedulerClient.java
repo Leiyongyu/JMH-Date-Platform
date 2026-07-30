@@ -16,9 +16,12 @@ import org.springframework.util.StringUtils;
 @Service
 public class PythonPerformanceSchedulerClient
 {
-    private static final String TASK_PATH =
-            "/api/v1/internal/scheduler/tasks/"
-            + "amz_monthly_order_profit_sync/run";
+    private static final String TASK_PREFIX =
+            "/api/v1/internal/scheduler/tasks/";
+    private static final String PERFORMANCE_TASK =
+            "amz_monthly_order_profit_sync";
+    private static final String CLEARANCE_TASK =
+            "amz_fba_inventory_snapshot_sync";
     private static final TypeReference<Map<String, Object>> MAP_TYPE =
             new TypeReference<>() {};
 
@@ -39,18 +42,34 @@ public class PythonPerformanceSchedulerClient
 
     public Map<String, Object> runPreviousMonth(String requestId)
     {
-        return run(null, requestId);
+        return run(PERFORMANCE_TASK, null, requestId);
     }
 
     public Map<String, Object> run(String statMonth, String requestId)
     {
+        return run(PERFORMANCE_TASK, statMonth, requestId);
+    }
+
+    public Map<String, Object> runClearance(
+            String pullMonth, String requestId)
+    {
+        return run(CLEARANCE_TASK, pullMonth, requestId);
+    }
+
+    private Map<String, Object> run(
+            String taskCode, String statMonth, String requestId)
+    {
         try
         {
             Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("stat_month", statMonth);
+            if (CLEARANCE_TASK.equals(taskCode))
+                payload.put("pull_month", statMonth);
+            else
+                payload.put("stat_month", statMonth);
             String body = objectMapper.writeValueAsString(payload);
             HttpRequest.Builder builder = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl() + TASK_PATH))
+                    .uri(URI.create(baseUrl() + TASK_PREFIX
+                            + taskCode + "/run"))
                     .timeout(properties.getReadTimeout())
                     .header("Accept", "application/json")
                     .header("Content-Type", "application/json;charset=utf-8")
@@ -67,7 +86,7 @@ public class PythonPerformanceSchedulerClient
                     HttpResponse.BodyHandlers.ofString(
                             StandardCharsets.UTF_8));
             Map<String, Object> json = parse(response.body());
-            validate(response.statusCode(), json);
+            validate(response.statusCode(), json, taskCode);
             return json;
         }
         catch (InterruptedException e)
@@ -85,7 +104,8 @@ public class PythonPerformanceSchedulerClient
     }
 
     @SuppressWarnings("unchecked")
-    private void validate(int status, Map<String, Object> json)
+    private void validate(
+            int status, Map<String, Object> json, String taskCode)
     {
         if (status != 201)
             throw new IllegalStateException(errorMessage(status, json));
@@ -100,13 +120,16 @@ public class PythonPerformanceSchedulerClient
         Object resultValue = data.get("result");
         Map<String, Object> result = resultValue instanceof Map<?, ?>
                 ? (Map<String, Object>) resultValue : Map.of();
-        Object refreshValue = result.get("refresh");
-        Map<String, Object> refresh = refreshValue instanceof Map<?, ?>
-                ? (Map<String, Object>) refreshValue : Map.of();
-        if (!"completed".equals(String.valueOf(refresh.get("status"))))
-            throw new IllegalStateException(
-                    "Python ETL成功但排名刷新未完成: status="
-                    + refresh.get("status"));
+        if (PERFORMANCE_TASK.equals(taskCode))
+        {
+            Object refreshValue = result.get("refresh");
+            Map<String, Object> refresh = refreshValue instanceof Map<?, ?>
+                    ? (Map<String, Object>) refreshValue : Map.of();
+            if (!"completed".equals(String.valueOf(refresh.get("status"))))
+                throw new IllegalStateException(
+                        "Python ETL成功但排名刷新未完成: status="
+                        + refresh.get("status"));
+        }
     }
 
     private Map<String, Object> parse(String body) throws Exception

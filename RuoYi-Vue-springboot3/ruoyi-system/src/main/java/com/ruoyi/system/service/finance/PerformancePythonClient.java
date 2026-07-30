@@ -62,6 +62,28 @@ public class PerformancePythonClient
                 "stat_month", statMonth), requestId);
     }
 
+    public Map<String, Object> clearanceGroups(
+            String pullMonth, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pull_month", pullMonth);
+        return get("/slow-moving-clearance/groups", params, requestId);
+    }
+
+    public Map<String, Object> clearanceSummary(
+            String pullMonth, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pull_month", pullMonth);
+        return get("/slow-moving-clearance/summary", params, requestId);
+    }
+
+    public Map<String, Object> clearanceMonths(int limit, String requestId)
+    {
+        return get("/slow-moving-clearance/months",
+                Map.of("limit", limit), requestId);
+    }
+
     public Map<String, Object> refresh(
             String statMonth,
             String platform,

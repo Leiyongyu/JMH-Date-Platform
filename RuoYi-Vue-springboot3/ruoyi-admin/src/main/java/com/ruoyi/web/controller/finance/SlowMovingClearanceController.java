@@ -2,43 +2,102 @@ package com.ruoyi.web.controller.finance;
 
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
-import com.ruoyi.common.core.page.TableDataInfo;
-import com.ruoyi.system.service.finance.SlowMovingClearanceService;
+import com.ruoyi.system.service.finance.PerformancePythonClient;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
+import java.util.Map;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 财务中心滞销清货。 */
+/** 财务中心滞销清货，统一代理 Python 数据服务。 */
 @Tag(name = "财务-滞销清货")
 @RestController
 @RequestMapping("/finance/slow-moving-clearance")
 public class SlowMovingClearanceController extends BaseController
 {
-    private final SlowMovingClearanceService service;
+    private final PerformancePythonClient pythonClient;
 
-    public SlowMovingClearanceController(SlowMovingClearanceService service)
+    public SlowMovingClearanceController(
+            PerformancePythonClient pythonClient)
     {
-        this.service = service;
+        this.pythonClient = pythonClient;
     }
 
     @PreAuthorize("@ss.hasPermi('finance:slowMovingClearance:list')")
     @GetMapping("/list")
-    public TableDataInfo list(
-            @RequestParam(required = false) String pullMonth)
+    public AjaxResult list(
+            @RequestParam(required = false) String pullMonth,
+            @RequestHeader(value = "X-Request-ID", required = false)
+            String requestId)
     {
-        startPage();
-        return getDataTable(service.list(pullMonth));
+        try
+        {
+            return clearanceTable(
+                    pythonClient.clearanceGroups(pullMonth, requestId));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
     }
 
     @PreAuthorize("@ss.hasPermi('finance:slowMovingClearance:list')")
     @GetMapping("/summary")
     public AjaxResult summary(
-            @RequestParam(required = false) String pullMonth)
+            @RequestParam(required = false) String pullMonth,
+            @RequestHeader(value = "X-Request-ID", required = false)
+            String requestId)
     {
-        return success(service.summary(pullMonth));
+        try
+        {
+            return success(data(
+                    pythonClient.clearanceSummary(pullMonth, requestId)));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
     }
 
+    @PreAuthorize("@ss.hasPermi('finance:slowMovingClearance:list')")
+    @GetMapping("/months")
+    public AjaxResult months(
+            @RequestParam(defaultValue = "24") int limit,
+            @RequestHeader(value = "X-Request-ID", required = false)
+            String requestId)
+    {
+        try
+        {
+            return success(data(
+                    pythonClient.clearanceMonths(limit, requestId)));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
+    private Object data(Map<String, Object> response)
+    {
+        return response.get("data");
+    }
+
+    @SuppressWarnings("unchecked")
+    private AjaxResult clearanceTable(Map<String, Object> response)
+    {
+        Object value = response.get("data");
+        Map<String, Object> data = value instanceof Map<?, ?>
+                ? (Map<String, Object>) value
+                : Map.of();
+        Object items = data.get("items");
+        return AjaxResult.success()
+                .put("rows", items instanceof List<?> ? items : List.of())
+                .put("total", data.getOrDefault("total", 0))
+                .put("pullMonth", data.get("pull_month"))
+                .put("requestId", response.get("request_id"));
+    }
 }
