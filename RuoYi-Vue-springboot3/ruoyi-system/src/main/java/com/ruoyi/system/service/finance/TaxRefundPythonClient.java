@@ -37,95 +37,12 @@ public class TaxRefundPythonClient
                 .build();
     }
 
-    public Map<String, Object> createJsonTask(Map<String, Object> payload, String erpUser)
-    {
-        try
-        {
-            String json = objectMapper.writeValueAsString(payload);
-            HttpRequest request = baseRequest("/tasks", erpUser)
-                    .header("Content-Type", "application/json;charset=utf-8")
-                    .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
-                    .build();
-            return send(request);
-        }
-        catch (Exception e)
-        {
-            throw asRuntime(e);
-        }
-    }
-
-    public Map<String, Object> createFileTask(String taskType, MultipartFile file, Map<String, String> fields, String erpUser)
-    {
-        try
-        {
-            String boundary = "----JmhTaxRefund" + UUID.randomUUID().toString().replace("-", "");
-            byte[] body = multipartBody(boundary, taskType, file, fields);
-            HttpRequest request = baseRequest("/tasks", erpUser)
-                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                    .build();
-            return send(request);
-        }
-        catch (Exception e)
-        {
-            throw asRuntime(e);
-        }
-    }
-
-    public Map<String, Object> createFileTasks(String taskType, MultipartFile[] files, Map<String, String> fields, String erpUser)
-    {
-        try
-        {
-            String boundary = "----JmhTaxRefund" + UUID.randomUUID().toString().replace("-", "");
-            byte[] body = multipartBody(boundary, taskType, files, fields);
-            HttpRequest request = baseRequest("/tasks", erpUser)
-                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                    .build();
-            return send(request);
-        }
-        catch (Exception e)
-        {
-            throw asRuntime(e);
-        }
-    }
-
-    public Map<String, Object> getTask(Long taskId)
-    {
-        return get("/tasks/" + taskId, Map.of());
-    }
-
-    public Map<String, Object> listTasks(Map<String, ?> params)
-    {
-        return get("/tasks", params);
-    }
-
-    public Map<String, Object> listCustomsMaterialItems(Map<String, ?> params)
-    {
-        return get("/customs-material-items", params);
-    }
-
-    public Map<String, Object> listExportDetails(Map<String, ?> params)
-    {
-        return get("/export-details", params);
-    }
-
-    public Map<String, Object> listPurchaseInventory(Map<String, ?> params)
-    {
-        return get("/purchase-inventory", params);
-    }
-
-    public Map<String, Object> listForexReceivables(Map<String, ?> params)
-    {
-        return get("/forex-receivables", params);
-    }
-
     public Map<String, Object> importEbayFinance(MultipartFile file, String erpUser)
     {
         try
         {
             String boundary = "----JmhEbayFinance" + UUID.randomUUID().toString().replace("-", "");
-            byte[] body = multipartBody(boundary, null, file, Map.of());
+            byte[] body = multipartBody(boundary, file);
             HttpRequest request = baseRequest("/ebay-finance/import", erpUser)
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                     .POST(HttpRequest.BodyPublishers.ofByteArray(body)).build();
@@ -223,54 +140,16 @@ public class TaxRefundPythonClient
         return "Python退税服务请求失败，HTTP " + status;
     }
 
-    private byte[] multipartBody(String boundary, String taskType, MultipartFile file, Map<String, String> fields) throws IOException
-    {
-        return multipartBody(boundary, taskType, new MultipartFile[] { file }, fields);
-    }
-
-    private byte[] multipartBody(String boundary, String taskType, MultipartFile[] files, Map<String, String> fields) throws IOException
+    private byte[] multipartBody(String boundary, MultipartFile file) throws IOException
     {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        if (StringUtils.hasText(taskType))
-        {
-            writeField(out, boundary, "task_type", taskType);
-        }
-        if (fields != null)
-        {
-            for (Map.Entry<String, String> entry : fields.entrySet())
-            {
-                if (StringUtils.hasText(entry.getValue()))
-                {
-                    writeField(out, boundary, entry.getKey(), entry.getValue());
-                }
-            }
-        }
-        int count = 0;
-        if (files != null)
-        {
-            for (MultipartFile file : files)
-            {
-                if (file != null && !file.isEmpty())
-                {
-                    writeFile(out, boundary, file);
-                    count++;
-                }
-            }
-        }
-        if (count == 0)
+        if (file == null || file.isEmpty())
         {
             throw new IllegalArgumentException("请选择有效文件");
         }
+        writeFile(out, boundary, file);
         out.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
         return out.toByteArray();
-    }
-
-    private void writeField(ByteArrayOutputStream out, String boundary, String name, String value) throws IOException
-    {
-        out.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-        out.write(("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n").getBytes(StandardCharsets.UTF_8));
-        out.write((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
-        out.write("\r\n".getBytes(StandardCharsets.UTF_8));
     }
 
     private void writeFile(ByteArrayOutputStream out, String boundary, MultipartFile file) throws IOException

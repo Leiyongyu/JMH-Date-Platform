@@ -2,115 +2,75 @@ import request from '@/utils/request'
 
 const base = '/finance/export-tax-refund'
 
-function appendFiles(data, files) {
+function upload(url, files, multiple = false) {
+  const data = new FormData()
   const list = Array.isArray(files) ? files : [files]
-  list.filter(Boolean).forEach(file => data.append('file', file))
-}
-
-export function importCustomsMaterial(files) {
-  const data = new FormData()
-  appendFiles(data, files)
+  list.filter(Boolean).forEach(file => data.append(multiple ? 'files' : 'file', file))
   return request({
-    url: `${base}/tasks/customs-material`,
+    url: `${base}${url}`,
     method: 'post',
     data,
-    timeout: 60000,
+    timeout: 600000,
     headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }
   })
 }
 
-export function importCustomsDeclaration(files, params = {}) {
-  const data = new FormData()
-  appendFiles(data, files)
-  Object.keys(params).forEach(key => {
-    if (params[key] !== undefined && params[key] !== null && params[key] !== '') {
-      data.append(key, params[key])
-    }
-  })
-  return request({
-    url: `${base}/tasks/customs-declaration`,
-    method: 'post',
-    data,
-    timeout: 60000,
-    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }
-  })
+export function importCustomsFolder(files) {
+  return upload('/imports/customs-folder', files, true)
 }
 
-export function importPurchaseInvoice(files) {
-  const data = new FormData()
-  appendFiles(data, files)
-  return request({
-    url: `${base}/tasks/purchase-invoice`,
-    method: 'post',
-    data,
-    timeout: 60000,
-    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }
-  })
+export function importPurchaseInvoiceSummary(file) {
+  return upload('/imports/purchase-invoice-summary', file)
 }
 
-export function importForex(files) {
-  const data = new FormData()
-  appendFiles(data, files)
-  return request({
-    url: `${base}/tasks/forex`,
-    method: 'post',
-    data,
-    timeout: 60000,
-    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }
-  })
+export function importForeignExchangeReceipts(file) {
+  return upload('/imports/foreign-exchange-receipts', file)
 }
 
-export function generateRefundPackage(data) {
+export function getImportJob(jobId) {
   return request({
-    url: `${base}/tasks/refund-package`,
-    method: 'post',
-    data,
-    timeout: 60000
-  })
-}
-
-export function getTask(taskId) {
-  return request({
-    url: `${base}/tasks/${taskId}`,
+    url: `${base}/import-jobs/${jobId}`,
     method: 'get'
   })
 }
 
-export function listTasks(params) {
+export function listCustomsDeclarations() {
   return request({
-    url: `${base}/tasks`,
-    method: 'get',
-    params
+    url: `${base}/customs-declarations`,
+    method: 'get'
   })
 }
 
-export function listCustomsMaterialItems(params) {
+export function createDeclarationBatch(data) {
   return request({
-    url: `${base}/customs-material-items`,
-    method: 'get',
-    params
+    url: `${base}/declaration-batches`,
+    method: 'post',
+    data,
+    timeout: 600000
   })
 }
 
-export function listExportDetails(params) {
+export function generateFinalPackage(data) {
   return request({
-    url: `${base}/export-details`,
+    url: `${base}/packages`,
+    method: 'post',
+    data,
+    timeout: 600000
+  })
+}
+
+export function downloadLatestPackage() {
+  return request({
+    url: `${base}/packages/latest/file`,
     method: 'get',
-    params
+    responseType: 'blob',
+    timeout: 600000
   })
 }
 
 export function listPurchaseInventory(params) {
   return request({
-    url: `${base}/purchase-inventory`,
-    method: 'get',
-    params
-  })
-}
-
-export function listForexReceivables(params) {
-  return request({
-    url: `${base}/forex-receivables`,
+    url: `${base}/inventory`,
     method: 'get',
     params
   })

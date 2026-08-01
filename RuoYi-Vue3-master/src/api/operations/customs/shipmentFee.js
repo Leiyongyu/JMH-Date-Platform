@@ -41,3 +41,28 @@ export function listShipmentFeeLogs(query) {
     params: query
   })
 }
+
+export function listPackingSubmissions(query) {
+  return request({
+    url: '/operations/customs/shipment-fee/packing/submissions',
+    method: 'get',
+    params: query
+  })
+}
+
+export function submitPackingInfo(inboundPlanId) {
+  return request({
+    url: '/operations/customs/shipment-fee/packing/submissions/submit',
+    method: 'post',
+    data: { inboundPlanId },
+    timeout: 60 * 1000
+  })
+}
+
+export function refreshPackingSubmission(id) {
+  return request({
+    url: `/operations/customs/shipment-fee/packing/submissions/${id}/refresh`,
+    method: 'post',
+    timeout: 60 * 1000
+  })
+}

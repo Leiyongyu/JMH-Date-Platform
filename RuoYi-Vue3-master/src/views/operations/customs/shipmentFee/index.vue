@@ -268,6 +268,135 @@
           @pagination="loadLogs"
         />
       </el-tab-pane>
+
+      <el-tab-pane label="装箱提交" name="submission">
+        <el-alert
+          type="warning"
+          :closable="false"
+          show-icon
+          class="submission-alert"
+          title="提交成功后不能再次提交"
+        >
+          <template #default>
+            系统会自动聚合历史保存成功的装箱记录，按STA任务一次性提交全部货件。
+            领星受理后将持续查询异步任务状态，只有返回success才标记为提交成功。
+          </template>
+        </el-alert>
+
+        <el-form :model="submissionQuery" :inline="true" class="query-form">
+          <el-form-item label="STA编号">
+            <el-input
+              v-model="submissionQuery.inboundPlanId"
+              clearable
+              placeholder="输入STA任务编号"
+              @keyup.enter="querySubmissions"
+            />
+          </el-form-item>
+          <el-form-item label="提交状态">
+            <el-select v-model="submissionQuery.status" clearable placeholder="全部" style="width: 160px">
+              <el-option label="待提交" value="READY" />
+              <el-option label="正在提交" value="SUBMITTING" />
+              <el-option label="领星处理中" value="PROCESSING" />
+              <el-option label="提交成功" value="SUCCESS" />
+              <el-option label="提交失败" value="FAILED" />
+              <el-option label="结果待确认" value="UNKNOWN" />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" icon="Search" @click="querySubmissions">查询</el-button>
+            <el-button icon="Refresh" @click="resetSubmissionQuery">重置</el-button>
+          </el-form-item>
+        </el-form>
+
+        <el-table v-loading="submissionLoading" :data="submissionList" border stripe>
+          <el-table-column type="expand" width="48">
+            <template #default="{ row }">
+              <div class="log-detail">
+                <el-descriptions :column="3" border size="small">
+                  <el-descriptions-item label="领星任务ID">{{ row.taskId || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="领星Request ID">{{ row.requestId || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="提交尝试次数">{{ row.attemptCount || 0 }}</el-descriptions-item>
+                  <el-descriptions-item label="最近错误" :span="3">{{ row.errorMessage || '-' }}</el-descriptions-item>
+                </el-descriptions>
+                <div class="json-grid">
+                  <section>
+                    <h4>提交装箱请求</h4>
+                    <pre>{{ prettyJson(row.requestBody) }}</pre>
+                  </section>
+                  <section>
+                    <h4>提交接口响应</h4>
+                    <pre>{{ prettyJson(row.initialResponseBody) }}</pre>
+                  </section>
+                  <section>
+                    <h4>异步状态响应</h4>
+                    <pre>{{ prettyJson(row.finalResponseBody) }}</pre>
+                  </section>
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="inboundPlanId" label="STA任务编号" min-width="230" show-overflow-tooltip />
+          <el-table-column prop="sid" label="SID" width="95" align="center" />
+          <el-table-column label="分仓方式" width="135" align="center">
+            <template #default="{ row }">
+              {{ row.positionType === 2 ? '先分仓后装箱' : row.positionType === 1 ? '先装箱后分仓' : '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="保存进度" width="105" align="center">
+            <template #default="{ row }">
+              <span :class="{ 'failed-text': !packingComplete(row), 'success-text': packingComplete(row) }">
+                {{ row.savedShipmentCount || 0 }}/{{ row.expectedShipmentCount || 0 }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="boxCount" label="箱数" width="75" align="center" />
+          <el-table-column label="提交状态" width="120" align="center">
+            <template #default="{ row }">
+              <el-tag :type="submissionStatusType(row.status)">
+                {{ submissionStatusLabel(row.status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="taskId" label="领星Task ID" min-width="210" show-overflow-tooltip />
+          <el-table-column prop="operator" label="提交人" width="100" />
+          <el-table-column prop="lastSavedTime" label="最近保存时间" width="175" />
+          <el-table-column prop="submitTime" label="提交时间" width="175" />
+          <el-table-column prop="successTime" label="成功时间" width="175" />
+          <el-table-column prop="errorMessage" label="错误信息" min-width="240" show-overflow-tooltip />
+          <el-table-column label="操作" width="175" fixed="right" align="center">
+            <template #default="{ row }">
+              <el-button
+                v-if="['READY', 'FAILED'].includes(row.status)"
+                link
+                type="primary"
+                :disabled="!canSubmitPacking(row)"
+                v-hasPermi="['customs:packingSubmission:submit']"
+                @click="handleSubmitPacking(row)"
+              >
+                {{ row.status === 'FAILED' ? '失败重试' : '提交装箱' }}
+              </el-button>
+              <el-button
+                v-if="['PROCESSING', 'UNKNOWN'].includes(row.status) && row.id && row.taskId"
+                link
+                type="warning"
+                v-hasPermi="['customs:packingSubmission:submit']"
+                @click="handleRefreshSubmission(row)"
+              >
+                查询状态
+              </el-button>
+              <span v-if="row.status === 'SUCCESS'" class="success-text">已完成</span>
+              <span v-if="row.status === 'SUBMITTING'" class="muted-text">提交中</span>
+            </template>
+          </el-table-column>
+        </el-table>
+        <pagination
+          v-show="submissionTotal > 0"
+          :total="submissionTotal"
+          v-model:page="submissionQuery.pageNum"
+          v-model:limit="submissionQuery.pageSize"
+          @pagination="loadSubmissions"
+        />
+      </el-tab-pane>
     </el-tabs>
 
     <el-dialog v-model="resultDialogVisible" title="提交结果" width="760px">
@@ -303,8 +432,11 @@ import { computed, getCurrentInstance, onBeforeUnmount, onMounted, reactive, ref
 import {
   importPackingInfo,
   importShipmentFee,
+  listPackingSubmissions,
   listShipmentFeeBatches,
-  listShipmentFeeLogs
+  listShipmentFeeLogs,
+  refreshPackingSubmission,
+  submitPackingInfo
 } from '@/api/operations/customs/shipmentFee'
 
 const { proxy } = getCurrentInstance()
@@ -341,6 +473,16 @@ const logQuery = reactive({
   orderSn: '',
   status: '',
   operator: ''
+})
+
+const submissionLoading = ref(false)
+const submissionList = ref([])
+const submissionTotal = ref(0)
+const submissionQuery = reactive({
+  pageNum: 1,
+  pageSize: 10,
+  inboundPlanId: '',
+  status: ''
 })
 
 const resultTitle = computed(() => {
@@ -462,6 +604,18 @@ function loadLogs() {
     })
 }
 
+function loadSubmissions() {
+  submissionLoading.value = true
+  return listPackingSubmissions(submissionQuery)
+    .then(response => {
+      submissionList.value = response.rows || []
+      submissionTotal.value = response.total || 0
+    })
+    .finally(() => {
+      submissionLoading.value = false
+    })
+}
+
 function queryBatches() {
   batchQuery.pageNum = 1
   loadBatches()
@@ -470,6 +624,11 @@ function queryBatches() {
 function queryLogs() {
   logQuery.pageNum = 1
   loadLogs()
+}
+
+function querySubmissions() {
+  submissionQuery.pageNum = 1
+  loadSubmissions()
 }
 
 function resetBatchQuery() {
@@ -498,9 +657,68 @@ function resetLogQuery() {
   loadLogs()
 }
 
+function resetSubmissionQuery() {
+  Object.assign(submissionQuery, {
+    pageNum: 1,
+    pageSize: submissionQuery.pageSize,
+    inboundPlanId: '',
+    status: ''
+  })
+  loadSubmissions()
+}
+
 function handleTabChange(name) {
   if (name === 'batch') loadBatches()
-  else loadLogs()
+  else if (name === 'log') loadLogs()
+  else loadSubmissions()
+}
+
+function packingComplete(row) {
+  return Number(row.expectedShipmentCount) > 0
+    && Number(row.savedShipmentCount) === Number(row.expectedShipmentCount)
+}
+
+function canSubmitPacking(row) {
+  return ['READY', 'FAILED'].includes(row.status)
+    && row.positionType === 2
+    && packingComplete(row)
+}
+
+async function handleSubmitPacking(row) {
+  if (!canSubmitPacking(row)) {
+    proxy.$modal.msgError('装箱保存不完整或分仓方式暂不支持提交')
+    return
+  }
+  try {
+    await proxy.$modal.confirm(
+      `确认提交STA“${row.inboundPlanId}”的装箱信息吗？`
+      + `共${row.savedShipmentCount || 0}个货件、${row.boxCount || 0}个箱子；提交成功后不能再次提交。`
+    )
+  } catch {
+    return
+  }
+  submissionLoading.value = true
+  try {
+    await submitPackingInfo(row.inboundPlanId)
+    proxy.$modal.msgSuccess('已发起提交，系统正在等待领星异步处理结果')
+    await loadSubmissions()
+  } finally {
+    submissionLoading.value = false
+  }
+}
+
+async function handleRefreshSubmission(row) {
+  submissionLoading.value = true
+  try {
+    const response = await refreshPackingSubmission(row.id)
+    const status = response.data?.status
+    if (status === 'SUCCESS') proxy.$modal.msgSuccess('装箱提交已成功')
+    else if (status === 'FAILED') proxy.$modal.msgError(response.data?.errorMessage || '装箱提交失败')
+    else proxy.$modal.msgInfo('领星任务仍在处理中')
+    await loadSubmissions()
+  } finally {
+    submissionLoading.value = false
+  }
 }
 
 function openFailedLogs() {
@@ -564,14 +782,41 @@ function logStatusType(status) {
   }[status] || 'info'
 }
 
+function submissionStatusLabel(status) {
+  return {
+    READY: '待提交',
+    SUBMITTING: '正在提交',
+    PROCESSING: '领星处理中',
+    SUCCESS: '提交成功',
+    FAILED: '提交失败',
+    UNKNOWN: '结果待确认'
+  }[status] || status || '-'
+}
+
+function submissionStatusType(status) {
+  return {
+    READY: 'info',
+    SUBMITTING: 'warning',
+    PROCESSING: 'warning',
+    SUCCESS: 'success',
+    FAILED: 'danger',
+    UNKNOWN: 'danger'
+  }[status] || 'info'
+}
+
 onMounted(() => {
   loadBatches()
   loadLogs()
+  loadSubmissions()
   progressTimer = window.setInterval(() => {
     const hasRunningBatch = batchList.value.some(
       row => row.businessType === 'PACKING_INFO' && ['QUEUED', 'RUNNING'].includes(row.status)
     )
     if (hasRunningBatch) Promise.all([loadBatches(), loadLogs()])
+    const hasPendingSubmission = submissionList.value.some(
+      row => ['SUBMITTING', 'PROCESSING', 'UNKNOWN'].includes(row.status)
+    )
+    if (hasPendingSubmission) loadSubmissions()
   }, 2500)
 })
 
@@ -614,6 +859,22 @@ onBeforeUnmount(() => {
   .result-card,
   .log-tabs {
     margin-bottom: 16px;
+  }
+
+  .submission-alert {
+    margin-bottom: 14px;
+  }
+
+  .success-text {
+    color: var(--el-color-success);
+  }
+
+  .failed-text {
+    color: var(--el-color-danger);
+  }
+
+  .muted-text {
+    color: var(--el-text-color-secondary);
   }
 
   .result-title {

@@ -1,1052 +1,622 @@
 <template>
-  <div class="app-container tax-refund-page">
-    <section class="tax-header">
+  <div class="app-container refund-page">
+    <div class="page-head">
       <div>
-        <div class="tax-title">外汇退税工作台</div>
-        <div class="tax-subtitle">数据导入、任务跟踪、三表查询和退税资料生成</div>
+        <div class="page-title">外汇退税工作台</div>
+        <div class="page-subtitle">数据由 Date-Project 统一处理，ERP 负责导入、选择、生成和下载</div>
       </div>
-      <div class="header-actions">
-        <el-button type="primary" icon="Upload" @click="importDialog.open = true">
-          数据导入
-        </el-button>
-        <el-button icon="Clock" @click="taskStatusDialog.open = true">
-          当前任务
-        </el-button>
-        <el-button icon="Tickets" @click="openRecentTasks">
-          最近任务
+      <div class="head-actions">
+        <el-button v-hasPermi="['finance:exportTaxRefund:import']" type="primary" @click="openImport">
+          <el-icon><Upload /></el-icon>导入数据
         </el-button>
         <el-button
+          v-hasPermi="['finance:exportTaxRefund:generate']"
           type="success"
-          icon="Finished"
-          class="export-refund-btn"
-          :loading="uploading.REFUND_PACKAGE_GENERATE"
-          @click="openGenerateDialog(false)"
+          :disabled="!selectedDeclarations.length"
+          @click="openGenerate"
         >
-          导出外汇退税资料
+          <el-icon><DocumentChecked /></el-icon>生成所选批次
         </el-button>
-        <el-button icon="Refresh" @click="loadAll" :loading="loading.tasks">刷新数据</el-button>
+        <el-button
+          v-hasPermi="['finance:exportTaxRefund:export']"
+          :loading="downloadLoading"
+          @click="handleDownload"
+        >
+          <el-icon><Download /></el-icon>下载最新资料包
+        </el-button>
       </div>
-    </section>
-
-    <div class="workspace">
-      <main class="main-panel">
-        <el-tabs v-model="activeTab" class="data-tabs" @tab-change="handleTabChange">
-          <el-tab-pane label="出口明细" name="exports">
-            <el-card shadow="never" class="data-card">
-              <el-form :model="exportQuery" inline class="query-form">
-                <el-form-item label="报关单号">
-                  <el-input v-model="exportQuery.customs_declaration_no" clearable placeholder="18位前缀匹配" />
-                </el-form-item>
-                <el-form-item label="合同协议号">
-                  <el-input v-model="exportQuery.contract_no" clearable placeholder="FBA15L7CCK57" />
-                </el-form-item>
-                <el-form-item label="申报月份">
-                  <el-input v-model="exportQuery.declaration_month" clearable placeholder="202601" maxlength="6" />
-                </el-form-item>
-                <el-form-item label="申报批次">
-                  <el-input v-model="exportQuery.declaration_batch" clearable placeholder="001" maxlength="3" />
-                </el-form-item>
-                <el-form-item label="关联号">
-                  <el-input v-model="exportQuery.relation_no" clearable placeholder="关联号" />
-                </el-form-item>
-                <el-form-item label="匹配状态">
-                  <el-select v-model="exportQuery.customs_match_status" clearable placeholder="全部" style="width: 120px">
-                    <el-option label="已匹配" value="MATCHED" />
-                    <el-option label="未匹配" value="UNMATCHED" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item>
-                  <el-button type="primary" icon="Search" @click="loadExports" v-hasPermi="['finance:exportTaxRefund:query']">查询</el-button>
-                  <el-button icon="Refresh" @click="resetExportQuery">重置</el-button>
-                </el-form-item>
-              </el-form>
-
-              <div class="table-actions">
-                <div class="table-stat">共 {{ exportTotal }} 条，已选 {{ selectedExportIds.length }} 条</div>
-                <el-button
-                  type="success"
-                  plain
-                  icon="Finished"
-                  :disabled="!selectedExportIds.length"
-                  @click="generateSelectedExports"
-                  v-hasPermi="['finance:exportTaxRefund:generate']"
-                >
-                  按选中明细生成
-                </el-button>
-              </div>
-
-              <el-table
-                class="refund-table"
-                :fit="false"
-                :data="exports"
-                border
-                stripe
-                v-loading="loading.exports"
-                height="640"
-                row-key="id"
-                @selection-change="handleExportSelection"
-              >
-                <el-table-column type="selection" width="44" />
-                <el-table-column prop="customs_declaration_no" label="报关单号" width="150" show-overflow-tooltip />
-                <el-table-column prop="contract_no" label="合同协议号" width="120" show-overflow-tooltip />
-                <el-table-column prop="customs_item_no" label="项号" width="64" />
-                <el-table-column prop="sequence_no" label="序号" width="70" />
-                <el-table-column prop="sku_normalized" label="SKU" width="118" show-overflow-tooltip />
-                <el-table-column prop="export_product_name" label="商品名称" width="170" show-overflow-tooltip />
-                <el-table-column label="数量" width="88" align="right">
-                  <template #default="{ row }">{{ displayValue(row.export_quantity, row.quantity) }}</template>
-                </el-table-column>
-                <el-table-column prop="unit" label="单位" width="60" />
-                <el-table-column label="FOB金额" width="108" align="right">
-                  <template #default="{ row }">{{ money(displayValue(row.fob_amount, row.total_amount)) }}</template>
-                </el-table-column>
-                <el-table-column prop="export_date" label="出口日期" width="104" />
-                <el-table-column prop="customs_match_status" label="匹配" width="88">
-                  <template #default="{ row }"><el-tag :type="matchStatusType(row.customs_match_status)">{{ row.customs_match_status || '-' }}</el-tag></template>
-                </el-table-column>
-                <el-table-column prop="declaration_month" label="申报月份" width="88" />
-                <el-table-column prop="declaration_batch" label="批次" width="68" />
-                <el-table-column prop="relation_no" label="关联号" width="130" show-overflow-tooltip />
-              </el-table>
-              <pagination v-show="exportTotal > 0" :total="exportTotal" v-model:page="exportQuery.page" v-model:limit="exportQuery.page_size" @pagination="loadExports" />
-            </el-card>
-          </el-tab-pane>
-
-          <el-tab-pane label="进货库存" name="purchase">
-            <el-card shadow="never" class="data-card">
-              <el-form :model="purchaseQuery" inline class="query-form">
-                <el-form-item label="发票号"><el-input v-model="purchaseQuery.invoice_no" clearable placeholder="发票号" /></el-form-item>
-                <el-form-item label="开票起"><el-date-picker v-model="purchaseQuery.invoice_date_from" type="date" value-format="YYYY-MM-DD" clearable /></el-form-item>
-                <el-form-item label="开票止"><el-date-picker v-model="purchaseQuery.invoice_date_to" type="date" value-format="YYYY-MM-DD" clearable /></el-form-item>
-                <el-form-item label="销售方税号"><el-input v-model="purchaseQuery.supplier_tax_no" clearable placeholder="纳税号" /></el-form-item>
-                <el-form-item label="购买方税号"><el-input v-model="purchaseQuery.buyer_tax_no" clearable placeholder="纳税号" /></el-form-item>
-                <el-form-item label="SKU"><el-input v-model="purchaseQuery.sku_normalized" clearable placeholder="SKU" /></el-form-item>
-                <el-form-item label="状态">
-                  <el-select v-model="purchaseQuery.inventory_status" clearable placeholder="全部" style="width: 120px">
-                    <el-option label="可用" value="AVAILABLE" />
-                    <el-option label="部分" value="PARTIAL" />
-                    <el-option label="用完" value="EXHAUSTED" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item>
-                  <el-button type="primary" icon="Search" @click="loadPurchase" v-hasPermi="['finance:exportTaxRefund:query']">查询</el-button>
-                  <el-button icon="Refresh" @click="resetPurchaseQuery">重置</el-button>
-                </el-form-item>
-              </el-form>
-
-              <div class="table-stat">共 {{ purchaseTotal }} 条</div>
-              <el-table class="refund-table" :fit="false" :data="purchase" border stripe v-loading="loading.purchase" height="640">
-                <el-table-column prop="invoice_no" label="发票号" width="138" show-overflow-tooltip />
-                <el-table-column prop="invoice_date" label="发票日期" width="104" />
-                <el-table-column prop="invoice_item_no" label="项号" width="64" />
-                <el-table-column prop="sequence_no" label="序号" width="70" />
-                <el-table-column prop="sku_normalized" label="SKU" width="118" show-overflow-tooltip />
-                <el-table-column prop="product_name" label="商品名称" width="170" show-overflow-tooltip />
-                <el-table-column prop="supplier_name" label="供应商" width="135" show-overflow-tooltip />
-                <el-table-column prop="supplier_tax_no" label="供方税号" width="148" show-overflow-tooltip />
-                <el-table-column label="采购数量" width="88" align="right">
-                  <template #default="{ row }">{{ displayValue(row.purchased_quantity, row.quantity) }}</template>
-                </el-table-column>
-                <el-table-column prop="unit" label="单位" width="60" />
-                <el-table-column prop="remaining_quantity" label="剩余" width="80" align="right" />
-                <el-table-column label="单价" width="92" align="right">
-                  <template #default="{ row }">{{ money(row.unit_price) }}</template>
-                </el-table-column>
-                <el-table-column label="不含税金额" width="108" align="right">
-                  <template #default="{ row }">{{ money(row.taxable_amount) }}</template>
-                </el-table-column>
-                <el-table-column prop="tax_rate" label="税率" width="70" align="right" />
-                <el-table-column label="税额" width="92" align="right">
-                  <template #default="{ row }">{{ money(row.tax_amount) }}</template>
-                </el-table-column>
-                <el-table-column prop="declaration_month" label="申报月份" width="88" />
-                <el-table-column prop="declaration_batch" label="批次" width="68" />
-                <el-table-column prop="relation_no" label="关联号" width="130" show-overflow-tooltip />
-                <el-table-column prop="inventory_status" label="状态" width="88">
-                  <template #default="{ row }"><el-tag :type="inventoryStatusType(row.inventory_status)">{{ row.inventory_status || '-' }}</el-tag></template>
-                </el-table-column>
-              </el-table>
-              <pagination v-show="purchaseTotal > 0" :total="purchaseTotal" v-model:page="purchaseQuery.page" v-model:limit="purchaseQuery.page_size" @pagination="loadPurchase" />
-            </el-card>
-          </el-tab-pane>
-
-          <el-tab-pane label="外汇应收" name="forex">
-            <el-card shadow="never" class="data-card">
-              <el-form :model="forexQuery" inline class="query-form">
-                <el-form-item label="报关单号"><el-input v-model="forexQuery.customs_no" clearable placeholder="18位报关单号" /></el-form-item>
-                <el-form-item label="合同协议号"><el-input v-model="forexQuery.contract_no" clearable placeholder="合同协议号" /></el-form-item>
-                <el-form-item label="业务主体"><el-input v-model="forexQuery.business_entity" clearable placeholder="业务主体" /></el-form-item>
-                <el-form-item label="来源类型"><el-input v-model="forexQuery.source_type" clearable placeholder="来源类型" /></el-form-item>
-                <el-form-item label="出口起"><el-date-picker v-model="forexQuery.export_date_from" type="date" value-format="YYYY-MM-DD" clearable /></el-form-item>
-                <el-form-item label="出口止"><el-date-picker v-model="forexQuery.export_date_to" type="date" value-format="YYYY-MM-DD" clearable /></el-form-item>
-                <el-form-item>
-                  <el-button type="primary" icon="Search" @click="loadForex" v-hasPermi="['finance:exportTaxRefund:query']">查询</el-button>
-                  <el-button icon="Refresh" @click="resetForexQuery">重置</el-button>
-                </el-form-item>
-              </el-form>
-
-              <div class="table-stat">共 {{ forexTotal }} 条</div>
-              <el-table class="refund-table" :fit="false" :data="forex" border stripe v-loading="loading.forex" height="640">
-                <el-table-column prop="id" label="ID" width="64" />
-                <el-table-column prop="customs_declaration_no" label="报关单号" width="150" show-overflow-tooltip />
-                <el-table-column prop="contract_no" label="合同协议号" width="120" show-overflow-tooltip />
-                <el-table-column prop="business_entity" label="业务主体" width="140" show-overflow-tooltip />
-                <el-table-column prop="export_date" label="出口日期" width="104" />
-                <el-table-column prop="export_amount_usd" label="出口金额USD" width="118" align="right" />
-                <el-table-column prop="received_amount_usd" label="已收汇USD" width="118" align="right" />
-                <el-table-column prop="monthly_exchange_rate" label="汇率" width="82" align="right" />
-                <el-table-column prop="source_type" label="来源" width="90" />
-                <el-table-column prop="created_at" label="创建时间" width="150" />
-              </el-table>
-              <pagination v-show="forexTotal > 0" :total="forexTotal" v-model:page="forexQuery.page" v-model:limit="forexQuery.page_size" @pagination="loadForex" />
-            </el-card>
-          </el-tab-pane>
-
-          <el-tab-pane label="任务历史" name="history">
-            <el-card shadow="never" class="data-card">
-              <el-form :model="taskQuery" inline class="query-form">
-                <el-form-item label="任务类型">
-                  <el-select v-model="taskQuery.task_type" clearable placeholder="全部" style="width: 220px">
-                    <el-option v-for="item in allTaskTypes" :key="item.value" :label="item.label" :value="item.value" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="状态">
-                  <el-select v-model="taskQuery.task_status" clearable placeholder="全部" style="width: 140px">
-                    <el-option v-for="status in statuses" :key="status" :label="status" :value="status" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item>
-                  <el-button type="primary" icon="Search" @click="loadTasks" v-hasPermi="['finance:exportTaxRefund:query']">查询</el-button>
-                  <el-button icon="Refresh" @click="resetTaskQuery">重置</el-button>
-                </el-form-item>
-              </el-form>
-              <el-table class="refund-table" :fit="false" :data="tasks" border stripe v-loading="loading.tasks" height="640">
-                <el-table-column prop="id" label="ID" width="64" />
-                <el-table-column prop="task_type" label="任务类型" width="170">
-                  <template #default="{ row }">{{ taskTypeLabel(row.task_type) }}</template>
-                </el-table-column>
-                <el-table-column prop="task_status" label="状态" width="100">
-                  <template #default="{ row }"><el-tag :type="statusType(row.task_status)">{{ row.task_status }}</el-tag></template>
-                </el-table-column>
-                <el-table-column label="进度" width="160">
-                  <template #default="{ row }"><el-progress :percentage="progress(row)" :status="progressStatus(row.task_status)" /></template>
-                </el-table-column>
-                <el-table-column prop="original_file_name" label="文件名" width="170" show-overflow-tooltip />
-                <el-table-column label="结果" width="190" show-overflow-tooltip>
-                  <template #default="{ row }">{{ payloadSummary(row.result_payload) }}</template>
-                </el-table-column>
-                <el-table-column prop="error_message" label="错误信息" width="190" show-overflow-tooltip />
-                <el-table-column prop="created_by" label="创建人" width="96" />
-                <el-table-column prop="created_at" label="创建时间" width="150" />
-                <el-table-column label="操作" width="90" fixed="right">
-                  <template #default="{ row }"><el-button link type="primary" @click="showTask(row)">详情</el-button></template>
-                </el-table-column>
-              </el-table>
-              <pagination v-show="taskTotal > 0" :total="taskTotal" v-model:page="taskQuery.page" v-model:limit="taskQuery.page_size" @pagination="loadTasks" />
-            </el-card>
-          </el-tab-pane>
-        </el-tabs>
-      </main>
     </div>
 
-    <el-dialog v-model="importDialog.open" title="数据导入" width="560px">
-      <el-form label-position="top" class="dialog-import-form">
-        <el-form-item label="任务类型">
-          <el-select v-model="taskForm.type" class="full" @change="resetUploadFile">
-            <el-option v-for="item in taskTypes" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
-        </el-form-item>
+    <el-alert
+      v-if="currentJob"
+      class="job-alert"
+      :type="jobAlertType"
+      :closable="jobFinished"
+      show-icon
+      @close="currentJob = null"
+    >
+      <template #title>
+        报关资料导入：{{ jobStatusText(currentJob.status) }}
+        <span v-if="currentJob.processed_files !== undefined">
+          （{{ currentJob.processed_files }}/{{ currentJob.total_files || 0 }}）
+        </span>
+      </template>
+      <div v-if="currentJob.message">{{ currentJob.message }}</div>
+      <div v-if="currentJob.error">{{ currentJob.error }}</div>
+    </el-alert>
 
-        <el-form-item label="选择文件">
+    <el-row :gutter="14" class="summary-row">
+      <el-col :xs="12" :sm="6">
+        <div class="summary-card">
+          <span>报关单总数</span><strong>{{ declarationStats.total }}</strong>
+        </div>
+      </el-col>
+      <el-col :xs="12" :sm="6">
+        <div class="summary-card ready">
+          <span>可生成</span><strong>{{ declarationStats.ready }}</strong>
+        </div>
+      </el-col>
+      <el-col :xs="12" :sm="6">
+        <div class="summary-card done">
+          <span>已生成</span><strong>{{ declarationStats.generated }}</strong>
+        </div>
+      </el-col>
+      <el-col :xs="12" :sm="6">
+        <div class="summary-card selected">
+          <span>本次已选</span><strong>{{ selectedDeclarations.length }}</strong>
+        </div>
+      </el-col>
+    </el-row>
+
+    <el-card shadow="never" class="main-card">
+      <el-tabs v-model="activeTab" @tab-change="handleTabChange">
+        <el-tab-pane label="申报工作台" name="declarations">
+          <el-form :inline="true" class="toolbar" @submit.prevent>
+            <el-form-item label="关键词">
+              <el-input
+                v-model="declarationQuery.keyword"
+                clearable
+                placeholder="报关单号 / 合同号 / 发票号"
+                @keyup.enter="declarationPage = 1"
+              />
+            </el-form-item>
+            <el-form-item label="状态">
+              <el-select v-model="declarationQuery.status" style="width: 130px" @change="declarationPage = 1">
+                <el-option label="全部" value="all" />
+                <el-option label="可生成" value="ready" />
+                <el-option label="已生成" value="generated" />
+                <el-option label="待完善" value="blocked" />
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <el-button :loading="declarationLoading" @click="loadDeclarations">
+                <el-icon><Refresh /></el-icon>刷新
+              </el-button>
+            </el-form-item>
+          </el-form>
+
+          <el-table
+            ref="declarationTableRef"
+            v-loading="declarationLoading"
+            :data="pagedDeclarations"
+            row-key="customs_declaration_no"
+            @selection-change="handleSelectionChange"
+          >
+            <el-table-column type="selection" width="48" reserve-selection :selectable="canSelect" />
+            <el-table-column label="报关单号" prop="customs_declaration_no" min-width="180" fixed="left" />
+            <el-table-column label="合同号" prop="contract_no" min-width="135" show-overflow-tooltip />
+            <el-table-column label="出口日期" prop="export_date" width="115" />
+            <el-table-column label="发票号" prop="invoice_no" min-width="145" show-overflow-tooltip />
+            <el-table-column label="明细数" prop="item_count" width="85" align="right" />
+            <el-table-column label="单证金额(USD)" min-width="130" align="right">
+              <template #default="{ row }">{{ money(row.document_total_usd) }}</template>
+            </el-table-column>
+            <el-table-column label="匹配状态" width="110">
+              <template #default="{ row }">
+                <el-tag :type="matchTagType(row)" effect="plain">{{ matchText(row) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="生成状态" width="105">
+              <template #default="{ row }">
+                <el-tag v-if="isGenerated(row)" type="success">已生成</el-tag>
+                <el-tag v-else-if="canSelect(row)" type="primary">可生成</el-tag>
+                <el-tag v-else type="warning">待完善</el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+          <pagination
+            v-show="filteredDeclarations.length > 0"
+            :total="filteredDeclarations.length"
+            v-model:page="declarationPage"
+            v-model:limit="declarationPageSize"
+          />
+        </el-tab-pane>
+
+        <el-tab-pane label="发票库存" name="inventory">
+          <el-form :inline="true" class="toolbar" @submit.prevent>
+            <el-form-item label="关键词">
+              <el-input
+                v-model="inventoryQuery.keyword"
+                clearable
+                placeholder="发票号 / SKU / 品名 / 销方"
+                @keyup.enter="searchInventory"
+              />
+            </el-form-item>
+            <el-form-item>
+              <el-checkbox v-model="inventoryQuery.availableOnly" @change="searchInventory">仅看有余量</el-checkbox>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="searchInventory">查询</el-button>
+              <el-button @click="resetInventory">重置</el-button>
+            </el-form-item>
+          </el-form>
+          <el-table v-loading="inventoryLoading" :data="inventoryRows">
+            <el-table-column label="发票号码" prop="invoice_no" min-width="155" fixed="left" />
+            <el-table-column label="开票日期" prop="invoice_date" width="115" />
+            <el-table-column label="销售方" prop="seller_name" min-width="190" show-overflow-tooltip />
+            <el-table-column label="税号" prop="seller_tax_no" min-width="180" show-overflow-tooltip />
+            <el-table-column label="SKU" prop="normalized_sku" min-width="130" />
+            <el-table-column label="项目名称" prop="project_name" min-width="180" show-overflow-tooltip />
+            <el-table-column label="规格" prop="specification" min-width="130" show-overflow-tooltip />
+            <el-table-column label="单位" prop="unit" width="70" />
+            <el-table-column label="原始数量" prop="original_quantity" width="105" align="right" />
+            <el-table-column label="可用数量" prop="available_quantity" width="105" align="right" />
+            <el-table-column label="单价" width="105" align="right">
+              <template #default="{ row }">{{ money(row.unit_price) }}</template>
+            </el-table-column>
+            <el-table-column label="可用金额" width="115" align="right">
+              <template #default="{ row }">{{ money(row.available_amount) }}</template>
+            </el-table-column>
+            <el-table-column label="税率" width="85" align="right">
+              <template #default="{ row }">{{ percent(row.tax_rate) }}</template>
+            </el-table-column>
+          </el-table>
+          <pagination
+            v-show="inventoryTotal > 0"
+            :total="inventoryTotal"
+            v-model:page="inventoryQuery.page"
+            v-model:limit="inventoryQuery.pageSize"
+            @pagination="loadInventory"
+          />
+        </el-tab-pane>
+      </el-tabs>
+    </el-card>
+
+    <el-dialog v-model="importDialog.visible" title="导入外汇退税数据" width="620px" append-to-body>
+      <el-alert
+        title="文件会直接提交给 Date-Project；报关资料支持一次选择多个 Excel 文件。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="dialog-alert"
+      />
+      <el-form label-width="110px">
+        <el-form-item label="导入类型">
+          <el-radio-group v-model="importDialog.type" @change="clearUpload">
+            <el-radio-button value="customs">报关资料</el-radio-button>
+            <el-radio-button value="purchase">进项发票汇总</el-radio-button>
+            <el-radio-button value="forex">外汇收汇明细</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="Excel 文件">
           <el-upload
             ref="uploadRef"
+            drag
+            action="#"
+            accept=".xlsx,.xlsm"
             :auto-upload="false"
-            multiple
-            :limit="20"
-            :accept="currentTask.accept"
-            :on-change="selectUploadFile"
-            :on-remove="removeUploadFile"
+            :multiple="importDialog.type === 'customs'"
+            :limit="importDialog.type === 'customs' ? 100 : 1"
+            :on-change="handleFileChange"
+            :on-remove="handleFileRemove"
           >
-            <el-button icon="Upload">选择{{ currentTask.ext }}文件</el-button>
+            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+            <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
             <template #tip>
-              <div class="upload-tip">{{ currentTask.hint }}，可一次选择多个文件</div>
+              <div class="el-upload__tip">{{ importTip }}</div>
             </template>
           </el-upload>
         </el-form-item>
-
-        <template v-if="taskForm.type === 'CUSTOMS_DECLARATION_IMPORT'">
-          <el-form-item label="申报年月">
-            <el-input v-model="customsForm.declarationMonth" placeholder="202601，可为空" maxlength="6" clearable />
-          </el-form-item>
-          <el-form-item label="申报批次">
-            <el-input v-model="customsForm.declarationBatch" placeholder="001，可为空" maxlength="3" clearable />
-          </el-form-item>
-          <el-form-item label="出口日期">
-            <el-date-picker v-model="customsForm.exportDate" type="date" value-format="YYYY-MM-DD" placeholder="可为空" clearable class="full" />
-          </el-form-item>
-        </template>
       </el-form>
       <template #footer>
-        <el-button @click="importDialog.open = false">取消</el-button>
-        <el-button
-          type="primary"
-          icon="UploadFilled"
-          :loading="currentSubmitting"
-          @click="submitCurrentTask"
-          :disabled="!uploadFiles.length"
-        >
-          上传并创建任务<span v-if="uploadFiles.length">（{{ uploadFiles.length }}个）</span>
-        </el-button>
+        <el-button @click="importDialog.visible = false">取消</el-button>
+        <el-button type="primary" :loading="importDialog.loading" @click="submitImport">开始导入</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="taskStatusDialog.open" title="当前任务" width="560px">
-      <template #header>
-        <div class="dialog-head">
-          <span>当前任务</span>
-          <el-button link type="primary" @click="loadTasks">刷新</el-button>
-        </div>
-      </template>
-      <div v-if="currentTaskStatus.id" class="task-current">
-        <div class="task-line"><span>ID</span><b>#{{ currentTaskStatus.id }}</b></div>
-        <div class="task-line"><span>类型</span><b>{{ taskTypeLabel(currentTaskStatus.task_type) }}</b></div>
-        <div class="task-line">
-          <span>状态</span>
-          <el-tag :type="statusType(currentTaskStatus.task_status)">{{ currentTaskStatus.task_status }}</el-tag>
-        </div>
-        <el-progress :percentage="progress(currentTaskStatus)" :status="progressStatus(currentTaskStatus.task_status)" />
-        <el-alert v-if="currentTaskStatus.error_message" class="mt8" type="error" :title="currentTaskStatus.error_message" show-icon />
-        <el-alert v-if="currentTaskStatus.result_payload" class="mt8" type="success" :title="payloadSummary(currentTaskStatus.result_payload)" show-icon />
-        <el-button class="full mt8" @click="showTask(currentTaskStatus)">查看详情</el-button>
-      </div>
-      <el-empty v-else description="创建任务后自动跟踪" :image-size="72" />
-    </el-dialog>
-
-    <el-dialog v-model="recentTaskDialog.open" title="最近任务" width="920px">
-      <template #header>
-        <div class="dialog-head">
-          <span>最近任务</span>
-          <el-button link type="primary" :loading="loading.tasks" @click="loadTasks">刷新</el-button>
-        </div>
-      </template>
-      <el-table class="refund-table recent-task-table" :fit="false" :data="recentTasks" border stripe v-loading="loading.tasks" height="420">
-        <el-table-column prop="id" label="ID" width="64" />
-        <el-table-column prop="task_type" label="任务类型" width="170">
-          <template #default="{ row }">{{ taskTypeLabel(row.task_type) }}</template>
-        </el-table-column>
-        <el-table-column prop="task_status" label="状态" width="96">
-          <template #default="{ row }"><el-tag :type="statusType(row.task_status)">{{ row.task_status }}</el-tag></template>
-        </el-table-column>
-        <el-table-column label="进度" width="150">
-          <template #default="{ row }"><el-progress :percentage="progress(row)" :status="progressStatus(row.task_status)" /></template>
-        </el-table-column>
-        <el-table-column prop="original_file_name" label="文件名" width="170" show-overflow-tooltip />
-        <el-table-column label="结果" width="180" show-overflow-tooltip>
-          <template #default="{ row }">{{ payloadSummary(row.result_payload) }}</template>
-        </el-table-column>
-        <el-table-column prop="error_message" label="错误信息" width="180" show-overflow-tooltip />
-        <el-table-column prop="created_at" label="创建时间" width="150" />
-        <el-table-column label="操作" width="80" fixed="right">
-          <template #default="{ row }"><el-button link type="primary" @click="showTask(row)">详情</el-button></template>
-        </el-table-column>
-      </el-table>
-      <div class="recent-task-footer">
-        <span>显示最近 {{ recentTasks.length }} 条，可到“任务历史”页签查看更多</span>
-        <el-button type="primary" plain @click="goTaskHistory">查看全部</el-button>
-      </div>
-    </el-dialog>
-
-    <el-dialog v-model="taskDialog.open" title="任务详情" width="820px">
-      <el-descriptions :column="2" border>
-        <el-descriptions-item label="任务ID">{{ taskDialog.row.id }}</el-descriptions-item>
-        <el-descriptions-item label="状态">{{ taskDialog.row.task_status }}</el-descriptions-item>
-        <el-descriptions-item label="任务类型">{{ taskTypeLabel(taskDialog.row.task_type) }}</el-descriptions-item>
-        <el-descriptions-item label="创建人">{{ taskDialog.row.created_by }}</el-descriptions-item>
-        <el-descriptions-item label="开始时间">{{ taskDialog.row.started_at }}</el-descriptions-item>
-        <el-descriptions-item label="完成时间">{{ taskDialog.row.completed_at }}</el-descriptions-item>
-      </el-descriptions>
-      <el-alert v-if="taskDialog.row.error_message" class="mt12" type="error" :title="taskDialog.row.error_message" show-icon />
-      <pre class="json-box">{{ pretty(taskDialog.row.result_payload || taskDialog.row.request_payload || taskDialog.row) }}</pre>
-    </el-dialog>
-
-    <el-dialog v-model="generateDialog.open" :title="generateDialog.selectedOnly ? '按选中出口明细生成退税资料' : '生成退税资料'" width="620px">
+    <el-dialog v-model="generateDialog.visible" title="生成退税申报批次" width="520px" append-to-body>
       <el-alert
-        v-if="generateDialog.selectedOnly"
-        type="info"
-        show-icon
+        :title="`本次将处理 ${selectedDeclarations.length} 张报关单，并生成最新资料包。`"
+        type="success"
         :closable="false"
-        class="mb12"
-        :title="`已选择 ${selectedExportIds.length} 条出口明细`"
+        show-icon
+        class="dialog-alert"
       />
-      <el-form :model="generateSelectedForm" label-width="110px">
-        <el-form-item label="输出父目录">
-          <el-input v-model="generateSelectedForm.output_parent_dir" placeholder="D:/JMH/退税输出" />
+      <el-form label-width="110px">
+        <el-form-item label="申报月份" required>
+          <el-input v-model.trim="generateDialog.month" maxlength="6" placeholder="例如 202607" />
         </el-form-item>
-        <el-form-item label="申报年月">
-          <el-input v-model="generateSelectedForm.declaration_month" placeholder="202601" maxlength="6" />
-        </el-form-item>
-        <el-form-item label="付款人">
-          <el-input v-model="generateSelectedForm.payer_name" />
-        </el-form-item>
-        <el-form-item label="覆盖目录">
-          <el-switch v-model="generateSelectedForm.overwrite" />
+        <el-form-item label="申报批次" required>
+          <el-input v-model.trim="generateDialog.batch" maxlength="40" placeholder="例如 202607-01" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="generateDialog.open = false">取消</el-button>
-        <el-button type="success" :loading="uploading.REFUND_PACKAGE_GENERATE" @click="submitGenerateFromDialog">生成</el-button>
+        <el-button @click="generateDialog.visible = false">取消</el-button>
+        <el-button type="primary" :loading="generateDialog.loading" @click="submitGenerate">
+          生成批次和资料包
+        </el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
-<script setup name="ExportTaxRefund">
+<script setup>
+import { computed, getCurrentInstance, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
-  generateRefundPackage,
-  getTask,
-  importCustomsDeclaration,
-  importCustomsMaterial,
-  importForex,
-  importPurchaseInvoice,
-  listExportDetails,
-  listForexReceivables,
-  listPurchaseInventory,
-  listTasks
+  createDeclarationBatch,
+  downloadLatestPackage,
+  generateFinalPackage,
+  getImportJob,
+  importCustomsFolder,
+  importForeignExchangeReceipts,
+  importPurchaseInvoiceSummary,
+  listCustomsDeclarations,
+  listPurchaseInventory
 } from '@/api/finance/exportTaxRefund'
 
 const { proxy } = getCurrentInstance()
+const activeTab = ref('declarations')
+const declarationLoading = ref(false)
+const declarations = ref([])
+const selectedDeclarations = ref([])
+const declarationTableRef = ref()
+const declarationPage = ref(1)
+const declarationPageSize = ref(10)
+const declarationQuery = reactive({ keyword: '', status: 'all' })
+
+const inventoryLoading = ref(false)
+const inventoryRows = ref([])
+const inventoryTotal = ref(0)
+const inventoryLoaded = ref(false)
+const inventoryQuery = reactive({ page: 1, pageSize: 10, keyword: '', availableOnly: true })
+
 const uploadRef = ref()
-const activeTab = ref('exports')
-const tasks = ref([])
-const exports = ref([])
-const purchase = ref([])
-const forex = ref([])
-const taskTotal = ref(0)
-const exportTotal = ref(0)
-const purchaseTotal = ref(0)
-const forexTotal = ref(0)
-const selectedExportIds = ref([])
-const uploadFiles = ref([])
-const polling = new Map()
+const importDialog = reactive({ visible: false, loading: false, type: 'customs', files: [] })
+const generateDialog = reactive({ visible: false, loading: false, month: '', batch: '' })
+const currentJob = ref(null)
+const pollTimer = ref(null)
+const downloadLoading = ref(false)
 
-const loading = reactive({ tasks: false, exports: false, purchase: false, forex: false })
-const uploading = reactive({
-  CUSTOMS_MATERIAL_IMPORT: false,
-  CUSTOMS_DECLARATION_IMPORT: false,
-  PURCHASE_INVOICE_IMPORT: false,
-  FOREX_IMPORT: false,
-  REFUND_PACKAGE_GENERATE: false
-})
-
-const taskForm = reactive({ type: 'CUSTOMS_MATERIAL_IMPORT' })
-const customsForm = reactive({ declarationMonth: '', declarationBatch: '', exportDate: '' })
-const generateForm = reactive({
-  output_parent_dir: 'D:/JMH/退税输出',
-  declaration_month: '',
-  payer_name: 'Hong Kong Cammy Yeson Limited',
-  overwrite: false
-})
-const generateSelectedForm = reactive({ ...generateForm, overwrite: true })
-
-const taskQuery = reactive({ page: 1, page_size: 20, task_type: '', task_status: '' })
-const exportQuery = reactive({
-  page: 1,
-  page_size: 50,
-  customs_declaration_no: '',
-  contract_no: '',
-  declaration_month: '',
-  declaration_batch: '',
-  relation_no: '',
-  customs_match_status: ''
-})
-const purchaseQuery = reactive({
-  page: 1,
-  page_size: 50,
-  invoice_no: '',
-  invoice_date_from: '',
-  invoice_date_to: '',
-  supplier_tax_no: '',
-  buyer_tax_no: '',
-  sku_normalized: '',
-  inventory_status: ''
-})
-const forexQuery = reactive({
-  page: 1,
-  page_size: 50,
-  customs_no: '',
-  contract_no: '',
-  business_entity: '',
-  source_type: '',
-  export_date_from: '',
-  export_date_to: ''
-})
-
-const importDialog = reactive({ open: false })
-const taskStatusDialog = reactive({ open: false })
-const recentTaskDialog = reactive({ open: false })
-const taskDialog = reactive({ open: false, row: {} })
-const generateDialog = reactive({ open: false, selectedOnly: false })
-const currentTaskStatus = reactive({})
-
-const taskTypes = [
-  { label: '报关资料 Excel', value: 'CUSTOMS_MATERIAL_IMPORT', ext: '.xlsx', accept: '.xlsx', hint: '.xlsx，最大 50 MB' },
-  { label: '出口报关单 PDF', value: 'CUSTOMS_DECLARATION_IMPORT', ext: '.pdf', accept: '.pdf', hint: '.pdf，最大 50 MB，可填写申报年月/批次/出口日期' },
-  { label: '进货发票 PDF', value: 'PURCHASE_INVOICE_IMPORT', ext: '.pdf', accept: '.pdf', hint: '.pdf，最大 50 MB' },
-  { label: '外汇数据 Excel', value: 'FOREX_IMPORT', ext: '.xlsx', accept: '.xlsx', hint: '.xlsx，仅解析 Sheet1' }
-]
-const allTaskTypes = [
-  ...taskTypes,
-  { label: '退税资料生成', value: 'REFUND_PACKAGE_GENERATE' }
-]
-const statuses = ['PENDING', 'RUNNING', 'SUCCESS', 'PARTIAL', 'FAILED']
-
-const currentTask = computed(() => taskTypes.find(item => item.value === taskForm.type) || taskTypes[0])
-const currentSubmitting = computed(() => uploading[taskForm.type])
-const recentTasks = computed(() => tasks.value.slice(0, 10))
-
-onMounted(() => loadAll())
-onBeforeUnmount(() => {
-  polling.forEach(timer => clearInterval(timer))
-  polling.clear()
-})
-
-function loadAll() {
-  loadTasks()
-  loadExports()
-  loadPurchase()
-  loadForex()
-}
-
-function handleTabChange(tab) {
-  if (tab === 'exports') loadExports()
-  if (tab === 'purchase') loadPurchase()
-  if (tab === 'forex') loadForex()
-  if (tab === 'history') loadTasks()
-}
-
-function openRecentTasks() {
-  recentTaskDialog.open = true
-  loadTasks()
-}
-
-function goTaskHistory() {
-  recentTaskDialog.open = false
-  activeTab.value = 'history'
-  loadTasks()
-}
-
-function selectUploadFile(file, fileList) {
-  uploadFiles.value = fileList.map(item => item.raw).filter(Boolean)
-}
-
-function removeUploadFile(file, fileList) {
-  uploadFiles.value = fileList.map(item => item.raw).filter(Boolean)
-}
-
-function resetUploadFile() {
-  uploadFiles.value = []
-  uploadRef.value?.clearFiles()
-}
-
-async function submitCurrentTask() {
-  return submitImport(taskForm.type)
-}
-
-async function submitImport(type) {
-  if (!uploadFiles.value.length) {
-    proxy.$modal.msgWarning('请先选择文件')
-    return
-  }
-  uploading[type] = true
-  try {
-    let res
-    if (type === 'CUSTOMS_MATERIAL_IMPORT') res = await importCustomsMaterial(uploadFiles.value)
-    if (type === 'CUSTOMS_DECLARATION_IMPORT') {
-      res = await importCustomsDeclaration(uploadFiles.value, {
-        declarationMonth: customsForm.declarationMonth,
-        declarationBatch: customsForm.declarationBatch,
-        exportDate: customsForm.exportDate
-      })
-    }
-    if (type === 'PURCHASE_INVOICE_IMPORT') res = await importPurchaseInvoice(uploadFiles.value)
-    if (type === 'FOREX_IMPORT') res = await importForex(uploadFiles.value)
-    afterTaskCreated(res)
-  } finally {
-    uploading[type] = false
-  }
-}
-
-function generateSelectedExports() {
-  if (!selectedExportIds.value.length) {
-    proxy.$modal.msgWarning('请先勾选出口明细')
-    return
-  }
-  openGenerateDialog(true)
-}
-
-function openGenerateDialog(selectedOnly) {
-  generateDialog.selectedOnly = selectedOnly
-  Object.assign(generateSelectedForm, {
-    ...generateForm,
-    overwrite: selectedOnly ? true : generateForm.overwrite
+const filteredDeclarations = computed(() => {
+  const keyword = declarationQuery.keyword.trim().toLowerCase()
+  return declarations.value.filter(row => {
+    const text = [row.customs_declaration_no, row.contract_no, row.invoice_no]
+      .filter(Boolean).join(' ').toLowerCase()
+    if (keyword && !text.includes(keyword)) return false
+    if (declarationQuery.status === 'ready') return canSelect(row)
+    if (declarationQuery.status === 'generated') return isGenerated(row)
+    if (declarationQuery.status === 'blocked') return !canSelect(row) && !isGenerated(row)
+    return true
   })
-  generateDialog.open = true
+})
+
+const pagedDeclarations = computed(() => {
+  const start = (declarationPage.value - 1) * declarationPageSize.value
+  return filteredDeclarations.value.slice(start, start + declarationPageSize.value)
+})
+
+const declarationStats = computed(() => ({
+  total: declarations.value.length,
+  ready: declarations.value.filter(canSelect).length,
+  generated: declarations.value.filter(isGenerated).length
+}))
+
+const importTip = computed(() => {
+  if (importDialog.type === 'customs') return '请选择报关资料文件夹中的全部 .xlsx/.xlsm 文件'
+  if (importDialog.type === 'purchase') return '请选择一份进项发票汇总表'
+  return '请选择一份外汇收汇明细表'
+})
+
+const jobFinished = computed(() =>
+  ['completed', 'completed_with_errors', 'failed'].includes(currentJob.value?.status)
+)
+const jobAlertType = computed(() => {
+  if (!currentJob.value || !jobFinished.value) return 'info'
+  return currentJob.value.status === 'completed' ? 'success' : currentJob.value.status === 'failed' ? 'error' : 'warning'
+})
+
+function responseData(res) {
+  return res?.data ?? res ?? {}
 }
 
-async function submitGenerateFromDialog() {
-  if (!generateSelectedForm.output_parent_dir || !generateSelectedForm.declaration_month) {
-    proxy.$modal.msgWarning('请填写输出目录和申报年月')
-    return
-  }
-  uploading.REFUND_PACKAGE_GENERATE = true
-  try {
-    const payload = { ...generateSelectedForm }
-    if (generateDialog.selectedOnly) payload.export_ids = selectedExportIds.value
-    const res = await generateRefundPackage(payload)
-    Object.assign(generateForm, {
-      output_parent_dir: generateSelectedForm.output_parent_dir,
-      declaration_month: generateSelectedForm.declaration_month,
-      payer_name: generateSelectedForm.payer_name,
-      overwrite: generateSelectedForm.overwrite
-    })
-    generateDialog.open = false
-    afterTaskCreated(res)
-  } finally {
-    uploading.REFUND_PACKAGE_GENERATE = false
-  }
+function rowsFrom(data) {
+  if (Array.isArray(data)) return data
+  return data.items || data.rows || data.list || []
 }
 
-function afterTaskCreated(res) {
-  if (importDialog.open) {
-    importDialog.open = false
-    resetUploadFile()
-  }
-  const task = res?.data?.data
-  const tasks = task?.data?.tasks || task?.tasks || []
-  if (tasks.length) {
-    Object.assign(currentTaskStatus, tasks[0])
-    proxy.$modal.msgSuccess(`任务已提交：${tasks.length} 个`)
-    tasks.forEach(item => item?.id && startPolling(item.id))
-    loadTasks()
-    return
-  }
-  const batch = task?.data || task || {}
-  const taskIds = Array.isArray(batch.task_ids) ? batch.task_ids : []
-  if (taskIds.length) {
-    Object.assign(currentTaskStatus, {
-      id: taskIds[0],
-      task_type: batch.task_type,
-      task_status: batch.task_status || 'PENDING'
-    })
-    proxy.$modal.msgSuccess(`任务已提交：${taskIds.length} 个`)
-    taskIds.forEach(id => id && startPolling(id))
-    loadTasks()
-    return
-  }
-  if (!task?.id) {
-    proxy.$modal.msgSuccess('任务已提交')
-    loadTasks()
-    return
-  }
-  Object.assign(currentTaskStatus, task)
-  proxy.$modal.msgSuccess(`任务已提交：#${task.id}`)
-  startPolling(task.id)
-  loadTasks()
+function canSelect(row) {
+  return Boolean(row.selectable) && !isGenerated(row)
 }
 
-function startPolling(taskId) {
-  if (polling.has(taskId)) return
-  const timer = setInterval(async () => {
-    try {
-      const res = await getTask(taskId)
-      const task = res?.data?.data
-      if (task) Object.assign(currentTaskStatus, task)
-      if (task && ['SUCCESS', 'PARTIAL', 'FAILED'].includes(task.task_status)) {
-        clearInterval(timer)
-        polling.delete(taskId)
-        if (task.task_status === 'SUCCESS') proxy.$modal.msgSuccess(`任务 #${taskId} 执行成功`)
-        if (task.task_status === 'PARTIAL') proxy.$modal.msgWarning(`任务 #${taskId} 部分成功`)
-        if (task.task_status === 'FAILED') proxy.$modal.msgError(task.error_message || `任务 #${taskId} 执行失败`)
-        loadAll()
-      }
-    } catch (e) {
-      clearInterval(timer)
-      polling.delete(taskId)
-    }
-  }, 2000)
-  polling.set(taskId, timer)
+function isGenerated(row) {
+  return Number(row.generated_count || 0) > 0 || row.generated === true
 }
 
-async function loadTasks() {
-  loading.tasks = true
-  try {
-    const res = await listTasks(cleanParams(taskQuery))
-    tasks.value = res?.data?.data || []
-    taskTotal.value = res?.data?.meta?.total || 0
-  } finally {
-    loading.tasks = false
-  }
+function matchText(row) {
+  const status = String(row.customs_match_status || row.match_status || '').toLowerCase()
+  if (status === 'matched' || status === 'success') return '已匹配'
+  if (status === 'partial' || status === 'partially_matched') return '部分匹配'
+  if (status === 'unmatched' || status === 'missing') return '未匹配'
+  return canSelect(row) ? '已就绪' : (status || '待完善')
 }
 
-async function loadExports() {
-  loading.exports = true
-  try {
-    const res = await listExportDetails(cleanParams(exportQuery))
-    exports.value = res?.data?.data || []
-    exportTotal.value = res?.data?.meta?.total || 0
-  } finally {
-    loading.exports = false
-  }
-}
-
-async function loadPurchase() {
-  loading.purchase = true
-  try {
-    const res = await listPurchaseInventory(cleanParams(purchaseQuery))
-    purchase.value = res?.data?.data || []
-    purchaseTotal.value = res?.data?.meta?.total || 0
-  } finally {
-    loading.purchase = false
-  }
-}
-
-async function loadForex() {
-  loading.forex = true
-  try {
-    const res = await listForexReceivables(cleanParams(forexQuery))
-    forex.value = res?.data?.data || []
-    forexTotal.value = res?.data?.meta?.total || 0
-  } finally {
-    loading.forex = false
-  }
-}
-
-function resetTaskQuery() {
-  Object.assign(taskQuery, { page: 1, page_size: 20, task_type: '', task_status: '' })
-  loadTasks()
-}
-
-function resetExportQuery() {
-  Object.assign(exportQuery, { page: 1, page_size: 50, customs_declaration_no: '', contract_no: '', declaration_month: '', declaration_batch: '', relation_no: '', customs_match_status: '' })
-  loadExports()
-}
-
-function resetPurchaseQuery() {
-  Object.assign(purchaseQuery, { page: 1, page_size: 50, invoice_no: '', invoice_date_from: '', invoice_date_to: '', supplier_tax_no: '', buyer_tax_no: '', sku_normalized: '', inventory_status: '' })
-  loadPurchase()
-}
-
-function resetForexQuery() {
-  Object.assign(forexQuery, { page: 1, page_size: 50, customs_no: '', contract_no: '', business_entity: '', source_type: '', export_date_from: '', export_date_to: '' })
-  loadForex()
-}
-
-function handleExportSelection(selection) {
-  selectedExportIds.value = selection.map(row => Number(row.id)).filter(Boolean)
-}
-
-function showTask(row) {
-  taskDialog.row = row || {}
-  taskDialog.open = true
-}
-
-function progress(row) {
-  const total = Number(row.progress_total || 0)
-  const current = Number(row.progress_current || 0)
-  if (!total) return ['SUCCESS', 'PARTIAL'].includes(row.task_status) ? 100 : 0
-  return Math.min(100, Math.round((current / total) * 100))
-}
-
-function progressStatus(status) {
-  if (status === 'SUCCESS') return 'success'
-  if (status === 'FAILED') return 'exception'
-  if (status === 'PARTIAL') return 'warning'
-  return undefined
-}
-
-function statusType(status) {
-  return { PENDING: 'info', RUNNING: 'warning', SUCCESS: 'success', PARTIAL: 'warning', FAILED: 'danger' }[status] || 'info'
-}
-
-function matchStatusType(status) {
-  return status === 'MATCHED' ? 'success' : status === 'UNMATCHED' ? 'warning' : 'info'
-}
-
-function inventoryStatusType(status) {
-  return { AVAILABLE: 'success', PARTIAL: 'warning', EXHAUSTED: 'danger' }[status] || 'info'
-}
-
-function taskTypeLabel(type) {
-  return allTaskTypes.find(item => item.value === type)?.label || type
-}
-
-function cleanParams(source) {
-  const params = {}
-  Object.keys(source).forEach(key => {
-    if (source[key] !== undefined && source[key] !== null && source[key] !== '') params[key] = source[key]
-  })
-  return params
-}
-
-function pretty(value) {
-  if (!value) return ''
-  return JSON.stringify(value, null, 2)
-}
-
-function payloadSummary(value) {
-  if (!value) return ''
-  const payload = typeof value === 'string' ? tryParseJson(value) : value
-  if (!payload || typeof payload !== 'object') return String(value)
-  return displayValue(
-    payload.output_dir,
-    payload.output_path,
-    payload.message,
-    payload.summary,
-    payload.file_path,
-    payload.file_name,
-    payload.batch_id ? `批次 ${payload.batch_id}` : '',
-    payload.count !== undefined ? `数量 ${payload.count}` : '',
-    JSON.stringify(payload)
-  )
-}
-
-function tryParseJson(value) {
-  try {
-    return JSON.parse(value)
-  } catch (e) {
-    return value
-  }
-}
-
-function displayValue(...values) {
-  return values.find(value => value !== undefined && value !== null && value !== '') ?? ''
+function matchTagType(row) {
+  const text = matchText(row)
+  if (text === '已匹配' || text === '已就绪') return 'success'
+  if (text === '部分匹配') return 'warning'
+  return 'danger'
 }
 
 function money(value) {
-  if (value === '' || value === null || value === undefined) return ''
-  return Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const number = Number(value)
+  return Number.isFinite(number) ? number.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'
 }
+
+function percent(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return '-'
+  return `${number > 1 ? number : number * 100}%`
+}
+
+function jobStatusText(status) {
+  return {
+    pending: '等待处理',
+    processing: '处理中',
+    completed: '导入完成',
+    completed_with_errors: '完成，但部分文件失败',
+    failed: '导入失败'
+  }[status] || status || '等待处理'
+}
+
+async function loadDeclarations() {
+  declarationLoading.value = true
+  try {
+    const data = responseData(await listCustomsDeclarations())
+    declarations.value = rowsFrom(data)
+    declarationPage.value = 1
+  } finally {
+    declarationLoading.value = false
+  }
+}
+
+function handleSelectionChange(rows) {
+  selectedDeclarations.value = rows
+}
+
+function handleTabChange(name) {
+  if (name === 'inventory' && !inventoryLoaded.value) loadInventory()
+}
+
+async function loadInventory() {
+  inventoryLoading.value = true
+  try {
+    const data = responseData(await listPurchaseInventory({
+      page: inventoryQuery.page,
+      page_size: inventoryQuery.pageSize,
+      keyword: inventoryQuery.keyword || undefined,
+      available_only: inventoryQuery.availableOnly
+    }))
+    inventoryRows.value = rowsFrom(data)
+    inventoryTotal.value = Number(data.total || data.total_count || inventoryRows.value.length)
+    inventoryLoaded.value = true
+  } finally {
+    inventoryLoading.value = false
+  }
+}
+
+function searchInventory() {
+  inventoryQuery.page = 1
+  loadInventory()
+}
+
+function resetInventory() {
+  inventoryQuery.page = 1
+  inventoryQuery.keyword = ''
+  inventoryQuery.availableOnly = true
+  loadInventory()
+}
+
+function openImport() {
+  importDialog.visible = true
+  importDialog.type = 'customs'
+  clearUpload()
+}
+
+function clearUpload() {
+  importDialog.files = []
+  uploadRef.value?.clearFiles()
+}
+
+function handleFileChange(_file, files) {
+  importDialog.files = files.map(item => item.raw).filter(Boolean)
+}
+
+function handleFileRemove(_file, files) {
+  importDialog.files = files.map(item => item.raw).filter(Boolean)
+}
+
+async function submitImport() {
+  if (!importDialog.files.length) {
+    proxy.$modal.msgWarning('请先选择需要导入的 Excel 文件')
+    return
+  }
+  if (importDialog.type !== 'customs' && importDialog.files.length !== 1) {
+    proxy.$modal.msgWarning('该类型每次只能导入一个文件')
+    return
+  }
+  importDialog.loading = true
+  try {
+    let res
+    if (importDialog.type === 'customs') {
+      res = await importCustomsFolder(importDialog.files)
+      const job = responseData(res)
+      currentJob.value = job
+      importDialog.visible = false
+      startPolling(job.job_id || job.id)
+      proxy.$modal.msgSuccess('文件已提交，正在后台导入')
+    } else if (importDialog.type === 'purchase') {
+      res = await importPurchaseInvoiceSummary(importDialog.files[0])
+      proxy.$modal.msgSuccess(responseData(res).message || '进项发票汇总导入完成')
+      importDialog.visible = false
+      inventoryLoaded.value = false
+      await loadDeclarations()
+    } else {
+      res = await importForeignExchangeReceipts(importDialog.files[0])
+      proxy.$modal.msgSuccess(responseData(res).message || '外汇收汇明细导入完成')
+      importDialog.visible = false
+      await loadDeclarations()
+    }
+  } finally {
+    importDialog.loading = false
+  }
+}
+
+function startPolling(jobId) {
+  stopPolling()
+  if (!jobId) return
+  const poll = async () => {
+    try {
+      currentJob.value = responseData(await getImportJob(jobId))
+      if (jobFinished.value) {
+        stopPolling()
+        await loadDeclarations()
+        inventoryLoaded.value = false
+      }
+    } catch (_error) {
+      stopPolling()
+    }
+  }
+  poll()
+  pollTimer.value = window.setInterval(poll, 1500)
+}
+
+function stopPolling() {
+  if (pollTimer.value) window.clearInterval(pollTimer.value)
+  pollTimer.value = null
+}
+
+function openGenerate() {
+  const now = new Date()
+  const month = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
+  generateDialog.month = month
+  generateDialog.batch = '001'
+  generateDialog.visible = true
+}
+
+async function submitGenerate() {
+  if (!/^\d{6}$/.test(generateDialog.month)) {
+    proxy.$modal.msgWarning('申报月份需填写 6 位年月，例如 202607')
+    return
+  }
+  if (!generateDialog.batch) {
+    proxy.$modal.msgWarning('请填写申报批次')
+    return
+  }
+  generateDialog.loading = true
+  try {
+    const numbers = selectedDeclarations.value.map(row => row.customs_declaration_no).filter(Boolean)
+    const conversion = responseData(await createDeclarationBatch({
+      customs_declaration_numbers: numbers,
+      declaration_month: generateDialog.month,
+      declaration_batch: generateDialog.batch
+    }))
+    const packageResult = responseData(await generateFinalPackage({
+      errors: conversion.errors || []
+    }))
+    const errorCount = Number(conversion.error_count || conversion.errors?.length || 0)
+    proxy.$modal.msgSuccess(
+      `批次生成完成：成功 ${conversion.successful_customs_declaration_count ?? numbers.length} 张，失败 ${errorCount} 张`
+    )
+    if (packageResult.message) console.info(packageResult.message)
+    generateDialog.visible = false
+    declarationTableRef.value?.clearSelection()
+    selectedDeclarations.value = []
+    await loadDeclarations()
+    inventoryLoaded.value = false
+  } finally {
+    generateDialog.loading = false
+  }
+}
+
+async function handleDownload() {
+  downloadLoading.value = true
+  try {
+    const data = await downloadLatestPackage()
+    const blob = data instanceof Blob ? data : new Blob([data], { type: 'application/zip' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `外汇退税资料包_${new Date().getTime()}.zip`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  } finally {
+    downloadLoading.value = false
+  }
+}
+
+onMounted(loadDeclarations)
+onBeforeUnmount(stopPolling)
 </script>
 
-<style scoped>
-.tax-refund-page {
-  background: #f5f7fb;
+<style scoped lang="scss">
+.refund-page {
+  background: #f5f7fa;
   min-height: calc(100vh - 84px);
-  overflow-x: hidden;
 }
 
-.tax-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding: 14px 16px;
-  margin-bottom: 12px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-}
-
-.tax-title {
-  color: #1f2937;
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.tax-subtitle {
-  color: #64748b;
-  font-size: 12px;
-}
-
-.header-actions {
-  flex-shrink: 0;
-}
-
-.export-refund-btn {
-  min-width: 150px;
-}
-
-.data-card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.workspace {
-  display: grid;
-  gap: 12px;
-}
-
-.data-card {
-  margin-bottom: 0;
-}
-
-.card-head,
-.header-actions,
-.table-actions,
-.task-line {
+.page-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.full {
-  width: 100%;
-}
-
-.upload-tip {
-  color: #909399;
-  font-size: 12px;
-  line-height: 18px;
-  white-space: nowrap;
-}
-
-.dialog-import-form :deep(.el-form-item) {
+  gap: 20px;
+  padding: 20px 22px;
   margin-bottom: 14px;
+  color: #fff;
+  border-radius: 10px;
+  background: linear-gradient(125deg, #1d4ed8, #0f766e);
 }
 
-.dialog-head {
+.page-title { font-size: 24px; font-weight: 700; }
+.page-subtitle { margin-top: 7px; color: rgba(255, 255, 255, .82); }
+.head-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.job-alert { margin-bottom: 14px; }
+.summary-row { margin-bottom: 14px; }
+
+.summary-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-right: 28px;
-}
-
-.task-current {
-  display: grid;
-  gap: 8px;
-}
-
-.task-line {
-  color: #64748b;
-  font-size: 13px;
-}
-
-.task-line b {
-  color: #1f2937;
-}
-
-.main-panel {
-  min-width: 0;
-  display: grid;
-  gap: 12px;
-}
-
-.data-card {
-  min-width: 0;
-}
-
-.data-card :deep(.el-card__body) {
-  padding: 10px 12px 12px;
-}
-
-.data-tabs :deep(.el-tabs__header) {
-  margin-bottom: 8px;
-  padding: 0 12px;
+  padding: 18px 20px;
   background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  border-radius: 9px;
+  border-left: 4px solid #64748b;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
 }
+.summary-card span { color: #64748b; }
+.summary-card strong { font-size: 27px; color: #0f172a; }
+.summary-card.ready { border-left-color: #2563eb; }
+.summary-card.done { border-left-color: #16a34a; }
+.summary-card.selected { border-left-color: #f59e0b; }
+.main-card { border: none; }
+.toolbar { padding-top: 4px; }
+.dialog-alert { margin-bottom: 20px; }
 
-.query-form {
-  padding-bottom: 6px;
-  border-bottom: 1px solid #eef2f7;
-}
-
-.query-form :deep(.el-form-item) {
-  margin-right: 10px;
-  margin-bottom: 10px;
-}
-
-.query-form :deep(.el-input),
-.query-form :deep(.el-select),
-.query-form :deep(.el-date-editor.el-input) {
-  width: 142px;
-}
-
-.table-actions {
-  margin: 10px 0;
-}
-
-.table-stat {
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.refund-table {
-  width: 100%;
-}
-
-.refund-table :deep(.el-table__inner-wrapper) {
-  min-width: max-content;
-}
-
-.refund-table :deep(.el-scrollbar__bar.is-horizontal) {
-  height: 10px;
-}
-
-.refund-table :deep(.el-scrollbar__bar.is-horizontal .el-scrollbar__thumb) {
-  background-color: #94a3b8;
-}
-
-.refund-table :deep(.el-table__cell) {
-  padding: 5px 0;
-}
-
-.refund-table :deep(.cell) {
-  padding-left: 6px;
-  padding-right: 6px;
-  white-space: nowrap;
-}
-
-.refund-table :deep(.el-tag) {
-  max-width: 76px;
-}
-
-.refund-table :deep(.el-progress__text) {
-  min-width: 36px;
-}
-
-.recent-task-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
-  color: #64748b;
-  font-size: 12px;
-}
-
-.json-box {
-  max-height: 380px;
-  overflow: auto;
-  margin-top: 12px;
-  padding: 12px;
-  color: #d7e0ef;
-  background: #111827;
-  border-radius: 6px;
-  font-size: 12px;
-  white-space: pre-wrap;
-}
-
-.mt8 {
-  margin-top: 8px;
-}
-
-.mt12 {
-  margin-top: 12px;
-}
-
-.mb12 {
-  margin-bottom: 12px;
-}
+:deep(.el-upload), :deep(.el-upload-dragger) { width: 100%; }
 
 @media (max-width: 900px) {
-  .tax-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
+  .page-head { align-items: flex-start; flex-direction: column; }
+  .head-actions { justify-content: flex-start; }
 }
 </style>
