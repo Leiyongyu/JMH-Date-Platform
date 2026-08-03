@@ -81,6 +81,10 @@
         SELECT
           CASE
             WHEN l.site_name IN ('德国', '法国', '美国', '英国') THEN l.site_name
+            WHEN UPPER(TRIM(l.site_name)) IN ('US', 'USA', 'UNITED STATES', 'MOTO') THEN '美国'
+            WHEN UPPER(TRIM(l.site_name)) IN ('DE', 'GER', 'GERMANY') THEN '德国'
+            WHEN UPPER(TRIM(l.site_name)) IN ('UK', 'GB', 'UNITED KINGDOM') THEN '英国'
+            WHEN UPPER(TRIM(l.site_name)) IN ('FR', 'FRANCE') THEN '法国'
             WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) IN ('US', 'MOTO') THEN '美国'
             WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'DE' THEN '德国'
             WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'UK' THEN '英国'
@@ -106,6 +110,10 @@
         GROUP BY
           CASE
             WHEN l.site_name IN ('德国', '法国', '美国', '英国') THEN l.site_name
+            WHEN UPPER(TRIM(l.site_name)) IN ('US', 'USA', 'UNITED STATES', 'MOTO') THEN '美国'
+            WHEN UPPER(TRIM(l.site_name)) IN ('DE', 'GER', 'GERMANY') THEN '德国'
+            WHEN UPPER(TRIM(l.site_name)) IN ('UK', 'GB', 'UNITED KINGDOM') THEN '英国'
+            WHEN UPPER(TRIM(l.site_name)) IN ('FR', 'FRANCE') THEN '法国'
             WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) IN ('US', 'MOTO') THEN '美国'
             WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'DE' THEN '德国'
             WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'UK' THEN '英国'

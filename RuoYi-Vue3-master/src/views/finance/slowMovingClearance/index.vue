@@ -10,28 +10,24 @@
       </div>
     </el-card>
 
-    <el-card shadow="never" class="filter-card">
-      <el-form ref="queryRef" :model="query" inline label-width="72px">
-        <el-form-item label="拉取月份" prop="pullMonth">
-          <el-date-picker
-            v-model="query.pullMonth"
-            type="month"
-            value-format="YYYY-MM"
-            placeholder="默认最新月份"
-            clearable
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" icon="Search" @click="handleQuery">查询</el-button>
-          <el-button icon="Refresh" @click="resetQuery">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
     <section class="summary-grid">
-      <article class="summary-item">
+      <article class="summary-item snapshot-item">
         <span>快照月份</span>
-        <strong>{{ summary.pull_month || query.pullMonth || '暂无' }}</strong>
+        <el-select
+          v-model="query.pullMonth"
+          class="snapshot-select"
+          placeholder="暂无快照"
+          :loading="monthsLoading"
+          clearable
+          @change="handleMonthChange"
+        >
+          <el-option
+            v-for="item in snapshotMonths"
+            :key="item.pull_month"
+            :label="item.pull_month"
+            :value="item.pull_month"
+          />
+        </el-select>
       </article>
       <article class="summary-item">
         <span>库存总数量</span>
@@ -55,10 +51,6 @@
         <span>181天以上数量 / 成本</span>
         <strong>{{ number(summary.inventory_181_plus_qty) }}</strong>
         <small>{{ money(summary.inventory_181_plus_cost) }}</small>
-      </article>
-      <article class="summary-item">
-        <span>最近拉取时间</span>
-        <strong class="time-value">{{ summary.pulled_at || '-' }}</strong>
       </article>
     </section>
 
@@ -140,12 +132,14 @@
 import { onMounted, reactive, ref } from 'vue'
 import {
   getSlowMovingClearanceSummary,
-  listSlowMovingClearance
+  listSlowMovingClearance,
+  listSlowMovingClearanceMonths
 } from '@/api/finance/slowMovingClearance'
 
-const queryRef = ref()
 const loading = ref(false)
+const monthsLoading = ref(false)
 const rows = ref([])
+const snapshotMonths = ref([])
 const summary = reactive({})
 const query = reactive({
   pageNum: 1,
@@ -174,30 +168,35 @@ async function loadData() {
       getSlowMovingClearanceSummary(query.pullMonth)
     ])
     rows.value = listResponse.rows || []
+    Object.keys(summary).forEach(key => delete summary[key])
     Object.assign(summary, summaryResponse.data || {})
+    query.pullMonth = summary.pull_month || listResponse.pullMonth || query.pullMonth
   } finally {
     loading.value = false
   }
 }
 
-function handleQuery() {
+async function loadMonths() {
+  monthsLoading.value = true
+  try {
+    const response = await listSlowMovingClearanceMonths()
+    snapshotMonths.value = response.data || []
+  } finally {
+    monthsLoading.value = false
+  }
+}
+
+function handleMonthChange() {
   query.pageNum = 1
   loadData()
 }
 
-function resetQuery() {
-  queryRef.value?.resetFields()
-  query.pageNum = 1
-  loadData()
-}
-
-onMounted(loadData)
+onMounted(() => Promise.all([loadMonths(), loadData()]))
 </script>
 
 <style scoped>
 .clearance-page { background: #f6f8fb; min-height: calc(100vh - 84px); }
 .hero-card,
-.filter-card,
 .table-card { border-radius: 10px; margin-bottom: 16px; }
 .hero {
   display: flex;
@@ -210,22 +209,41 @@ onMounted(loadData)
 .eyebrow { color: #2563eb; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(6, minmax(160px, 1fr));
+  gap: 10px;
   margin-bottom: 16px;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
 .summary-item {
-  padding: 16px 18px;
+  min-width: 0;
+  min-height: 98px;
+  padding: 14px 16px;
   border: 1px solid #e7ebf1;
   border-radius: 10px;
   background: #fff;
+  box-sizing: border-box;
 }
 .summary-item span { display: block; color: #64748b; font-size: 12px; }
-.summary-item strong { display: block; margin-top: 8px; color: #172033; font-size: 21px; }
+.summary-item strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 8px;
+  color: #172033;
+  font-size: clamp(17px, 1.25vw, 21px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .summary-item small { display: block; margin-top: 4px; color: #64748b; font-size: 13px; }
+.summary-item.snapshot-item { border-top: 3px solid #2563eb; }
 .summary-item.warning { border-top: 3px solid #f59e0b; }
 .summary-item.danger { border-top: 3px solid #dc2626; }
-.summary-item .time-value { font-size: 13px; line-height: 26px; }
+.snapshot-select { width: 100%; margin-top: 9px; }
+.snapshot-select :deep(.el-select__wrapper) {
+  min-height: 34px;
+  background: #f8fafc;
+  box-shadow: 0 0 0 1px #dbe4f0 inset;
+}
 .table-header {
   display: flex;
   align-items: center;
@@ -235,11 +253,7 @@ onMounted(loadData)
 .table-hint { margin-top: 4px; color: #94a3b8; font-size: 12px; }
 .age-danger { color: #dc2626; font-weight: 700; }
 .age-table :deep(.el-table__header th) { background: #f8fafc; color: #475569; }
-@media (max-width: 1400px) {
-  .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
 @media (max-width: 768px) {
   .hero { align-items: flex-start; flex-direction: column; }
-  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>

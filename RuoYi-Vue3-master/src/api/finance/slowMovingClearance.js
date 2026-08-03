@@ -15,3 +15,11 @@ export function getSlowMovingClearanceSummary(pullMonth) {
     params: { pullMonth }
   })
 }
+
+export function listSlowMovingClearanceMonths(limit = 24) {
+  return request({
+    url: '/finance/slow-moving-clearance/months',
+    method: 'get',
+    params: { limit }
+  })
+}

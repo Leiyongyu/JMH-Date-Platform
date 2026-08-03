@@ -118,7 +118,8 @@ public class EbayPriceTrackingComputeService
             String sku = d.getSku() != null ? d.getSku().trim() : "", site = InventoryUtils.normalizeSite(d.getSite());
             if (sku.isEmpty() || site == null || site.isEmpty()) continue;
             String key = site + "|" + sku;
-            dedupByKey.put(key, d);
+            EbayProductDedup existing = dedupByKey.get(key);
+            dedupByKey.put(key, existing == null ? d : mergeDedup(existing, d));
             skuProductName.putIfAbsent(sku, d.getProductName() != null ? d.getProductName().trim() : "");
             skuSites.computeIfAbsent(sku, k -> new LinkedHashSet<>()).add(site);
         }
@@ -248,6 +249,47 @@ public class EbayPriceTrackingComputeService
 
         log.info("==== eBay跟价快照计算 完成: {}条, 耗时{}ms ====", result.size(), System.currentTimeMillis() - start);
         return result;
+    }
+
+    /**
+     * 防御历史英文/中文站点重复数据：中文记录优先，空字段从别名记录补齐；
+     * 最低价及 Item Number 必须作为一组按最近上传时间选择。
+     */
+    private EbayProductDedup mergeDedup(EbayProductDedup left, EbayProductDedup right)
+    {
+        boolean leftCanonical = isCanonicalSite(left.getSite());
+        boolean rightCanonical = isCanonicalSite(right.getSite());
+        EbayProductDedup target = rightCanonical && !leftCanonical ? right : left;
+        EbayProductDedup source = target == left ? right : left;
+
+        if (!StringUtils.hasText(target.getProductName())) target.setProductName(source.getProductName());
+        if (target.getProductNature() == null) target.setProductNature(source.getProductNature());
+        if (!StringUtils.hasText(target.getOeNumber())) target.setOeNumber(source.getOeNumber());
+        if (target.getTrackingPrice() == null) target.setTrackingPrice(source.getTrackingPrice());
+        if (target.getTrackingProfitMargin() == null) target.setTrackingProfitMargin(source.getTrackingProfitMargin());
+        if (target.getFloorPrice() == null) target.setFloorPrice(source.getFloorPrice());
+        if (!StringUtils.hasText(target.getRemark())) target.setRemark(source.getRemark());
+        if (target.getProfitRate() == null) target.setProfitRate(source.getProfitRate());
+        if (target.getReturnRate() == null) target.setReturnRate(source.getReturnRate());
+
+        boolean useSourceLowest = source.getLowestPrice() != null
+                && (target.getLowestPrice() == null
+                    || target.getLowestUploadTime() == null
+                    || (source.getLowestUploadTime() != null
+                        && source.getLowestUploadTime().after(target.getLowestUploadTime())));
+        if (useSourceLowest)
+        {
+            target.setLowestPrice(source.getLowestPrice());
+            target.setLowestItemNumber(source.getLowestItemNumber());
+            target.setLowestUploadTime(source.getLowestUploadTime());
+        }
+        return target;
+    }
+
+    private boolean isCanonicalSite(String site)
+    {
+        return "美国".equals(site) || "英国".equals(site)
+                || "德国".equals(site) || "法国".equals(site);
     }
 
     // ---- 解析库存仓库配置 ----

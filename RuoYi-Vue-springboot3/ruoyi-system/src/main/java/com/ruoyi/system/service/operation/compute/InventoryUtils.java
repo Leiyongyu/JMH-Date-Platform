@@ -2,6 +2,7 @@ package com.ruoyi.system.service.operation.compute;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Locale;
 
 /**
  * 库存计算工具类：SKU提取、站点映射、安全除法、产品等级计算。
@@ -48,14 +49,31 @@ public final class InventoryUtils
     public static String siteCodeToSite(String code)
     {
         if (code == null) return "";
-        switch (code.toUpperCase())
+        String value = code.trim();
+        if (value.isEmpty()) return "";
+        int separator = value.lastIndexOf('-');
+        if (separator >= 0 && separator < value.length() - 1)
+            value = value.substring(separator + 1);
+        switch (value.toUpperCase(Locale.ROOT))
         {
             case "US":
-            case "MOTO": return "美国";
-            case "DE": return "德国";
-            case "UK": return "英国";
-            case "FR": return "法国";
-            default: return code;
+            case "USA":
+            case "UNITED STATES":
+            case "MOTO":
+                return "美国";
+            case "DE":
+            case "GER":
+            case "GERMANY":
+                return "德国";
+            case "UK":
+            case "GB":
+            case "UNITED KINGDOM":
+                return "英国";
+            case "FR":
+            case "FRANCE":
+                return "法国";
+            default:
+                return code.trim();
         }
     }
 
