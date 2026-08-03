@@ -334,6 +334,39 @@ def _ensure_purchase_detail_fifo_columns(cursor) -> None:
         )
 
 
+def _ensure_performance_request_id_columns(cursor) -> None:
+    """Keep request IDs large enough for the Java Quartz correlation format."""
+    for table_name in (
+        "performance_import_batch",
+        "performance_refresh_run",
+        "scheduler_task_run",
+    ):
+        cursor.execute(
+            f"SHOW COLUMNS FROM `{table_name}` LIKE 'request_id'"
+        )
+        column = cursor.fetchone()
+        if not column:
+            cursor.execute(
+                f"ALTER TABLE `{table_name}` "
+                "ADD COLUMN request_id VARCHAR(128) NULL COMMENT '请求ID'"
+            )
+            continue
+        column_type = str(column.get("Type") or "").lower()
+        if column_type.startswith("varchar("):
+            try:
+                current_length = int(
+                    column_type.removeprefix("varchar(").split(")", 1)[0]
+                )
+            except ValueError:
+                current_length = 0
+            if current_length >= 128:
+                continue
+        cursor.execute(
+            f"ALTER TABLE `{table_name}` "
+            "MODIFY COLUMN request_id VARCHAR(128) NULL COMMENT '请求ID'"
+        )
+
+
 def _connect(database: str | None = None) -> Connection:
     return pymysql.connect(
         host=settings.mysql_host,
@@ -372,6 +405,7 @@ def init_database() -> None:
             _ensure_purchase_invoice_summary_indexes(cursor)
             _ensure_inventory_match_columns(cursor)
             _ensure_purchase_detail_fifo_columns(cursor)
+            _ensure_performance_request_id_columns(cursor)
         connection.commit()
     finally:
         connection.close()
