@@ -132,6 +132,9 @@ public class AmzProductPerformanceInventorySyncService
 
         if (rows.size() >= 100 && positiveRows == 0)
         {
+            LOG.warn("领星产品表现库存质量校验失败: 返回记录数={}, 有效库存记录数={}, "
+                            + "FBA在库合计={}, FBA在途合计={}, FBA计划入库合计={}",
+                    rows.size(), positiveRows, fbaStockTotal, fbaInboundTotal, fbaInboundWorkingTotal);
             throw new IllegalStateException("领星-Amazon产品表现库存异常：返回"
                     + rows.size() + "条，但所有FBA库存、在途和计划入库均为0；已拒绝覆盖原库存数据");
         }
@@ -169,14 +172,17 @@ public class AmzProductPerformanceInventorySyncService
         if (sid == null || sellerSku.isEmpty()) return null;
 
         Map<String, Object> available = getMap(row, "available_inventory");
-        int fulfillable = intVal(available, row, "afn_fulfillable_quantity");
-        int transfer = intVal(available, row, "reserved_fc_transfers");
-        int receiving = intVal(available, row, "afn_inbound_receiving_quantity");
-        int customerOrders = intVal(available, row, "reserved_customerorders");
-        int processing = intVal(available, row, "reserved_fc_processing");
+        // The documented top-level fields are the product-performance inventory source.
+        // available_inventory is formula-dependent and may be present with all-zero values,
+        // so it must only be used as a fallback when a top-level field is absent.
+        int fulfillable = intVal(row, available, "afn_fulfillable_quantity");
+        int transfer = intVal(row, available, "reserved_fc_transfers");
+        int receiving = intVal(row, available, "afn_inbound_receiving_quantity");
+        int customerOrders = intVal(row, available, "reserved_customerorders");
+        int processing = intVal(row, available, "reserved_fc_processing");
         int reserved = customerOrders + processing;
-        int inbound = intVal(available, row, "afn_inbound_shipped_quantity");
-        int inboundWorking = intVal(available, row, "afn_inbound_working_quantity");
+        int inbound = intVal(row, available, "afn_inbound_shipped_quantity");
+        int inboundWorking = intVal(row, available, "afn_inbound_working_quantity");
 
         AmzProductPerformanceInventory entity = new AmzProductPerformanceInventory();
         entity.setSid(sid);

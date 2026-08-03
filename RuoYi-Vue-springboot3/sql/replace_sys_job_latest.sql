@@ -1,7 +1,7 @@
 -- 将部署机 sys_job 替换为当前最新调度方案。
 -- 执行建议：停止后端 -> 执行本脚本 -> 启动后端，让 Quartz 从数据库重新加载任务。
 -- 规则：旧 operationSyncTask 单接口任务保留但暂停；
--- 六条链路任务和FBA库存月度快照任务启用。
+-- 六条链路任务和 Python FBA 库龄任务启用。
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -22,11 +22,7 @@ SET status = '1',
     update_time = NOW(),
     remark = CONCAT(IFNULL(remark, ''), IF(INSTR(IFNULL(remark, ''), '；已切换为链路调度，自动任务暂停') > 0, '', '；已切换为链路调度，自动任务暂停'))
 WHERE job_group = 'OPERATION'
-  AND invoke_target LIKE 'operationSyncTask.%'
-  AND invoke_target NOT IN (
-    'operationSyncTask.syncAmzFbaInventorySnapshot',
-    'operationSyncTask.syncAmzFbaInventorySnapshot()'
-  );
+  AND invoke_target LIKE 'operationSyncTask.%';
 
 -- 3) 清理错误格式/重复链路任务，只保留带 () 的标准格式。
 DELETE FROM sys_job
@@ -63,21 +59,23 @@ ON DUPLICATE KEY UPDATE
   update_time = VALUES(update_time),
   remark = VALUES(remark);
 
--- 4.1) 独立低频任务：每月1日22:30拉取当前年月FBA库存完整快照。
+-- 4.1) 独立低频任务：Java Quartz 调用 Python FBA 库龄 ETL。
 UPDATE sys_job
-SET job_name = '领星-Amazon FBA库存月度快照',
-    job_group = 'OPERATION',
-    invoke_target = 'operationSyncTask.syncAmzFbaInventorySnapshot()',
+SET job_name = '领星-Amazon FBA库存库龄同步',
+    job_group = 'FINANCE',
+    invoke_target = 'pythonFbaInventoryTask.syncCurrentMonth()',
     cron_expression = '0 30 22 1 * ?',
     misfire_policy = '2',
     concurrent = '1',
     status = '0',
     update_by = 'SYSTEM',
     update_time = NOW(),
-    remark = '每月1日22:30全量拉取当前年月；同年月整月覆盖，不同年月新增保留'
+    remark = 'Java Quartz调度；Python执行FBA库存ODS/DWD/DWS，每月1日22:30'
 WHERE invoke_target IN (
   'operationSyncTask.syncAmzFbaInventorySnapshot',
-  'operationSyncTask.syncAmzFbaInventorySnapshot()'
+  'operationSyncTask.syncAmzFbaInventorySnapshot()',
+  'pythonFbaInventoryTask.syncCurrentMonth',
+  'pythonFbaInventoryTask.syncCurrentMonth()'
 );
 
 INSERT INTO sys_job (
@@ -85,22 +83,24 @@ INSERT INTO sys_job (
   misfire_policy, concurrent, status, create_by, create_time, remark
 )
 SELECT
-  '领星-Amazon FBA库存月度快照',
-  'OPERATION',
-  'operationSyncTask.syncAmzFbaInventorySnapshot()',
+  '领星-Amazon FBA库存库龄同步',
+  'FINANCE',
+  'pythonFbaInventoryTask.syncCurrentMonth()',
   '0 30 22 1 * ?',
   '2',
   '1',
   '0',
   'SYSTEM',
   NOW(),
-  '每月1日22:30全量拉取当前年月；同年月整月覆盖，不同年月新增保留'
+  'Java Quartz调度；Python执行FBA库存ODS/DWD/DWS，每月1日22:30'
 WHERE NOT EXISTS (
   SELECT 1
   FROM sys_job
   WHERE invoke_target IN (
     'operationSyncTask.syncAmzFbaInventorySnapshot',
-    'operationSyncTask.syncAmzFbaInventorySnapshot()'
+    'operationSyncTask.syncAmzFbaInventorySnapshot()',
+    'pythonFbaInventoryTask.syncCurrentMonth',
+    'pythonFbaInventoryTask.syncCurrentMonth()'
   )
 );
 

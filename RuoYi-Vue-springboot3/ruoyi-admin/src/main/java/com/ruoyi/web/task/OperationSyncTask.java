@@ -8,7 +8,6 @@ import com.ruoyi.system.service.operation.external.goodcang.GoodcangProductSyncS
 import com.ruoyi.system.service.operation.external.goodcang.GoodcangWarehouseSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.AmzOrderProfitSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.AmzOrderProfit90dSyncService;
-import com.ruoyi.system.service.operation.external.lingxing.AmzMonthlyOrderProfitSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.AmzProductPerformanceInventorySyncService;
 import com.ruoyi.system.service.operation.external.lingxing.AmzRestockSummarySyncService;
 import com.ruoyi.system.service.operation.external.lingxing.AmzWarehouseInventorySyncService;
@@ -21,7 +20,6 @@ import com.ruoyi.system.service.operation.external.lingxing.LingxingPurchasePlan
 import com.ruoyi.system.service.operation.external.lingxing.LingxingShopSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingStatementSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.AmzFbaShipmentSyncService;
-import com.ruoyi.system.service.operation.external.lingxing.AmzFbaInventorySnapshotSyncService;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingWarehouseSyncService;
 import com.ruoyi.system.service.operation.sync.OperationSyncContext;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
@@ -95,16 +93,12 @@ public class OperationSyncTask
             () -> SpringUtils.getBean(AmzOrderProfitSyncService.class).syncAll()); }
     public void syncAmzOrderProfit90d() { exec("amz_order_profit_90d", "领星-Amazon最近90天利润率", "basicOpen/finance/mreport/OrderProfit", LOCK_LINGXING_AMZ,
             () -> SpringUtils.getBean(AmzOrderProfit90dSyncService.class).syncAll()); }
-    public void syncAmzMonthlyOrderProfit() { exec("amz_monthly_order_profit", "领星-Amazon月度完整订单利润", "basicOpen/finance/mreport/OrderProfit", LOCK_LINGXING_AMZ,
-            () -> SpringUtils.getBean(AmzMonthlyOrderProfitSyncService.class).syncPreviousMonth()); }
     public void syncAmzRestockSummary() { exec("amz_restock_summary", "领星-Amazon补货建议", "erp/sc/routing/restocking/analysis/getSummaryList", LOCK_LINGXING_AMZ,
             () -> SpringUtils.getBean(AmzRestockSummarySyncService.class).syncAll()); }
     public void syncAmzProductPerformanceInventory() { exec("amz_product_inventory", "领星-Amazon产品表现库存", "bd/productPerformance/openApi/asinList", LOCK_LINGXING_AMZ,
             () -> SpringUtils.getBean(AmzProductPerformanceInventorySyncService.class).syncAll()); }
     public void syncAmzWarehouseInventory() { exec("amz_warehouse_inventory", "领星-Amazon库存明细", "erp/sc/routing/data/local_inventory/inventoryDetails", LOCK_LINGXING_AMZ,
             () -> SpringUtils.getBean(AmzWarehouseInventorySyncService.class).syncAll()); }
-    public void syncAmzFbaInventorySnapshot() { exec("amz_fba_inventory_snapshot", "领星-Amazon FBA库存月度快照", "basicOpen/openapi/storage/fbaWarehouseDetail", LOCK_LINGXING_AMZ,
-            () -> SpringUtils.getBean(AmzFbaInventorySnapshotSyncService.class).syncCurrentMonth()); }
     public void refreshAmzReplenishmentSnapshot() { exec("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment", LOCK_LINGXING_AMZ,
             () -> { int rows = SpringUtils.getBean(com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService.class).refreshSnapshot();
                     return OperationSyncResult.success("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment", rows, rows, 0); }); }

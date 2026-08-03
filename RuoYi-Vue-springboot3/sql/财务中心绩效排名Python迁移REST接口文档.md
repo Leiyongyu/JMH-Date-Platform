@@ -939,32 +939,15 @@ Controller：
 
 - `ruoyi-admin/src/main/java/com/ruoyi/web/controller/finance/PerformanceRankingController.java`
 
-Service：
+Java 代理与调度：
 
-- `PerformanceRankingService.java`
-- `EbayPerformanceRankingService.java`
-- `CombinedPerformanceRankingService.java`
-- `PerformanceOwnerRuleImportService.java`
-- `EbayPerformanceImportService.java`
-- `AmzMonthlyOrderProfitSyncService.java`
+- `PerformancePythonClient.java`
+- `PerformancePythonProperties.java`
+- `PythonPerformanceSchedulerClient.java`
+- `PythonPerformanceTask.java`
 
-Mapper：
-
-- `AmzPerformanceRankingMapper.xml`
-- `EbayPerformanceRankingMapper.xml`
-- `CombinedPerformanceRankingMapper.xml`
-- `AmzPerformanceOwnerRuleMapper.xml`
-- `EbayPerformanceOwnerRuleMapper.xml`
-- `EbayPerformanceProfitMapper.xml`
-- `AmzMonthlyOrderProfitMapper.xml`
-
-DDL：
-
-- `sql/20260727_amz_monthly_order_profit_performance.sql`
-- `sql/20260728_amz_performance_owner_rule.sql`
-- `sql/20260728_ebay_performance_ranking.sql`
-- `sql/20260728_combined_performance_ranking.sql`
-- `sql/绩效排名部署SQL执行顺序.md`
+旧 Java 本地计算 Service、Mapper、Domain 和安装 SQL 已在迁移完成后删除。
+ODS、DWD、DWS 表结构以 Date-Project 的 `backend/schema.sql` 和 `migrations/` 为准。
 
 ## 18. 最终建议
 

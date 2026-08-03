@@ -37,11 +37,8 @@ SELECT job_id, job_name, job_group, invoke_target, cron_expression,
 FROM sys_job
 WHERE job_id = 240;
 
--- 若需短期回滚，在任务管理页面先暂停任务，再执行：
--- UPDATE sys_job
--- SET invoke_target = 'operationSyncTask.syncAmzMonthlyOrderProfit()',
---     status = '0', update_by = 'SYSTEM', update_time = NOW()
--- WHERE job_id = 240;
+-- 旧 Java 本地 ETL 已移除，故障时暂停任务并在修复 Python 服务后按月补跑，
+-- 不得再将 invoke_target 恢复为 operationSyncTask 旧方法。
 --
 -- 直接执行SQL后需重启Java服务，或在若依任务管理页面对该任务执行一次
 -- “修改并保存”，使Quartz运行时配置与sys_job保持一致。

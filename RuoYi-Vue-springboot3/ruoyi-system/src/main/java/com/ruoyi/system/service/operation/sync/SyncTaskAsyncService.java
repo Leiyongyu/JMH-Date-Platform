@@ -142,6 +142,29 @@ public class SyncTaskAsyncService
             }
         }
 
+        void completeFrom(OperationSyncResult result)
+        {
+            if (result == null)
+            {
+                markFailed("no result from sync");
+                return;
+            }
+            this.parentStatus = result.getStatus();
+            this.totalSteps = result.getTotalCount();
+            this.successSteps = result.getSuccessCount();
+            this.failedSteps = result.getFailCount();
+            this.elapsedSeconds = result.getElapsedMs() / 1000.0;
+            this.errorMessage = result.getErrorMessage();
+            if (result.getDetails() != null)
+            {
+                Object logId = result.getDetails().get("parentLogId");
+                if (logId instanceof Number) this.parentLogId = ((Number) logId).longValue();
+            }
+            this.status = result.getStatus() != null
+                    ? result.getStatus()
+                    : TaskStatus.FAILED.getValue();
+        }
+
         void markSuccess(String s) { status = s; }
         void markFailed(String msg) { status = TaskStatus.FAILED.getValue(); errorMessage = msg; }
 

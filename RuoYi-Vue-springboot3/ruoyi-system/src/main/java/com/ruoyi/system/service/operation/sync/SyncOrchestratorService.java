@@ -38,6 +38,7 @@ public class SyncOrchestratorService
     private static final int STEP_TIMEOUT_MINUTES = 60;
     private static final int STEP_MAX_ATTEMPTS = 2;
     private static final int STEP_RETRY_DELAY_SECONDS = 10;
+    private static final int INVENTORY_QUALITY_RETRY_DELAY_SECONDS = 300;
 
     private final ThreadPoolTaskExecutor executor;
 
@@ -147,7 +148,7 @@ public class SyncOrchestratorService
         )),
         STOCK_ORDER("stock_order", "备货单数据同步", Arrays.asList(
             new StepDef("stock_order", "领星-备货单号", "erp/sc/routing/owms/inbound/listInbound",
-                true, false, true,
+                true, true, true,
                 () -> SpringUtils.getBean(OverseasStockOrderSyncService.class).sync()),
             new StepDef("stock_order_detail", "领星-备货单详情", "basicOpen/overSeaWarehouse/stockOrder/detail",
                 false, false, true,
@@ -197,33 +198,50 @@ public class SyncOrchestratorService
 
     // ==================== 公开入口 ====================
 
-    public void execute(String chainCode)
+    public OperationSyncResult execute(String chainCode)
+    {
+        return execute(chainCode, "JOB", "SYSTEM");
+    }
+
+    /** Execute the same chain for Quartz and manual submissions, changing only audit metadata. */
+    public OperationSyncResult execute(String chainCode, String triggerType, String operator)
     {
         Chain chain;
         try { chain = Chain.valueOf(chainCode.toUpperCase()); }
-        catch (IllegalArgumentException e) { LOG.error("未知链路: {}", chainCode); return; }
-        executeChain(chain);
+        catch (IllegalArgumentException e)
+        {
+            LOG.error("未知链路: {}", chainCode);
+            return OperationSyncResult.failed("chain:" + chainCode, chainCode, "",
+                    "未知同步链路: " + chainCode, 0);
+        }
+        return executeChain(chain, triggerType, operator);
     }
 
     // ==================== 核心编排 ====================
 
-    private void executeChain(Chain chain)
+    private OperationSyncResult executeChain(Chain chain, String triggerType, String operator)
     {
         RedisCache redis = SpringUtils.getBean(RedisCache.class);
         String chainLock = "lock:sync:chain:" + chain.code;
 
         if (!redis.tryLock(chainLock, CHAIN_LOCK_TTL))
-        { LOG.info("[SKIP] 链路 {} 执行中，跳过", chain.name); return; }
+        {
+            LOG.info("[SKIP] 链路 {} 执行中，跳过", chain.name);
+            return OperationSyncResult.skipped("chain:" + chain.code, chain.name, "",
+                    "同步链路正在执行中，未重复启动", 0);
+        }
 
         long start = System.currentTimeMillis();
         IOperationSyncLogService logSvc = SpringUtils.getBean(IOperationSyncLogService.class);
-        Long parentId = logSvc.start("chain:" + chain.code, chain.name, "", "JOB", "SYSTEM", null, null);
+        Long parentId = null;
         int success = 0, failed = 0;
         boolean criticalFailed = false;
         List<OperationSyncResult.FailureItem> failureItems = new ArrayList<>();
 
         try
         {
+            parentId = logSvc.start("chain:" + chain.code, chain.name, "",
+                    triggerType, operator, null, null);
             for (StepDef step : chain.steps)
             {
                 if (criticalFailed)
@@ -243,7 +261,7 @@ public class SyncOrchestratorService
                     if (step.usesLingxing) { LINGXING_SEM.acquire(); semAcquired = true; }
 
                     childId = logSvc.start("chain:" + chain.code + ":" + step.code,
-                            step.name, step.apiPath, "JOB", "SYSTEM", null, null, parentId);
+                            step.name, step.apiPath, triggerType, operator, null, null, parentId);
                     final Long fChildId = childId;
 
                     OperationSyncResult r = executeStepWithRetry(chain, step, stepStart);
@@ -290,6 +308,7 @@ public class SyncOrchestratorService
             pr.setSyncType("chain:" + chain.code); pr.setSyncName(chain.name); pr.setStatus(ps);
             pr.setTotalCount(chain.steps.size()); pr.setSuccessCount(success); pr.setFailCount(failed); pr.setElapsedMs(elapsed);
             pr.setFailures(failureItems);
+            pr.setDetails(Map.of("parentLogId", parentId));
             if (!failureItems.isEmpty())
             {
                 pr.setErrorMessage(failureItems.get(0).getReason());
@@ -297,14 +316,17 @@ public class SyncOrchestratorService
             logSvc.finish(parentId, pr);
             OperationSyncContext.set(pr);
             LOG.info("链路 {} 完成: {}成功 {}失败 耗时{}s", chain.name, success, failed, elapsed / 1000.0);
+            return pr;
         }
         catch (Exception e)
         {
             LOG.error("链路 {} 异常: {}", chain.name, e.getMessage(), e);
             OperationSyncResult failedResult = OperationSyncResult.failed("chain:" + chain.code, chain.name, "",
                     rootMessage(e), System.currentTimeMillis() - start);
+            if (parentId != null) failedResult.setDetails(Map.of("parentLogId", parentId));
             OperationSyncContext.set(failedResult);
             if (parentId != null) logSvc.finish(parentId, failedResult);
+            return failedResult;
         }
         finally { redis.unlock(chainLock); }
     }
@@ -338,11 +360,24 @@ public class SyncOrchestratorService
                 return last;
             }
 
+            int retryDelaySeconds = retryDelaySeconds(step, last);
             LOG.warn("链路 {} 步骤 {} 第{}次执行失败，{}秒后重试: {}",
-                    chain.name, step.name, attempt, STEP_RETRY_DELAY_SECONDS, last.getErrorMessage());
-            TimeUnit.SECONDS.sleep(STEP_RETRY_DELAY_SECONDS);
+                    chain.name, step.name, attempt, retryDelaySeconds, last.getErrorMessage());
+            TimeUnit.SECONDS.sleep(retryDelaySeconds);
         }
         return last;
+    }
+
+    private int retryDelaySeconds(StepDef step, OperationSyncResult result)
+    {
+        // Product-performance inventory can briefly return all-zero inventory while
+        // Lingxing is refreshing daily data. Ten seconds is not enough for that case.
+        String error = result != null ? result.getErrorMessage() : null;
+        return "amz_product_inventory".equals(step.code)
+                && error != null
+                && error.contains("所有FBA库存")
+                ? INVENTORY_QUALITY_RETRY_DELAY_SECONDS
+                : STEP_RETRY_DELAY_SECONDS;
     }
 
     private OperationSyncResult executeStepOnce(Chain chain, StepDef step, long attemptStart)

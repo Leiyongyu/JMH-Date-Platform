@@ -1,7 +1,6 @@
 package com.ruoyi.system.service.operation.sync;
 
 import com.ruoyi.common.utils.spring.SpringUtils;
-import com.ruoyi.system.domain.operation.TaskStatus;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,11 +46,18 @@ public class SyncTaskRunner
         LOG.info("AMZ async sync started: submissionId={}, scope={}", sub.submissionId, scope);
         try
         {
-            AmzUnifiedSyncService svc = SpringUtils.getBean(AmzUnifiedSyncService.class);
-            Map<String, Object> result = "refresh".equals(scope)
-                    ? svc.refreshOnly(triggerType, operator)
-                    : svc.syncAll(triggerType, operator);
-            sub.completeFrom(result);
+            if ("refresh".equals(scope))
+            {
+                Map<String, Object> result = SpringUtils.getBean(AmzUnifiedSyncService.class)
+                        .refreshOnly(triggerType, operator);
+                sub.completeFrom(result);
+            }
+            else
+            {
+                OperationSyncResult result = SpringUtils.getBean(SyncOrchestratorService.class)
+                        .execute("amz", triggerType, operator);
+                sub.completeFrom(result);
+            }
         }
         catch (Exception e)
         {
@@ -67,13 +73,9 @@ public class SyncTaskRunner
         LOG.info("Stock-order async sync started: submissionId={}", sub.submissionId);
         try
         {
-            OperationSyncResult r = SpringUtils.getBean(
-                    com.ruoyi.system.service.operation.external.lingxing.OverseasStockOrderSyncService.class)
-                    .sync();
-            if (TaskStatus.SUCCESS.getValue().equals(r.getStatus()))
-                sub.markSuccess("SUCCESS");
-            else
-                sub.markFailed(r.getErrorMessage());
+            OperationSyncResult result = SpringUtils.getBean(SyncOrchestratorService.class)
+                    .execute("stock_order", "MANUAL", operator);
+            sub.completeFrom(result);
         }
         catch (Exception e)
         {

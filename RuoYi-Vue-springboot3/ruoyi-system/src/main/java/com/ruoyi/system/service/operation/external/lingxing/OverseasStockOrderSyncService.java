@@ -79,7 +79,16 @@ public class OverseasStockOrderSyncService
             page++;
         }
         LOG.info("备货单号 最近{}天同步完成({}~{}), 拉取/处理 {} 条, 新增 {} 条, 覆盖 {} 条", RECENT_DAYS, startDate, endDate, processed, inserted, updated);
-        return OperationSyncResult.success("stock_order", "领星-备货单号", API, processed, processed, System.currentTimeMillis() - start);
+        // This is a five-day incremental window. No newly created order is a valid result,
+        // not an API failure, and must not trigger retries or an enterprise-WeChat alert.
+        OperationSyncResult result = OperationSyncResult.successAllowEmpty(
+                "stock_order", "领星-备货单号", API,
+                processed, processed, System.currentTimeMillis() - start);
+        if (processed == 0)
+        {
+            result.setBusinessSummary("最近" + RECENT_DAYS + "天无新增备货单，本次增量同步正常完成");
+        }
+        return result;
     }
 
     @SuppressWarnings("unchecked")

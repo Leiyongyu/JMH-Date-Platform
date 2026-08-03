@@ -30,7 +30,9 @@ public class AmzUnifiedSyncService
         new StepDef("amz_listing", "领星-Amazon商品刊登", "erp/sc/data/mws/listing", true),
         new StepDef("amz_profit", "领星-Amazon订单利润", "basicOpen/finance/mreport/OrderProfit"),
         new StepDef("amz_restock", "领星-Amazon补货建议", "erp/sc/routing/restocking/analysis/getSummaryList"),
-        new StepDef("amz_product_inventory", "领星-Amazon产品表现库存", "bd/productPerformance/openApi/asinList"),
+        // Keep manual and scheduled semantics consistent: inventory failure must not be
+        // hidden as a non-critical partial success before refreshing replenishment data.
+        new StepDef("amz_product_inventory", "领星-Amazon产品表现库存", "bd/productPerformance/openApi/asinList", true),
         new StepDef("amz_inv", "领星-Amazon库存明细", "erp/sc/routing/data/local_inventory/inventoryDetails"),
         new StepDef("amz_fba", "领星-FBA货件", "erp/sc/data/fba_report/shipmentList"),
         new StepDef("amz_replenish", "刷新Amazon补货快照", "compute/amzReplenishment")

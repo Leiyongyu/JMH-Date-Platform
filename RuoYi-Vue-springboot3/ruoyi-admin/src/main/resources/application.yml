@@ -183,10 +183,6 @@ sync:
 
 # Python 外汇退税数据服务
 tax-refund:
-  python:
-    base-url: ${TAX_REFUND_PYTHON_BASE_URL:http://127.0.0.1:5000/api/v1}
-    connect-timeout: 5000
-    read-timeout: 300000
   data-project:
     base-url: ${TAX_REFUND_DATA_PROJECT_BASE_URL:http://127.0.0.1:8010}
     connect-timeout: 5000
