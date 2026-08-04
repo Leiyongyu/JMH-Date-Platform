@@ -1,0 +1,83 @@
+# 放在 nginx.conf 的 http { ... } 内、server { ... } 外。
+# 从若依 Admin-Token Cookie 中提取 JWT，供 auth_request 调用 Java 权限接口。
+map $http_cookie $operation_assistant_token {
+    default "";
+    ~*(?:^|;\s*)Admin-Token=([^;]+) $1;
+}
+
+map $operation_assistant_token $operation_assistant_authorization {
+    default "Bearer $operation_assistant_token";
+    ""      "";
+}
+
+# 以下内容放到承载 ERP 前端的 server { ... } 中。
+# 示例假设 OperationAssistant 的 dist 已复制到：
+# D:/JMH/nginx/html/operation-assistant/hub/
+
+location = /_operation_assistant_auth {
+    internal;
+    proxy_pass http://127.0.0.1:8080/operations/assistant/auth-check;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header Authorization $operation_assistant_authorization;
+    proxy_set_header X-Original-URI $request_uri;
+}
+
+location = /operation-assistant/hub {
+    return 301 /operation-assistant/hub/;
+}
+
+location /operation-assistant/hub/ {
+    auth_request /_operation_assistant_auth;
+    root D:/JMH/nginx/html;
+    try_files $uri $uri/ /operation-assistant/hub/index.html;
+}
+
+# 四个业务服务保留既有一级路径。它们的前端和 API 都依赖这些路径前缀。
+location /listing/ {
+    auth_request /_operation_assistant_auth;
+    client_max_body_size 50m;
+    proxy_pass http://127.0.0.1:8001/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 300s;
+}
+
+location /replenishment/ {
+    auth_request /_operation_assistant_auth;
+    client_max_body_size 50m;
+    proxy_pass http://127.0.0.1:8000/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 300s;
+}
+
+location /sop/ {
+    auth_request /_operation_assistant_auth;
+    client_max_body_size 50m;
+    proxy_pass http://127.0.0.1:8002/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 300s;
+}
+
+location /sku/ {
+    auth_request /_operation_assistant_auth;
+    client_max_body_size 50m;
+    proxy_pass http://127.0.0.1:3000/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 300s;
+}

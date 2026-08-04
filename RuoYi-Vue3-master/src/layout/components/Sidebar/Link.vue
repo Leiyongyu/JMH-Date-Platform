@@ -11,11 +11,15 @@ const props = defineProps({
   to: {
     type: [String, Object],
     required: true
+  },
+  external: {
+    type: Boolean,
+    default: false
   }
 })
 
 const isExt = computed(() => {
-  return isExternal(props.to)
+  return props.external || isExternal(props.to)
 })
 
 const type = computed(() => {

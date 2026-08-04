@@ -35,3 +35,7 @@ outputs/
 .codex-backups/
 .agents/
 docs/
+!RuoYi-Vue-springboot3/docs/
+RuoYi-Vue-springboot3/docs/*
+!RuoYi-Vue-springboot3/docs/OperationAssistant-ERP-Nginx.conf.example
+!RuoYi-Vue-springboot3/docs/OperationAssistant-ERP对接部署说明.md

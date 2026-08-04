@@ -38,7 +38,6 @@ public class SyncOrchestratorService
     private static final int STEP_TIMEOUT_MINUTES = 60;
     private static final int STEP_MAX_ATTEMPTS = 2;
     private static final int STEP_RETRY_DELAY_SECONDS = 10;
-    private static final int INVENTORY_QUALITY_RETRY_DELAY_SECONDS = 300;
 
     private final ThreadPoolTaskExecutor executor;
 
@@ -127,9 +126,6 @@ public class SyncOrchestratorService
             new StepDef("amz_restock", "领星-Amazon补货建议", "erp/sc/routing/restocking/analysis/getSummaryList",
                 false, false, true,
                 () -> SpringUtils.getBean(AmzRestockSummarySyncService.class).syncAll()),
-            new StepDef("amz_product_inventory", "领星-Amazon产品表现库存", "bd/productPerformance/openApi/asinList",
-                true, false, true,
-                () -> SpringUtils.getBean(AmzProductPerformanceInventorySyncService.class).syncAll()),
             new StepDef("amz_warehouse_inventory", "领星-Amazon库存明细", "erp/sc/routing/data/local_inventory/inventoryDetails",
                 false, false, true,
                 () -> SpringUtils.getBean(AmzWarehouseInventorySyncService.class).syncAll()),
@@ -360,24 +356,12 @@ public class SyncOrchestratorService
                 return last;
             }
 
-            int retryDelaySeconds = retryDelaySeconds(step, last);
+            int retryDelaySeconds = STEP_RETRY_DELAY_SECONDS;
             LOG.warn("链路 {} 步骤 {} 第{}次执行失败，{}秒后重试: {}",
                     chain.name, step.name, attempt, retryDelaySeconds, last.getErrorMessage());
             TimeUnit.SECONDS.sleep(retryDelaySeconds);
         }
         return last;
-    }
-
-    private int retryDelaySeconds(StepDef step, OperationSyncResult result)
-    {
-        // Product-performance inventory can briefly return all-zero inventory while
-        // Lingxing is refreshing daily data. Ten seconds is not enough for that case.
-        String error = result != null ? result.getErrorMessage() : null;
-        return "amz_product_inventory".equals(step.code)
-                && error != null
-                && error.contains("所有FBA库存")
-                ? INVENTORY_QUALITY_RETRY_DELAY_SECONDS
-                : STEP_RETRY_DELAY_SECONDS;
     }
 
     private OperationSyncResult executeStepOnce(Chain chain, StepDef step, long attemptStart)
