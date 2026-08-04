@@ -44,7 +44,7 @@ import org.springframework.web.multipart.MultipartFile;
 /**
  * 按“装箱信息模版.xlsx”逐个货件保存装箱信息到领星ERP，并复用发货单上传批次/明细日志。
  *
- * <p>一个请求对应一个FBA货件号；同组的每个Excel数据行表示一个箱子。
+ * <p>一个请求对应一个FBA货件号；同一箱号的多行商品合并为一个箱子的items。
  * STA编号、SID、领星内部货件ID和MSKU均从STA拆分表自动补齐。
  * 该接口只保存到领星ERP，不提交亚马逊。</p>
  */
@@ -56,7 +56,7 @@ public class CustomsPackingInfoImportService
     public static final String BUSINESS_TYPE = "PACKING_INFO";
     private static final String API =
             "amzStaServer/openapi/inbound-packing/setLocalPackingInformation";
-    private static final int COLUMN_COUNT = 11;
+    private static final int COLUMN_COUNT = 12;
     private static final int MAX_ROWS = 5000;
     private static final long MAX_FILE_SIZE = 20L * 1024 * 1024;
     private static final int MAX_ATTEMPTS = 2;
@@ -65,11 +65,11 @@ public class CustomsPackingInfoImportService
             DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
     private static final List<String> EXPECTED_HEADERS = List.of(
-            "货件号", "长", "宽", "高", "长度单位", "标签类型", "sku",
+            "货件号", "箱号", "长", "宽", "高", "长度单位", "标签类型", "sku",
             "预处理提供方", "申报量", "重量单位", "重量单位值");
 
     private static final String[] SOURCE_KEYS = {
-            "shipmentNo", "length", "width", "height", "unitOfMeasurement",
+            "shipmentNo", "boxNo", "length", "width", "height", "unitOfMeasurement",
             "labelOwner", "sku", "prepOwner", "quantity", "weightUnit", "weightValue"
     };
 
@@ -467,16 +467,17 @@ public class CustomsPackingInfoImportService
         {
             String prefix = "第" + row.rowNo + "行";
             required(row, 0, "货件号", prefix, errors);
-            positiveDecimal(row, 1, "长", prefix, errors);
-            positiveDecimal(row, 2, "宽", prefix, errors);
-            positiveDecimal(row, 3, "高", prefix, errors);
-            enumValue(row, 4, "长度单位", Set.of("IN", "CM"), prefix, errors);
-            enumValue(row, 5, "标签类型",
+            required(row, 1, "箱号", prefix, errors);
+            positiveDecimal(row, 2, "长", prefix, errors);
+            positiveDecimal(row, 3, "宽", prefix, errors);
+            positiveDecimal(row, 4, "高", prefix, errors);
+            enumValue(row, 5, "长度单位", Set.of("IN", "CM"), prefix, errors);
+            enumValue(row, 6, "标签类型",
                     Set.of("AMAZON", "SELLER", "NONE"), prefix, errors);
-            required(row, 6, "sku", prefix, errors);
-            enumValue(row, 7, "预处理提供方",
+            required(row, 7, "sku", prefix, errors);
+            enumValue(row, 8, "预处理提供方",
                     Set.of("AMAZON", "SELLER", "NONE"), prefix, errors);
-            positiveInteger(row, 8, "申报量", prefix, errors);
+            positiveInteger(row, 9, "申报量", prefix, errors);
             validateWeight(row, prefix, errors);
             if (StringUtils.hasText(trim(row.value(0))))
                 shipmentNos.add(trim(row.value(0)));
@@ -488,8 +489,8 @@ public class CustomsPackingInfoImportService
 
     private void validateWeight(ExcelRow row, String prefix, List<String> errors)
     {
-        String unit = upper(row.value(9));
-        String value = trim(row.value(10));
+        String unit = upper(row.value(10));
+        String value = trim(row.value(11));
         boolean hasUnit = StringUtils.hasText(unit);
         boolean hasValue = StringUtils.hasText(value);
         if (!hasUnit || !hasValue)
@@ -499,7 +500,7 @@ public class CustomsPackingInfoImportService
         }
         if (!Set.of("LB", "KG").contains(unit))
             errors.add(prefix + "重量单位必须为LB或KG");
-        positiveDecimal(row, 10, "重量单位值", prefix, errors);
+        positiveDecimal(row, 11, "重量单位值", prefix, errors);
     }
 
     private LingxingStaPackingContext resolvePackingContext(
@@ -563,7 +564,7 @@ public class CustomsPackingInfoImportService
         if (!StringUtils.hasText(recordKey)) return result;
         for (ExcelRow row : rows)
         {
-            String skuOrMsku = trim(row.value(6));
+            String skuOrMsku = trim(row.value(7));
             List<String> mskus =
                     staInboundPlanMapper.selectMskuBySkuOrMsku(recordKey, skuOrMsku);
             Set<String> distinct = new LinkedHashSet<>(mskus);
@@ -591,8 +592,14 @@ public class CustomsPackingInfoImportService
     {
         Map<String, Object> request = new LinkedHashMap<>();
         List<Map<String, Object>> boxes = new ArrayList<>();
+        Map<String, List<ExcelRow>> rowsByBoxNo = new LinkedHashMap<>();
         for (ExcelRow row : rows)
-            boxes.add(buildBox(row, resolvedMskuByRow.get(row.rowNo)));
+        {
+            String boxNo = trim(row.value(1));
+            rowsByBoxNo.computeIfAbsent(boxNo, unused -> new ArrayList<>()).add(row);
+        }
+        for (List<ExcelRow> boxRows : rowsByBoxNo.values())
+            boxes.add(buildBox(boxRows, resolvedMskuByRow));
         request.put("boxes", boxes);
         request.put("inboundPlanId", context.getInboundPlanId());
         request.put("shipmentId", context.getShipmentId());
@@ -600,26 +607,33 @@ public class CustomsPackingInfoImportService
         return request;
     }
 
-    private Map<String, Object> buildBox(ExcelRow row, String resolvedMsku)
+    private Map<String, Object> buildBox(
+            List<ExcelRow> rows, Map<Integer, String> resolvedMskuByRow)
     {
+        ExcelRow first = rows.get(0);
         Map<String, Object> dimensions = new LinkedHashMap<>();
-        dimensions.put("height", decimalText(row.value(3)));
-        dimensions.put("length", decimalText(row.value(1)));
-        dimensions.put("unitOfMeasurement", upper(row.value(4)));
-        dimensions.put("width", decimalText(row.value(2)));
+        dimensions.put("height", decimalText(first.value(4)));
+        dimensions.put("length", decimalText(first.value(2)));
+        dimensions.put("unitOfMeasurement", upper(first.value(5)));
+        dimensions.put("width", decimalText(first.value(3)));
 
-        Map<String, Object> item = new LinkedHashMap<>();
-        item.put("labelOwner", upper(row.value(5)));
-        item.put("msku", resolvedMsku);
-        item.put("prepOwner", upper(row.value(7)));
-        item.put("quantity", integer(row.value(8)));
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (ExcelRow row : rows)
+        {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("labelOwner", upper(row.value(6)));
+            item.put("msku", resolvedMskuByRow.get(row.rowNo));
+            item.put("prepOwner", upper(row.value(8)));
+            item.put("quantity", integer(row.value(9)));
+            items.add(item);
+        }
 
         Map<String, Object> box = new LinkedHashMap<>();
         box.put("dimensions", dimensions);
-        box.put("items", List.of(item));
+        box.put("items", items);
         Map<String, Object> weight = new LinkedHashMap<>();
-        weight.put("unit", upper(row.value(9)));
-        weight.put("value", decimalText(row.value(10)));
+        weight.put("unit", upper(first.value(10)));
+        weight.put("value", decimalText(first.value(11)));
         box.put("weight", weight);
         return box;
     }
