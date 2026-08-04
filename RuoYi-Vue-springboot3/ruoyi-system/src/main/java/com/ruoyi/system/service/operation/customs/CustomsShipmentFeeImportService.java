@@ -32,6 +32,8 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -42,6 +44,8 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class CustomsShipmentFeeImportService
 {
+    private static final Logger LOG =
+            LoggerFactory.getLogger(CustomsShipmentFeeImportService.class);
     public static final String BUSINESS_TYPE = "SHIPMENT_LOGISTICS";
     private static final String UPDATE_API =
             "erp/sc/routing/storage/shipment/updateListLogistics";
@@ -166,7 +170,15 @@ public class CustomsShipmentFeeImportService
         for (Map.Entry<String, List<ExcelRow>> entry : grouped.entrySet())
         {
             List<ExcelRow> shipmentRows = entry.getValue();
-            ProcessResult result = processShipment(batch, shipmentRows);
+            ProcessResult result;
+            try
+            {
+                result = processShipment(batch, shipmentRows);
+            }
+            catch (Exception e)
+            {
+                result = recordUnexpectedFailure(batch, shipmentRows, e);
+            }
             if (result.success)
             {
                 successCount++;
@@ -233,13 +245,16 @@ public class CustomsShipmentFeeImportService
         log.setStartTime(startedAt);
         logMapper.insert(log);
 
+        Map<String, Object> request = null;
+        int attempts = 0;
+        try
+        {
         List<String> validationErrors = validateRows(rows);
         if (!StringUtils.hasText(orderSn))
         {
             validationErrors.add("货件单号“" + shipmentId
                     + "”未匹配到发货单号，请先执行STA发货链路同步");
         }
-        Map<String, Object> request = null;
         if (validationErrors.isEmpty())
         {
             try
@@ -262,7 +277,6 @@ public class CustomsShipmentFeeImportService
 
         Map<String, Object> response = null;
         Exception lastException = null;
-        int attempts = 0;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)
         {
             attempts = attempt;
@@ -315,6 +329,62 @@ public class CustomsShipmentFeeImportService
                 null, response, request, attempts);
         return ProcessResult.failed(
                 shipmentId, orderSn, "LINGXING_API", code, message);
+        }
+        catch (Exception e)
+        {
+            String message = "处理货件时发生未预期异常：" + safeMessage(e);
+            try
+            {
+                finishFailed(log, startedAt, "SYSTEM_EXCEPTION",
+                        e.getClass().getSimpleName(), message,
+                        e, null, request, attempts);
+            }
+            catch (Exception logException)
+            {
+                LOG.error("更新费用明细失败日志异常，batchNo={}, shipmentId={}",
+                        batch.getBatchNo(), shipmentId, logException);
+            }
+            LOG.error("费用明细货件处理异常，batchNo={}, shipmentId={}",
+                    batch.getBatchNo(), shipmentId, e);
+            return ProcessResult.failed(shipmentId, orderSn,
+                    "SYSTEM_EXCEPTION", e.getClass().getSimpleName(), message);
+        }
+    }
+
+    private ProcessResult recordUnexpectedFailure(
+            CustomsShipmentFeeImportBatch batch, List<ExcelRow> rows, Exception exception)
+    {
+        LocalDateTime startedAt = LocalDateTime.now();
+        String shipmentId = rows.isEmpty() ? null : trim(rows.get(0).value(0));
+        String message = "处理货件前发生未预期异常：" + safeMessage(exception);
+        LOG.error("费用明细货件隔离异常，batchNo={}, shipmentId={}",
+                batch.getBatchNo(), shipmentId, exception);
+        try
+        {
+            CustomsShipmentFeeImportLog log = new CustomsShipmentFeeImportLog();
+            log.setBatchId(batch.getId());
+            log.setBusinessType(BUSINESS_TYPE);
+            log.setShipmentId(shipmentId);
+            log.setSourceRows(rowNumbers(rows));
+            log.setSourceRowCount(rows.size());
+            log.setStatus("PROCESSING");
+            log.setAttemptCount(0);
+            log.setSourceData(toJson(sourceData(rows)));
+            log.setOperator(batch.getOperator());
+            log.setUploadTime(batch.getUploadTime());
+            log.setStartTime(startedAt);
+            logMapper.insert(log);
+            finishFailed(log, startedAt, "SYSTEM_EXCEPTION",
+                    exception.getClass().getSimpleName(), message,
+                    exception, null, null, 0);
+        }
+        catch (Exception logException)
+        {
+            LOG.error("写入费用明细隔离失败日志异常，batchNo={}, shipmentId={}",
+                    batch.getBatchNo(), shipmentId, logException);
+        }
+        return ProcessResult.failed(shipmentId, null,
+                "SYSTEM_EXCEPTION", exception.getClass().getSimpleName(), message);
     }
 
     private String resolveOrderSn(String shipmentId)

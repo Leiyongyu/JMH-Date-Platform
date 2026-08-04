@@ -1,30 +1,25 @@
 <template>
   <div class="app-container shipment-fee-page">
-    <div class="page-header">
-      <div>
+    <section class="page-hero">
+      <div class="hero-copy">
+        <div class="hero-eyebrow">
+          <span class="eyebrow-dot"></span>
+          STA 发货工作台
+        </div>
         <h2>发货单与装箱信息上传</h2>
-        <p>逐条调用领星接口，并在同一批次与明细日志中记录完整请求和响应。</p>
+        <p>统一处理物流费用与装箱信息，完整保留每个批次的请求、响应和执行结果。</p>
+        <div class="hero-meta">
+          <span><el-icon><Document /></el-icon>仅支持 Excel</span>
+          <span><el-icon><Tickets /></el-icon>按货件记录日志</span>
+          <span><el-icon><Refresh /></el-icon>装箱任务自动更新</span>
+        </div>
       </div>
-      <div class="header-actions">
-        <el-button
-          type="primary"
-          icon="Upload"
-          :loading="importing"
-          v-hasPermi="['customs:shipmentFee:import']"
-          @click="selectFile"
-        >
-          {{ importing ? '正在逐单上传' : '上传发货单物流费用明细' }}
-        </el-button>
-        <el-button
-          type="success"
-          icon="Upload"
-          :loading="packingImporting"
-          v-hasPermi="['customs:shipmentFee:import']"
-          @click="selectPackingFile"
-        >
-          {{ packingImporting ? '正在提交文件' : '上传装箱信息' }}
-        </el-button>
+
+      <div class="hero-note">
+        <el-icon><InfoFilled /></el-icon>
+        <span>上传前请确认模板与货件数据，费用上传会直接修改领星数据。</span>
       </div>
+
       <input
         ref="fileInputRef"
         class="file-input"
@@ -39,40 +34,72 @@
         accept=".xlsx,.xls"
         @change="handlePackingFileChange"
       >
-    </div>
+    </section>
 
-    <el-alert
-      type="warning"
-      :closable="false"
-      show-icon
-      class="upload-tip"
-      title="上传会真实修改领星数据"
-    >
-      <template #default>
-        读取 Sheet1 的货件单号、物流商与渠道商、跟踪信息及预估/实际费用；
-        后端会先将货件单号匹配为领星发货单号，再逐单提交物流费用。
-        B列“物流商”填写渠道记录的 id（如9146），C列“渠道商”填写渠道数据中的 provider.id（如2819）；
-        单条失败不会终止后续货件。
-      </template>
-    </el-alert>
+    <section class="upload-grid">
+      <article class="upload-card fee-card">
+        <div class="upload-card__icon"><el-icon><Wallet /></el-icon></div>
+        <div class="upload-card__body">
+          <div class="upload-card__heading">
+            <div>
+              <span class="step-label">01 · 物流费用</span>
+              <h3>上传费用明细</h3>
+            </div>
+            <el-tag type="danger" effect="light" round>修改领星数据</el-tag>
+          </div>
+          <p>读取 Sheet1 的货件单号、渠道、跟踪信息及预估/实际费用，匹配发货单后逐单提交。</p>
+          <div class="upload-card__tips">
+            <span>B列：渠道记录 ID</span>
+            <span>C列：provider.id</span>
+            <span>单条失败不阻断</span>
+          </div>
+          <el-button
+            type="primary"
+            icon="Upload"
+            :loading="importing"
+            v-hasPermi="['customs:shipmentFee:import']"
+            @click="selectFile"
+          >
+            {{ importing ? '正在逐单上传' : '选择费用明细文件' }}
+          </el-button>
+        </div>
+      </article>
 
-    <el-alert
-      type="info"
-      :closable="false"
-      show-icon
-      class="upload-tip"
-      title="装箱信息会保存到领星ERP"
-    >
-      <template #default>
-        严格按最新版“装箱信息模版.xlsx”的11列表头解析，只需填写FBA货件号、箱规、SKU、申报量及重量等装箱数据。
-        后端会根据货件号自动补齐STA编号、SID、领星内部货件ID和真实MSKU；本地没有该货件时会先自动补拉STA任务。
-        每个Excel行表示一个箱子；本操作只读取Sheet1，由后台按货件逐个保存，可在批次和明细日志中查看结果，不提交亚马逊。
-      </template>
-    </el-alert>
+      <article class="upload-card packing-card">
+        <div class="upload-card__icon"><el-icon><Box /></el-icon></div>
+        <div class="upload-card__body">
+          <div class="upload-card__heading">
+            <div>
+              <span class="step-label">02 · 装箱信息</span>
+              <h3>上传装箱信息</h3>
+            </div>
+            <el-tag type="success" effect="light" round>仅保存到领星 ERP</el-tag>
+          </div>
+          <p>按最新版11列表头解析，自动补齐STA编号、SID、内部货件ID和真实MSKU，每行代表一个箱子。</p>
+          <div class="upload-card__tips">
+            <span>仅读取 Sheet1</span>
+            <span>后台逐货件处理</span>
+            <span>不会提交亚马逊</span>
+          </div>
+          <el-button
+            type="success"
+            icon="Upload"
+            :loading="packingImporting"
+            v-hasPermi="['customs:shipmentFee:import']"
+            @click="selectPackingFile"
+          >
+            {{ packingImporting ? '正在提交文件' : '选择装箱信息文件' }}
+          </el-button>
+        </div>
+      </article>
+    </section>
 
     <el-card v-if="latestResult.batchNo" shadow="never" class="result-card">
       <div class="result-title">
-        <span>最近上传：{{ latestResult.batchNo }}</span>
+        <div>
+          <span class="section-kicker">最近一次任务</span>
+          <strong>{{ latestResult.batchNo }}</strong>
+        </div>
         <el-tag :type="batchStatusType(latestResult.status)">
           {{ statusLabel(latestResult.status) }}
         </el-tag>
@@ -87,6 +114,7 @@
       </div>
     </el-card>
 
+    <el-card shadow="never" class="workspace-card">
     <el-tabs v-model="activeTab" class="log-tabs" @tab-change="handleTabChange">
       <el-tab-pane label="上传批次" name="batch">
         <el-form :model="batchQuery" :inline="true" class="query-form">
@@ -398,6 +426,7 @@
         />
       </el-tab-pane>
     </el-tabs>
+    </el-card>
 
     <el-dialog v-model="resultDialogVisible" title="提交结果" width="760px">
       <el-result
@@ -827,21 +856,108 @@ onBeforeUnmount(() => {
 
 <style scoped lang="scss">
 .shipment-fee-page {
-  .page-header {
+  min-height: calc(100vh - 84px);
+  padding: 22px 24px 28px;
+  background: #f5f7fa;
+
+  .page-hero {
+    position: relative;
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: space-between;
-    gap: 24px;
-    margin-bottom: 16px;
+    gap: 32px;
+    margin-bottom: 18px;
+    padding: 26px 30px;
+    overflow: hidden;
+    border: 1px solid #e7ebf2;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #ffffff 0%, #f7faff 68%, #eef5ff 100%);
+
+    &::after {
+      position: absolute;
+      top: -90px;
+      right: -50px;
+      width: 250px;
+      height: 250px;
+      border: 42px solid rgb(64 158 255 / 7%);
+      border-radius: 50%;
+      content: '';
+      pointer-events: none;
+    }
 
     h2 {
-      margin: 0 0 6px;
-      font-size: 22px;
+      margin: 7px 0 8px;
+      color: #1f2937;
+      font-size: 26px;
+      font-weight: 650;
+      letter-spacing: -.5px;
     }
 
     p {
       margin: 0;
-      color: var(--el-text-color-secondary);
+      color: #667085;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+  }
+
+  .hero-copy {
+    position: relative;
+    z-index: 1;
+  }
+
+  .hero-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: #337ecc;
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: .08em;
+  }
+
+  .eyebrow-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #409eff;
+    box-shadow: 0 0 0 4px rgb(64 158 255 / 12%);
+  }
+
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    margin-top: 16px;
+
+    span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: #7a8599;
+      font-size: 12px;
+    }
+  }
+
+  .hero-note {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    max-width: 340px;
+    padding: 12px 14px;
+    border: 1px solid #f4d7a1;
+    border-radius: 10px;
+    background: rgb(255 248 235 / 88%);
+    color: #8a6428;
+    font-size: 13px;
+    line-height: 1.55;
+
+    .el-icon {
+      flex: 0 0 auto;
+      margin-top: 2px;
+      font-size: 16px;
     }
   }
 
@@ -849,51 +965,137 @@ onBeforeUnmount(() => {
     display: none;
   }
 
-  .header-actions {
+  .upload-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+
+  .upload-card {
     display: flex;
-    flex-shrink: 0;
-    gap: 8px;
+    gap: 16px;
+    min-width: 0;
+    padding: 22px;
+    border: 1px solid #e7ebf2;
+    border-radius: 14px;
+    background: #fff;
+    transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+
+    &:hover {
+      border-color: #d8e0ec;
+      box-shadow: 0 10px 28px rgb(31 41 55 / 7%);
+      transform: translateY(-1px);
+    }
+
+    &__icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 44px;
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      font-size: 21px;
+    }
+
+    &__body {
+      flex: 1;
+      min-width: 0;
+    }
+
+    &__heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+
+      h3 {
+        margin: 3px 0 0;
+        color: #273142;
+        font-size: 18px;
+        font-weight: 650;
+      }
+    }
+
+    p {
+      min-height: 44px;
+      margin: 13px 0;
+      color: #667085;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    &__tips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 16px;
+
+      span {
+        padding: 4px 8px;
+        border-radius: 5px;
+        background: #f4f6f8;
+        color: #7a8599;
+        font-size: 11px;
+      }
+    }
   }
 
-  .upload-tip,
-  .result-card,
-  .log-tabs {
-    margin-bottom: 16px;
+  .fee-card .upload-card__icon {
+    background: #edf5ff;
+    color: #337ecc;
   }
 
-  .submission-alert {
-    margin-bottom: 14px;
+  .packing-card .upload-card__icon {
+    background: #ecf8f3;
+    color: #269764;
   }
 
-  .success-text {
-    color: var(--el-color-success);
-  }
-
-  .failed-text {
-    color: var(--el-color-danger);
-  }
-
-  .muted-text {
-    color: var(--el-text-color-secondary);
+  .step-label,
+  .section-kicker {
+    color: #98a2b3;
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: .06em;
+    text-transform: uppercase;
   }
 
   .result-title {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 14px;
-    font-weight: 600;
+    margin-bottom: 16px;
+
+    div {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    strong {
+      color: #344054;
+      font-size: 15px;
+    }
+  }
+
+  .result-card {
+    margin-bottom: 18px;
+    border: 1px solid #e7ebf2;
+    border-radius: 14px;
   }
 
   .result-grid {
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 12px;
+    gap: 10px;
 
     div {
-      padding: 12px;
-      border-radius: 6px;
-      background: var(--el-fill-color-light);
+      min-width: 0;
+      padding: 12px 14px;
+      border: 1px solid #edf0f4;
+      border-radius: 9px;
+      background: #fafbfc;
     }
 
     span {
@@ -904,6 +1106,11 @@ onBeforeUnmount(() => {
     }
 
     strong {
+      display: block;
+      overflow: hidden;
+      color: #344054;
+      text-overflow: ellipsis;
+      white-space: nowrap;
       word-break: break-all;
     }
 
@@ -918,12 +1125,93 @@ onBeforeUnmount(() => {
     }
   }
 
+  .workspace-card {
+    border: 1px solid #e7ebf2;
+    border-radius: 14px;
+
+    :deep(.el-card__body) {
+      padding: 0;
+    }
+  }
+
+  .log-tabs {
+    :deep(.el-tabs__header) {
+      margin: 0;
+      padding: 0 22px;
+      border-bottom: 1px solid #edf0f4;
+    }
+
+    :deep(.el-tabs__nav-wrap::after) {
+      display: none;
+    }
+
+    :deep(.el-tabs__item) {
+      height: 54px;
+      color: #667085;
+      font-weight: 500;
+    }
+
+    :deep(.el-tabs__item.is-active) {
+      color: #337ecc;
+      font-weight: 650;
+    }
+
+    :deep(.el-tabs__content) {
+      padding: 20px 22px 22px;
+    }
+  }
+
   .query-form {
-    margin-bottom: 4px;
+    margin-bottom: 16px;
+    padding: 16px 16px 0;
+    border: 1px solid #edf0f4;
+    border-radius: 10px;
+    background: #fafbfc;
+
+    :deep(.el-form-item) {
+      margin-right: 14px;
+      margin-bottom: 16px;
+    }
+  }
+
+  .submission-alert {
+    margin-bottom: 16px;
+    border-radius: 9px;
+  }
+
+  :deep(.el-table) {
+    --el-table-border-color: #edf0f4;
+    --el-table-header-bg-color: #f8fafc;
+    --el-table-row-hover-bg-color: #f7faff;
+    border-radius: 9px;
+  }
+
+  :deep(.el-table th.el-table__cell) {
+    height: 46px;
+    color: #596579;
+    font-weight: 600;
+  }
+
+  :deep(.pagination-container) {
+    margin-bottom: 0;
+    padding: 20px 0 0;
+  }
+
+  .success-text {
+    color: var(--el-color-success);
+  }
+
+  .failed-text {
+    color: var(--el-color-danger);
+  }
+
+  .muted-text {
+    color: var(--el-text-color-secondary);
   }
 
   .log-detail {
-    padding: 14px 18px;
+    padding: 16px 18px;
+    background: #fafbfc;
   }
 
   .json-grid {
@@ -938,16 +1226,19 @@ onBeforeUnmount(() => {
 
     h4 {
       margin: 0 0 8px;
+      color: #475467;
+      font-size: 13px;
+      font-weight: 600;
     }
 
     pre {
       max-height: 320px;
       margin: 0;
-      padding: 12px;
+      padding: 14px;
       overflow: auto;
-      border-radius: 6px;
-      background: #111827;
-      color: #d1fae5;
+      border-radius: 9px;
+      background: #172033;
+      color: #d9e2f2;
       white-space: pre-wrap;
       word-break: break-all;
       font-size: 12px;
@@ -958,11 +1249,63 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1200px) {
   .shipment-fee-page {
+    .page-hero {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .hero-note {
+      max-width: none;
+    }
+
     .result-grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .json-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+}
+
+@media (max-width: 860px) {
+  .shipment-fee-page {
+    padding: 14px;
+
+    .page-hero {
+      padding: 22px;
+    }
+
+    .upload-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .result-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .log-tabs :deep(.el-tabs__content) {
+      padding: 16px;
+    }
+  }
+}
+
+@media (max-width: 560px) {
+  .shipment-fee-page {
+    .hero-meta {
+      flex-direction: column;
+    }
+
+    .upload-card {
+      padding: 18px;
+    }
+
+    .upload-card__heading {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .result-grid {
       grid-template-columns: 1fr;
     }
   }

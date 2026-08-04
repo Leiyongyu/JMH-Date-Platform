@@ -180,14 +180,31 @@ public class CustomsPackingInfoImportService
         {
             for (List<ExcelRow> taskRows : grouped.values())
             {
-                ProcessResult result = processTask(batch, taskRows);
+                ProcessResult result;
+                try
+                {
+                    result = processTask(batch, taskRows);
+                }
+                catch (Exception e)
+                {
+                    result = recordUnexpectedFailure(batch, taskRows, e);
+                }
                 if (result.success) successCount++;
                 else failedCount++;
                 batch.setSuccessCount(successCount);
                 batch.setFailedCount(failedCount);
                 batch.setErrorMessage("后台处理中：已完成 "
                         + (successCount + failedCount) + "/" + grouped.size());
-                batchMapper.updateResult(batch);
+                try
+                {
+                    batchMapper.updateResult(batch);
+                }
+                catch (Exception e)
+                {
+                    // 进度刷新失败不能阻断后续货件，最终批次状态仍会再次落库。
+                    LOG.error("更新装箱批次进度异常，继续处理后续货件，batchNo={}",
+                            batch.getBatchNo(), e);
+                }
             }
 
             LocalDateTime finishedAt = LocalDateTime.now();
@@ -229,8 +246,11 @@ public class CustomsPackingInfoImportService
         log.setStartTime(startedAt);
         logMapper.insert(log);
 
-        List<String> validationErrors = validateRows(rows);
         Map<String, Object> request = null;
+        int attempts = 0;
+        try
+        {
+        List<String> validationErrors = validateRows(rows);
         if (validationErrors.isEmpty())
         {
             try
@@ -261,7 +281,6 @@ public class CustomsPackingInfoImportService
 
         Map<String, Object> response = null;
         Exception lastException = null;
-        int attempts = 0;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)
         {
             attempts = attempt;
@@ -311,6 +330,62 @@ public class CustomsPackingInfoImportService
         finishFailed(log, startedAt, "LINGXING_API", code, message,
                 null, response, request, attempts);
         return ProcessResult.failed(businessKey, "LINGXING_API", code, message);
+        }
+        catch (Exception e)
+        {
+            String message = "处理装箱货件时发生未预期异常：" + safeMessage(e);
+            try
+            {
+                finishFailed(log, startedAt, "SYSTEM_EXCEPTION",
+                        e.getClass().getSimpleName(), message,
+                        e, null, request, attempts);
+            }
+            catch (Exception logException)
+            {
+                LOG.error("更新装箱失败日志异常，batchNo={}, shipmentNo={}",
+                        batch.getBatchNo(), shipmentNo, logException);
+            }
+            LOG.error("装箱货件处理异常，batchNo={}, shipmentNo={}",
+                    batch.getBatchNo(), shipmentNo, e);
+            return ProcessResult.failed(businessKey, "SYSTEM_EXCEPTION",
+                    e.getClass().getSimpleName(), message);
+        }
+    }
+
+    private ProcessResult recordUnexpectedFailure(
+            CustomsShipmentFeeImportBatch batch, List<ExcelRow> rows, Exception exception)
+    {
+        LocalDateTime startedAt = LocalDateTime.now();
+        String shipmentNo = rows.isEmpty() ? null : trim(rows.get(0).value(0));
+        String message = "处理装箱货件前发生未预期异常：" + safeMessage(exception);
+        LOG.error("装箱货件隔离异常，batchNo={}, shipmentNo={}",
+                batch.getBatchNo(), shipmentNo, exception);
+        try
+        {
+            CustomsShipmentFeeImportLog log = new CustomsShipmentFeeImportLog();
+            log.setBatchId(batch.getId());
+            log.setBusinessType(BUSINESS_TYPE);
+            log.setOrderSn(shipmentNo);
+            log.setSourceRows(rowNumbers(rows));
+            log.setSourceRowCount(rows.size());
+            log.setStatus("PROCESSING");
+            log.setAttemptCount(0);
+            log.setSourceData(toJson(sourceData(rows)));
+            log.setOperator(batch.getOperator());
+            log.setUploadTime(batch.getUploadTime());
+            log.setStartTime(startedAt);
+            logMapper.insert(log);
+            finishFailed(log, startedAt, "SYSTEM_EXCEPTION",
+                    exception.getClass().getSimpleName(), message,
+                    exception, null, null, 0);
+        }
+        catch (Exception logException)
+        {
+            LOG.error("写入装箱隔离失败日志异常，batchNo={}, shipmentNo={}",
+                    batch.getBatchNo(), shipmentNo, logException);
+        }
+        return ProcessResult.failed(shipmentNo, "SYSTEM_EXCEPTION",
+                exception.getClass().getSimpleName(), message);
     }
 
     private List<ExcelRow> parseWorkbook(byte[] fileBytes) throws Exception
