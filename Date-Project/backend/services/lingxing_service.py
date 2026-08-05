@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from backend.integrations.lingxing.client import LingXingClient
 from backend.integrations.lingxing.domains.registry import create_domain, describe_domains
-from backend.job_state import get_job, record_job, update_job
+from backend.job_state import forget_job, get_job, record_job, update_job
 
 
 lingxing_sync_executor = ThreadPoolExecutor(
@@ -139,6 +139,8 @@ def run_lingxing_sync_job(
                 }
             ],
         )
+    finally:
+        forget_job(job_id)
 
 
 def get_lingxing_sync_job(job_id: str) -> dict | None:

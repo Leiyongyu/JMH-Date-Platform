@@ -113,6 +113,11 @@ def update_job(job_id: str, **changes) -> None:
     persist_job(snapshot)
 
 
+def forget_job(job_id: str) -> None:
+    with jobs_lock:
+        jobs.pop(job_id, None)
+
+
 def _serialize_job(job: dict) -> dict:
     return {
         **job,

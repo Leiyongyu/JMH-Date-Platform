@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 from backend.schemas.performance_requests import PerformanceRefreshRequest
 from backend.schemas.responses import success_response
@@ -103,7 +104,8 @@ async def post_ebay_profit_import(
 ):
     try:
         content = await file.read()
-        result = import_ebay_profit(
+        result = await run_in_threadpool(
+            import_ebay_profit,
             content,
             file.filename or "ebay-profit.xlsx",
             rebuild=rebuild,
@@ -129,7 +131,8 @@ async def post_owner_rule_import(
 ):
     try:
         content = await file.read()
-        result = import_owner_rules(
+        result = await run_in_threadpool(
+            import_owner_rules,
             platform,
             content,
             file.filename or "owner-rules.xlsx",

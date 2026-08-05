@@ -58,8 +58,16 @@ class Settings:
     lingxing_sign_key: str = os.getenv("LINGXING_SIGN_KEY", "app_id")
     shop_source_database: str = os.getenv("SHOP_SOURCE_DATABASE", "jmh_data_platform")
     python_performance_internal_token: str = os.getenv(
-        "PYTHON_PERFORMANCE_INTERNAL_TOKEN", ""
+        "PYTHON_PERFORMANCE_INTERNAL_TOKEN",
+        os.getenv("PYTHON_INTERNAL_API_TOKEN", ""),
     )
+    ebay_client_id: str = os.getenv("EBAY_CLIENT_ID", "")
+    ebay_client_secret: str = os.getenv("EBAY_CLIENT_SECRET", "")
+    ebay_request_timeout_sec: int = int(os.getenv("EBAY_REQUEST_TIMEOUT_SEC", "30"))
+    ebay_search_limit: int = int(os.getenv("EBAY_SEARCH_LIMIT", "30"))
+    ebay_search_top_n: int = int(os.getenv("EBAY_SEARCH_TOP_N", "20"))
+    ebay_search_max_keywords: int = int(os.getenv("EBAY_SEARCH_MAX_KEYWORDS", "50"))
+    ebay_search_max_workers: int = int(os.getenv("EBAY_SEARCH_MAX_WORKERS", "8"))
 
 
 settings = Settings()

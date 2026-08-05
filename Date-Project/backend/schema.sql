@@ -652,3 +652,18 @@ CREATE TABLE IF NOT EXISTS dws_amz_fba_inventory_age_group (
     UNIQUE KEY uk_fba_dws_month_group (pull_month,group_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='DWS-Amazon FBA库龄分组汇总';
+
+CREATE TABLE IF NOT EXISTS dim_ebay_sku_oe_mapping (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    sku VARCHAR(128) NOT NULL COMMENT 'SKU；导入对照表中的sku字段，按SKU整组覆盖更新',
+    oe VARCHAR(128) NOT NULL COMMENT 'OE号；同一SKU允许多个OE，导入Excel中多个OE按逗号拆分',
+    oe_index INT NOT NULL DEFAULT 1 COMMENT '同一SKU下OE顺序；按Excel中逗号拆分后的顺序保存',
+    source_file_name VARCHAR(255) NULL COMMENT '最近一次导入来源文件名',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_dim_ebay_sku_oe (sku, oe),
+    KEY idx_dim_ebay_sku (sku),
+    KEY idx_dim_ebay_oe (oe)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='DIM-eBay SKU与OE号对照维表；用于价格查询时将SKU展开为一个或多个OE';
