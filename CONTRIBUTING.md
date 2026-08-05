@@ -1,4 +1,4 @@
-# JMH Date-Platform 多人协同开发规范
+﻿# JMH Date-Platform 多人协同开发规范
 
 > 适用仓库：`git@github.com:Leiyongyu/JMH-Date-Platform.git`
 > 后端：Python FastAPI（`Date-Project/`）；ERP 联动：`RuoYi-Vue-springboot3/`（Java）
@@ -97,7 +97,35 @@ Integration 层只负责外部接口（领星、eBay），不写数据库
 
 ---
 
-## 7. 提交规范（Conventional Commits）
+## 7. 接口设计规范（RESTful + 统一响应）
+
+### RESTful 资源设计
+
+- URL 用复数名词 + 层级路径，不用动词/驼峰：
+  - 正确：`/api/v1/finance/performance-rankings`
+  - 避免：`/api/v1/finance/getRankings`
+- HTTP 方法语义：
+  - `GET` 查询资源；`POST` 创建资源；`PATCH`/`PUT` 修改；`DELETE` 删除。
+  - 触发型操作放**子资源**：`POST /tasks/{task_code}/runs`（创建一次运行），而不是 `POST /tasks/{task_code}/run`。
+  - 状态切换用 `PATCH`：`PATCH /tasks/{task_code}` body `{"enabled": true}`，而不是 `/enable`、`/disable`。
+- 现有动作式端点（`searches`/`exports`/`imports`/`refreshes`/`enable`/`disable`/`probe`）属于历史 RPC 风格，**对外契约已定，暂不破坏**；新增接口一律按 RESTful 编写。
+
+### 统一响应（所有接口，含错误）
+
+```
+成功：{"code": 0,          "message": "success", "data": {...}, "request_id": "..."}
+失败：{"code": <http状态码>, "message": "...",   "data": null,   "request_id": "..."}
+```
+
+- 错误统一由 `infrastructure/exception_handlers.py` 兜底：`HTTPException` → 对应状态码；参数校验 → 422；未捕获异常 → 500。
+- API 层**不要**自己 `try/except` 后返回裸 dict；抛 `HTTPException(status_code, detail)` 或直接上抛，由全局 handler 统一转换。
+- `message` 不得包含堆栈/内部路径，细节只写日志。
+- 查询接口统一分页参数 `page` / `page_size`，返回 `total` / `pagination`。
+- 写接口可用 `Idempotency-Key` 请求头做幂等。
+
+---
+
+## 8. 提交规范（Conventional Commits）
 
 统一采用 Conventional Commits，`type` 用英文，描述用中文（和现有仓库风格一致）：
 
@@ -160,7 +188,7 @@ git log --oneline -5       # 确认 commit 风格
 
 ---
 
-## 8. 提交前必须验证
+## 9. 提交前必须验证
 
 ```powershell
 # 后端
@@ -175,7 +203,7 @@ git log --oneline -5       # 确认 commit 风格
 
 ---
 
-## 9. 代码审查清单（PR 合并前）
+## 10. 代码审查清单（PR 合并前）
 
 - [ ] 分层约束是否遵守（API 没直接查库、Repository 没调外部接口）
 - [ ] 密钥/路径没有硬编码
@@ -188,7 +216,7 @@ git log --oneline -5       # 确认 commit 风格
 
 ---
 
-## 10. 部署注意（合入 main 后）
+## 11. 部署注意（合入 main 后）
 
 - 部署机器为 Windows，重启用根目录 `restart-all.cmd`（会重启后端 + 前端）。
 - Python 与 ERP 部署在同一台机器（`127.0.0.1:8010`）。
