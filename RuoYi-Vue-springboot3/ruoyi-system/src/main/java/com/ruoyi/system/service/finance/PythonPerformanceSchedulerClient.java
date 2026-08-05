@@ -1,9 +1,6 @@
 package com.ruoyi.system.service.finance;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
@@ -14,7 +11,7 @@ import org.springframework.util.StringUtils;
 
 /** 调用仅供后端使用的Python绩效ETL任务接口。 */
 @Service
-public class PythonPerformanceSchedulerClient
+public class PythonPerformanceSchedulerClient extends PythonHttpSupport
 {
     private static final String TASK_PREFIX =
             "/api/v1/internal/scheduler/tasks/";
@@ -22,23 +19,13 @@ public class PythonPerformanceSchedulerClient
             "amz_monthly_order_profit_sync";
     private static final String CLEARANCE_TASK =
             "amz_fba_inventory_snapshot_sync";
-    private static final TypeReference<Map<String, Object>> MAP_TYPE =
-            new TypeReference<>() {};
-
-    private final PythonPerformanceTaskProperties properties;
-    private final ObjectMapper objectMapper;
-    private final HttpClient httpClient;
+    private static final String SERVICE_NAME = "Python绩效ETL";
 
     public PythonPerformanceSchedulerClient(
             PythonPerformanceTaskProperties properties,
             ObjectMapper objectMapper)
     {
-        this.properties = properties;
-        this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(properties.getConnectTimeout())
-                .build();
+        super(properties, objectMapper);
     }
 
     public Map<String, Object> runPreviousMonth(String requestId)
@@ -68,25 +55,19 @@ public class PythonPerformanceSchedulerClient
             else
                 payload.put("stat_month", statMonth);
             String body = objectMapper.writeValueAsString(payload);
-            HttpRequest.Builder builder = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl() + TASK_PREFIX
-                            + taskCode + "/run"))
-                    .timeout(properties.getReadTimeout())
-                    .header("Accept", "application/json")
+            HttpRequest request = baseRequest(TASK_PREFIX
+                    + taskCode + "/run", requestId)
                     .header("Content-Type", "application/json;charset=utf-8")
-                    .header("X-Request-ID", requestId)
                     .header("X-Trigger-Type", "JOB")
                     .POST(HttpRequest.BodyPublishers.ofString(
-                            body, StandardCharsets.UTF_8));
-            if (StringUtils.hasText(properties.getInternalToken()))
-                builder.header("X-Internal-Token",
-                        properties.getInternalToken());
+                            body, StandardCharsets.UTF_8))
+                    .build();
 
             HttpResponse<String> response = httpClient.send(
-                    builder.build(),
+                    request,
                     HttpResponse.BodyHandlers.ofString(
                             StandardCharsets.UTF_8));
-            Map<String, Object> json = parse(response.body());
+            Map<String, Object> json = parseJson(response.body());
             validate(response.statusCode(), json, taskCode);
             return json;
         }
@@ -133,35 +114,14 @@ public class PythonPerformanceSchedulerClient
         }
     }
 
-    private Map<String, Object> parse(String body) throws Exception
-    {
-        if (!StringUtils.hasText(body)) return Map.of();
-        return objectMapper.readValue(body, MAP_TYPE);
-    }
-
     private String errorMessage(int status, Map<String, Object> json)
     {
         Object detail = json.get("detail");
         if (detail != null)
-            return "Python绩效ETL错误[HTTP " + status + "]: " + detail;
+            return SERVICE_NAME + "错误[HTTP " + status + "]: " + detail;
         Object message = json.get("message");
         if (message != null)
-            return "Python绩效ETL错误[HTTP " + status + "]: " + message;
-        return "Python绩效ETL请求失败，HTTP " + status;
-    }
-
-    private int integer(Object value, int defaultValue)
-    {
-        if (value instanceof Number) return ((Number) value).intValue();
-        try { return Integer.parseInt(String.valueOf(value)); }
-        catch (Exception ignored) { return defaultValue; }
-    }
-
-    private String baseUrl()
-    {
-        String value = properties.getBaseUrl();
-        return value.endsWith("/")
-                ? value.substring(0, value.length() - 1)
-                : value;
+            return SERVICE_NAME + "错误[HTTP " + status + "]: " + message;
+        return SERVICE_NAME + "请求失败，HTTP " + status;
     }
 }

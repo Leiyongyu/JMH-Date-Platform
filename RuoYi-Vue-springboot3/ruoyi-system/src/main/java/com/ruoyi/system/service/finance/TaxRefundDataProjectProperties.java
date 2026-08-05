@@ -6,11 +6,12 @@ import org.springframework.stereotype.Component;
 /** 当前 Date-Project 外汇退税服务配置。 */
 @Component
 @ConfigurationProperties(prefix = "tax-refund.data-project")
-public class TaxRefundDataProjectProperties
+public class TaxRefundDataProjectProperties implements PythonServiceProperties
 {
     private String baseUrl = "http://127.0.0.1:8010";
     private int connectTimeout = 5000;
     private int readTimeout = 600000;
+    private String internalToken;
 
     public String getBaseUrl()
     {
@@ -40,5 +41,28 @@ public class TaxRefundDataProjectProperties
     public void setReadTimeout(int readTimeout)
     {
         this.readTimeout = readTimeout;
+    }
+
+    @Override
+    public int getConnectTimeoutMillis()
+    {
+        return connectTimeout;
+    }
+
+    @Override
+    public int getReadTimeoutMillis()
+    {
+        return readTimeout;
+    }
+
+    @Override
+    public String getInternalToken()
+    {
+        return internalToken;
+    }
+
+    public void setInternalToken(String internalToken)
+    {
+        this.internalToken = internalToken;
     }
 }

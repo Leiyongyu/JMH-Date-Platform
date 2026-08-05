@@ -1,19 +1,11 @@
 package com.ruoyi.system.service.finance;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -22,26 +14,15 @@ import org.springframework.web.multipart.MultipartFile;
 
 /** ERP 到 Python 绩效排名 REST 服务的适配客户端。 */
 @Service
-public class PerformancePythonClient
+public class PerformancePythonClient extends PythonHttpSupport
 {
-    private static final TypeReference<Map<String, Object>> MAP_TYPE =
-            new TypeReference<>() {};
-
-    private final PerformancePythonProperties properties;
-    private final ObjectMapper objectMapper;
-    private final HttpClient httpClient;
+    private static final String SERVICE_NAME = "Python绩效服务";
 
     public PerformancePythonClient(
             PerformancePythonProperties properties,
             ObjectMapper objectMapper)
     {
-        this.properties = properties;
-        this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofMillis(
-                        properties.getConnectTimeout()))
-                .build();
+        super(properties, objectMapper);
     }
 
     public Map<String, Object> rankings(
@@ -104,7 +85,7 @@ public class PerformancePythonClient
                     .POST(HttpRequest.BodyPublishers.ofString(
                             json, StandardCharsets.UTF_8))
                     .build();
-            return send(request);
+            return sendJson(request, false);
         }
         catch (Exception e)
         {
@@ -160,7 +141,8 @@ public class PerformancePythonClient
 
             String boundary = "----JmhPerformance"
                     + UUID.randomUUID().toString().replace("-", "");
-            byte[] body = multipartBody(boundary, file);
+            byte[] body = multipartBody(boundary, "file",
+                    new MultipartFile[] { file });
             HttpRequest.Builder builder = baseRequest(
                     path + queryString(params), requestId)
                     .header("Content-Type",
@@ -168,7 +150,7 @@ public class PerformancePythonClient
                     .POST(HttpRequest.BodyPublishers.ofByteArray(body));
             if (StringUtils.hasText(idempotencyKey))
                 builder.header("Idempotency-Key", idempotencyKey);
-            return send(builder.build());
+            return sendJson(builder.build(), false);
         }
         catch (Exception e)
         {
@@ -185,7 +167,7 @@ public class PerformancePythonClient
                     path + queryString(params), requestId)
                     .GET()
                     .build();
-            return send(request, true);
+            return sendJson(request, true);
         }
         catch (Exception e)
         {
@@ -193,22 +175,8 @@ public class PerformancePythonClient
         }
     }
 
-    private HttpRequest.Builder baseRequest(String path, String requestId)
-    {
-        return HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl() + path))
-                .timeout(Duration.ofMillis(properties.getReadTimeout()))
-                .header("Accept", "application/json")
-                .header("X-Request-ID", requestId(requestId));
-    }
-
-    private Map<String, Object> send(HttpRequest request)
-            throws IOException, InterruptedException
-    {
-        return send(request, false);
-    }
-
-    private Map<String, Object> send(
+    /** GET 查询类接口在网关层（502/503/504）与网络异常时重试，写操作不重试。 */
+    private Map<String, Object> sendJson(
             HttpRequest request, boolean retryable)
             throws IOException, InterruptedException
     {
@@ -234,7 +202,7 @@ public class PerformancePythonClient
                         : objectMapper.readValue(body, MAP_TYPE);
                 if (status >= 400 || integer(json.get("code"), -1) != 0)
                     throw new IllegalStateException(
-                            errorMessage(json, status));
+                            errorMessage(json, status, SERVICE_NAME));
                 return json;
             }
             catch (IOException e)
@@ -245,117 +213,12 @@ public class PerformancePythonClient
             }
         }
         throw lastException == null
-                ? new IOException("Python绩效服务请求失败")
+                ? new IOException(SERVICE_NAME + "请求失败")
                 : lastException;
     }
 
     private void retryPause(int attempt) throws InterruptedException
     {
         Thread.sleep(250L * (attempt + 1));
-    }
-
-    private byte[] multipartBody(
-            String boundary, MultipartFile file) throws IOException
-    {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        String filename = file.getOriginalFilename() == null
-                ? "upload.xlsx"
-                : file.getOriginalFilename().replace("\"", "");
-        String contentType = StringUtils.hasText(file.getContentType())
-                ? file.getContentType()
-                : "application/octet-stream";
-        out.write(("--" + boundary + "\r\n")
-                .getBytes(StandardCharsets.UTF_8));
-        out.write(("Content-Disposition: form-data; name=\"file\"; filename=\""
-                + filename + "\"\r\n").getBytes(StandardCharsets.UTF_8));
-        out.write(("Content-Type: " + contentType + "\r\n\r\n")
-                .getBytes(StandardCharsets.UTF_8));
-        out.write(file.getBytes());
-        out.write("\r\n".getBytes(StandardCharsets.UTF_8));
-        out.write(("--" + boundary + "--\r\n")
-                .getBytes(StandardCharsets.UTF_8));
-        return out.toByteArray();
-    }
-
-    private String queryString(Map<String, ?> params)
-    {
-        if (params == null || params.isEmpty()) return "";
-        List<String> parts = new ArrayList<>();
-        params.forEach((key, value) -> {
-            if (value != null && StringUtils.hasText(String.valueOf(value)))
-                parts.add(url(key) + "=" + url(String.valueOf(value)));
-        });
-        return parts.isEmpty() ? "" : "?" + String.join("&", parts);
-    }
-
-    private String errorMessage(Map<String, Object> json, int status)
-    {
-        Object detail = json.get("detail");
-        if (detail != null)
-            return "Python绩效服务错误[HTTP " + status + "]: "
-                    + stringify(detail);
-        Object message = json.get("message");
-        if (message != null)
-            return "Python绩效服务错误[HTTP " + status + "]: " + message;
-        return "Python绩效服务请求失败，HTTP " + status;
-    }
-
-    private String stringify(Object value)
-    {
-        try
-        {
-            return value instanceof String
-                    ? String.valueOf(value)
-                    : objectMapper.writeValueAsString(value);
-        }
-        catch (Exception ignored)
-        {
-            return String.valueOf(value);
-        }
-    }
-
-    private int integer(Object value, int defaultValue)
-    {
-        if (value instanceof Number) return ((Number) value).intValue();
-        try
-        {
-            return Integer.parseInt(String.valueOf(value));
-        }
-        catch (Exception ignored)
-        {
-            return defaultValue;
-        }
-    }
-
-    private String requestId(String value)
-    {
-        return StringUtils.hasText(value)
-                ? value.trim()
-                : UUID.randomUUID().toString();
-    }
-
-    private String url(String value)
-    {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8);
-    }
-
-    private String baseUrl()
-    {
-        String value = StringUtils.hasText(properties.getBaseUrl())
-                ? properties.getBaseUrl()
-                : "http://127.0.0.1:8010/api/v1/finance";
-        return value.endsWith("/")
-                ? value.substring(0, value.length() - 1)
-                : value;
-    }
-
-    private RuntimeException asRuntime(Exception e)
-    {
-        if (e instanceof InterruptedException)
-            Thread.currentThread().interrupt();
-        if (e instanceof RuntimeException runtimeException)
-            return runtimeException;
-        return new IllegalStateException(
-                "Python绩效服务调用失败: " + e.getMessage(), e);
     }
 }

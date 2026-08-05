@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 /** Python绩效内部任务接口配置。 */
 @Component
 @ConfigurationProperties(prefix = "jmh.python-performance")
-public class PythonPerformanceTaskProperties
+public class PythonPerformanceTaskProperties implements PythonServiceProperties
 {
     private String baseUrl = "http://127.0.0.1:8010";
     private Duration connectTimeout = Duration.ofSeconds(3);
@@ -33,5 +33,17 @@ public class PythonPerformanceTaskProperties
     public void setInternalToken(String internalToken)
     {
         this.internalToken = internalToken;
+    }
+
+    @Override
+    public int getConnectTimeoutMillis()
+    {
+        return (int) connectTimeout.toMillis();
+    }
+
+    @Override
+    public int getReadTimeoutMillis()
+    {
+        return (int) readTimeout.toMillis();
     }
 }

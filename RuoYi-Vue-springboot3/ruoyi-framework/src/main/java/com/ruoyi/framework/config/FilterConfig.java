@@ -13,6 +13,7 @@ import com.ruoyi.common.filter.RefererFilter;
 import com.ruoyi.common.filter.RepeatableFilter;
 import com.ruoyi.common.filter.XssFilter;
 import com.ruoyi.common.utils.StringUtils;
+import com.ruoyi.framework.web.filter.RequestIdFilter;
 
 /**
  * Filter配置
@@ -62,6 +63,19 @@ public class FilterConfig
         Map<String, String> initParameters = new HashMap<String, String>();
         initParameters.put("allowedDomains", allowedDomains);
         registration.setInitParameters(initParameters);
+        return registration;
+    }
+
+    @SuppressWarnings({ "rawtypes", "unchecked" })
+    @Bean
+    public FilterRegistrationBean requestIdFilterRegistration()
+    {
+        FilterRegistrationBean registration = new FilterRegistrationBean();
+        registration.setDispatcherTypes(DispatcherType.REQUEST);
+        registration.setFilter(new RequestIdFilter());
+        registration.addUrlPatterns("/*");
+        registration.setName("requestIdFilter");
+        registration.setOrder(FilterRegistrationBean.HIGHEST_PRECEDENCE);
         return registration;
     }
 

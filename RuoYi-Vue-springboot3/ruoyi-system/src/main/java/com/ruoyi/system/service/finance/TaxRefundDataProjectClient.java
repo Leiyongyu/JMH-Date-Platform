@@ -1,18 +1,10 @@
 package com.ruoyi.system.service.finance;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -21,26 +13,15 @@ import org.springframework.web.multipart.MultipartFile;
 
 /** Java ERP 到当前 Date-Project 外汇退税 REST 服务的适配客户端。 */
 @Service
-public class TaxRefundDataProjectClient
+public class TaxRefundDataProjectClient extends PythonHttpSupport
 {
-    private static final TypeReference<Map<String, Object>> MAP_TYPE =
-            new TypeReference<>() {};
-
-    private final TaxRefundDataProjectProperties properties;
-    private final ObjectMapper objectMapper;
-    private final HttpClient httpClient;
+    private static final String SERVICE_NAME = "Python外汇退税服务";
 
     public TaxRefundDataProjectClient(
             TaxRefundDataProjectProperties properties,
             ObjectMapper objectMapper)
     {
-        this.properties = properties;
-        this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofMillis(
-                        properties.getConnectTimeout()))
-                .build();
+        super(properties, objectMapper);
     }
 
     public Object importCustomsFolder(
@@ -200,69 +181,10 @@ public class TaxRefundDataProjectClient
         {
             Object message = map.get("message");
             throw new IllegalStateException(
-                    "Python外汇退税服务错误: "
+                    SERVICE_NAME + "错误: "
                     + (message == null ? "unknown" : message));
         }
         return json;
-    }
-
-    private HttpRequest.Builder baseRequest(String path, String erpUser)
-    {
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl() + path))
-                .timeout(Duration.ofMillis(properties.getReadTimeout()))
-                .header("Accept", "application/json");
-        if (StringUtils.hasText(erpUser))
-            builder.header("X-ERP-User", erpUser);
-        return builder;
-    }
-
-    private byte[] multipartBody(
-            String boundary,
-            String fieldName,
-            MultipartFile[] files) throws IOException
-    {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        int count = 0;
-        if (files != null)
-        {
-            for (MultipartFile file : files)
-            {
-                if (file == null || file.isEmpty()) continue;
-                String filename = file.getOriginalFilename() == null
-                        ? "upload.xlsx"
-                        : file.getOriginalFilename().replace("\"", "");
-                String contentType = StringUtils.hasText(file.getContentType())
-                        ? file.getContentType()
-                        : "application/octet-stream";
-                out.write(("--" + boundary + "\r\n")
-                        .getBytes(StandardCharsets.UTF_8));
-                out.write(("Content-Disposition: form-data; name=\""
-                        + fieldName + "\"; filename=\"" + filename
-                        + "\"\r\n").getBytes(StandardCharsets.UTF_8));
-                out.write(("Content-Type: " + contentType + "\r\n\r\n")
-                        .getBytes(StandardCharsets.UTF_8));
-                out.write(file.getBytes());
-                out.write("\r\n".getBytes(StandardCharsets.UTF_8));
-                count++;
-            }
-        }
-        if (count == 0)
-            throw new IllegalArgumentException("请选择有效文件");
-        out.write(("--" + boundary + "--\r\n")
-                .getBytes(StandardCharsets.UTF_8));
-        return out.toByteArray();
-    }
-
-    private String queryString(Map<String, ?> params)
-    {
-        if (params == null || params.isEmpty()) return "";
-        List<String> parts = new ArrayList<>();
-        params.forEach((key, value) -> {
-            if (value != null && StringUtils.hasText(String.valueOf(value)))
-                parts.add(url(key) + "=" + url(String.valueOf(value)));
-        });
-        return parts.isEmpty() ? "" : "?" + String.join("&", parts);
     }
 
     private String errorMessage(String body, int status)
@@ -272,44 +194,12 @@ public class TaxRefundDataProjectClient
             Map<String, Object> json = objectMapper.readValue(body, MAP_TYPE);
             Object detail = json.get("detail");
             if (detail != null)
-                return "Python外汇退税服务错误[HTTP "
+                return SERVICE_NAME + "错误[HTTP "
                         + status + "]: " + detail;
         }
         catch (Exception ignored)
         {
         }
-        return "Python外汇退税服务请求失败，HTTP " + status;
-    }
-
-    private int integer(Object value, int defaultValue)
-    {
-        if (value instanceof Number) return ((Number) value).intValue();
-        try { return Integer.parseInt(String.valueOf(value)); }
-        catch (Exception ignored) { return defaultValue; }
-    }
-
-    private String url(String value)
-    {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8);
-    }
-
-    private String baseUrl()
-    {
-        String value = StringUtils.hasText(properties.getBaseUrl())
-                ? properties.getBaseUrl()
-                : "http://127.0.0.1:8010";
-        return value.endsWith("/")
-                ? value.substring(0, value.length() - 1)
-                : value;
-    }
-
-    private RuntimeException asRuntime(Exception e)
-    {
-        if (e instanceof InterruptedException)
-            Thread.currentThread().interrupt();
-        if (e instanceof RuntimeException runtimeException)
-            return runtimeException;
-        return new IllegalStateException(
-                "Python外汇退税服务调用失败: " + e.getMessage(), e);
+        return SERVICE_NAME + "请求失败，HTTP " + status;
     }
 }
