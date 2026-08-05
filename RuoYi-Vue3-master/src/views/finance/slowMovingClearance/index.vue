@@ -39,14 +39,6 @@
         </el-select>
       </article>
       <article class="summary-item">
-        <span>库存总数量</span>
-        <strong>{{ number(summary.total_inventory_qty) }}</strong>
-      </article>
-      <article class="summary-item">
-        <span>库存总成本</span>
-        <strong>{{ money(summary.total_inventory_cost) }}</strong>
-      </article>
-      <article class="summary-item">
         <span>0–90天数量 / 成本</span>
         <strong>{{ number(summary.inventory_0_90_qty) }}</strong>
         <small>{{ money(summary.inventory_0_90_cost) }}</small>
@@ -114,7 +106,11 @@
             <template #default="{ row }">{{ moneyOrDash(row.previous_month_91_180_cost) }}</template>
           </el-table-column>
           <el-table-column prop="inventory_91_180_variance" label="差值" min-width="135" align="right">
-            <template #default="{ row }">{{ moneyOrDash(row.inventory_91_180_variance) }}</template>
+            <template #default="{ row }">
+              <span :class="{ 'negative-value': isNegative(row.inventory_91_180_variance) }">
+                {{ moneyOrDash(row.inventory_91_180_variance) }}
+              </span>
+            </template>
           </el-table-column>
         </el-table-column>
         <el-table-column label="181天以上" align="center">
@@ -128,18 +124,13 @@
             <template #default="{ row }">{{ moneyOrDash(row.previous_month_181_plus_cost) }}</template>
           </el-table-column>
           <el-table-column prop="inventory_181_plus_variance" label="差值" min-width="135" align="right">
-            <template #default="{ row }">{{ moneyOrDash(row.inventory_181_plus_variance) }}</template>
+            <template #default="{ row }">
+              <span :class="{ 'negative-value': isNegative(row.inventory_181_plus_variance) }">
+                {{ moneyOrDash(row.inventory_181_plus_variance) }}
+              </span>
+            </template>
           </el-table-column>
         </el-table-column>
-        <el-table-column label="合计" align="center">
-          <el-table-column prop="total_inventory_qty" label="库存数量" min-width="120" align="right">
-            <template #default="{ row }">{{ number(row.total_inventory_qty) }}</template>
-          </el-table-column>
-          <el-table-column prop="total_inventory_cost" label="库龄成本" min-width="130" align="right">
-            <template #default="{ row }">{{ money(row.total_inventory_cost) }}</template>
-          </el-table-column>
-        </el-table-column>
-        <el-table-column prop="pulled_at" label="拉取时间" width="165" fixed="right" />
       </el-table>
     </el-card>
 
@@ -223,6 +214,10 @@ function money(value) {
 
 function moneyOrDash(value) {
   return value === null || value === undefined ? '--' : money(value)
+}
+
+function isNegative(value) {
+  return value !== null && value !== undefined && Number(value) < 0
 }
 
 async function loadData() {
@@ -322,7 +317,7 @@ onMounted(() => Promise.all([loadMonths(), loadData()]))
 .eyebrow { color: #2563eb; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(160px, 1fr));
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
   gap: 10px;
   margin-bottom: 16px;
   overflow-x: auto;
@@ -364,6 +359,7 @@ onMounted(() => Promise.all([loadMonths(), loadData()]))
 }
 .table-title { color: #1e293b; font-size: 16px; font-weight: 650; }
 .table-hint { margin-top: 4px; color: #94a3b8; font-size: 12px; }
+.negative-value { color: #dc2626; }
 .cost-upload :deep(.el-upload),
 .cost-upload :deep(.el-upload-dragger) { width: 100%; }
 .age-table :deep(.el-table__header th) { background: #f8fafc; color: #475569; }
