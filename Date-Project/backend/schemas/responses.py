@@ -23,3 +23,17 @@ def success_response(
         data=data,
         request_id=request_id,
     ).model_dump()
+
+
+def error_response(
+    code: int,
+    message: str,
+    data: Any = None,
+    request_id: str = "",
+) -> dict[str, Any]:
+    return ApiResponse(
+        code=code,
+        message=message,
+        data=data,
+        request_id=request_id,
+    ).model_dump()

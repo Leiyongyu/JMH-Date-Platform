@@ -2,16 +2,19 @@ package com.ruoyi.system.service.finance;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.ByteArrayOutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.SequenceInputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -20,14 +23,13 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * Python 内网服务 HTTP 客户端公共基类。
- * 统一超时、X-Request-ID、X-Internal-Token 与错误解析，子类只保留各自的业务语义。
+ * Base support for internal Python HTTP clients.
+ * Keeps timeout, request id, token, query string, error parsing and multipart
+ * behavior consistent across finance, scheduler and tax-refund clients.
  */
 public abstract class PythonHttpSupport
 {
-    /** 请求头名称，与 Python 端 RequestIdMiddleware 对齐。 */
     public static final String REQUEST_ID_HEADER = "X-Request-ID";
-    /** MDC 键，与 Python 日志字段 request_id 对齐。 */
     public static final String REQUEST_ID_MDC_KEY = "request_id";
 
     private static final String TOKEN_HEADER = "X-Internal-Token";
@@ -153,41 +155,64 @@ public abstract class PythonHttpSupport
                 "Python服务调用失败: " + e.getMessage(), e);
     }
 
-    /** 统一 multipart 组装；空文件跳过，全部为空时抛异常。 */
-    protected byte[] multipartBody(
+    protected HttpRequest.BodyPublisher multipartBodyPublisher(
             String boundary,
             String fieldName,
-            MultipartFile[] files) throws IOException
+            MultipartFile[] files)
     {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        int count = 0;
+        List<MultipartFile> validFiles = new ArrayList<>();
         if (files != null)
+            for (MultipartFile file : files)
+                if (file != null && !file.isEmpty())
+                    validFiles.add(file);
+        if (validFiles.isEmpty())
+            throw new IllegalArgumentException("请选择有效文件");
+        return HttpRequest.BodyPublishers.ofInputStream(
+                () -> multipartInputStream(boundary, fieldName, validFiles));
+    }
+
+    private InputStream multipartInputStream(
+            String boundary,
+            String fieldName,
+            List<MultipartFile> files)
+    {
+        try
         {
+            List<InputStream> streams = new ArrayList<>();
             for (MultipartFile file : files)
             {
-                if (file == null || file.isEmpty()) continue;
-                String filename = file.getOriginalFilename() == null
-                        ? "upload.xlsx"
-                        : file.getOriginalFilename().replace("\"", "");
-                String contentType = StringUtils.hasText(file.getContentType())
-                        ? file.getContentType()
-                        : "application/octet-stream";
-                out.write(("--" + boundary + "\r\n")
-                        .getBytes(StandardCharsets.UTF_8));
-                out.write(("Content-Disposition: form-data; name=\""
-                        + fieldName + "\"; filename=\"" + filename
-                        + "\"\r\n").getBytes(StandardCharsets.UTF_8));
-                out.write(("Content-Type: " + contentType + "\r\n\r\n")
-                        .getBytes(StandardCharsets.UTF_8));
-                out.write(file.getBytes());
-                out.write("\r\n".getBytes(StandardCharsets.UTF_8));
-                count++;
+                streams.add(textStream(partHeader(boundary, fieldName, file)));
+                streams.add(file.getInputStream());
+                streams.add(textStream("\r\n"));
             }
+            streams.add(textStream("--" + boundary + "--\r\n"));
+            return new SequenceInputStream(Collections.enumeration(streams));
         }
-        if (count == 0)
-            throw new IllegalArgumentException("请选择有效文件");
-        out.write(("--" + boundary + "--\r\n")
-                .getBytes(StandardCharsets.UTF_8));
-        return out.toByteArray();
+        catch (IOException e)
+        {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private String partHeader(
+            String boundary,
+            String fieldName,
+            MultipartFile file)
+    {
+        String filename = file.getOriginalFilename() == null
+                ? "upload.xlsx"
+                : file.getOriginalFilename().replace("\"", "");
+        String contentType = StringUtils.hasText(file.getContentType())
+                ? file.getContentType()
+                : "application/octet-stream";
+        return "--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"" + fieldName
+                + "\"; filename=\"" + filename + "\"\r\n"
+                + "Content-Type: " + contentType + "\r\n\r\n";
+    }
+
+    private InputStream textStream(String value)
+    {
+        return new ByteArrayInputStream(value.getBytes(StandardCharsets.UTF_8));
     }
 }

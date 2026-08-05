@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.router import api_router
 from backend.database import init_database
+from backend.infrastructure.exception_handlers import register_exception_handlers
 from backend.infrastructure.logging import configure_logging
 from backend.infrastructure.request_context import RequestIdMiddleware
 
@@ -19,6 +20,7 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(RequestIdMiddleware)
     app.include_router(api_router)
+    register_exception_handlers(app)
     return app
 
 

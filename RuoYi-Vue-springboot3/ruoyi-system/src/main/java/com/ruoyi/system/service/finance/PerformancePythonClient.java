@@ -141,13 +141,13 @@ public class PerformancePythonClient extends PythonHttpSupport
 
             String boundary = "----JmhPerformance"
                     + UUID.randomUUID().toString().replace("-", "");
-            byte[] body = multipartBody(boundary, "file",
+            HttpRequest.BodyPublisher body = multipartBodyPublisher(boundary, "file",
                     new MultipartFile[] { file });
             HttpRequest.Builder builder = baseRequest(
                     path + queryString(params), requestId)
                     .header("Content-Type",
                             "multipart/form-data; boundary=" + boundary)
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(body));
+                    .POST(body);
             if (StringUtils.hasText(idempotencyKey))
                 builder.header("Idempotency-Key", idempotencyKey);
             return sendJson(builder.build(), false);

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 
+from backend.api.deps import require_internal_access
 from backend.schemas.performance_requests import PerformanceRefreshRequest
 from backend.schemas.responses import success_response
 from backend.repositories import clearance_repository as clearance_repo
@@ -16,7 +17,10 @@ from backend.services.performance_service import (
 )
 
 
-router = APIRouter(prefix="/api/v1/finance")
+router = APIRouter(
+    prefix="/api/v1/finance",
+    dependencies=[Depends(require_internal_access)],
+)
 
 
 @router.get("/slow-moving-clearance/groups")

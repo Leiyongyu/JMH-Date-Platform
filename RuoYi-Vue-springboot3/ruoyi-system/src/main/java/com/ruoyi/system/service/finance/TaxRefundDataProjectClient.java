@@ -113,11 +113,11 @@ public class TaxRefundDataProjectClient extends PythonHttpSupport
         {
             String boundary = "----JmhDateProject"
                     + UUID.randomUUID().toString().replace("-", "");
-            byte[] body = multipartBody(boundary, fieldName, files);
+            HttpRequest.BodyPublisher body = multipartBodyPublisher(boundary, fieldName, files);
             HttpRequest request = baseRequest(path, erpUser)
                     .header("Content-Type",
                             "multipart/form-data; boundary=" + boundary)
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                    .POST(body)
                     .build();
             return send(request);
         }
@@ -195,7 +195,11 @@ public class TaxRefundDataProjectClient extends PythonHttpSupport
             Object detail = json.get("detail");
             if (detail != null)
                 return SERVICE_NAME + "错误[HTTP "
-                        + status + "]: " + detail;
+                        + status + "]: " + stringify(detail);
+            Object message = json.get("message");
+            if (message != null)
+                return SERVICE_NAME + "错误[HTTP "
+                        + status + "]: " + message;
         }
         catch (Exception ignored)
         {
