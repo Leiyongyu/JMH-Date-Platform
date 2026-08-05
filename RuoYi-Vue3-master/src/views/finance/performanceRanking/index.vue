@@ -49,33 +49,68 @@
           >
             重新匹配并汇总
           </el-button>
-          <el-button
-            type="primary"
-            plain
-            icon="Upload"
-            :loading="profitImporting"
-            v-hasPermi="['finance:performanceRanking:edit']"
-            @click="openProfitImportDialog"
+          <el-dropdown
+            trigger="click"
+            popper-class="performance-data-menu"
+            :disabled="dataOperationLoading"
+            @command="handleDataCommand"
           >
-            导入 eBay 月度利润表
-          </el-button>
-          <el-button
-            type="warning"
-            icon="Upload"
-            v-hasPermi="['finance:performanceRanking:edit']"
-            @click="openOwnerImportDialog('AMZ')"
-          >
-            导入 AMZ 负责人配置
-          </el-button>
-          <el-button
-            type="warning"
-            plain
-            icon="Upload"
-            v-hasPermi="['finance:performanceRanking:edit']"
-            @click="openOwnerImportDialog('EBAY')"
-          >
-            导入 eBay 负责人配置
-          </el-button>
+            <el-button
+              class="data-action-trigger"
+              type="primary"
+              plain
+              :loading="dataOperationLoading"
+            >
+              <el-icon><FolderOpened /></el-icon>
+              <span>数据导入/导出</span>
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  command="exportAmzSource"
+                  v-hasPermi="['finance:performanceRanking:list']"
+                >
+                  <el-icon class="data-menu-icon export-icon"><Download /></el-icon>
+                  <div class="data-menu-copy">
+                    <span>导出 AMZ 源数据</span>
+                    <small>导出当前月份的绩效明细</small>
+                  </div>
+                </el-dropdown-item>
+                <el-dropdown-item
+                  command="importEbayProfit"
+                  divided
+                  v-hasPermi="['finance:performanceRanking:edit']"
+                >
+                  <el-icon class="data-menu-icon profit-icon"><Upload /></el-icon>
+                  <div class="data-menu-copy">
+                    <span>导入 eBay 月度利润表</span>
+                    <small>覆盖所导入月份的利润数据</small>
+                  </div>
+                </el-dropdown-item>
+                <el-dropdown-item
+                  command="importAmzOwners"
+                  v-hasPermi="['finance:performanceRanking:edit']"
+                >
+                  <el-icon class="data-menu-icon owner-icon"><Upload /></el-icon>
+                  <div class="data-menu-copy">
+                    <span>导入 AMZ 负责人配置</span>
+                    <small>更新 AMZ 店铺负责人规则</small>
+                  </div>
+                </el-dropdown-item>
+                <el-dropdown-item
+                  command="importEbayOwners"
+                  v-hasPermi="['finance:performanceRanking:edit']"
+                >
+                  <el-icon class="data-menu-icon owner-icon"><Upload /></el-icon>
+                  <div class="data-menu-copy">
+                    <span>导入 eBay 负责人配置</span>
+                    <small>更新 eBay 品牌负责人规则</small>
+                  </div>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </el-form-item>
       </el-form>
     </el-card>
@@ -227,6 +262,7 @@
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import * as echarts from 'echarts'
 import {
+  exportAmzPerformanceSource,
   getPerformanceMonths,
   importEbayPerformanceOwnerRules,
   importEbayPerformanceProfit,
@@ -241,6 +277,7 @@ const rows = ref([])
 const monthOptions = ref([])
 const actualMonth = ref('')
 const refreshing = ref(false)
+const sourceExporting = ref(false)
 const importing = ref(false)
 const profitImporting = ref(false)
 const ownerImportDialogVisible = ref(false)
@@ -286,6 +323,9 @@ const ownerImportTip = computed(() => ownerImportPlatform.value === 'AMZ'
   : '只读取 Sheet1：第一列为品牌，后续为“YYYYMM负责人”列；相同月份和品牌覆盖，其余数据保留。')
 const grossProfitRanking = computed(() => sortRanking('grossProfit'))
 const netSalesRanking = computed(() => sortRanking('netSalesAmount'))
+const dataOperationLoading = computed(() => (
+  sourceExporting.value || profitImporting.value || importing.value
+))
 
 function formatMoney(value) {
   return Number(value || 0).toLocaleString('zh-CN', {
@@ -503,6 +543,43 @@ async function handleRefresh() {
   }
 }
 
+async function handleAmzSourceExport() {
+  if (!query.statMonth) {
+    proxy.$modal.msgError('请选择需要导出的统计月份')
+    return
+  }
+  sourceExporting.value = true
+  try {
+    const data = await exportAmzPerformanceSource(query.statMonth)
+    const blob = data instanceof Blob
+      ? data
+      : new Blob([data], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `amz_performance_source_${query.statMonth}.xlsx`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    proxy.$modal.msgSuccess(`${query.statMonth} AMZ源数据导出成功`)
+  } finally {
+    sourceExporting.value = false
+  }
+}
+
+function handleDataCommand(command) {
+  const actions = {
+    exportAmzSource: handleAmzSourceExport,
+    importEbayProfit: openProfitImportDialog,
+    importAmzOwners: () => openOwnerImportDialog('AMZ'),
+    importEbayOwners: () => openOwnerImportDialog('EBAY')
+  }
+  actions[command]?.()
+}
+
 function normalizeRefresh(result = {}) {
   const resultPlatform = result.platform || query.platform
   const rankingRows = resultPlatform === 'amazon'
@@ -647,6 +724,51 @@ onBeforeUnmount(() => {
 .platform-heading { color: #1e293b; font-size: 18px; font-weight: 650; }
 .platform-hint { margin-top: 5px; color: #64748b; font-size: 12px; }
 .filter-card { margin-bottom: 16px; }
+.filter-card :deep(.el-form-item:last-child .el-form-item__content) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.filter-card :deep(.el-form-item:last-child .el-button + .el-button) { margin-left: 0; }
+.data-action-trigger {
+  min-width: 154px;
+  border-color: #bfdbfe;
+  background: linear-gradient(135deg, #eff6ff 0%, #f8fbff 100%);
+  box-shadow: 0 2px 8px rgb(37 99 235 / 8%);
+}
+.data-action-trigger:hover,
+.data-action-trigger:focus {
+  border-color: #60a5fa;
+  background: #eff6ff;
+  box-shadow: 0 4px 12px rgb(37 99 235 / 14%);
+}
+.data-action-trigger span { margin-left: 7px; }
+:global(.performance-data-menu .el-dropdown-menu) { padding: 7px; }
+:global(.performance-data-menu .el-dropdown-menu__item) {
+  min-width: 252px;
+  min-height: 52px;
+  padding: 7px 11px;
+  border-radius: 7px;
+  line-height: 1.25;
+}
+:global(.performance-data-menu .el-dropdown-menu__item--divided) { margin-top: 7px; }
+:global(.performance-data-menu .data-menu-icon) {
+  width: 30px;
+  height: 30px;
+  margin-right: 10px;
+  border-radius: 7px;
+  font-size: 16px;
+}
+:global(.performance-data-menu .export-icon) { color: #15803d; background: #ecfdf3; }
+:global(.performance-data-menu .profit-icon) { color: #1d4ed8; background: #eff6ff; }
+:global(.performance-data-menu .owner-icon) { color: #b45309; background: #fffbeb; }
+:global(.performance-data-menu .data-menu-copy) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+:global(.performance-data-menu .data-menu-copy span) { color: #1e293b; font-weight: 600; }
+:global(.performance-data-menu .data-menu-copy small) { color: #94a3b8; font-size: 11px; }
 .summary-card { margin-bottom: 16px; }
 .card-header { display: flex; align-items: center; justify-content: space-between; }
 .title { font-size: 16px; font-weight: 600; }

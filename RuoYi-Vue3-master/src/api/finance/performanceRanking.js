@@ -24,6 +24,16 @@ export function refreshPerformanceRanking(statMonth, platform = 'combined') {
   })
 }
 
+export function exportAmzPerformanceSource(statMonth, includeRawJson = false) {
+  return request({
+    url: '/finance/performance-ranking/amazon/source-export',
+    method: 'get',
+    params: { statMonth, includeRawJson },
+    responseType: 'blob',
+    timeout: 600000
+  })
+}
+
 export function importPerformanceOwnerRules(file, rebuild = true, statMonth) {
   const data = new FormData()
   data.append('file', file)

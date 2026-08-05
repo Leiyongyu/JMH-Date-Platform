@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 
 from backend.api.deps import require_internal_access
 from backend.schemas.performance_requests import PerformanceRefreshRequest
@@ -14,6 +15,9 @@ from backend.services.performance_service import (
     owner_rule_summary,
     performance_months,
     refresh_performance,
+)
+from backend.services.performance_source_export_service import (
+    export_amz_performance_source,
 )
 
 
@@ -81,6 +85,28 @@ def get_performance_rankings(
 @router.get("/performance-months")
 def get_performance_months(request: Request, limit: int = 12):
     return success_response(performance_months(limit), request_id=request.state.request_id)
+
+
+@router.get("/amz-performance-source-exports")
+async def get_amz_performance_source_export(
+    stat_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+    include_raw_json: bool = False,
+):
+    try:
+        file_path, download_name = await run_in_threadpool(
+            export_amz_performance_source,
+            stat_month,
+            include_raw_json,
+        )
+        return FileResponse(
+            file_path,
+            filename=download_name,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"AMZ绩效源数据导出失败: {exc}") from exc
 
 
 @router.post("/performance-refreshes", status_code=201)

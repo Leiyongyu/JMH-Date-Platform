@@ -6,9 +6,14 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.system.service.finance.PerformancePythonClient;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -100,6 +105,29 @@ public class PerformanceRankingController extends BaseController
         {
             return error(e.getMessage());
         }
+    }
+
+    @Log(title = "AMZ绩效源数据导出", businessType = BusinessType.EXPORT)
+    @PreAuthorize("@ss.hasPermi('finance:performanceRanking:list')")
+    @GetMapping("/amazon/source-export")
+    public ResponseEntity<byte[]> exportAmazonSource(
+            @RequestParam String statMonth,
+            @RequestParam(defaultValue = "false") boolean includeRawJson,
+            @RequestHeader(value = "X-Request-ID", required = false)
+            String requestId)
+    {
+        byte[] file = pythonClient.exportAmazonPerformanceSource(
+                statMonth, includeRawJson, requestId);
+        String filename = URLEncoder.encode(
+                "amz_performance_source_" + statMonth + ".xlsx",
+                StandardCharsets.UTF_8).replace("+", "%20");
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename*=UTF-8''" + filename)
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .contentLength(file.length)
+                .body(file);
     }
 
     @Log(title = "Amazon绩效负责人规则导入",

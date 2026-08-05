@@ -17,6 +17,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class PerformancePythonClient extends PythonHttpSupport
 {
     private static final String SERVICE_NAME = "Python绩效服务";
+    private static final String EXCEL_CONTENT_TYPE =
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
     public PerformancePythonClient(
             PerformancePythonProperties properties,
@@ -34,6 +36,40 @@ public class PerformancePythonClient extends PythonHttpSupport
     public Map<String, Object> months(int limit, String requestId)
     {
         return get("/performance-months", Map.of("limit", limit), requestId);
+    }
+
+    public byte[] exportAmazonPerformanceSource(
+            String statMonth,
+            boolean includeRawJson,
+            String requestId)
+    {
+        try
+        {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("stat_month", statMonth);
+            params.put("include_raw_json", includeRawJson);
+            HttpRequest request = baseRequest(
+                    "/amz-performance-source-exports" + queryString(params),
+                    requestId)
+                    .setHeader("Accept", EXCEL_CONTENT_TYPE)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 400)
+            {
+                String body = new String(
+                        response.body(), StandardCharsets.UTF_8);
+                Map<String, Object> json = parseJson(body);
+                throw new IllegalStateException(errorMessage(
+                        json, response.statusCode(), SERVICE_NAME));
+            }
+            return response.body();
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
     }
 
     public Map<String, Object> ownerRuleSummary(
