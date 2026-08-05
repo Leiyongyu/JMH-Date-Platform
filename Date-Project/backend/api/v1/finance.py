@@ -5,6 +5,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
 from backend.api.deps import require_internal_access
+from backend.api.upload_helpers import read_excel_upload
 from backend.schemas.performance_requests import PerformanceRefreshRequest
 from backend.schemas.responses import success_response
 from backend.repositories import clearance_repository as clearance_repo
@@ -19,6 +20,7 @@ from backend.services.performance_service import (
 from backend.services.performance_source_export_service import (
     export_amz_performance_source,
 )
+from backend.services.clearance_service import import_inventory_age_cost
 
 
 router = APIRouter(
@@ -55,6 +57,31 @@ def get_slow_moving_clearance_months(request: Request, limit: int = 24):
         clearance_repo.months(limit),
         request_id=request.state.request_id,
     )
+
+
+@router.post("/slow-moving-clearance/inventory-age-cost-imports", status_code=201)
+async def post_inventory_age_cost_import(
+    request: Request,
+    file: UploadFile = File(...),
+    operator: str | None = None,
+):
+    content, file_name = await read_excel_upload(file)
+    try:
+        result = await run_in_threadpool(
+            import_inventory_age_cost,
+            content,
+            file_name,
+            operator,
+        )
+        return success_response(
+            result,
+            request_id=request.state.request_id,
+            message="inventory age cost imported",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"库存成本导入失败: {exc}") from exc
 
 
 @router.get("/performance-rankings")

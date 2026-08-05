@@ -203,3 +203,15 @@ jmh:
     connect-timeout: 3s
     read-timeout: 30m
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+  mysql-backup:
+    enabled: ${MYSQL_BACKUP_ENABLED:true}
+    mysqldump-path: ${MYSQLDUMP_PATH:C:/Program Files/MySQL/MySQL Server 9.7/bin/mysqldump.exe}
+    login-path: ${MYSQL_BACKUP_LOGIN_PATH:jmh_backup}
+    databases:
+      - ${MYSQL_BACKUP_DATABASE_DATE_PROJECT:Date-Project}
+      - ${MYSQL_BACKUP_DATABASE_ERP:jmh_data_platform}
+    local-temp-dir: ${MYSQL_BACKUP_TEMP_DIR:D:/JMH_Backup_Temp}
+    target-dir: '${MYSQL_BACKUP_TARGET_DIR://UGREEN-9F8B/ywx123456_存储空间1/MySQL_Backup}'
+    retention-days: ${MYSQL_BACKUP_RETENTION_DAYS:30}
+    timeout-minutes: ${MYSQL_BACKUP_TIMEOUT_MINUTES:120}
+    minimum-dump-bytes: ${MYSQL_BACKUP_MINIMUM_DUMP_BYTES:1024}

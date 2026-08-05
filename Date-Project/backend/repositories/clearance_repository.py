@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Any
 
 from backend.config import settings
 from backend.database import db_connection
+
+
+GROUP_ORDER_SQL = "FIELD(g.group_code,'EU','US1','US2','US2-MJ','US1-ZXY')"
 
 
 def connection():
@@ -116,6 +120,47 @@ def replace_month(conn, month: str, rows: list[dict], groups: list[dict]) -> dic
     }
 
 
+def replace_inventory_age_cost_month(
+    conn,
+    cost_month: str,
+    rows: list[dict[str, Any]],
+    operator: str | None,
+) -> dict:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(1) n FROM dwd_inventory_age_cost_monthly "
+            "WHERE cost_month=%s",
+            (cost_month,),
+        )
+        old_rows = int(cur.fetchone()["n"])
+        cur.execute(
+            "DELETE FROM dwd_inventory_age_cost_monthly WHERE cost_month=%s",
+            (cost_month,),
+        )
+        if rows:
+            payload = [{**row, "operator": operator} for row in rows]
+            cur.executemany(
+                """
+                INSERT INTO dwd_inventory_age_cost_monthly
+                (cost_month,department_code,group_code,
+                 inventory_91_180_cost,inventory_181_plus_cost,
+                 source_file_name,source_sheet,source_row,
+                 import_batch_id,operator)
+                VALUES
+                (%(cost_month)s,%(department_code)s,%(group_code)s,
+                 %(inventory_91_180_cost)s,%(inventory_181_plus_cost)s,
+                 %(source_file_name)s,%(source_sheet)s,%(source_row)s,
+                 %(import_batch_id)s,%(operator)s)
+                """,
+                payload,
+            )
+    return {
+        "old_rows": old_rows,
+        "inserted_rows": len(rows),
+        "replaced_rows": old_rows,
+    }
+
+
 def list_groups(month: str | None) -> dict:
     with db_connection() as conn, conn.cursor() as cur:
         if not month:
@@ -123,10 +168,28 @@ def list_groups(month: str | None) -> dict:
             month = cur.fetchone()["m"]
         if not month:
             return {"pull_month": None, "items": [], "total": 0}
+        month_start = datetime.strptime(month, "%Y-%m")
+        previous_month = (month_start - timedelta(days=1)).strftime("%Y-%m")
         cur.execute(
-            "SELECT * FROM dws_amz_fba_inventory_age_group "
-            "WHERE pull_month=%s ORDER BY FIELD(group_code,'EU','US1','US2','US3')",
-            (month,),
+            f"""
+            SELECT g.*,
+                   c.cost_month AS previous_cost_month,
+                   c.inventory_91_180_cost AS previous_month_91_180_cost,
+                   CASE WHEN c.id IS NULL THEN NULL
+                        ELSE c.inventory_91_180_cost - g.inventory_91_180_cost END
+                       AS inventory_91_180_variance,
+                   c.inventory_181_plus_cost AS previous_month_181_plus_cost,
+                   CASE WHEN c.id IS NULL THEN NULL
+                        ELSE c.inventory_181_plus_cost - g.inventory_181_plus_cost END
+                       AS inventory_181_plus_variance
+            FROM dws_amz_fba_inventory_age_group g
+            LEFT JOIN dwd_inventory_age_cost_monthly c
+              ON c.cost_month=%s
+             AND c.group_code=g.group_code
+            WHERE g.pull_month=%s
+            ORDER BY {GROUP_ORDER_SQL}
+            """,
+            (previous_month, month),
         )
         items = list(cur.fetchall())
         return {"pull_month": month, "items": items, "total": len(items)}

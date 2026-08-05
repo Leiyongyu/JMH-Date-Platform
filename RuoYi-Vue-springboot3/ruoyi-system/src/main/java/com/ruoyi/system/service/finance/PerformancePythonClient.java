@@ -102,6 +102,22 @@ public class PerformancePythonClient extends PythonHttpSupport
                 Map.of("limit", limit), requestId);
     }
 
+    public Map<String, Object> importInventoryAgeCost(
+            MultipartFile file,
+            String operator,
+            String requestId,
+            String idempotencyKey)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("operator", operator);
+        return upload(
+                "/slow-moving-clearance/inventory-age-cost-imports",
+                params,
+                file,
+                requestId,
+                idempotencyKey);
+    }
+
     public Map<String, Object> refresh(
             String statMonth,
             String platform,
