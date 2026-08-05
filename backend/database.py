@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
 import pymysql
+from dbutils.pooled_db import PooledDB
 from pymysql.connections import Connection
 
 from backend.config import settings
@@ -411,9 +413,39 @@ def init_database() -> None:
         connection.close()
 
 
+_pool: PooledDB | None = None
+_pool_lock = threading.Lock()
+
+
+def _connection_pool() -> PooledDB:
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                _pool = PooledDB(
+                    creator=pymysql,
+                    maxconnections=20,
+                    mincached=1,
+                    maxcached=10,
+                    blocking=True,
+                    maxusage=None,
+                    ping=1,
+                    reset=True,
+                    host=settings.mysql_host,
+                    port=settings.mysql_port,
+                    user=settings.mysql_user,
+                    password=settings.mysql_password,
+                    database=settings.mysql_database,
+                    charset="utf8mb4",
+                    cursorclass=pymysql.cursors.DictCursor,
+                    autocommit=False,
+                )
+    return _pool
+
+
 @contextmanager
 def db_connection() -> Iterator[Connection]:
-    connection = _connect(settings.mysql_database)
+    connection = _connection_pool().connection()
     try:
         yield connection
     finally:

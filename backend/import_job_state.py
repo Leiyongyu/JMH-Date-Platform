@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from backend.job_state import (
+    forget_job as forget_customs_import_job,
     jobs as customs_import_jobs,
     jobs_lock as customs_import_jobs_lock,
     load_job as load_import_job,
@@ -90,3 +91,5 @@ def process_customs_import_job(
             completed_at=datetime.now().isoformat(timespec="seconds"),
             fatal_error=str(exc),
         )
+    finally:
+        forget_customs_import_job(job_id)

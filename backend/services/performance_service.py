@@ -316,10 +316,13 @@ def owner_rule_summary(platform: str, stat_month: str) -> dict:
 def _refresh_amazon(connection, stat_month: str) -> dict:
     profit_rows = repo.get_amz_profit_rows(connection, stat_month)
     rules = repo.get_owner_rules(connection, "amazon", stat_month)
+    store_rules = _amazon_store_rules(rules)
     aggregates = defaultdict(_empty_amz_aggregate)
     source_rows = matched_rows = unmatched_rows = missing_shop_rows = 0
     for row in profit_rows:
-        principal, scoped, missing_shop = _amazon_principal(row, rules)
+        principal, scoped, missing_shop = _amazon_principal(
+            row, rules, store_rules
+        )
         if missing_shop:
             missing_shop_rows += 1
             continue
@@ -362,11 +365,37 @@ def _refresh_amazon(connection, stat_month: str) -> dict:
     }
 
 
-def _amazon_principal(row: dict, rules: dict[tuple[str, str, str], str]) -> tuple[str, bool, bool]:
+def _amazon_store_rules(
+    rules: dict[tuple[str, str, str], str]
+) -> dict[str, str]:
+    """Build one Amazon store-owner map without US1/US2/US3 grouping."""
+    result: dict[str, str] = {}
+    for (_, rule_type, match_key), principal in rules.items():
+        if rule_type != "STORE":
+            continue
+        store_key = normalize_text(match_key)
+        if not store_key:
+            continue
+        current = result.get(store_key)
+        if current and current != principal:
+            raise ValueError(
+                f"Amazon店铺负责人配置冲突：店铺“{store_key}”同时配置给"
+                f"“{current}”和“{principal}”"
+            )
+        result[store_key] = principal
+    return result
+
+
+def _amazon_principal(
+    row: dict,
+    rules: dict[tuple[str, str, str], str],
+    store_rules: dict[str, str] | None = None,
+) -> tuple[str, bool, bool]:
     store_name = normalize_text(row.get("store_name"))
     local_sku = normalize_text(row.get("local_sku")).upper()
     if not store_name:
         return UNASSIGNED, False, True
+
     if store_name.startswith("EU-"):
         if store_name.endswith("-UK"):
             return "吴清栩", True, False
@@ -374,14 +403,19 @@ def _amazon_principal(row: dict, rules: dict[tuple[str, str, str], str]) -> tupl
             key = _sku_segment(local_sku, 1)
             return rules.get(("EU", "OTH_CODE", key), UNASSIGNED), True, False
         return rules.get(("EU", "BRAND", _sku_segment(local_sku, 0)), UNASSIGNED), True, False
-    if store_name.startswith("US1-"):
-        store_key = _store_segment(store_name)
-        if store_key == "重庆茁凯":
-            store_key = "邱存帅"
-        return rules.get(("US1", "STORE", store_key), UNASSIGNED), True, False
-    if store_name.startswith("US2-"):
-        return rules.get(("US2", "STORE", _store_segment(store_name)), UNASSIGNED), True, False
-    return UNASSIGNED, False, False
+
+    if store_rules is None:
+        store_rules = _amazon_store_rules(rules)
+    store_key = _store_segment(store_name)
+    if store_key == "重庆茁凯":
+        store_key = "邱存帅"
+    principal = store_rules.get(store_key)
+    if principal:
+        return principal, True, False
+
+    # Amazon店铺负责人只按店铺名匹配；未配置的店铺计入“未分配”，
+    # 不再因US1/US2/US3等店铺前缀而静默排除。
+    return UNASSIGNED, True, False
 
 
 def _sku_segment(sku: str, index: int) -> str:
