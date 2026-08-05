@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
+from backend.api.deps import require_internal_access
 from backend.api.upload_helpers import read_excel_upload
 from backend.schemas.ebay_price_requests import EbayPriceExportRequest, EbayPriceSearchRequest
 from backend.schemas.responses import success_response
@@ -14,7 +15,10 @@ from backend.services.ebay_price_service import (
 )
 
 
-router = APIRouter(prefix="/api/v1/ebay-price")
+router = APIRouter(
+    prefix="/api/v1/ebay-price",
+    dependencies=[Depends(require_internal_access)],
+)
 
 
 @router.post("/sku-oe-imports", status_code=201)

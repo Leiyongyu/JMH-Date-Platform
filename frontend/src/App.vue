@@ -103,7 +103,7 @@ const dashboardCards = computed(() => [
 async function api(url, options = {}) {
   const response = await fetch(url, options)
   const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(data.detail || `请求失败：${response.status}`)
+  if (!response.ok) throw new Error(data.message || `请求失败：${response.status}`)
   return data
 }
 
