@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from io import BytesIO
 from typing import Any
 
@@ -60,7 +59,6 @@ def _parse_amazon_rules(workbook, file_name: str, content: bytes, import_batch_i
                 match_key = match_key.upper()
             if not match_key:
                 continue
-            raw = {str(key): _json_value(value) for key, value in record.to_dict().items()}
             for column, stat_month in month_columns:
                 principal_name = normalize_principal(record.get(column))
                 if principal_name == "未分配" and not normalize_text(record.get(column)):
@@ -72,21 +70,20 @@ def _parse_amazon_rules(workbook, file_name: str, content: bytes, import_batch_i
                     )
                 duplicates[key] = source_row
                 months.add(stat_month)
-                rules.append(
-                    _rule(
-                        "amazon",
-                        stat_month,
-                        group_code,
-                        rule_type,
-                        match_key,
-                        principal_name,
-                        file_name,
-                        sheet_name,
-                        source_row,
-                        import_batch_id,
-                    )
+                rule = _rule(
+                    "amazon",
+                    stat_month,
+                    group_code,
+                    rule_type,
+                    match_key,
+                    principal_name,
+                    file_name,
+                    sheet_name,
+                    source_row,
+                    import_batch_id,
                 )
-            raw_rows.append(_raw("amazon", months, file_name, sheet_name, source_row, raw, import_batch_id))
+                rules.append(rule)
+                raw_rows.append(_raw(rule))
     return _result(content, rules, raw_rows, months)
 
 
@@ -110,7 +107,6 @@ def _parse_ebay_rules(workbook, file_name: str, content: bytes, import_batch_id:
         brand_code = normalize_text(record.get("品牌")).upper()
         if not brand_code:
             continue
-        raw = {str(key): _json_value(value) for key, value in record.to_dict().items()}
         for column, stat_month in month_columns:
             principal_name = normalize_principal(record.get(column))
             if principal_name == "未分配" and not normalize_text(record.get(column)):
@@ -122,21 +118,20 @@ def _parse_ebay_rules(workbook, file_name: str, content: bytes, import_batch_id:
                 )
             duplicates[key] = source_row
             months.add(stat_month)
-            rules.append(
-                _rule(
-                    "ebay",
-                    stat_month,
-                    "",
-                    "EBAY_BRAND",
-                    brand_code,
-                    principal_name,
-                    file_name,
-                    sheet_name,
-                    source_row,
-                    import_batch_id,
-                )
+            rule = _rule(
+                "ebay",
+                stat_month,
+                "",
+                "EBAY_BRAND",
+                brand_code,
+                principal_name,
+                file_name,
+                sheet_name,
+                source_row,
+                import_batch_id,
             )
-        raw_rows.append(_raw("ebay", months, file_name, sheet_name, source_row, raw, import_batch_id))
+            rules.append(rule)
+            raw_rows.append(_raw(rule))
     return _result(content, rules, raw_rows, months)
 
 
@@ -155,16 +150,8 @@ def _rule(platform, stat_month, group_code, rule_type, match_key, principal_name
     }
 
 
-def _raw(platform: str, months: set[str], file_name: str, sheet_name: str, source_row: int, raw: dict, import_batch_id: str) -> dict:
-    return {
-        "platform": platform,
-        "stat_month": sorted(months)[-1] if months else "1970-01",
-        "source_file_name": file_name,
-        "source_sheet": sheet_name,
-        "source_row": source_row,
-        "raw_json": json.dumps(raw, ensure_ascii=False, default=str),
-        "import_batch_id": import_batch_id,
-    }
+def _raw(rule: dict[str, Any]) -> dict[str, Any]:
+    return dict(rule)
 
 
 def _result(content: bytes, rules: list[dict], raw_rows: list[dict], months: set[str]) -> dict[str, Any]:
@@ -174,9 +161,3 @@ def _result(content: bytes, rules: list[dict], raw_rows: list[dict], months: set
         "raw_rows": raw_rows,
         "months": sorted(months),
     }
-
-
-def _json_value(value: Any) -> Any:
-    if pd.isna(value):
-        return None
-    return value

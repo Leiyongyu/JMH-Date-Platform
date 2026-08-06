@@ -21,6 +21,7 @@ from backend.services.performance_source_export_service import (
     export_amz_performance_source,
 )
 from backend.services.clearance_service import import_inventory_age_cost
+from backend.services.clearance_export_service import export_inventory_age_details
 
 
 router = APIRouter(
@@ -84,6 +85,26 @@ async def post_inventory_age_cost_import(
         raise HTTPException(status_code=500, detail=f"库存成本导入失败: {exc}") from exc
 
 
+@router.get("/slow-moving-clearance/inventory-age-detail-exports")
+async def get_inventory_age_detail_export(
+    pull_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+):
+    try:
+        file_path, download_name = await run_in_threadpool(
+            export_inventory_age_details,
+            pull_month,
+        )
+        return FileResponse(
+            file_path,
+            filename=download_name,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"库龄明细导出失败: {exc}") from exc
+
+
 @router.get("/performance-rankings")
 def get_performance_rankings(
     request: Request,
@@ -117,13 +138,11 @@ def get_performance_months(request: Request, limit: int = 12):
 @router.get("/amz-performance-source-exports")
 async def get_amz_performance_source_export(
     stat_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
-    include_raw_json: bool = False,
 ):
     try:
         file_path, download_name = await run_in_threadpool(
             export_amz_performance_source,
             stat_month,
-            include_raw_json,
         )
         return FileResponse(
             file_path,

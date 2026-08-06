@@ -6,8 +6,13 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.system.service.finance.PerformancePythonClient;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -105,6 +110,32 @@ public class SlowMovingClearanceController extends BaseController
         {
             return error(e.getMessage());
         }
+    }
+
+    @Log(title = "滞销清货库龄成本明细导出",
+            businessType = BusinessType.EXPORT)
+    @PreAuthorize("@ss.hasPermi('finance:slowMovingClearance:list')")
+    @GetMapping("/inventory-age-cost/export")
+    public ResponseEntity<byte[]> exportInventoryAgeDetails(
+            @RequestParam String pullMonth,
+            @RequestHeader(value = "X-Request-ID", required = false)
+            String requestId)
+    {
+        byte[] file = pythonClient.exportInventoryAgeDetails(
+                pullMonth, requestId);
+        String timestamp = java.time.LocalDateTime.now().format(
+                java.time.format.DateTimeFormatter.ofPattern(
+                        "yyyyMMddHHmmss"));
+        String filename = URLEncoder.encode(
+                pullMonth + "-库龄明细-" + timestamp + ".xlsx",
+                StandardCharsets.UTF_8).replace("+", "%20");
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename*=UTF-8''" + filename)
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .contentLength(file.length)
+                .body(file);
     }
 
     private Object data(Map<String, Object> response)

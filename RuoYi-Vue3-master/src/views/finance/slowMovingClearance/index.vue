@@ -7,15 +7,43 @@
           <h2>滞销清货</h2>
           <p>按 EU、US1、US2 及拆分后的 US3 组别，展示 FBA 库龄成本与上月库存成本差异。</p>
         </div>
-        <el-button
-          v-hasPermi="['finance:slowMovingClearance:import']"
-          type="primary"
-          plain
-          @click="openCostImportDialog"
+        <el-dropdown
+          trigger="click"
+          popper-class="clearance-data-menu"
+          :disabled="costOperationLoading"
+          @command="handleCostCommand"
         >
-          <el-icon><Upload /></el-icon>
-          导入上月库存成本
-        </el-button>
+          <el-button class="cost-action-trigger" type="primary" plain :loading="costOperationLoading">
+            <el-icon><FolderOpened /></el-icon>
+            <span>库龄数据操作</span>
+            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item
+                command="importCost"
+                v-hasPermi="['finance:slowMovingClearance:import']"
+              >
+                <el-icon class="cost-menu-icon import-icon"><Upload /></el-icon>
+                <div class="cost-menu-copy">
+                  <span>导入上月库存成本</span>
+                  <small>覆盖同月份的成本数据</small>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item
+                command="exportDetails"
+                divided
+                v-hasPermi="['finance:slowMovingClearance:list']"
+              >
+                <el-icon class="cost-menu-icon export-icon"><Download /></el-icon>
+                <div class="cost-menu-copy">
+                  <span>导出库龄成本明细</span>
+                  <small>导出当前快照月份的库存列表</small>
+                </div>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </el-card>
 
@@ -175,8 +203,9 @@
 </template>
 
 <script setup name="SlowMovingClearance">
-import { getCurrentInstance, onMounted, reactive, ref } from 'vue'
+import { computed, getCurrentInstance, onMounted, reactive, ref } from 'vue'
 import {
+  exportInventoryAgeDetails,
   getSlowMovingClearanceSummary,
   importInventoryAgeCost,
   listSlowMovingClearance,
@@ -188,6 +217,7 @@ const loading = ref(false)
 const monthsLoading = ref(false)
 const costImportVisible = ref(false)
 const costImporting = ref(false)
+const costExporting = ref(false)
 const costUploadRef = ref()
 const costFile = ref()
 const rows = ref([])
@@ -198,6 +228,8 @@ const query = reactive({
   pageSize: 20,
   pullMonth: undefined
 })
+
+const costOperationLoading = computed(() => costImporting.value || costExporting.value)
 
 function number(value) {
   return Number(value || 0).toLocaleString('zh-CN', {
@@ -254,6 +286,43 @@ function handleMonthChange() {
 function openCostImportDialog() {
   costFile.value = undefined
   costImportVisible.value = true
+}
+
+function handleCostCommand(command) {
+  const actions = {
+    importCost: openCostImportDialog,
+    exportDetails: handleCostDetailExport
+  }
+  actions[command]?.()
+}
+
+async function handleCostDetailExport() {
+  const month = query.pullMonth || summary.pull_month
+  if (!month) {
+    proxy.$modal.msgError('请选择需要导出的快照月份')
+    return
+  }
+  costExporting.value = true
+  try {
+    const data = await exportInventoryAgeDetails(month)
+    const blob = data instanceof Blob
+      ? data
+      : new Blob([data], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        })
+    const timestamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${month}-库龄明细-${timestamp}.xlsx`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    proxy.$modal.msgSuccess(`${month} 库龄成本明细导出成功`)
+  } finally {
+    costExporting.value = false
+  }
 }
 
 function handleCostFileChange(uploadFile) {
@@ -360,6 +429,25 @@ onMounted(() => Promise.all([loadMonths(), loadData()]))
 .table-title { color: #1e293b; font-size: 16px; font-weight: 650; }
 .table-hint { margin-top: 4px; color: #94a3b8; font-size: 12px; }
 .negative-value { color: #dc2626; }
+.cost-action-trigger { min-width: 164px; }
+:global(.clearance-data-menu .el-dropdown-menu__item) {
+  min-width: 246px;
+  padding: 10px 14px;
+  line-height: 1.35;
+}
+:global(.clearance-data-menu .cost-menu-icon) {
+  margin-right: 10px;
+  font-size: 18px;
+}
+:global(.clearance-data-menu .import-icon) { color: #2563eb; }
+:global(.clearance-data-menu .export-icon) { color: #16a34a; }
+:global(.clearance-data-menu .cost-menu-copy) {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+:global(.clearance-data-menu .cost-menu-copy span) { color: #1e293b; font-weight: 600; }
+:global(.clearance-data-menu .cost-menu-copy small) { color: #94a3b8; font-size: 12px; }
 .cost-upload :deep(.el-upload),
 .cost-upload :deep(.el-upload-dragger) { width: 100%; }
 .age-table :deep(.el-table__header th) { background: #f8fafc; color: #475569; }

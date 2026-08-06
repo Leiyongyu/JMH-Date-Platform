@@ -35,3 +35,13 @@ export function importInventoryAgeCost(file) {
     timeout: 120000
   })
 }
+
+export function exportInventoryAgeDetails(pullMonth) {
+  return request({
+    url: '/finance/slow-moving-clearance/inventory-age-cost/export',
+    method: 'get',
+    params: { pullMonth },
+    responseType: 'blob',
+    timeout: 600000
+  })
+}

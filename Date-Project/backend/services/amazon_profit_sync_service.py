@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -176,57 +175,67 @@ def _transform_row(
     sync_batch_id: str,
     sync_time: datetime,
 ) -> tuple[dict | None, dict]:
-        price = _first_dict(
-            item.get("price_list")
-            or item.get("priceList")
-            or item.get("prices")
-            or item.get("price")
-        )
-        local_info = _first_dict(
-            item.get("local_infos") or item.get("localInfos") or item.get("local_info")
-        )
-        asin_info = _first_dict(item.get("asins") or item.get("asin_list") or item.get("asinList"))
-        country_info = _first_dict(
-            item.get("seller_store_countries")
-            or item.get("sellerStoreCountries")
-            or item.get("countries")
-        )
-        sid = _string_value(price, "sid") or _first_value(item.get("sids")) or _string_value(item, "sid", "sellerId", "seller_id")
-        seller_sku = _string_value(price, "seller_sku", "sellerSku", "sellerSKU", "msku", "sku") or _string_value(
-            item, "seller_sku", "sellerSku", "sellerSKU", "msku", "sku"
-        )
-        raw_json = json.dumps(item, ensure_ascii=False, default=str)
-        raw_row = {
+    price = _first_dict(
+        item.get("price_list")
+        or item.get("priceList")
+        or item.get("prices")
+        or item.get("price")
+    )
+    local_info = _first_dict(
+        item.get("local_infos") or item.get("localInfos") or item.get("local_info")
+    )
+    asin_info = _first_dict(
+        item.get("asins") or item.get("asin_list") or item.get("asinList")
+    )
+    country_info = _first_dict(
+        item.get("seller_store_countries")
+        or item.get("sellerStoreCountries")
+        or item.get("countries")
+    )
+    sid = (
+        _string_value(price, "sid")
+        or _first_value(item.get("sids"))
+        or _string_value(item, "sid", "sellerId", "seller_id")
+    )
+    seller_sku = _string_value(
+        price, "seller_sku", "sellerSku", "sellerSKU", "msku", "sku"
+    ) or _string_value(item, "seller_sku", "sellerSku", "sellerSKU", "msku", "sku")
+    amount = _decimal_value(item, "amount")
+    refund_amount = _decimal_value(item, "refund_amount", "refundAmount")
+    structured = {
+        "local_sku": _string_value(price, "local_sku", "localSku")
+        or _string_value(local_info, "local_sku", "localSku"),
+        "asin": _string_value(price, "asin") or _string_value(asin_info, "asin"),
+        "country": _string_value(country_info, "country")
+        or _string_value(item, "country"),
+        "currency_code": _string_value(item, "currency_code", "currencyCode") or "CNY",
+        "gross_profit": _decimal_value(item, "gross_profit", "grossProfit"),
+        "amount": amount,
+        "refund_amount": refund_amount,
+        "net_sales_amount": amount - refund_amount,
+        "principal_names": _string_value(item, "principal_names", "principalNames"),
+    }
+    raw_row = {
+        "stat_month": month,
+        "sid": sid,
+        "seller_sku": seller_sku,
+        **structured,
+        "sync_batch_id": sync_batch_id,
+        "sync_time": sync_time,
+    }
+    if not sid or not seller_sku:
+        return None, raw_row
+    return (
+        {
             "stat_month": month,
             "sid": sid,
             "seller_sku": seller_sku,
-            "raw_json": raw_json,
+            **structured,
             "sync_batch_id": sync_batch_id,
-        }
-        if not sid or not seller_sku:
-            return None, raw_row
-        amount = _decimal_value(item, "amount")
-        refund_amount = _decimal_value(item, "refund_amount", "refundAmount")
-        return (
-            {
-                "stat_month": month,
-                "sid": sid,
-                "seller_sku": seller_sku,
-                "local_sku": _string_value(price, "local_sku", "localSku") or _string_value(local_info, "local_sku", "localSku"),
-                "asin": _string_value(price, "asin") or _string_value(asin_info, "asin"),
-                "country": _string_value(country_info, "country") or _string_value(item, "country"),
-                "currency_code": _string_value(item, "currency_code", "currencyCode") or "CNY",
-                "gross_profit": _decimal_value(item, "gross_profit", "grossProfit"),
-                "amount": amount,
-                "refund_amount": refund_amount,
-                "net_sales_amount": amount - refund_amount,
-                "principal_names": _string_value(item, "principal_names", "principalNames"),
-                "raw_json": raw_json,
-                "sync_batch_id": sync_batch_id,
-                "sync_time": sync_time,
-            },
-            raw_row,
-        )
+            "sync_time": sync_time,
+        },
+        raw_row,
+    )
 
 
 def _chunks(values: list[str], size: int):

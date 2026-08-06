@@ -112,12 +112,11 @@ public class PerformanceRankingController extends BaseController
     @GetMapping("/amazon/source-export")
     public ResponseEntity<byte[]> exportAmazonSource(
             @RequestParam String statMonth,
-            @RequestParam(defaultValue = "false") boolean includeRawJson,
             @RequestHeader(value = "X-Request-ID", required = false)
             String requestId)
     {
         byte[] file = pythonClient.exportAmazonPerformanceSource(
-                statMonth, includeRawJson, requestId);
+                statMonth, requestId);
         String filename = URLEncoder.encode(
                 "amz_performance_source_" + statMonth + ".xlsx",
                 StandardCharsets.UTF_8).replace("+", "%20");

@@ -34,7 +34,6 @@ AMZ_SOURCE_HEADERS = [
 
 def export_amz_performance_source(
     stat_month: str,
-    include_raw_json: bool = False,
 ) -> tuple[str, str]:
     with db_connection() as connection:
         rows = get_amz_profit_rows(connection, stat_month)
@@ -43,8 +42,6 @@ def export_amz_performance_source(
         raise ValueError(f"{stat_month} 没有可导出的 AMZ 绩效源数据")
 
     headers = list(AMZ_SOURCE_HEADERS)
-    if include_raw_json:
-        headers.append(("领星原始JSON", "raw_json"))
 
     workbook = Workbook(write_only=True)
     sheet = workbook.create_sheet(title="AMZ Source")

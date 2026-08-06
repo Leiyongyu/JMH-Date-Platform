@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from io import BytesIO
 from typing import Any
 
@@ -51,7 +50,6 @@ def parse_ebay_profit_excel(
     }
     for index, record in df.iterrows():
         source_row = int(index) + 2
-        raw = {str(key): _json_value(value) for key, value in record.to_dict().items()}
         sku = normalize_text(record.get("SKU"))
         gross_profit = money(record.get("利润"))
         product_sales_amount = money(record.get("商品销售额"))
@@ -89,16 +87,7 @@ def parse_ebay_profit_excel(
             "import_batch_id": import_batch_id,
         }
         rows.append(row)
-        raw_rows.append(
-            {
-                "stat_month": stat_month,
-                "source_file_name": file_name,
-                "source_sheet": sheet_name,
-                "source_row": source_row,
-                "raw_json": json.dumps(raw, ensure_ascii=False, default=str),
-                "import_batch_id": import_batch_id,
-            }
-        )
+        raw_rows.append(dict(row))
         for key in totals:
             totals[key] += row[key]
 
@@ -116,9 +105,3 @@ def _find_sheet(sheet_names: list[str], expected_lower: str) -> str | None:
         if sheet_name.lower() == expected_lower:
             return sheet_name
     return None
-
-
-def _json_value(value: Any) -> Any:
-    if pd.isna(value):
-        return None
-    return value

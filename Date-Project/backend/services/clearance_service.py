@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import time
 from collections import defaultdict
@@ -102,30 +101,35 @@ def sync_fba_inventory(pull_month: str | None = None) -> dict:
     ods, dwd = [], []
     for index, item in enumerate(remote):
         sid = str(item.get("sid") or "0")
+        age_fields = _inventory_age_fields(item)
+        group, source, _store = _group(item, sid, shops)
+        region_code = "EU" if group == "EU" else "US" if group else None
+        region_name = "欧洲组" if group == "EU" else "美国组" if group else None
         ods.append({
             "pull_month": month, "sync_batch_id": batch_id,
             "source_offset": (index // PAGE_SIZE) * PAGE_SIZE,
             "source_row_no": index + 1, "sid": sid,
             "seller_sku": item.get("seller_sku"),
-            "raw_json": json.dumps(item, ensure_ascii=False, default=str),
+            "sku": item.get("sku"),
+            "group_code": group,
+            "region_code": region_code,
+            "region_name": region_name,
+            "group_match_source": source,
+            **age_fields,
             "pulled_at": pulled_at,
         })
-        group, source, store = _group(item, sid, shops)
         if not group:
             continue
-        q0, c0 = _num(item.get("inv_age_0_to_90_days")), _num(item.get("inv_age_0_to_90_price"))
-        q1, c1 = _num(item.get("inv_age_91_to_180_days")), _num(item.get("inv_age_91_to_180_price"))
-        q2, c2 = _num(item.get("inv_age_181_to_270_days")), _num(item.get("inv_age_181_to_270_price"))
-        q3, c3 = _num(item.get("inv_age_271_to_365_days")), _num(item.get("inv_age_271_to_365_price"))
-        q4, c4 = _num(item.get("inv_age_365_plus_days")), _num(item.get("inv_age_365_plus_price"))
+        q0, c0 = age_fields["inv_age_0_to_90_days"], age_fields["inv_age_0_to_90_price"]
+        q1, c1 = age_fields["inv_age_91_to_180_days"], age_fields["inv_age_91_to_180_price"]
+        q2, c2 = age_fields["inv_age_181_to_270_days"], age_fields["inv_age_181_to_270_price"]
+        q3, c3 = age_fields["inv_age_271_to_365_days"], age_fields["inv_age_271_to_365_price"]
+        q4, c4 = age_fields["inv_age_365_plus_days"], age_fields["inv_age_365_plus_price"]
         dwd.append({
             "pull_month": month, "sync_batch_id": batch_id, "sid": sid,
-            "store_name": store, "seller_group_name": item.get("seller_group_name"),
-            "warehouse_name": item.get("name"), "asin": item.get("asin"),
-            "seller_sku": item.get("seller_sku"), "fnsku": item.get("fnsku"),
-            "sku": item.get("sku"), "product_name": item.get("product_name"),
-            "group_code": group, "region_code": "EU" if group == "EU" else "US",
-            "region_name": "欧洲组" if group == "EU" else "美国组",
+            "seller_sku": item.get("seller_sku"), "sku": item.get("sku"),
+            "group_code": group, "region_code": region_code,
+            "region_name": region_name,
             "group_match_source": source,
             "inventory_0_90_qty": q0, "inventory_0_90_cost": c0,
             "inventory_91_180_qty": q1, "inventory_91_180_cost": c1,
@@ -155,6 +159,30 @@ def sync_fba_inventory(pull_month: str | None = None) -> dict:
         **stats, "unmatched_group_rows": len(remote) - len(dwd),
         "status": "completed",
     }
+
+
+REQUIRED_INVENTORY_FIELDS = (
+    "inv_age_0_to_30_days",
+    "inv_age_0_to_30_price",
+    "inv_age_31_to_60_days",
+    "inv_age_31_to_60_price",
+    "inv_age_61_to_90_days",
+    "inv_age_61_to_90_price",
+    "inv_age_0_to_90_days",
+    "inv_age_0_to_90_price",
+    "inv_age_91_to_180_days",
+    "inv_age_91_to_180_price",
+    "inv_age_181_to_270_days",
+    "inv_age_181_to_270_price",
+    "inv_age_271_to_330_days",
+    "inv_age_271_to_330_price",
+    "inv_age_271_to_365_days",
+    "inv_age_271_to_365_price",
+    "inv_age_331_to_365_days",
+    "inv_age_331_to_365_price",
+    "inv_age_365_plus_days",
+    "inv_age_365_plus_price",
+)
 
 
 def _group(item, sid, shops):
@@ -201,6 +229,11 @@ def _num(value) -> Decimal:
         return Decimal(text or "0")
     except InvalidOperation:
         return Decimal("0")
+
+
+def _inventory_age_fields(item: dict) -> dict[str, Decimal]:
+    """Keep only the LingXing inventory-age fields required by clearance."""
+    return {field: _num(item.get(field)) for field in REQUIRED_INVENTORY_FIELDS}
 
 
 def _groups(month, rows, pulled_at):

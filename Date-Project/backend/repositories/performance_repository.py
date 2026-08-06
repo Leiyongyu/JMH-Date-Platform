@@ -372,10 +372,16 @@ def replace_ebay_profit_month(
             cursor.executemany(
                 """
                 INSERT INTO ods_ebay_monthly_profit_raw (
-                    stat_month, source_file_name, source_sheet, source_row, raw_json, import_batch_id
+                    stat_month, source_file_name, source_sheet, source_row,
+                    sku, brand_code, image_url, multi_variant, gross_profit,
+                    product_sales_amount, receivable_shipping_amount,
+                    sales_amount, refund_amount, net_sales_amount, import_batch_id
                 ) VALUES (
                     %(stat_month)s, %(source_file_name)s, %(source_sheet)s,
-                    %(source_row)s, %(raw_json)s, %(import_batch_id)s
+                    %(source_row)s, %(sku)s, %(brand_code)s, %(image_url)s,
+                    %(multi_variant)s, %(gross_profit)s, %(product_sales_amount)s,
+                    %(receivable_shipping_amount)s, %(sales_amount)s,
+                    %(refund_amount)s, %(net_sales_amount)s, %(import_batch_id)s
                 )
                 """,
                 raw_rows,
@@ -411,11 +417,19 @@ def upsert_owner_rules(
                 """
                 INSERT INTO ods_performance_owner_rule_raw (
                     platform, stat_month, source_file_name, source_sheet, source_row,
-                    raw_json, import_batch_id
+                    group_code, rule_type, match_key, principal_name, import_batch_id
                 ) VALUES (
                     %(platform)s, %(stat_month)s, %(source_file_name)s,
-                    %(source_sheet)s, %(source_row)s, %(raw_json)s, %(import_batch_id)s
+                    %(source_sheet)s, %(source_row)s,
+                    %(group_code)s, %(rule_type)s, %(match_key)s, %(principal_name)s,
+                    %(import_batch_id)s
                 )
+                ON DUPLICATE KEY UPDATE
+                    principal_name = VALUES(principal_name),
+                    source_file_name = VALUES(source_file_name),
+                    source_sheet = VALUES(source_sheet),
+                    source_row = VALUES(source_row),
+                    import_batch_id = VALUES(import_batch_id)
                 """,
                 raw_rows,
             )
@@ -469,9 +483,14 @@ def append_amz_profit_raw(
             cursor.executemany(
                 """
                 INSERT INTO ods_lingxing_amz_order_profit_raw (
-                    stat_month, sid, seller_sku, raw_json, sync_batch_id
+                    stat_month, sid, seller_sku, local_sku, asin, country,
+                    currency_code, gross_profit, amount, refund_amount,
+                    net_sales_amount, principal_names, sync_batch_id, sync_time
                 ) VALUES (
-                    %(stat_month)s, %(sid)s, %(seller_sku)s, %(raw_json)s, %(sync_batch_id)s
+                    %(stat_month)s, %(sid)s, %(seller_sku)s, %(local_sku)s,
+                    %(asin)s, %(country)s, %(currency_code)s, %(gross_profit)s,
+                    %(amount)s, %(refund_amount)s, %(net_sales_amount)s,
+                    %(principal_names)s, %(sync_batch_id)s, %(sync_time)s
                 )
                 """,
                 raw_rows,
@@ -511,12 +530,12 @@ def replace_amz_profit_month(
                 INSERT INTO dwd_amz_monthly_order_profit (
                     stat_month, sid, seller_sku, local_sku, asin, country, currency_code,
                     gross_profit, amount, refund_amount, net_sales_amount, principal_names,
-                    raw_json, sync_batch_id, sync_time
+                    sync_batch_id, sync_time
                 ) VALUES (
                     %(stat_month)s, %(sid)s, %(seller_sku)s, %(local_sku)s, %(asin)s,
                     %(country)s, %(currency_code)s, %(gross_profit)s, %(amount)s,
                     %(refund_amount)s, %(net_sales_amount)s, %(principal_names)s,
-                    %(raw_json)s, %(sync_batch_id)s, %(sync_time)s
+                    %(sync_batch_id)s, %(sync_time)s
                 )
                 """,
                 rows,
