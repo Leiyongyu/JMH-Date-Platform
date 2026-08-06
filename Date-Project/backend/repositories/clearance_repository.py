@@ -29,6 +29,12 @@ def amazon_shop_map() -> dict[str, str]:
         return {str(r["sid"]): r["store_name"] for r in cur.fetchall()}
 
 
+def resolve_store_name(shops: dict[str, str], sid: Any) -> str:
+    store_name = shops.get(str(sid or ""))
+    normalized = str(store_name or "").strip()
+    return normalized or "0"
+
+
 def append_ods(conn, rows: list[dict[str, Any]]) -> None:
     with conn.cursor() as cur:
         cur.executemany(
@@ -241,6 +247,7 @@ def months(limit: int = 24) -> list[dict]:
 
 
 def inventory_age_details(month: str | None) -> dict[str, Any]:
+    shops = amazon_shop_map()
     with db_connection() as conn, conn.cursor() as cur:
         if not month:
             cur.execute(
@@ -272,4 +279,7 @@ def inventory_age_details(month: str | None) -> dict[str, Any]:
             """,
             (month,),
         )
-        return {"pull_month": month, "items": list(cur.fetchall())}
+        items = list(cur.fetchall())
+        for item in items:
+            item["store_name"] = resolve_store_name(shops, item.get("sid"))
+        return {"pull_month": month, "items": items}

@@ -11,6 +11,7 @@ from backend.services.clearance_service import (
     _inventory_age_fields,
 )
 from backend.services import clearance_export_service
+from backend.repositories.clearance_repository import resolve_store_name
 
 
 def test_amazon_profit_transform_keeps_only_required_product_and_amount_fields():
@@ -102,6 +103,7 @@ def test_inventory_age_detail_export_contains_structured_columns(monkeypatch, tm
                     "region_name": "欧洲组",
                     "group_code": "EU",
                     "sid": "12576",
+                    "store_name": "EU-示例店铺-DE",
                     "seller_sku": "MSKU-1",
                     "sku": "SKU-1",
                     **{field: Decimal("1.25") for field in REQUIRED_INVENTORY_FIELDS},
@@ -120,8 +122,18 @@ def test_inventory_age_detail_export_contains_structured_columns(monkeypatch, tm
     headers = [cell.value for cell in next(sheet.iter_rows(min_row=1, max_row=1))]
 
     assert download_name.startswith("2026-08-库龄明细-")
-    assert headers[:6] == ["快照月份", "区域", "组别", "店铺SID", "MSKU", "SKU"]
+    assert headers[:6] == ["快照月份", "区域", "组别", "店铺名称", "MSKU", "SKU"]
     assert "365天以上成本" in headers
     assert "raw_json" not in headers
     assert sheet["A2"].value == "2026-08"
+    assert sheet["D2"].value == "EU-示例店铺-DE"
     assert sheet["G2"].value == 1.25
+
+
+def test_inventory_age_export_store_name_falls_back_to_zero():
+    shops = {"12576": "EU-示例店铺-DE", "12577": "  "}
+
+    assert resolve_store_name(shops, "12576") == "EU-示例店铺-DE"
+    assert resolve_store_name(shops, "12577") == "0"
+    assert resolve_store_name(shops, "99999") == "0"
+    assert resolve_store_name(shops, None) == "0"

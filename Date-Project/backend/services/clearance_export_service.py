@@ -19,7 +19,7 @@ HEADERS = [
     ("快照月份", "pull_month", "text"),
     ("区域", "region_name", "text"),
     ("组别", "group_code", "text"),
-    ("店铺SID", "sid", "text"),
+    ("店铺名称", "store_name", "text"),
     ("MSKU", "seller_sku", "text"),
     ("SKU", "sku", "text"),
     ("0-30天数量", "inv_age_0_to_30_days", "qty"),
@@ -76,7 +76,10 @@ def export_inventory_age_details(pull_month: str | None) -> tuple[str, str]:
     for row in rows:
         cells = []
         for _, key, value_type in HEADERS:
-            cell = WriteOnlyCell(sheet, value=_excel_value(row.get(key)))
+            value = row.get(key)
+            if key == "store_name" and not str(value or "").strip():
+                value = "0"
+            cell = WriteOnlyCell(sheet, value=_excel_value(value))
             if value_type == "qty":
                 cell.number_format = "#,##0"
             elif value_type == "money":
