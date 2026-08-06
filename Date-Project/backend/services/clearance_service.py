@@ -102,6 +102,7 @@ def sync_fba_inventory(pull_month: str | None = None) -> dict:
     for index, item in enumerate(remote):
         sid = str(item.get("sid") or "0")
         age_fields = _inventory_age_fields(item)
+        identity_fields = _inventory_identity_fields(item)
         group, source, _store = _group(item, sid, shops)
         region_code = "EU" if group == "EU" else "US" if group else None
         region_name = "欧洲组" if group == "EU" else "美国组" if group else None
@@ -111,6 +112,7 @@ def sync_fba_inventory(pull_month: str | None = None) -> dict:
             "source_row_no": index + 1, "sid": sid,
             "seller_sku": item.get("seller_sku"),
             "sku": item.get("sku"),
+            **identity_fields,
             "group_code": group,
             "region_code": region_code,
             "region_name": region_name,
@@ -127,6 +129,11 @@ def sync_fba_inventory(pull_month: str | None = None) -> dict:
         q4, c4 = age_fields["inv_age_365_plus_days"], age_fields["inv_age_365_plus_price"]
         dwd.append({
             "pull_month": month, "sync_batch_id": batch_id, "sid": sid,
+            "store_name": repo.resolve_store_name(
+                shops, sid, identity_fields["warehouse_name"]
+            ),
+            "seller_group_name": identity_fields["seller_group_name"],
+            "warehouse_name": identity_fields["warehouse_name"],
             "seller_sku": item.get("seller_sku"), "sku": item.get("sku"),
             "group_code": group, "region_code": region_code,
             "region_name": region_name,
@@ -144,10 +151,8 @@ def sync_fba_inventory(pull_month: str | None = None) -> dict:
         })
     groups = _groups(month, dwd, pulled_at)
     with repo.connection() as conn:
-        repo.append_ods(conn, ods)
-        conn.commit()
-    with repo.connection() as conn:
         try:
+            ods_stats = repo.replace_ods_month(conn, month, ods)
             stats = repo.replace_month(conn, month, dwd, groups)
             conn.commit()
         except Exception:
@@ -156,7 +161,7 @@ def sync_fba_inventory(pull_month: str | None = None) -> dict:
     return {
         "pull_month": month, "sync_batch_id": batch_id,
         "extract_rows": len(remote), "ods_rows": len(ods),
-        **stats, "unmatched_group_rows": len(remote) - len(dwd),
+        **ods_stats, **stats, "unmatched_group_rows": len(remote) - len(dwd),
         "status": "completed",
     }
 
@@ -234,6 +239,25 @@ def _num(value) -> Decimal:
 def _inventory_age_fields(item: dict) -> dict[str, Decimal]:
     """Keep only the LingXing inventory-age fields required by clearance."""
     return {field: _num(item.get(field)) for field in REQUIRED_INVENTORY_FIELDS}
+
+
+def _inventory_identity_fields(item: dict) -> dict[str, str | int | None]:
+    """Keep the shared-warehouse identity needed for later exports."""
+    warehouse_name = str(item.get("name") or "").strip() or None
+    seller_group_name = str(item.get("seller_group_name") or "").strip() or None
+    try:
+        share_type = (
+            int(item["share_type"])
+            if item.get("share_type") not in (None, "")
+            else None
+        )
+    except (TypeError, ValueError):
+        share_type = None
+    return {
+        "warehouse_name": warehouse_name,
+        "seller_group_name": seller_group_name,
+        "share_type": share_type,
+    }
 
 
 def _groups(month, rows, pulled_at):

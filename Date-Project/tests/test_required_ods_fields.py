@@ -9,6 +9,7 @@ from backend.parsers.performance_owner_rule_parser import _raw
 from backend.services.clearance_service import (
     REQUIRED_INVENTORY_FIELDS,
     _inventory_age_fields,
+    _inventory_identity_fields,
 )
 from backend.services import clearance_export_service
 from backend.repositories.clearance_repository import resolve_store_name
@@ -65,6 +66,23 @@ def test_clearance_inventory_transform_keeps_all_and_only_requested_age_fields()
     assert "unused_stock_field" not in result
 
 
+def test_clearance_inventory_keeps_shared_warehouse_identity_fields():
+    result = _inventory_identity_fields(
+        {
+            "name": " AMZ-EU-智贸云欧洲仓 ",
+            "seller_group_name": "EU-智贸云-FR,EU-智贸云-DE",
+            "share_type": "2",
+            "unused_field": "discarded",
+        }
+    )
+
+    assert result == {
+        "warehouse_name": "AMZ-EU-智贸云欧洲仓",
+        "seller_group_name": "EU-智贸云-FR,EU-智贸云-DE",
+        "share_type": 2,
+    }
+
+
 def test_owner_rule_raw_row_is_one_structured_rule_per_month():
     rule = {
         "platform": "amazon",
@@ -104,6 +122,7 @@ def test_inventory_age_detail_export_contains_structured_columns(monkeypatch, tm
                     "group_code": "EU",
                     "sid": "12576",
                     "store_name": "EU-示例店铺-DE",
+                    "shared_store_names": "",
                     "seller_sku": "MSKU-1",
                     "sku": "SKU-1",
                     **{field: Decimal("1.25") for field in REQUIRED_INVENTORY_FIELDS},
@@ -122,18 +141,60 @@ def test_inventory_age_detail_export_contains_structured_columns(monkeypatch, tm
     headers = [cell.value for cell in next(sheet.iter_rows(min_row=1, max_row=1))]
 
     assert download_name.startswith("2026-08-库龄明细-")
-    assert headers[:6] == ["快照月份", "区域", "组别", "店铺名称", "MSKU", "SKU"]
+    assert headers[:7] == [
+        "快照月份", "区域", "组别", "店铺名称", "共享店铺列表", "MSKU", "SKU"
+    ]
     assert "365天以上成本" in headers
     assert "raw_json" not in headers
     assert sheet["A2"].value == "2026-08"
     assert sheet["D2"].value == "EU-示例店铺-DE"
-    assert sheet["G2"].value == 1.25
+    assert sheet["E2"].value is None
+    assert sheet["H2"].value == 1.25
+
+
+def test_inventory_age_detail_export_contains_shared_warehouse(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        clearance_export_service,
+        "settings",
+        SimpleNamespace(export_output_dir=str(tmp_path)),
+    )
+    monkeypatch.setattr(
+        clearance_export_service.repo,
+        "inventory_age_details",
+        lambda month: {
+            "pull_month": month,
+            "items": [
+                {
+                    "pull_month": month,
+                    "region_name": "欧洲组",
+                    "group_code": "EU",
+                    "sid": "0",
+                    "store_name": "AMZ-EU-智贸云欧洲仓",
+                    "shared_store_names": "EU-智贸云-FR,EU-智贸云-DE",
+                    "seller_sku": "49-02CK-R3OX",
+                    "sku": "SKU-2",
+                    **{field: Decimal("0") for field in REQUIRED_INVENTORY_FIELDS},
+                    "pulled_at": datetime(2026, 8, 6, 20, 0, 0),
+                    "sync_batch_id": "batch-shared",
+                }
+            ],
+        },
+    )
+
+    file_path, _ = clearance_export_service.export_inventory_age_details("2026-08")
+    workbook = load_workbook(file_path, read_only=True)
+    sheet = workbook["库龄明细"]
+
+    assert sheet["D2"].value == "AMZ-EU-智贸云欧洲仓"
+    assert sheet["E2"].value == "EU-智贸云-FR,EU-智贸云-DE"
+    assert sheet["F2"].value == "49-02CK-R3OX"
 
 
 def test_inventory_age_export_store_name_falls_back_to_zero():
     shops = {"12576": "EU-示例店铺-DE", "12577": "  "}
 
-    assert resolve_store_name(shops, "12576") == "EU-示例店铺-DE"
-    assert resolve_store_name(shops, "12577") == "0"
-    assert resolve_store_name(shops, "99999") == "0"
-    assert resolve_store_name(shops, None) == "0"
+    assert resolve_store_name(shops, "12576", "普通仓") == "EU-示例店铺-DE"
+    assert resolve_store_name(shops, "0", "AMZ-EU-共享仓") == "AMZ-EU-共享仓"
+    assert resolve_store_name(shops, "12577", "普通仓") == "0"
+    assert resolve_store_name(shops, "99999", "普通仓") == "0"
+    assert resolve_store_name(shops, None, None) == "0"

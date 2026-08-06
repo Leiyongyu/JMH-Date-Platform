@@ -29,47 +29,79 @@ def amazon_shop_map() -> dict[str, str]:
         return {str(r["sid"]): r["store_name"] for r in cur.fetchall()}
 
 
-def resolve_store_name(shops: dict[str, str], sid: Any) -> str:
+def resolve_store_name(
+    shops: dict[str, str],
+    sid: Any,
+    warehouse_name: Any = None,
+) -> str:
     store_name = shops.get(str(sid or ""))
     normalized = str(store_name or "").strip()
-    return normalized or "0"
+    if normalized:
+        return normalized
+    if str(sid or "0") == "0":
+        normalized_warehouse = str(warehouse_name or "").strip()
+        if normalized_warehouse:
+            return normalized_warehouse
+    return "0"
 
 
-def append_ods(conn, rows: list[dict[str, Any]]) -> None:
+def replace_ods_month(
+    conn,
+    month: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, int]:
     with conn.cursor() as cur:
-        cur.executemany(
-            """
-            INSERT INTO ods_lingxing_amz_fba_inventory_raw
-            (pull_month,sync_batch_id,source_offset,source_row_no,sid,
-             seller_sku,sku,group_code,region_code,region_name,group_match_source,
-             inv_age_0_to_30_days,inv_age_0_to_30_price,
-             inv_age_31_to_60_days,inv_age_31_to_60_price,
-             inv_age_61_to_90_days,inv_age_61_to_90_price,
-             inv_age_0_to_90_days,inv_age_0_to_90_price,
-             inv_age_91_to_180_days,inv_age_91_to_180_price,
-             inv_age_181_to_270_days,inv_age_181_to_270_price,
-             inv_age_271_to_330_days,inv_age_271_to_330_price,
-             inv_age_271_to_365_days,inv_age_271_to_365_price,
-             inv_age_331_to_365_days,inv_age_331_to_365_price,
-             inv_age_365_plus_days,inv_age_365_plus_price,pulled_at)
-            VALUES
-            (%(pull_month)s,%(sync_batch_id)s,%(source_offset)s,
-             %(source_row_no)s,%(sid)s,%(seller_sku)s,%(sku)s,
-             %(group_code)s,%(region_code)s,%(region_name)s,%(group_match_source)s,
-             %(inv_age_0_to_30_days)s,%(inv_age_0_to_30_price)s,
-             %(inv_age_31_to_60_days)s,%(inv_age_31_to_60_price)s,
-             %(inv_age_61_to_90_days)s,%(inv_age_61_to_90_price)s,
-             %(inv_age_0_to_90_days)s,%(inv_age_0_to_90_price)s,
-             %(inv_age_91_to_180_days)s,%(inv_age_91_to_180_price)s,
-             %(inv_age_181_to_270_days)s,%(inv_age_181_to_270_price)s,
-             %(inv_age_271_to_330_days)s,%(inv_age_271_to_330_price)s,
-             %(inv_age_271_to_365_days)s,%(inv_age_271_to_365_price)s,
-             %(inv_age_331_to_365_days)s,%(inv_age_331_to_365_price)s,
-             %(inv_age_365_plus_days)s,%(inv_age_365_plus_price)s,
-             %(pulled_at)s)
-            """,
-            rows,
+        cur.execute(
+            "SELECT COUNT(1) n FROM ods_lingxing_amz_fba_inventory_raw "
+            "WHERE pull_month=%s",
+            (month,),
         )
+        old_rows = int(cur.fetchone()["n"])
+        cur.execute(
+            "DELETE FROM ods_lingxing_amz_fba_inventory_raw WHERE pull_month=%s",
+            (month,),
+        )
+        if rows:
+            cur.executemany(
+                """
+                INSERT INTO ods_lingxing_amz_fba_inventory_raw
+                (pull_month,sync_batch_id,source_offset,source_row_no,sid,
+                 seller_sku,sku,warehouse_name,seller_group_name,share_type,
+                 group_code,region_code,region_name,group_match_source,
+                 inv_age_0_to_30_days,inv_age_0_to_30_price,
+                 inv_age_31_to_60_days,inv_age_31_to_60_price,
+                 inv_age_61_to_90_days,inv_age_61_to_90_price,
+                 inv_age_0_to_90_days,inv_age_0_to_90_price,
+                 inv_age_91_to_180_days,inv_age_91_to_180_price,
+                 inv_age_181_to_270_days,inv_age_181_to_270_price,
+                 inv_age_271_to_330_days,inv_age_271_to_330_price,
+                 inv_age_271_to_365_days,inv_age_271_to_365_price,
+                 inv_age_331_to_365_days,inv_age_331_to_365_price,
+                 inv_age_365_plus_days,inv_age_365_plus_price,pulled_at)
+                VALUES
+                (%(pull_month)s,%(sync_batch_id)s,%(source_offset)s,
+                 %(source_row_no)s,%(sid)s,%(seller_sku)s,%(sku)s,
+                 %(warehouse_name)s,%(seller_group_name)s,%(share_type)s,
+                 %(group_code)s,%(region_code)s,%(region_name)s,%(group_match_source)s,
+                 %(inv_age_0_to_30_days)s,%(inv_age_0_to_30_price)s,
+                 %(inv_age_31_to_60_days)s,%(inv_age_31_to_60_price)s,
+                 %(inv_age_61_to_90_days)s,%(inv_age_61_to_90_price)s,
+                 %(inv_age_0_to_90_days)s,%(inv_age_0_to_90_price)s,
+                 %(inv_age_91_to_180_days)s,%(inv_age_91_to_180_price)s,
+                 %(inv_age_181_to_270_days)s,%(inv_age_181_to_270_price)s,
+                 %(inv_age_271_to_330_days)s,%(inv_age_271_to_330_price)s,
+                 %(inv_age_271_to_365_days)s,%(inv_age_271_to_365_price)s,
+                 %(inv_age_331_to_365_days)s,%(inv_age_331_to_365_price)s,
+                 %(inv_age_365_plus_days)s,%(inv_age_365_plus_price)s,
+                 %(pulled_at)s)
+                """,
+                rows,
+            )
+    return {
+        "ods_old_rows": old_rows,
+        "ods_deleted_rows": old_rows,
+        "ods_inserted_rows": len(rows),
+    }
 
 
 def replace_month(conn, month: str, rows: list[dict], groups: list[dict]) -> dict:
@@ -87,7 +119,8 @@ def replace_month(conn, month: str, rows: list[dict], groups: list[dict]) -> dic
             cur.executemany(
                 """
                 INSERT INTO dwd_amz_fba_inventory_monthly_snapshot
-                (pull_month,sync_batch_id,sid,seller_sku,sku,
+                (pull_month,sync_batch_id,sid,store_name,seller_group_name,
+                 warehouse_name,seller_sku,sku,
                  group_code,region_code,region_name,group_match_source,
                  inventory_0_90_qty,inventory_0_90_cost,
                  inventory_91_180_qty,inventory_91_180_cost,
@@ -98,6 +131,7 @@ def replace_month(conn, month: str, rows: list[dict], groups: list[dict]) -> dic
                  total_inventory_qty,total_inventory_cost,pulled_at)
                 VALUES
                 (%(pull_month)s,%(sync_batch_id)s,%(sid)s,
+                 %(store_name)s,%(seller_group_name)s,%(warehouse_name)s,
                  %(seller_sku)s,%(sku)s,%(group_code)s,%(region_code)s,%(region_name)s,
                  %(group_match_source)s,%(inventory_0_90_qty)s,
                  %(inventory_0_90_cost)s,%(inventory_91_180_qty)s,
@@ -260,7 +294,8 @@ def inventory_age_details(month: str | None) -> dict[str, Any]:
             return {"pull_month": None, "items": []}
         cur.execute(
             """
-            SELECT pull_month,region_name,group_code,sid,seller_sku,sku,
+            SELECT pull_month,region_name,group_code,sid,
+                   warehouse_name,seller_group_name,share_type,seller_sku,sku,
                    inv_age_0_to_30_days,inv_age_0_to_30_price,
                    inv_age_31_to_60_days,inv_age_31_to_60_price,
                    inv_age_61_to_90_days,inv_age_61_to_90_price,
@@ -274,12 +309,28 @@ def inventory_age_details(month: str | None) -> dict[str, Any]:
                    pulled_at,sync_batch_id
             FROM ods_lingxing_amz_fba_inventory_raw
             WHERE pull_month=%s AND group_code IS NOT NULL
+              AND sync_batch_id = (
+                  SELECT sync_batch_id
+                  FROM ods_lingxing_amz_fba_inventory_raw
+                  WHERE pull_month=%s AND group_code IS NOT NULL
+                  ORDER BY pulled_at DESC,id DESC
+                  LIMIT 1
+              )
             ORDER BY FIELD(group_code,'EU','US1','US2','US2-MJ','US1-ZXY'),
                      sid,seller_sku,sku,id
             """,
-            (month,),
+            (month, month),
         )
         items = list(cur.fetchall())
         for item in items:
-            item["store_name"] = resolve_store_name(shops, item.get("sid"))
+            item["store_name"] = resolve_store_name(
+                shops,
+                item.get("sid"),
+                item.get("warehouse_name"),
+            )
+            item["shared_store_names"] = (
+                str(item.get("seller_group_name") or "").strip()
+                if str(item.get("sid") or "0") == "0"
+                else ""
+            )
         return {"pull_month": month, "items": items}

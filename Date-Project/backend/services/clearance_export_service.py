@@ -20,6 +20,7 @@ HEADERS = [
     ("区域", "region_name", "text"),
     ("组别", "group_code", "text"),
     ("店铺名称", "store_name", "text"),
+    ("共享店铺列表", "shared_store_names", "text"),
     ("MSKU", "seller_sku", "text"),
     ("SKU", "sku", "text"),
     ("0-30天数量", "inv_age_0_to_30_days", "qty"),
@@ -58,7 +59,7 @@ def export_inventory_age_details(pull_month: str | None) -> tuple[str, str]:
     sheet = workbook.create_sheet(title="库龄明细")
     sheet.freeze_panes = "A2"
     sheet.sheet_view.showGridLines = False
-    widths = [12, 12, 12, 14, 28, 24] + [20] * 20 + [20, 38]
+    widths = [12, 12, 12, 28, 62, 28, 24] + [20] * 20 + [20, 38]
     for index, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(index)].width = width
 
