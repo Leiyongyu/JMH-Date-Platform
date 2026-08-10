@@ -291,10 +291,28 @@ const { queryParams, form, rules } = toRefs(data)
 
 // ---- 可视化 Cron 构建 ----
 const cronFreq = ref('week')
-const cronWeekDays = reactive({1:true,2:false,3:true,4:false,5:true,6:false,0:false})
 const cronMonthDay = ref(1)
 const cronTime = ref('09:00')
-const weekDays = [{value:1,label:'周一'},{value:2,label:'周二'},{value:3,label:'周三'},{value:4,label:'周四'},{value:5,label:'周五'},{value:6,label:'周六'},{value:0,label:'周日'}]
+const weekDays = [
+  { value: 'MON', label: '周一', quartzNumber: 2 },
+  { value: 'TUE', label: '周二', quartzNumber: 3 },
+  { value: 'WED', label: '周三', quartzNumber: 4 },
+  { value: 'THU', label: '周四', quartzNumber: 5 },
+  { value: 'FRI', label: '周五', quartzNumber: 6 },
+  { value: 'SAT', label: '周六', quartzNumber: 7 },
+  { value: 'SUN', label: '周日', quartzNumber: 1 }
+]
+const weekDayByValue = Object.fromEntries(weekDays.map(day => [day.value, day]))
+const weekDayByQuartzNumber = Object.fromEntries(weekDays.map(day => [day.quartzNumber, day.value]))
+const quartzWeekdayAliases = {
+  SUN: 1, MON: 2, TUE: 3, WED: 4, THU: 5, FRI: 6, SAT: 7,
+  0: 1 // 仅用于识别旧前端曾生成的非法周日值，重新保存时会转成 SUN
+}
+const quartzMonthAliases = {
+  JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
+  JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12
+}
+const cronWeekDays = reactive(Object.fromEntries(weekDays.map(day => [day.value, ['MON', 'WED', 'FRI'].includes(day.value)])))
 const monthDayLabels = {1:'1号',15:'15号',28:'28号'}
 
 const cronPreview = computed(() => {
@@ -312,25 +330,64 @@ const cronPreview = computed(() => {
 const cronNextDates = computed(() => {
   const expr = form.value.cronExpression
   if (!expr) return []
-  const parts = expr.split(' ')
+  const parts = expr.trim().split(/\s+/)
   if (parts.length < 6) return []
-  const now = new Date(); const results = []
-  let test = new Date(now); test.setSeconds(0,0)
-  for (let i = 0; i < 20 && results.length < 4; i++) {
-    test = new Date(test.getTime() + 60000)
-    if (matchCron(test, parts)) results.push(formatDate(test))
+  const second = Number(parts[0])
+  const minute = Number(parts[1])
+  const hour = Number(parts[2])
+  if (!Number.isInteger(second) || !Number.isInteger(minute) || !Number.isInteger(hour)) return []
+  if (second < 0 || second > 59 || minute < 0 || minute > 59 || hour < 0 || hour > 23) return []
+
+  const now = new Date()
+  const results = []
+  const firstCandidate = new Date(now)
+  firstCandidate.setHours(hour, minute, second, 0)
+  for (let dayOffset = 0; dayOffset <= 370 && results.length < 4; dayOffset++) {
+    const test = new Date(firstCandidate)
+    test.setDate(firstCandidate.getDate() + dayOffset)
+    if (test > now && matchCron(test, parts)) results.push(formatDate(test))
   }
   return results
 })
 
 function matchCron(d, parts) {
-  const vals = [d.getMinutes(), d.getHours(), d.getDate(), d.getMonth()+1, d.getDay(), d.getFullYear()]
-  const p = [parts[0], parts[1], parts[2], parts[3], parts[4]]
-  return p.every((v, i) => v === '*' || v === '?' || v.split(',').some(s => {
-    if (s.includes('/')) { const [b, step] = s.split('/'); return +step && vals[i] % +step === 0 }
-    if (s.includes('-')) { const [lo, hi] = s.split('-').map(Number); return vals[i] >= lo && vals[i] <= hi }
-    return +s === vals[i]
-  }))
+  const quartzWeekday = d.getDay() === 0 ? 1 : d.getDay() + 1
+  return matchCronField(d.getSeconds(), parts[0], 0, 59)
+    && matchCronField(d.getMinutes(), parts[1], 0, 59)
+    && matchCronField(d.getHours(), parts[2], 0, 23)
+    && matchCronField(d.getDate(), parts[3], 1, 31)
+    && matchCronField(d.getMonth() + 1, parts[4], 1, 12, quartzMonthAliases)
+    && matchCronField(quartzWeekday, parts[5], 1, 7, quartzWeekdayAliases)
+    && (!parts[6] || matchCronField(d.getFullYear(), parts[6], 1970, 2199))
+}
+function matchCronField(value, expression, min, max, aliases = {}) {
+  if (!expression || expression === '*' || expression === '?') return true
+  return expression.toUpperCase().split(',').some(part => {
+    const [rangeExpression, stepExpression] = part.split('/')
+    const step = stepExpression === undefined ? 1 : Number(stepExpression)
+    if (!Number.isInteger(step) || step <= 0) return false
+
+    let start
+    let end
+    if (rangeExpression === '*' || rangeExpression === '?') {
+      start = min
+      end = max
+    } else if (rangeExpression.includes('-')) {
+      const [startExpression, endExpression] = rangeExpression.split('-', 2)
+      start = cronFieldNumber(startExpression, aliases)
+      end = cronFieldNumber(endExpression, aliases)
+    } else {
+      start = cronFieldNumber(rangeExpression, aliases)
+      if (stepExpression === undefined) return value === start
+      end = max
+    }
+    return Number.isFinite(start) && Number.isFinite(end)
+      && value >= start && value <= end && (value - start) % step === 0
+  })
+}
+function cronFieldNumber(value, aliases = {}) {
+  const normalized = String(value).trim().toUpperCase()
+  return Object.prototype.hasOwnProperty.call(aliases, normalized) ? aliases[normalized] : Number(normalized)
 }
 function formatDate(d) {
   const pad = n => String(n).padStart(2,'0')
@@ -342,7 +399,7 @@ function updateCron() {
   const [h,m] = (cronTime.value || '09:00').split(':')
   let expr = '0 '+m+' '+h+' '
   if (cronFreq.value === 'day') expr += '* * ?'
-  else if (cronFreq.value === 'week') { const ds = weekDays.filter(d => cronWeekDays[d.value]).map(d => d.value).join(','); expr += '? * '+(ds||'1') }
+  else if (cronFreq.value === 'week') { const ds = weekDays.filter(d => cronWeekDays[d.value]).map(d => d.value).join(','); expr += '? * '+(ds||'MON') }
   else if (cronFreq.value === 'month') expr += cronMonthDay.value + ' * ?'
   else { expr += '* * ?' }
   form.value.cronExpression = expr; validateCron()
@@ -355,8 +412,7 @@ function cronToText(expr) {
   const hm = h.padStart(2,'0')+':'+m.padStart(2,'0')
   if (day === '*' && month === '*' && week === '?') return '每天 '+hm
   if (day === '?' && month === '*') {
-    const wmap = {1:'一',2:'二',3:'三',4:'四',5:'五',6:'六',0:'日'}
-    const ws = week.split(',').map(w => '周'+wmap[+w]||'').filter(Boolean).join('、')
+    const ws = describeWeekdayExpression(week)
     return ws ? '每'+ws+' '+hm : expr
   }
   if (month === '*' && week === '?' && day !== '*') return '每月'+day+'号 '+hm
@@ -366,13 +422,54 @@ function cronToText(expr) {
 function parseCron() {
   const v = form.value.cronExpression; if (!v) return
   const parts = v.trim().split(/\s+/)
-  if (parts.length < 5) { cronFreq.value='custom'; return }
-  const [m, h, day, month, week] = parts
+  if (parts.length < 6) { cronFreq.value='custom'; return }
+  const [, m, h, day, month, week] = parts
   cronTime.value = h.padStart(2,'0')+':'+m.padStart(2,'0')
   if (day === '*' && month === '*' && week === '?') cronFreq.value = 'day'
-  else if (day === '?' && month === '*') { cronFreq.value = 'week'; week.split(',').forEach(w => { const n=+w; if (n>=0&&n<=6) cronWeekDays[n]=true }) }
+  else if (day === '?' && month === '*') {
+    cronFreq.value = 'week'
+    Object.keys(cronWeekDays).forEach(key => { cronWeekDays[key] = false })
+    expandWeekdayExpression(week).forEach(key => { cronWeekDays[key] = true })
+  }
   else if (month === '*' && week === '?' && day !== '*') { cronFreq.value = 'month'; cronMonthDay.value = +day||1 }
-  else cronFreq.value = 'day'
+  else cronFreq.value = 'custom'
+}
+function normalizeWeekday(value) {
+  const number = cronFieldNumber(value, quartzWeekdayAliases)
+  return weekDayByQuartzNumber[number] || ''
+}
+function describeWeekdayExpression(expression) {
+  return expression.toUpperCase().split(',').map(part => {
+    const range = part.split('/')[0]
+    if (range.includes('-')) {
+      const [start, end] = range.split('-', 2)
+      const startDay = weekDayByValue[normalizeWeekday(start)]
+      const endDay = weekDayByValue[normalizeWeekday(end)]
+      return startDay && endDay ? `${startDay.label}至${endDay.label}` : part
+    }
+    return weekDayByValue[normalizeWeekday(range)]?.label || part
+  }).join('、')
+}
+function expandWeekdayExpression(expression) {
+  const selected = new Set()
+  expression.toUpperCase().split(',').forEach(part => {
+    const [range, rawStep] = part.split('/')
+    const step = Math.max(1, Number(rawStep) || 1)
+    if (range.includes('-')) {
+      const [rawStart, rawEnd] = range.split('-', 2)
+      const start = cronFieldNumber(rawStart, quartzWeekdayAliases)
+      const end = cronFieldNumber(rawEnd, quartzWeekdayAliases)
+      if (Number.isInteger(start) && Number.isInteger(end) && start <= end) {
+        for (let value = start; value <= end; value += step) {
+          if (weekDayByQuartzNumber[value]) selected.add(weekDayByQuartzNumber[value])
+        }
+      }
+    } else {
+      const key = normalizeWeekday(range)
+      if (key) selected.add(key)
+    }
+  })
+  return selected
 }
 function validateCron() { if (form.value.cronExpression) formRef.value?.validateField('cronExpression') }
 
@@ -403,7 +500,7 @@ function reset() {
   form.value = { jobId: undefined, jobName: undefined, jobGroup: undefined, invokeTarget: undefined, cronExpression: undefined, misfirePolicy: '1', concurrent: '1', remark: '', status: "0" }
   cronFreq.value = 'week'
   Object.keys(cronWeekDays).forEach(k => cronWeekDays[k] = false)
-  cronWeekDays[1] = cronWeekDays[3] = cronWeekDays[5] = true
+  cronWeekDays.MON = cronWeekDays.WED = cronWeekDays.FRI = true
   cronMonthDay.value = 1; cronTime.value = '09:00'
   proxy.resetForm("jobRef")
 }
