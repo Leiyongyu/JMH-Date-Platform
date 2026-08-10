@@ -18,7 +18,7 @@
         </el-tooltip>
         -->
 
-        <header-search id="header-search" class="right-menu-item" />
+        <ai-assistant id="ai-assistant" class="right-menu-item" />
 
         <!-- 源码地址、文档地址隐藏 -->
 
@@ -75,7 +75,7 @@ import Logo from './Sidebar/Logo'
 import Hamburger from '@/components/Hamburger'
 import Screenfull from '@/components/Screenfull'
 import SizeSelect from '@/components/SizeSelect'
-import HeaderSearch from '@/components/HeaderSearch'
+import AiAssistant from '@/components/AiAssistant'
 import RuoYiGit from '@/components/RuoYi/Git'
 import RuoYiDoc from '@/components/RuoYi/Doc'
 import useAppStore from '@/store/modules/app'

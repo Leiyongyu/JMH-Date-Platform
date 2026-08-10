@@ -31,7 +31,6 @@ def health_dependencies(request: Request):
         _mysql_check(),
         _directory_check("export_output_dir", settings.export_output_dir),
         _lingxing_config_check(),
-        _ebay_config_check(),
         _internal_token_check(),
     ]
     ok = all(check["status"] != "error" for check in checks)
@@ -89,15 +88,6 @@ def _lingxing_config_check() -> dict[str, Any]:
     if not settings.lingxing_app_secret:
         missing.append("LINGXING_APP_SECRET")
     return _config_check("lingxing", missing)
-
-
-def _ebay_config_check() -> dict[str, Any]:
-    missing = []
-    if not settings.ebay_client_id:
-        missing.append("EBAY_CLIENT_ID")
-    if not settings.ebay_client_secret:
-        missing.append("EBAY_CLIENT_SECRET")
-    return _config_check("ebay", missing)
 
 
 def _internal_token_check() -> dict[str, Any]:

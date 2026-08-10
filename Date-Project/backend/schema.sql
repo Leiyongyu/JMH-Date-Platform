@@ -593,6 +593,7 @@ CREATE TABLE IF NOT EXISTS scheduler_task_run (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='内部定时任务运行记录表';
 
+
 CREATE TABLE IF NOT EXISTS ods_lingxing_amz_fba_inventory_raw (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     pull_month CHAR(7) NOT NULL,
@@ -725,17 +726,39 @@ CREATE TABLE IF NOT EXISTS dwd_inventory_age_cost_monthly (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='DWD-每月上传的部门海外仓库龄成本快照';
 
-CREATE TABLE IF NOT EXISTS dim_ebay_sku_oe_mapping (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
-    sku VARCHAR(128) NOT NULL COMMENT 'SKU；导入对照表中的sku字段，按SKU整组覆盖更新',
-    oe VARCHAR(128) NOT NULL COMMENT 'OE号；同一SKU允许多个OE，导入Excel中多个OE按逗号拆分',
-    oe_index INT NOT NULL DEFAULT 1 COMMENT '同一SKU下OE顺序；按Excel中逗号拆分后的顺序保存',
-    source_file_name VARCHAR(255) NULL COMMENT '最近一次导入来源文件名',
-    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+CREATE TABLE IF NOT EXISTS ai_conversations (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    conversation_uuid CHAR(36) NOT NULL,
+    erp_user_id BIGINT NOT NULL,
+    erp_username VARCHAR(100) NOT NULL,
+    title VARCHAR(200) NOT NULL DEFAULT '新对话',
+    message_count INT UNSIGNED NOT NULL DEFAULT 0,
+    last_message_preview VARCHAR(500) NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
-    UNIQUE KEY uk_dim_ebay_sku_oe (sku, oe),
-    KEY idx_dim_ebay_sku (sku),
-    KEY idx_dim_ebay_oe (oe)
+    UNIQUE KEY uk_ai_conversations_uuid (conversation_uuid),
+    KEY idx_ai_conversations_user_updated (erp_user_id,updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT='DIM-eBay SKU与OE号对照维表；用于价格查询时将SKU展开为一个或多个OE';
+COMMENT='AI助手用户会话';
+
+CREATE TABLE IF NOT EXISTS ai_messages (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    conversation_id BIGINT UNSIGNED NOT NULL,
+    role VARCHAR(16) NOT NULL,
+    content MEDIUMTEXT NOT NULL,
+    is_error TINYINT(1) NOT NULL DEFAULT 0,
+    request_id VARCHAR(100) NULL,
+    model VARCHAR(100) NULL,
+    prompt_tokens INT UNSIGNED NOT NULL DEFAULT 0,
+    completion_tokens INT UNSIGNED NOT NULL DEFAULT 0,
+    total_tokens INT UNSIGNED NOT NULL DEFAULT 0,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_ai_messages_conversation_created (conversation_id,created_at),
+    KEY idx_ai_messages_request (request_id),
+    CONSTRAINT fk_ai_messages_conversation
+        FOREIGN KEY (conversation_id) REFERENCES ai_conversations (id)
+        ON DELETE CASCADE ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='AI助手会话消息';

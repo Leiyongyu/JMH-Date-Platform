@@ -5,6 +5,7 @@ from backend.integrations.lingxing.domains.base import (
 )
 from backend.integrations.lingxing.domains.inventory import LingXingInventoryDomain
 from backend.integrations.lingxing.domains.order_profit import LingXingOrderProfitDomain
+from backend.integrations.lingxing.domains.after_sales import LingXingAfterSalesDomain
 from backend.integrations.lingxing.domains.orders import LingXingOrdersDomain
 from backend.integrations.lingxing.domains.products import LingXingProductsDomain
 from backend.integrations.lingxing.domains.registry import create_domain, describe_domains
@@ -14,6 +15,7 @@ __all__ = [
     "LingXingEndpointSpec",
     "LingXingInventoryDomain",
     "LingXingOrderProfitDomain",
+    "LingXingAfterSalesDomain",
     "LingXingOrdersDomain",
     "LingXingProductsDomain",
     "create_domain",

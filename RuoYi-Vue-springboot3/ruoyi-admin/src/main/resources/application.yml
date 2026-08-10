@@ -167,6 +167,23 @@ lingxing:
   token-refresh-skew-seconds: 300
   inventory-wids: "18676,18701,18675,18674,18702,18700,18699"
 
+# eBay 官方 Buy Browse API。生产密钥只能通过服务器环境变量注入。
+ebay:
+  base-url: ${EBAY_BASE_URL:https://api.ebay.com}
+  client-id: ${EBAY_CLIENT_ID:}
+  client-secret: ${EBAY_CLIENT_SECRET:}
+  end-user-context: ${EBAY_END_USER_CONTEXT:}
+  connect-timeout: ${EBAY_CONNECT_TIMEOUT:10s}
+  request-timeout: ${EBAY_REQUEST_TIMEOUT:30s}
+  search-limit: ${EBAY_SEARCH_LIMIT:30}
+  search-top-n: ${EBAY_SEARCH_TOP_N:10}
+  search-max-keywords: ${EBAY_SEARCH_MAX_KEYWORDS:50}
+  search-max-workers: ${EBAY_SEARCH_MAX_WORKERS:8}
+  detail-max-workers: ${EBAY_DETAIL_MAX_WORKERS:8}
+  detail-max-retries: ${EBAY_DETAIL_MAX_RETRIES:3}
+  audit-max-oes: ${EBAY_AUDIT_MAX_OES:100}
+  audit-max-concurrent-tasks: ${EBAY_AUDIT_MAX_CONCURRENT_TASKS:3}
+
 # Goodcang WMS API configuration
 goodcang:
   endpoint: ${GOODCANG_ENDPOINT:https://oms.goodcang.net/public_open}
@@ -189,6 +206,14 @@ tax-refund:
     read-timeout: 600000
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
 
+# ERP AI助手通过Java安全代理访问Python，浏览器不接触内部Token和DeepSeek密钥
+ai-assistant:
+  python:
+    base-url: ${AI_ASSISTANT_PYTHON_BASE_URL:http://127.0.0.1:8010}
+    connect-timeout: 5000
+    read-timeout: 200000
+    internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+
 # Python 绩效排名服务
 performance:
   python:
@@ -201,7 +226,7 @@ jmh:
   python-performance:
     base-url: ${PYTHON_PERFORMANCE_BASE_URL:http://127.0.0.1:8010}
     connect-timeout: 3s
-    read-timeout: 30m
+    read-timeout: 3h
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
   mysql-backup:
     enabled: ${MYSQL_BACKUP_ENABLED:true}

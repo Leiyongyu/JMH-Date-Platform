@@ -45,6 +45,8 @@ def post_scheduler_run(
             run_scheduler_task(
                 task_code,
                 stat_month=payload.stat_month or payload.pull_month,
+                start_date=payload.start_date,
+                end_date=payload.end_date,
                 request_id=request.state.request_id,
                 trigger_type=(
                     "job"

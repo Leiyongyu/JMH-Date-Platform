@@ -11,7 +11,7 @@ public class PythonPerformanceTaskProperties implements PythonServiceProperties
 {
     private String baseUrl = "http://127.0.0.1:8010";
     private Duration connectTimeout = Duration.ofSeconds(3);
-    private Duration readTimeout = Duration.ofMinutes(30);
+    private Duration readTimeout = Duration.ofHours(3);
     private String internalToken;
 
     public String getBaseUrl() { return baseUrl; }

@@ -666,6 +666,23 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
             INSERT INTO scheduler_task (
                 task_code, task_name, cron_expression, enabled, description
             ) VALUES (
+                'amz_sop_after_sales_chain',
+                'AMZ-SOP售后链路',
+                '0 30 22 ? * SUN',
+                1,
+                '每周日22:30执行；源表为空拉取最近365天，否则增量刷新最近7天；完成清洗、AI分类及售后率汇总'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
                 'amz_fba_inventory_snapshot_sync',
                 'Amazon FBA库存月度快照',
                 '0 30 22 1 * ?',

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.EbaySkuOeMappingMapper">
+
+    <resultMap id="EbaySkuOeMappingResult" type="com.ruoyi.system.domain.operation.ebay.EbaySkuOeMapping">
+        <id property="id" column="id" />
+        <result property="sku" column="sku" />
+        <result property="oe" column="oe" />
+        <result property="oeIndex" column="oe_index" />
+        <result property="sourceFileName" column="source_file_name" />
+    </resultMap>
+
+    <select id="selectExistingSkus" resultType="java.lang.String">
+        SELECT DISTINCT sku
+        FROM dim_ebay_sku_oe_mapping
+        WHERE sku IN
+        <foreach collection="skus" item="sku" open="(" separator="," close=")">
+            #{sku}
+        </foreach>
+    </select>
+
+    <delete id="deleteBySkus">
+        DELETE FROM dim_ebay_sku_oe_mapping
+        WHERE sku IN
+        <foreach collection="skus" item="sku" open="(" separator="," close=")">
+            #{sku}
+        </foreach>
+    </delete>
+
+    <insert id="batchInsert">
+        INSERT INTO dim_ebay_sku_oe_mapping
+            (sku, oe, oe_index, source_file_name)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.sku}, #{item.oe}, #{item.oeIndex}, #{item.sourceFileName})
+        </foreach>
+    </insert>
+
+    <select id="selectBySkus" resultMap="EbaySkuOeMappingResult">
+        SELECT id, sku, oe, oe_index, source_file_name
+        FROM dim_ebay_sku_oe_mapping
+        WHERE sku IN
+        <foreach collection="skus" item="sku" open="(" separator="," close=")">
+            #{sku}
+        </foreach>
+        ORDER BY sku ASC, oe_index ASC, id ASC
+    </select>
+</mapper>

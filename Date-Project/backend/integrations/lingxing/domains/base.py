@@ -75,6 +75,10 @@ class LingXingDomainBase:
             offset = page * page_size
             payload = {**base_body, offset_key: offset, length_key: page_size}
             response = self.request(path, payload)
+            code = response.get("code")
+            if code is not None and str(code).lower() not in {"0", "200", "ok", "success"}:
+                message = response.get("message") or response.get("msg") or "未知错误"
+                raise RuntimeError(f"领星接口返回失败：code={code}，message={message}")
             batch, total = extract_rows_and_total(response)
             expected_total = total
             rows.extend(batch)

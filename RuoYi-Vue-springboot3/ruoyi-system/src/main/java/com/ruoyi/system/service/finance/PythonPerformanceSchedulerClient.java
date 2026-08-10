@@ -19,6 +19,8 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
             "amz_monthly_order_profit_sync";
     private static final String CLEARANCE_TASK =
             "amz_fba_inventory_snapshot_sync";
+    private static final String AMZ_SOP_TASK =
+            "amz_sop_after_sales_chain";
     private static final String SERVICE_NAME = "Python绩效ETL";
 
     public PythonPerformanceSchedulerClient(
@@ -44,13 +46,34 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run(CLEARANCE_TASK, pullMonth, requestId);
     }
 
+    public Map<String, Object> runAmzSop(
+            String startDate, String endDate,
+            String requestId, String triggerType)
+    {
+        return run(AMZ_SOP_TASK, null, startDate, endDate,
+                requestId, triggerType);
+    }
+
     private Map<String, Object> run(
             String taskCode, String statMonth, String requestId)
+    {
+        return run(taskCode, statMonth, null, null, requestId, "JOB");
+    }
+
+    private Map<String, Object> run(
+            String taskCode, String statMonth,
+            String startDate, String endDate,
+            String requestId, String triggerType)
     {
         try
         {
             Map<String, Object> payload = new LinkedHashMap<>();
-            if (CLEARANCE_TASK.equals(taskCode))
+            if (AMZ_SOP_TASK.equals(taskCode))
+            {
+                payload.put("start_date", startDate);
+                payload.put("end_date", endDate);
+            }
+            else if (CLEARANCE_TASK.equals(taskCode))
                 payload.put("pull_month", statMonth);
             else
                 payload.put("stat_month", statMonth);
@@ -58,7 +81,9 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
             HttpRequest request = baseRequest(TASK_PREFIX
                     + taskCode + "/run", requestId)
                     .header("Content-Type", "application/json;charset=utf-8")
-                    .header("X-Trigger-Type", "JOB")
+                    .header("X-Trigger-Type",
+                            StringUtils.hasText(triggerType)
+                                    ? triggerType : "JOB")
                     .POST(HttpRequest.BodyPublishers.ofString(
                             body, StandardCharsets.UTF_8))
                     .build();

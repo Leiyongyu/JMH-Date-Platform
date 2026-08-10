@@ -22,6 +22,13 @@ def load_dotenv(path: Path = PROJECT_ROOT / ".env") -> None:
 load_dotenv()
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     mysql_host: str = os.getenv("MYSQL_HOST", "127.0.0.1")
@@ -62,13 +69,27 @@ class Settings:
         os.getenv("PYTHON_PERFORMANCE_INTERNAL_TOKEN", ""),
     )
     python_performance_internal_token: str = python_internal_api_token
-    ebay_client_id: str = os.getenv("EBAY_CLIENT_ID", "")
-    ebay_client_secret: str = os.getenv("EBAY_CLIENT_SECRET", "")
-    ebay_request_timeout_sec: int = int(os.getenv("EBAY_REQUEST_TIMEOUT_SEC", "30"))
-    ebay_search_limit: int = int(os.getenv("EBAY_SEARCH_LIMIT", "30"))
-    ebay_search_top_n: int = int(os.getenv("EBAY_SEARCH_TOP_N", "20"))
-    ebay_search_max_keywords: int = int(os.getenv("EBAY_SEARCH_MAX_KEYWORDS", "50"))
-    ebay_search_max_workers: int = int(os.getenv("EBAY_SEARCH_MAX_WORKERS", "8"))
+    deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
+    deepseek_base_url: str = os.getenv(
+        "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
+    ).rstrip("/")
+    deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
+    deepseek_request_timeout_sec: int = int(
+        os.getenv("DEEPSEEK_REQUEST_TIMEOUT_SEC", "180")
+    )
+    deepseek_max_tokens: int = int(os.getenv("DEEPSEEK_MAX_TOKENS", "2048"))
+    deepseek_thinking_enabled: bool = _env_bool(
+        "DEEPSEEK_THINKING_ENABLED", False
+    )
+    deepseek_system_prompt: str = os.getenv(
+        "DEEPSEEK_SYSTEM_PROMPT",
+        (
+            "你是JMH数据平台的内部AI助手。请使用简洁、准确的中文回答。"
+            "不得编造ERP业务数据；当前未提供业务查询工具时，应明确说明无法直接读取系统数据。"
+            "不得声称已经执行查询、导出、修改或删除操作。"
+            "涉及数据修改、权限、密钥或其他高风险操作时，必须提醒用户由人工确认。"
+        ),
+    )
 
 
 settings = Settings()

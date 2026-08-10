@@ -100,6 +100,83 @@ public class PerformancePythonClient extends PythonHttpSupport
                 Map.of("limit", limit), requestId);
     }
 
+    public Map<String, Object> amzSopAfterSalesSummary(
+            Map<String, ?> params, String requestId)
+    {
+        return get("/amz-sop-after-sales/summary", params, requestId);
+    }
+
+    public Map<String, Object> amzSopAfterSalesCategories(String requestId)
+    {
+        return get("/amz-sop-after-sales/categories", Map.of(), requestId);
+    }
+
+    public Map<String, Object> amzSopAfterSalesPeriods(
+            int limit, String requestId)
+    {
+        return get("/amz-sop-after-sales/periods",
+                Map.of("limit", limit), requestId);
+    }
+
+    public byte[] exportAmzSopAfterSales(
+            String startDate, String endDate, String requestId)
+    {
+        try
+        {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("start_date", startDate);
+            params.put("end_date", endDate);
+            HttpRequest request = baseRequest(
+                    "/amz-sop-after-sales/exports" + queryString(params),
+                    requestId)
+                    .setHeader("Accept", EXCEL_CONTENT_TYPE)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 400)
+            {
+                String body = new String(
+                        response.body(), StandardCharsets.UTF_8);
+                throw new IllegalStateException(errorMessage(
+                        parseJson(body), response.statusCode(), SERVICE_NAME));
+            }
+            return response.body();
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    public byte[] exportAmzSopAfterSalesData(
+            Map<String, ?> params, String requestId)
+    {
+        try
+        {
+            HttpRequest request = baseRequest(
+                    "/amz-sop-after-sales/data-exports" + queryString(params),
+                    requestId)
+                    .setHeader("Accept", EXCEL_CONTENT_TYPE)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 400)
+            {
+                String body = new String(
+                        response.body(), StandardCharsets.UTF_8);
+                throw new IllegalStateException(errorMessage(
+                        parseJson(body), response.statusCode(), SERVICE_NAME));
+            }
+            return response.body();
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
     public byte[] exportInventoryAgeDetails(
             String pullMonth,
             String requestId)

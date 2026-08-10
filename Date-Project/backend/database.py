@@ -395,7 +395,16 @@ def init_database() -> None:
     finally:
         connection.close()
 
-    schema = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
+    project_root = Path(__file__).parent.parent
+    schema_files = [
+        Path(__file__).parent / "schema.sql",
+        project_root / "migrations" / "20260807_amz_sop_after_sales.sql",
+    ]
+    schema = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in schema_files
+        if path.exists()
+    )
     connection = _connect(settings.mysql_database)
     try:
         with connection.cursor() as cursor:

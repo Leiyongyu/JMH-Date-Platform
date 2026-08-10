@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.EbayPriceAuditMapper">
+
+    <resultMap id="TaskMap" type="com.ruoyi.system.domain.operation.ebay.EbayPriceAuditTask">
+        <id property="id" column="id" />
+        <result property="taskName" column="task_name" />
+        <result property="sourceFileName" column="source_file_name" />
+        <result property="site" column="site" />
+        <result property="status" column="status" />
+        <result property="totalRows" column="total_rows" />
+        <result property="totalOe" column="total_oe" />
+        <result property="duplicateOe" column="duplicate_oe" />
+        <result property="blankRows" column="blank_rows" />
+        <result property="processedOe" column="processed_oe" />
+        <result property="successOe" column="success_oe" />
+        <result property="emptyOe" column="empty_oe" />
+        <result property="failedOe" column="failed_oe" />
+        <result property="reviewedOe" column="reviewed_oe" />
+        <result property="selectedCount" column="selected_count" />
+        <result property="userId" column="user_id" />
+        <result property="createBy" column="create_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateTime" column="update_time" />
+        <result property="queryEndTime" column="query_end_time" />
+    </resultMap>
+
+    <resultMap id="OeMap" type="com.ruoyi.system.domain.operation.ebay.EbayPriceAuditOe">
+        <id property="id" column="id" />
+        <result property="taskId" column="task_id" />
+        <result property="sortNo" column="sort_no" />
+        <result property="oe" column="oe" />
+        <result property="queryStatus" column="query_status" />
+        <result property="reviewStatus" column="review_status" />
+        <result property="resultCount" column="result_count" />
+        <result property="selectedCount" column="selected_count" />
+        <result property="queryAttempts" column="query_attempts" />
+        <result property="errorMessage" column="error_message" />
+        <result property="queryStartTime" column="query_start_time" />
+        <result property="queryEndTime" column="query_end_time" />
+        <result property="reviewBy" column="review_by" />
+        <result property="reviewTime" column="review_time" />
+    </resultMap>
+
+    <resultMap id="ItemMap" type="com.ruoyi.system.domain.operation.ebay.EbayPriceAuditItem">
+        <id property="id" column="id" />
+        <result property="taskId" column="task_id" />
+        <result property="auditOeId" column="audit_oe_id" />
+        <result property="rankNo" column="rank_no" />
+        <result property="oe" column="oe" />
+        <result property="itemId" column="item_id" />
+        <result property="productId" column="product_id" />
+        <result property="title" column="title" />
+        <result property="price" column="price_display" />
+        <result property="pf" column="price_value" />
+        <result property="currency" column="currency" />
+        <result property="estimatedSoldQuantity" column="estimated_sold_quantity" />
+        <result property="condition" column="condition_name" />
+        <result property="conditionId" column="condition_id" />
+        <result property="imageUrlsJson" column="image_urls" />
+        <result property="link" column="item_link" />
+        <result property="seller" column="seller_name" />
+        <result property="sellerFeedback" column="seller_feedback" />
+        <result property="shipping" column="shipping" />
+        <result property="imageDetailComplete" column="image_detail_complete" />
+        <result property="imageDetailError" column="image_detail_error" />
+        <result property="selectedFlag" column="selected_flag" />
+    </resultMap>
+
+    <insert id="insertTask" parameterType="com.ruoyi.system.domain.operation.ebay.EbayPriceAuditTask"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ebay_price_audit_task (
+            task_name, source_file_name, site, status, total_rows, total_oe,
+            duplicate_oe, blank_rows, user_id, create_by
+        ) VALUES (
+            #{taskName}, #{sourceFileName}, #{site}, #{status}, #{totalRows}, #{totalOe},
+            #{duplicateOe}, #{blankRows}, #{userId}, #{createBy}
+        )
+    </insert>
+
+    <insert id="batchInsertOes">
+        INSERT INTO ebay_price_audit_oe (task_id, sort_no, oe, query_status, review_status)
+        VALUES
+        <foreach collection="rows" item="row" separator=",">
+            (#{row.taskId}, #{row.sortNo}, #{row.oe}, 'PENDING', 'PENDING')
+        </foreach>
+    </insert>
+
+    <select id="selectTask" resultMap="TaskMap">
+        SELECT * FROM ebay_price_audit_task WHERE id = #{taskId} AND user_id = #{userId}
+    </select>
+
+    <select id="selectLatestTask" resultMap="TaskMap">
+        SELECT * FROM ebay_price_audit_task
+        WHERE user_id = #{userId}
+        ORDER BY id DESC LIMIT 1
+    </select>
+
+    <select id="selectRecentTasks" resultMap="TaskMap">
+        SELECT * FROM ebay_price_audit_task
+        WHERE user_id = #{userId}
+        ORDER BY id DESC LIMIT 20
+    </select>
+
+    <select id="selectQueryingTasks" resultMap="TaskMap">
+        SELECT * FROM ebay_price_audit_task WHERE status = 'QUERYING' ORDER BY id
+    </select>
+
+    <select id="selectOes" resultMap="OeMap">
+        SELECT * FROM ebay_price_audit_oe WHERE task_id = #{taskId} ORDER BY sort_no
+    </select>
+
+    <select id="selectOe" resultMap="OeMap">
+        SELECT * FROM ebay_price_audit_oe WHERE task_id = #{taskId} AND id = #{oeId}
+    </select>
+
+    <select id="selectItems" resultMap="ItemMap">
+        SELECT * FROM ebay_price_audit_item
+        WHERE task_id = #{taskId} AND audit_oe_id = #{oeId}
+        ORDER BY rank_no, id
+    </select>
+
+    <select id="selectSelectedItems" resultMap="ItemMap">
+        SELECT * FROM ebay_price_audit_item
+        WHERE task_id = #{taskId} AND selected_flag = '1'
+        ORDER BY audit_oe_id, rank_no, id
+    </select>
+
+    <select id="countQueryingTasks" resultType="int">
+        SELECT COUNT(*) FROM ebay_price_audit_task WHERE status = 'QUERYING'
+    </select>
+
+    <update id="markOeQuerying">
+        UPDATE ebay_price_audit_oe
+        SET query_status = 'QUERYING', review_status = 'PENDING', result_count = 0,
+            selected_count = 0, error_message = NULL, query_attempts = query_attempts + 1,
+            query_start_time = NOW(), query_end_time = NULL, review_by = NULL, review_time = NULL
+        WHERE id = #{oeId}
+    </update>
+
+    <delete id="deleteItemsByOe">
+        DELETE FROM ebay_price_audit_item WHERE audit_oe_id = #{oeId}
+    </delete>
+
+    <insert id="batchInsertItems">
+        INSERT INTO ebay_price_audit_item (
+            task_id, audit_oe_id, rank_no, oe, item_id, product_id, title,
+            price_display, price_value, currency, estimated_sold_quantity,
+            condition_name, condition_id, image_urls, item_link, seller_name,
+            seller_feedback, shipping, image_detail_complete, image_detail_error, selected_flag
+        ) VALUES
+        <foreach collection="rows" item="row" separator=",">
+            (#{row.taskId}, #{row.auditOeId}, #{row.rankNo}, #{row.oe}, #{row.itemId},
+             #{row.productId}, #{row.title}, #{row.price}, #{row.pf}, #{row.currency},
+             #{row.estimatedSoldQuantity}, #{row.condition}, #{row.conditionId},
+             #{row.imageUrlsJson}, #{row.link}, #{row.seller}, #{row.sellerFeedback},
+             #{row.shipping}, #{row.imageDetailComplete}, #{row.imageDetailError}, '0')
+        </foreach>
+    </insert>
+
+    <update id="markOeFinished">
+        UPDATE ebay_price_audit_oe
+        SET query_status = #{queryStatus}, review_status = #{reviewStatus},
+            result_count = #{resultCount}, selected_count = 0,
+            error_message = #{errorMessage}, query_end_time = NOW()
+        WHERE id = #{oeId}
+    </update>
+
+    <update id="clearSelectedItems">
+        UPDATE ebay_price_audit_item SET selected_flag = '0' WHERE audit_oe_id = #{oeId}
+    </update>
+
+    <update id="selectReviewedItems">
+        UPDATE ebay_price_audit_item SET selected_flag = '1'
+        WHERE audit_oe_id = #{oeId} AND id IN
+        <foreach collection="itemIds" item="itemId" open="(" separator="," close=")">
+            #{itemId}
+        </foreach>
+    </update>
+
+    <update id="markOeReviewed">
+        UPDATE ebay_price_audit_oe
+        SET review_status = #{reviewStatus}, selected_count = #{selectedCount},
+            review_by = #{reviewBy}, review_time = NOW()
+        WHERE id = #{oeId}
+    </update>
+
+    <update id="refreshTaskStats">
+        UPDATE ebay_price_audit_task t
+        SET processed_oe = (SELECT COUNT(*) FROM ebay_price_audit_oe o
+                            WHERE o.task_id = t.id AND o.query_status IN ('SUCCESS', 'EMPTY', 'FAILED')),
+            success_oe = (SELECT COUNT(*) FROM ebay_price_audit_oe o
+                          WHERE o.task_id = t.id AND o.query_status = 'SUCCESS'),
+            empty_oe = (SELECT COUNT(*) FROM ebay_price_audit_oe o
+                        WHERE o.task_id = t.id AND o.query_status = 'EMPTY'),
+            failed_oe = (SELECT COUNT(*) FROM ebay_price_audit_oe o
+                         WHERE o.task_id = t.id AND o.query_status = 'FAILED'),
+            reviewed_oe = (SELECT COUNT(*) FROM ebay_price_audit_oe o
+                           WHERE o.task_id = t.id AND o.review_status &lt;&gt; 'PENDING'),
+            selected_count = (SELECT COUNT(*) FROM ebay_price_audit_item i
+                              WHERE i.task_id = t.id AND i.selected_flag = '1'),
+            query_end_time = CASE
+                WHEN (SELECT COUNT(*) FROM ebay_price_audit_oe o
+                      WHERE o.task_id = t.id AND o.query_status IN ('SUCCESS', 'EMPTY', 'FAILED')) = t.total_oe
+                THEN COALESCE(t.query_end_time, NOW()) ELSE NULL END,
+            status = CASE
+                WHEN (SELECT COUNT(*) FROM ebay_price_audit_oe o
+                      WHERE o.task_id = t.id AND o.query_status IN ('SUCCESS', 'EMPTY', 'FAILED')) &lt; t.total_oe
+                    THEN 'QUERYING'
+                WHEN (SELECT COUNT(*) FROM ebay_price_audit_oe o
+                      WHERE o.task_id = t.id AND o.review_status = 'PENDING') = 0
+                    THEN 'COMPLETED'
+                ELSE 'REVIEWING'
+            END
+        WHERE t.id = #{taskId}
+    </update>
+
+</mapper>
