@@ -31,6 +31,7 @@ from backend.services.amz_sop_after_sales_service import (
     export_summary,
     list_product_summary,
 )
+from backend.services import ebay_sop_after_sales_service as ebay_sop_service
 
 
 router = APIRouter(
@@ -124,6 +125,132 @@ def get_amz_sop_after_sales_data_export(
     )
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     filename = f"AMZ-SOP售后数据-{start_date}-{end_date}-{timestamp}.xlsx"
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@router.get("/ebay-sop-after-sales/summary")
+def get_ebay_sop_after_sales_summary(
+    request: Request,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    big_category: str | None = None,
+    small_category: str | None = None,
+    sku: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+):
+    if (start_date is None) != (end_date is None):
+        raise HTTPException(status_code=400, detail="start_date和end_date必须同时提供")
+    try:
+        data = ebay_sop_service.list_product_summary(
+            start_date, end_date, big_category, small_category, sku,
+            max(page, 1), max(1, min(page_size, 200)),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success_response(data, request_id=request.state.request_id)
+
+
+@router.get("/ebay-sop-after-sales/categories")
+def get_ebay_sop_after_sales_categories(request: Request):
+    return success_response(
+        {"big_categories": list(BIG_CATEGORIES), "rules": amz_sop_repo.category_rules()},
+        request_id=request.state.request_id,
+    )
+
+
+@router.get("/ebay-sop-after-sales/periods")
+def get_ebay_sop_after_sales_periods(request: Request, limit: int = 24):
+    return success_response(
+        ebay_sop_service.list_periods(limit),
+        request_id=request.state.request_id,
+    )
+
+
+@router.post("/ebay-sop-after-sales/sales-imports", status_code=201)
+async def post_ebay_sop_sales_import(
+    request: Request,
+    file: UploadFile = File(...),
+    operator: str | None = None,
+):
+    return await _run_ebay_sop_import(
+        request, file, operator, ebay_sop_service.import_ebay_sales, "eBay销量"
+    )
+
+
+@router.post("/ebay-sop-after-sales/history-imports", status_code=201)
+async def post_ebay_sop_history_import(
+    request: Request,
+    file: UploadFile = File(...),
+    operator: str | None = None,
+):
+    return await _run_ebay_sop_import(
+        request, file, operator, ebay_sop_service.import_ebay_history, "eBay历史售后"
+    )
+
+
+@router.post("/ebay-sop-after-sales/after-sales-imports", status_code=201)
+async def post_ebay_sop_after_sales_import(
+    request: Request,
+    file: UploadFile = File(...),
+    operator: str | None = None,
+):
+    return await _run_ebay_sop_import(
+        request, file, operator, ebay_sop_service.import_ebay_after_sales, "eBay售后"
+    )
+
+
+async def _run_ebay_sop_import(request, file, operator, importer, label):
+    content, file_name = await read_excel_upload(file)
+    try:
+        result = await run_in_threadpool(importer, content, file_name, operator)
+        return success_response(
+            result,
+            request_id=request.state.request_id,
+            message=f"{label} imported",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"{label}导入失败: {exc}") from exc
+
+
+@router.get("/ebay-sop-after-sales/exports")
+def get_ebay_sop_after_sales_export(
+    request: Request,
+    start_date: date,
+    end_date: date,
+):
+    content = ebay_sop_service.export_summary(start_date, end_date)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    filename = f"eBay-SOP售后表-{start_date}-{end_date}-{timestamp}.xlsx"
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@router.get("/ebay-sop-after-sales/data-exports")
+def get_ebay_sop_after_sales_data_export(
+    request: Request,
+    start_date: date,
+    end_date: date,
+    big_category: str | None = None,
+    small_category: str | None = None,
+    sku: str | None = None,
+    skus: str | None = None,
+):
+    selected_skus = [value.strip() for value in (skus or "").split(",") if value.strip()]
+    content = ebay_sop_service.export_filtered_summary(
+        start_date, end_date, big_category, small_category, sku, selected_skus or None
+    )
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    filename = f"eBay-SOP售后数据-{start_date}-{end_date}-{timestamp}.xlsx"
     return StreamingResponse(
         BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

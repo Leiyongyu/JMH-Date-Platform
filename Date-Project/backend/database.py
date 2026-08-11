@@ -399,6 +399,7 @@ def init_database() -> None:
     schema_files = [
         Path(__file__).parent / "schema.sql",
         project_root / "migrations" / "20260807_amz_sop_after_sales.sql",
+        project_root / "migrations" / "20260811_ebay_sop_after_sales.sql",
     ]
     schema = "\n".join(
         path.read_text(encoding="utf-8")

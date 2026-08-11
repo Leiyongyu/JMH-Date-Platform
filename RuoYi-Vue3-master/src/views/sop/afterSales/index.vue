@@ -2,11 +2,38 @@
   <div class="app-container after-sales-page">
     <section class="page-head">
       <div>
-        <div class="eyebrow">SOP / AMZ AFTER-SALES</div>
+        <div class="eyebrow">SOP / {{ activePlatform === 'amz' ? 'AMZ' : 'EBAY' }} AFTER-SALES</div>
         <h2>售后数据</h2>
-        <p>订单利润与售后订单按周更新，自动完成去重、翻译、分类及售后率汇总。</p>
+        <p>{{ platformDescription }}</p>
       </div>
       <div class="head-actions">
+        <el-dropdown
+          v-if="activePlatform === 'ebay'"
+          v-hasPermi="['sop:afterSales:import']"
+          trigger="click"
+          :disabled="importing"
+          @command="chooseImportType"
+        >
+          <el-button type="success" plain :loading="importing">
+            <el-icon><UploadFilled /></el-icon>
+            上传 eBay 数据
+            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="sales">上传月销量表</el-dropdown-item>
+              <el-dropdown-item command="history" divided>上传一次性历史售后+销量</el-dropdown-item>
+              <el-dropdown-item command="afterSales">上传后续售后订单表</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <input
+          ref="fileInput"
+          class="hidden-file-input"
+          type="file"
+          accept=".xlsx,.xlsm"
+          @change="handleImportFile"
+        />
         <el-dropdown
           v-hasPermi="['sop:afterSales:export']"
           trigger="click"
@@ -26,6 +53,23 @@
           </template>
         </el-dropdown>
       </div>
+    </section>
+
+    <section class="platform-switch">
+      <button
+        v-for="item in platformOptions"
+        :key="item.value"
+        type="button"
+        :class="['platform-card', item.value, { active: activePlatform === item.value }]"
+        @click="changePlatform(item.value)"
+      >
+        <span class="platform-code">{{ item.code }}</span>
+        <span class="platform-copy">
+          <strong>{{ item.label }}</strong>
+          <small>{{ item.description }}</small>
+        </span>
+        <span class="platform-state">{{ activePlatform === item.value ? '当前展示' : '点击切换' }}</span>
+      </button>
     </section>
 
     <section class="summary-grid">
@@ -76,7 +120,7 @@
       </div>
 
       <div class="range-hint">
-        可选数据范围：{{ coverageStart || '--' }} 至 {{ coverageEnd || '--' }}；新日期段首次查询会在后台生成并缓存。
+        可选数据范围：{{ coverageStart || '--' }} 至 {{ coverageEnd || '--' }}；{{ rangeHint }}
       </div>
       <el-alert
         v-if="rangeBuilding"
@@ -200,22 +244,28 @@
 
 <script setup name="SopAfterSales">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   exportAfterSales,
   exportAfterSalesData,
   getAfterSalesCategories,
+  importEbayAfterSalesFile,
   listAfterSales,
   listAfterSalesPeriods
 } from '@/api/sop/afterSales'
 
 const loading = ref(false)
 const exporting = ref(false)
+const importing = ref(false)
 const rangeBuilding = ref(false)
 const rangeMessage = ref('')
 const dateRange = ref([])
 const coverageStart = ref('')
 const coverageEnd = ref('')
 const tableRef = ref()
+const fileInput = ref()
+const pendingImportType = ref('')
+const activePlatform = ref('amz')
 const selectedRows = ref([])
 const rows = ref([])
 const total = ref(0)
@@ -224,6 +274,7 @@ const summary = reactive({})
 let rangePollTimer
 let loadSequence = 0
 const query = reactive({
+  platform: 'amz',
   pageNum: 1,
   pageSize: 20,
   startDate: undefined,
@@ -232,6 +283,25 @@ const query = reactive({
   smallCategory: '',
   sku: ''
 })
+
+const platformOptions = [
+  {
+    value: 'amz', code: 'AMZ', label: 'Amazon 售后率',
+    description: '领星接口自动拉取销量与售后数据'
+  },
+  {
+    value: 'ebay', code: 'eBay', label: 'eBay 售后率',
+    description: '上传数字酋长销量和售后文件'
+  }
+]
+
+const platformDescription = computed(() => activePlatform.value === 'amz'
+  ? '订单利润与售后订单按周更新，自动完成去重、翻译、分类及售后率汇总。'
+  : '数字酋长源文件按批次上传，原始字段保留，清洗层自动完成站点、SKU、退款类型和十类售后汇总。')
+
+const rangeHint = computed(() => activePlatform.value === 'amz'
+  ? '新日期段首次查询会在后台生成并缓存。'
+  : '售后率按当前选择日期实时重新汇总，重复上传按订单和SKU覆盖。')
 
 const categoryOptions = computed(() => [
   { label: '全部', value: '' },
@@ -287,10 +357,15 @@ function percent(value) {
   return `${(Number(value || 0) * 100).toFixed(2)}%`
 }
 
-async function loadMetadata() {
+async function loadMetadata(resetPeriod = false) {
+  if (resetPeriod) {
+    dateRange.value = []
+    query.startDate = undefined
+    query.endDate = undefined
+  }
   const [categoryResponse, periodResponse] = await Promise.all([
-    getAfterSalesCategories(),
-    listAfterSalesPeriods()
+    getAfterSalesCategories(activePlatform.value),
+    listAfterSalesPeriods(activePlatform.value)
   ])
   bigCategories.value = categoryResponse.data?.big_categories || []
   const periods = periodResponse.data || []
@@ -345,6 +420,74 @@ async function loadData(isPolling = false) {
     if (sequence === loadSequence) stopRangePoll()
   } finally {
     if (sequence === loadSequence) loading.value = false
+  }
+}
+
+async function changePlatform(platform) {
+  if (platform === activePlatform.value || loading.value || importing.value) return
+  stopRangePoll()
+  loadSequence += 1
+  activePlatform.value = platform
+  query.platform = platform
+  query.bigCategory = ''
+  query.smallCategory = ''
+  query.sku = ''
+  query.pageNum = 1
+  rows.value = []
+  total.value = 0
+  Object.keys(summary).forEach(key => delete summary[key])
+  clearSelection()
+  loading.value = true
+  try {
+    await loadMetadata(true)
+    await loadData()
+  } finally {
+    loading.value = false
+  }
+}
+
+async function chooseImportType(type) {
+  if (type === 'history') {
+    try {
+      await ElMessageBox.confirm(
+        '历史文件应同时包含“售后数据”和“销量”工作表，仅用于首次导入8月之前的数据。重复上传会按业务键覆盖，并重建历史月销量，不会重复累计。是否继续？',
+        '上传一次性历史售后及销量',
+        { type: 'warning', confirmButtonText: '继续选择文件', cancelButtonText: '取消' }
+      )
+    } catch {
+      return
+    }
+  }
+  pendingImportType.value = type
+  if (fileInput.value) {
+    fileInput.value.value = ''
+    fileInput.value.click()
+  }
+}
+
+async function handleImportFile(event) {
+  const file = event.target.files?.[0]
+  const type = pendingImportType.value
+  if (!file || !type) return
+  if (!/\.(xlsx|xlsm)$/i.test(file.name)) {
+    ElMessage.error('只支持 .xlsx 或 .xlsm 文件')
+    pendingImportType.value = ''
+    if (event.target) event.target.value = ''
+    return
+  }
+  importing.value = true
+  try {
+    const response = await importEbayAfterSalesFile(type, file)
+    const result = response.data || {}
+    ElMessage.success(
+      `${result.message || '导入完成'}：原始层${number(result.raw_rows)}行，清洗层${number(result.dwd_rows)}行，跳过${number(result.skipped_rows)}行`
+    )
+    await loadMetadata(true)
+    await loadData()
+  } finally {
+    importing.value = false
+    pendingImportType.value = ''
+    if (event.target) event.target.value = ''
   }
 }
 
@@ -408,12 +551,12 @@ async function handleExportCommand(command) {
   try {
     if (command === 'data') {
       const selectedSkus = selectedRows.value.map(item => item.business_sku)
-      const data = await exportAfterSalesData(query, selectedSkus)
+      const data = await exportAfterSalesData(activePlatform.value, query, selectedSkus)
       const selectedSuffix = selectedSkus.length ? `-已选${selectedSkus.length}个SKU` : ''
-      downloadBlob(data, `AMZ-SOP售后数据-${query.startDate}-${query.endDate}${selectedSuffix}`)
+      downloadBlob(data, `${activePlatform.value === 'amz' ? 'AMZ' : 'eBay'}-SOP售后数据-${query.startDate}-${query.endDate}${selectedSuffix}`)
     } else if (command === 'categories') {
-      const data = await exportAfterSales(query.startDate, query.endDate)
-      downloadBlob(data, `AMZ-SOP十类售后表-${query.startDate}-${query.endDate}`)
+      const data = await exportAfterSales(activePlatform.value, query.startDate, query.endDate)
+      downloadBlob(data, `${activePlatform.value === 'amz' ? 'AMZ' : 'eBay'}-SOP十类售后表-${query.startDate}-${query.endDate}`)
     }
   } finally {
     exporting.value = false
@@ -461,6 +604,46 @@ onBeforeUnmount(stopRangePoll)
 .page-head p { margin: 0; color: #64748b; }
 .eyebrow { color: #2563eb; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
 .head-actions { display: flex; flex-shrink: 0; gap: 8px; }
+.hidden-file-input { display: none; }
+.platform-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.platform-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 15px 17px;
+  border: 1px solid #dfe5ee;
+  border-radius: 12px;
+  color: #334155;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: .18s ease;
+}
+.platform-card:hover { border-color: #93c5fd; transform: translateY(-1px); }
+.platform-card.active { border-color: #3b82f6; box-shadow: 0 0 0 2px #dbeafe; }
+.platform-card.ebay.active { border-color: #8b5cf6; box-shadow: 0 0 0 2px #ede9fe; }
+.platform-code {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  place-items: center;
+  border-radius: 11px;
+  color: #1d4ed8;
+  background: #dbeafe;
+  font-weight: 800;
+}
+.platform-card.ebay .platform-code { color: #6d28d9; background: #ede9fe; }
+.platform-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
+.platform-copy strong { color: #172033; font-size: 15px; }
+.platform-copy small { color: #64748b; }
+.platform-state { color: #94a3b8; font-size: 12px; }
+.platform-card.active .platform-state { color: #2563eb; font-weight: 600; }
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(180px, 1fr));
@@ -547,6 +730,7 @@ onBeforeUnmount(stopRangePoll)
 @media (max-width: 720px) {
   .page-head { align-items: flex-start; flex-direction: column; }
   .summary-grid { grid-template-columns: 1fr; }
+  .platform-switch { grid-template-columns: 1fr; }
   .filters { grid-template-columns: 1fr; }
   .detail-panel { margin-left: 8px; }
 }

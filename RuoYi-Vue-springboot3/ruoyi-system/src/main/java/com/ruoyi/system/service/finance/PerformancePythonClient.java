@@ -118,6 +118,24 @@ public class PerformancePythonClient extends PythonHttpSupport
                 Map.of("limit", limit), requestId);
     }
 
+    public Map<String, Object> ebaySopAfterSalesSummary(
+            Map<String, ?> params, String requestId)
+    {
+        return get("/ebay-sop-after-sales/summary", params, requestId);
+    }
+
+    public Map<String, Object> ebaySopAfterSalesCategories(String requestId)
+    {
+        return get("/ebay-sop-after-sales/categories", Map.of(), requestId);
+    }
+
+    public Map<String, Object> ebaySopAfterSalesPeriods(
+            int limit, String requestId)
+    {
+        return get("/ebay-sop-after-sales/periods",
+                Map.of("limit", limit), requestId);
+    }
+
     public byte[] exportAmzSopAfterSales(
             String startDate, String endDate, String requestId)
     {
@@ -175,6 +193,53 @@ public class PerformancePythonClient extends PythonHttpSupport
         {
             throw asRuntime(e);
         }
+    }
+
+    public byte[] exportEbaySopAfterSales(
+            String startDate, String endDate, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("start_date", startDate);
+        params.put("end_date", endDate);
+        return downloadExcel(
+                "/ebay-sop-after-sales/exports", params, requestId);
+    }
+
+    public byte[] exportEbaySopAfterSalesData(
+            Map<String, ?> params, String requestId)
+    {
+        return downloadExcel(
+                "/ebay-sop-after-sales/data-exports", params, requestId);
+    }
+
+    public Map<String, Object> importEbaySopSales(
+            MultipartFile file, String operator, String requestId,
+            String idempotencyKey)
+    {
+        return upload(
+                "/ebay-sop-after-sales/sales-imports",
+                Map.of("operator", operator == null ? "" : operator),
+                file, requestId, idempotencyKey);
+    }
+
+    public Map<String, Object> importEbaySopHistory(
+            MultipartFile file, String operator, String requestId,
+            String idempotencyKey)
+    {
+        return upload(
+                "/ebay-sop-after-sales/history-imports",
+                Map.of("operator", operator == null ? "" : operator),
+                file, requestId, idempotencyKey);
+    }
+
+    public Map<String, Object> importEbaySopAfterSales(
+            MultipartFile file, String operator, String requestId,
+            String idempotencyKey)
+    {
+        return upload(
+                "/ebay-sop-after-sales/after-sales-imports",
+                Map.of("operator", operator == null ? "" : operator),
+                file, requestId, idempotencyKey);
     }
 
     public byte[] exportInventoryAgeDetails(
@@ -311,6 +376,33 @@ public class PerformancePythonClient extends PythonHttpSupport
             if (StringUtils.hasText(idempotencyKey))
                 builder.header("Idempotency-Key", idempotencyKey);
             return sendJson(builder.build(), false);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    private byte[] downloadExcel(
+            String path, Map<String, ?> params, String requestId)
+    {
+        try
+        {
+            HttpRequest request = baseRequest(
+                    path + queryString(params), requestId)
+                    .setHeader("Accept", EXCEL_CONTENT_TYPE)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 400)
+            {
+                String body = new String(
+                        response.body(), StandardCharsets.UTF_8);
+                throw new IllegalStateException(errorMessage(
+                        parseJson(body), response.statusCode(), SERVICE_NAME));
+            }
+            return response.body();
         }
         catch (Exception e)
         {

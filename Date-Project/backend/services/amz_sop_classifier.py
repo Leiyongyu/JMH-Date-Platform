@@ -70,16 +70,21 @@ BUYER_NOTE_TRANSLATIONS = {
 }
 
 
-def classification_hash(row: dict[str, Any], rule_version: str) -> str:
+def classification_hash(
+    row: dict[str, Any], rule_version: str, platform: str = "AMZ"
+) -> str:
     normalized = "|".join(
         _normalize(row.get(key))
         for key in ("after_reason", "return_status", "inventory_attributes", "buyers_note")
     )
-    payload = f"{rule_version}|{settings.deepseek_model}|amz-sop-v3|{normalized}"
+    platform_key = str(platform or "AMZ").strip().upper()
+    payload = f"{rule_version}|{settings.deepseek_model}|{platform_key}-sop-v3|{normalized}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def classify_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def classify_rows(
+    rows: list[dict[str, Any]], platform: str = "AMZ"
+) -> dict[str, dict[str, Any]]:
     rules = repo.category_rules()
     rule_version = max(
         (str(row.get("rule_version") or "") for row in rules),
@@ -87,7 +92,7 @@ def classify_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     )
     unique: dict[str, dict[str, Any]] = {}
     for row in rows:
-        key = classification_hash(row, rule_version)
+        key = classification_hash(row, rule_version, platform)
         row["classification_hash"] = key
         unique.setdefault(key, row)
 
@@ -104,7 +109,7 @@ def classify_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                 deterministic[row["classification_hash"]] = result
             else:
                 ai_candidates.append(row)
-        ai_results = _deepseek_batch(ai_candidates, rules, rule_version)
+        ai_results = _deepseek_batch(ai_candidates, rules, rule_version, platform)
         for row in batch:
             key = row["classification_hash"]
             result = deterministic.get(key) or ai_results.get(key) or _fallback(row, rule_version)
@@ -118,6 +123,7 @@ def _deepseek_batch(
     rows: list[dict[str, Any]],
     rules: list[dict[str, Any]],
     rule_version: str,
+    platform: str = "AMZ",
 ) -> dict[str, dict[str, Any]]:
     if not settings.deepseek_api_key.strip() or not rows:
         return {}
@@ -140,7 +146,7 @@ def _deepseek_batch(
         for row in rows
     ]
     system = (
-        "你是Amazon售后数据清洗分类器。必须返回合法json对象，不要Markdown。"
+        f"你是{str(platform or 'AMZ').upper()}平台售后数据清洗分类器。必须返回合法json对象，不要Markdown。"
         "结合四个字段翻译成准确简洁的中文，并严格从提供的分类表选择一组大类和小类。"
         "大类只能是：" + "、".join(BIG_CATEGORIES) + "。"
         "没有可靠判定依据时必须选择大类‘其他’、小类‘其他’，禁止留空或编造。"
