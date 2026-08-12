@@ -4,12 +4,19 @@
       <div>
         <div class="eyebrow">EBAY SP PRICE REVIEW</div>
         <h2>eBay SP 价格批量审核</h2>
-        <p>上传 OE 清单，系统异步查询每个 OE 的最低价前 10 个商品，再由人工逐项确认导出范围。</p>
+        <p>上传 SKU / OE 清单，系统解析查询 OE 后异步获取最低价前 10 个商品，再由人工逐项确认导出范围。</p>
       </div>
       <div class="heading-actions">
         <el-tag :type="health.configured ? 'success' : 'danger'" effect="plain" round>
           {{ health.configured ? 'eBay 接口正常' : 'eBay 接口未配置' }}
         </el-tag>
+        <el-button
+          v-hasPermi="['scripts:ebayPrice:import']"
+          :icon="UploadFilled"
+          @click="mappingDialogVisible = true"
+        >
+          导入 SKU-OE 映射
+        </el-button>
         <el-button v-if="historyTasks.length" :icon="Clock" @click="historyVisible = true">历史批次</el-button>
         <el-button v-if="task && !showUploader" @click="openNewTask">新建批次</el-button>
         <el-button
@@ -36,10 +43,13 @@
 
       <div class="upload-body">
         <div class="upload-copy">
-          <h3>上传 OE 查询文件</h3>
-          <p>只读取第一个工作表的 A 列。A1 表头填写 <b>OE号</b>，从 A2 开始每行一个 OE。</p>
+          <h3>上传 SKU / OE 查询文件</h3>
+          <p>只读取第一个工作表，支持以下两种固定格式：</p>
           <ul>
-            <li>支持 .xlsx、.xlsm、.xls；单批最多 100 个不同 OE，空白行会自动忽略。</li>
+            <li><b>一列表：</b>A1 为“OE号”，从 A2 开始每行一个 OE。</li>
+            <li><b>两列表：</b>A1 为“SKU”、B1 为“OE号”，数据顺序固定为 A列SKU、B列OE。</li>
+            <li>有 SKU 时优先查询 SKU-OE 对照表，同一 SKU 有多个 OE 时取排序第一的 OE；SKU 无映射时回退使用该行 B 列 OE。</li>
+            <li>支持 .xlsx、.xlsm、.xls；单批最多 2000 个不同 SKU 或查询 OE，空白行会自动忽略。</li>
             <li>重复 OE 只查询一次，并在任务概览中提示数量。</li>
             <li>单个 OE 查询失败不会影响其他 OE，可在审核时单独重试。</li>
             <li>查询在后台执行，刷新页面后仍可继续查看和审核。</li>
@@ -55,31 +65,73 @@
         </div>
 
         <div class="upload-panel">
-          <el-upload
-            ref="uploadRef"
-            v-model:file-list="uploadFiles"
-            drag
-            :auto-upload="false"
-            :limit="1"
-            accept=".xlsx,.xlsm,.xls"
-            :on-change="handleFileChange"
-            :on-remove="handleFileRemove"
-          >
-            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-            <div class="el-upload__text">拖入 OE 文件，或<em>点击选择</em></div>
-            <template #tip><div class="el-upload__tip">文件数据只需一列：A列 OE号</div></template>
-          </el-upload>
-          <div class="upload-actions">
-            <el-button v-if="task" @click="cancelNewTask">返回当前任务</el-button>
+          <section class="create-method">
+            <div class="method-heading">
+              <div><strong>上传 Excel 文件</strong><span>适合批量数据</span></div>
+              <el-tag size="small" effect="plain">最多 2000 条</el-tag>
+            </div>
+            <div class="file-picker-row">
+              <el-upload
+                ref="uploadRef"
+                v-model:file-list="uploadFiles"
+                :auto-upload="false"
+                :limit="1"
+                :show-file-list="false"
+                accept=".xlsx,.xlsm,.xls"
+                :on-change="handleFileChange"
+              >
+                <el-button :icon="UploadFilled">选择 Excel 文件</el-button>
+              </el-upload>
+              <span :class="{ selected: uploadFile }">{{ uploadFile?.name || '尚未选择文件' }}</span>
+              <el-button v-if="uploadFile" link type="danger" @click="handleFileRemove">移除</el-button>
+            </div>
+            <p>支持 A列OE号，或 A列SKU + B列OE号。</p>
             <el-button
               v-hasPermi="['scripts:ebayPrice:query']"
               type="primary"
               :loading="uploading"
-              :disabled="!uploadFile || !health.configured"
+              :disabled="!uploadFile || !health.configured || manualSubmitting"
               @click="startAuditTask"
             >
-              {{ uploading ? '正在创建任务…' : '开始批量查询' }}
+              {{ uploading ? '正在创建任务…' : '上传并开始查询' }}
             </el-button>
+          </section>
+
+          <div class="method-divider"><span>或者直接输入</span></div>
+
+          <section class="create-method manual-method">
+            <div class="method-heading">
+              <div><strong>手工输入 SKU / OE</strong><span>适合少量临时查询</span></div>
+              <span class="input-count">{{ manualKeywordCount }} / 2000</span>
+            </div>
+            <el-radio-group v-model="manualInputType" size="small">
+              <el-radio-button value="sku">输入 SKU</el-radio-button>
+              <el-radio-button value="oe">输入 OE号</el-radio-button>
+            </el-radio-group>
+            <el-input
+              v-model="manualInput"
+              type="textarea"
+              :rows="5"
+              maxlength="100000"
+              resize="vertical"
+              :placeholder="manualInputType === 'sku'
+                ? '输入SKU，多个使用逗号或换行分隔。系统将从SKU-OE映射表取第一个OE。'
+                : '输入OE号，多个使用逗号或换行分隔。'"
+            />
+            <p v-if="manualInputType === 'sku'">SKU 未建立映射时会明确提示，请先导入 SKU-OE 对照表。</p>
+            <el-button
+              v-hasPermi="['scripts:ebayPrice:query']"
+              type="primary"
+              :loading="manualSubmitting"
+              :disabled="!manualInput.trim() || !health.configured || uploading || manualKeywordCount > 2000"
+              @click="startManualAuditTask"
+            >
+              {{ manualSubmitting ? '正在创建任务…' : '开始查询输入内容' }}
+            </el-button>
+          </section>
+
+          <div v-if="task" class="upload-actions">
+            <el-button @click="cancelNewTask">返回当前任务</el-button>
           </div>
         </div>
       </div>
@@ -296,48 +348,122 @@
 
     <el-drawer v-model="historyVisible" title="最近批次" size="420px">
       <div class="history-list">
-        <button
+        <div
           v-for="row in historyTasks"
           :key="row.id"
-          type="button"
           class="history-row"
           :class="{ active: task?.id === row.id }"
+          role="button"
+          tabindex="0"
           @click="openHistoryTask(row)"
+          @keyup.enter="openHistoryTask(row)"
         >
           <div>
             <strong>{{ row.taskName }}</strong>
-            <el-tag :type="taskStatusType(row.status)" size="small" effect="plain">{{ taskStatusText(row.status) }}</el-tag>
+            <div class="history-row-actions">
+              <el-tag :type="taskStatusType(row.status)" size="small" effect="plain">{{ taskStatusText(row.status) }}</el-tag>
+              <el-button
+                v-hasPermi="['scripts:ebayPrice:query']"
+                circle
+                text
+                type="danger"
+                :icon="Delete"
+                :loading="deletingTaskId === row.id"
+                :disabled="row.status === 'QUERYING'"
+                :title="row.status === 'QUERYING' ? '后台查询完成后才能删除' : '删除历史任务'"
+                @click.stop="handleDeleteTask(row)"
+              />
+            </div>
           </div>
           <p>{{ row.sourceFileName }} · {{ siteLabel(row.site) }}</p>
           <span>OE {{ row.totalOe }} · 已查询 {{ row.processedOe }} · 已审核 {{ row.reviewedOe }} · 已选 {{ row.selectedCount }}</span>
-        </button>
+        </div>
       </div>
     </el-drawer>
+
+    <el-dialog
+      v-model="mappingDialogVisible"
+      title="导入 SKU-OE 映射"
+      width="600px"
+      :close-on-click-modal="!mappingImporting"
+      :close-on-press-escape="!mappingImporting"
+      :show-close="!mappingImporting"
+      @closed="resetMappingImport"
+    >
+      <div class="mapping-import-dialog">
+        <el-alert type="info" :closable="false" show-icon>
+          <template #title>按 SKU 增量覆盖，不会清空整张映射表</template>
+          <p>Excel 表头必须包含 <b>sku</b> 和 <b>oe</b> 两列；一个 SKU 的多个 OE 可使用英文逗号、中文逗号或换行分隔。</p>
+          <p>文件中出现的 SKU 会删除旧 OE 后重建；文件中没有出现的 SKU 保持不变。</p>
+        </el-alert>
+
+        <div class="mapping-file-row">
+          <el-upload
+            ref="mappingUploadRef"
+            v-model:file-list="mappingFiles"
+            :auto-upload="false"
+            :limit="1"
+            :show-file-list="false"
+            accept=".xlsx,.xlsm"
+            :disabled="mappingImporting"
+            :on-change="handleMappingFileChange"
+          >
+            <el-button :icon="UploadFilled" :disabled="mappingImporting">选择映射文件</el-button>
+          </el-upload>
+          <span :class="{ selected: mappingFile }">{{ mappingFile?.name || '尚未选择文件' }}</span>
+          <el-button v-if="mappingFile" link type="danger" :disabled="mappingImporting" @click="clearMappingFile">移除</el-button>
+        </div>
+
+        <div v-if="mappingImportResult" class="mapping-result">
+          <div><span>文件数据行</span><strong>{{ mappingImportResult.totalRows || 0 }}</strong></div>
+          <div><span>影响 SKU</span><strong>{{ mappingImportResult.affectedSkus || 0 }}</strong></div>
+          <div><span>新增 SKU</span><strong>{{ mappingImportResult.createdSkus || 0 }}</strong></div>
+          <div><span>覆盖 SKU</span><strong>{{ mappingImportResult.updatedSkus || 0 }}</strong></div>
+          <div><span>写入映射</span><strong>{{ mappingImportResult.insertedMappings || 0 }}</strong></div>
+          <div><span>跳过行</span><strong>{{ mappingImportResult.skippedRows || 0 }}</strong></div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button :disabled="mappingImporting" @click="mappingDialogVisible = false">关闭</el-button>
+        <el-button
+          v-hasPermi="['scripts:ebayPrice:import']"
+          type="primary"
+          :loading="mappingImporting"
+          :disabled="!mappingFile"
+          @click="handleMappingImport"
+        >
+          {{ mappingImporting ? '正在导入…' : '确认增量覆盖导入' }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import {
-  ArrowLeft, ArrowRight, Clock, Download, InfoFilled, Link, Loading,
+  ArrowLeft, ArrowRight, Clock, Delete, Download, InfoFilled, Link, Loading,
   Refresh, Search, UploadFilled, WarningFilled
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { saveAs } from 'file-saver'
 import {
+  createEbayManualAuditTask,
   createEbayAuditTask,
+  deleteEbayAuditTask,
   exportEbayAuditTask,
   getEbayAuditOe,
   getEbayAuditTask,
   getEbayAuditTasks,
   getEbayHealth,
   getLatestEbayAuditTask,
+  importSkuOeMapping,
   retryEbayAuditOe,
   reviewEbayAuditOe
 } from '@/api/scripts/ebayPrice'
 
 const flowSteps = [
-  { title: '上传清单', text: 'A列每行一个OE' },
+  { title: '上传清单', text: '支持OE或SKU+OE' },
   { title: '后台查询', text: '异步获取最低价TOP10' },
   { title: '人工审核', text: '逐个OE多选或不选' },
   { title: '统一导出', text: '只导出已选商品' }
@@ -346,6 +472,13 @@ const flowSteps = [
 const health = reactive({ configured: false, status: 'unknown' })
 const historyTasks = ref([])
 const historyVisible = ref(false)
+const deletingTaskId = ref(null)
+const mappingDialogVisible = ref(false)
+const mappingUploadRef = ref()
+const mappingFiles = ref([])
+const mappingFile = ref(null)
+const mappingImporting = ref(false)
+const mappingImportResult = ref(null)
 const task = ref(null)
 const oes = ref([])
 const currentOe = ref(null)
@@ -357,6 +490,9 @@ const uploadSite = ref('de')
 const uploadRef = ref()
 const uploadFiles = ref([])
 const uploadFile = ref(null)
+const manualInputType = ref('sku')
+const manualInput = ref('')
+const manualSubmitting = ref(false)
 const resultTableRef = ref()
 const uploading = ref(false)
 const refreshing = ref(false)
@@ -370,6 +506,8 @@ let pollTimer = null
 
 const queryPercent = computed(() => percent(task.value?.processedOe, task.value?.totalOe))
 const reviewPercent = computed(() => percent(task.value?.reviewedOe, task.value?.totalOe))
+const manualKeywords = computed(() => splitManualKeywords(manualInput.value))
+const manualKeywordCount = computed(() => manualKeywords.value.length)
 const currentPosition = computed(() => {
   const index = oes.value.findIndex(row => row.id === currentOe.value?.id)
   return index < 0 ? 0 : index + 1
@@ -435,17 +573,99 @@ async function openHistoryTask(row) {
   await openInitialOe()
 }
 
+async function handleDeleteTask(row) {
+  if (row.status === 'QUERYING') {
+    ElMessage.warning('该批次仍在后台查询中，完成后才能删除')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定删除历史任务“${row.taskName}”吗？任务、OE审核明细和候选商品都将被删除，且无法恢复。`,
+      '删除历史任务',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch (_) {
+    return
+  }
+
+  deletingTaskId.value = row.id
+  try {
+    await deleteEbayAuditTask(row.id)
+    const deletingCurrent = task.value?.id === row.id
+    await loadHistory()
+    if (deletingCurrent) {
+      stopPolling()
+      task.value = null
+      oes.value = []
+      currentOe.value = null
+      currentItems.value = []
+      selectedItemIds.value = []
+      initialSelectedIds.value = []
+      const nextTask = historyTasks.value[0]
+      if (nextTask) {
+        const response = await getEbayAuditTask(nextTask.id)
+        applyTaskView(response.data)
+        await openInitialOe()
+      } else {
+        showUploader.value = true
+        historyVisible.value = false
+      }
+    }
+    ElMessage.success('历史任务已删除')
+  } finally {
+    deletingTaskId.value = null
+  }
+}
+
 function handleFileChange(file) {
   uploadFile.value = file.raw || null
 }
 
 function handleFileRemove() {
+  uploadRef.value?.clearFiles()
+  uploadFiles.value = []
   uploadFile.value = null
+}
+
+function handleMappingFileChange(file) {
+  mappingFile.value = file.raw || null
+  mappingImportResult.value = null
+}
+
+function clearMappingFile() {
+  mappingUploadRef.value?.clearFiles()
+  mappingFiles.value = []
+  mappingFile.value = null
+}
+
+function resetMappingImport() {
+  clearMappingFile()
+  mappingImportResult.value = null
+}
+
+async function handleMappingImport() {
+  if (!mappingFile.value) {
+    ElMessage.warning('请先选择 SKU-OE 映射文件')
+    return
+  }
+  mappingImporting.value = true
+  try {
+    const response = await importSkuOeMapping(mappingFile.value, createRequestId('sku-oe-import'))
+    mappingImportResult.value = response.data || {}
+    clearMappingFile()
+    ElMessage.success(`映射导入成功：影响 ${mappingImportResult.value.affectedSkus || 0} 个 SKU`)
+  } finally {
+    mappingImporting.value = false
+  }
 }
 
 async function startAuditTask() {
   if (!uploadFile.value) {
-    ElMessage.warning('请先选择OE Excel文件')
+    ElMessage.warning('请先选择SKU / OE Excel文件')
     return
   }
   uploading.value = true
@@ -455,11 +675,39 @@ async function startAuditTask() {
     showUploader.value = false
     uploadFiles.value = []
     uploadFile.value = null
+    uploadRef.value?.clearFiles()
     await loadHistory()
     await openInitialOe()
     ElMessage.success('文件读取成功，后台查询已开始')
   } finally {
     uploading.value = false
+  }
+}
+
+async function startManualAuditTask() {
+  if (!manualKeywordCount.value) {
+    ElMessage.warning(`请先输入${manualInputType.value === 'sku' ? 'SKU' : 'OE号'}`)
+    return
+  }
+  if (manualKeywordCount.value > 2000) {
+    ElMessage.warning(`单批最多输入2000个，本次识别到${manualKeywordCount.value}个`)
+    return
+  }
+  manualSubmitting.value = true
+  try {
+    const response = await createEbayManualAuditTask({
+      keywords: manualKeywords.value,
+      site: uploadSite.value,
+      inputType: manualInputType.value
+    }, createRequestId('manual-audit'))
+    applyTaskView(response.data)
+    showUploader.value = false
+    manualInput.value = ''
+    await loadHistory()
+    await openInitialOe()
+    ElMessage.success('输入解析成功，后台查询已开始')
+  } finally {
+    manualSubmitting.value = false
   }
 }
 
@@ -678,6 +926,7 @@ function openNewTask() {
   showUploader.value = true
   uploadFiles.value = []
   uploadFile.value = null
+  manualInput.value = ''
 }
 
 function cancelNewTask() {
@@ -739,6 +988,15 @@ function normalizeIds(values) {
   return [...values].map(Number).sort((a, b) => a - b)
 }
 
+function splitManualKeywords(value) {
+  const unique = new Map()
+  String(value || '').split(/[\r\n,，]+/).forEach(item => {
+    const normalized = item.trim()
+    if (normalized) unique.set(normalized.toUpperCase(), normalized)
+  })
+  return [...unique.values()]
+}
+
 async function readBlobError(blob) {
   try {
     const payload = JSON.parse(await blob.text())
@@ -792,6 +1050,19 @@ function createRequestId(action) {
 .page-heading p { margin: 7px 0 0; color: #667085; font-size: 13px; }
 .heading-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
+.mapping-import-dialog { display: flex; flex-direction: column; gap: 18px; }
+.mapping-import-dialog :deep(.el-alert__content) { min-width: 0; }
+.mapping-import-dialog :deep(.el-alert__title) { font-weight: 700; }
+.mapping-import-dialog :deep(.el-alert__description) { margin-top: 7px; }
+.mapping-import-dialog p { margin: 3px 0; color: #667085; font-size: 12px; line-height: 1.65; }
+.mapping-file-row { display: flex; min-width: 0; align-items: center; gap: 10px; padding: 15px; border: 1px dashed #cfd8e6; border-radius: 10px; background: #fbfcfe; }
+.mapping-file-row > span { overflow: hidden; flex: 1; color: #98a2b3; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.mapping-file-row > span.selected { color: #344054; font-weight: 600; }
+.mapping-result { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.mapping-result > div { display: flex; align-items: center; justify-content: space-between; padding: 11px 12px; border-radius: 8px; background: #f6f8fb; }
+.mapping-result span { color: #667085; font-size: 11px; }
+.mapping-result strong { color: #356fe5; font-size: 16px; }
+
 .upload-card { margin-top: 14px; overflow: hidden; }
 .flow-steps { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid #edf0f4; background: #f9fafb; }
 .flow-step { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-right: 1px solid #edf0f4; }
@@ -806,7 +1077,20 @@ function createRequestId(action) {
 .upload-copy ul { margin: 18px 0; padding-left: 20px; color: #475467; font-size: 13px; line-height: 2; }
 .site-picker { display: flex; align-items: center; gap: 14px; }
 .site-picker > span { color: #475467; font-size: 13px; font-weight: 600; }
-.upload-panel { padding: 4px; }
+.upload-panel { display: flex; flex-direction: column; gap: 14px; padding: 4px; }
+.create-method { display: flex; flex-direction: column; gap: 13px; padding: 18px; border: 1px solid #e4e9f0; border-radius: 12px; background: #fbfcfe; }
+.create-method > .el-button { align-self: flex-end; }
+.method-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.method-heading > div { display: flex; align-items: baseline; gap: 9px; }
+.method-heading strong { color: #27364a; font-size: 14px; }
+.method-heading span, .create-method p { color: #7b8796; font-size: 11px; }
+.create-method p { margin: 0; }
+.file-picker-row { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.file-picker-row > span { overflow: hidden; flex: 1; color: #98a2b3; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.file-picker-row > span.selected { color: #344054; font-weight: 600; }
+.method-divider { display: flex; align-items: center; gap: 12px; color: #98a2b3; font-size: 11px; }
+.method-divider::before, .method-divider::after { height: 1px; flex: 1; background: #e9edf3; content: ''; }
+.input-count { color: #356fe5 !important; font-variant-numeric: tabular-nums; }
 .upload-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 
 .task-summary { display: grid; grid-template-columns: minmax(450px, 1.5fr) minmax(420px, 1fr); gap: 24px; margin-top: 14px; padding: 18px 20px; }
@@ -890,6 +1174,7 @@ function createRequestId(action) {
 .history-row:hover { border-color: #b8ccf7; background: #f8faff; }
 .history-row.active { border-color: #7da2ef; background: #eef4ff; }
 .history-row > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.history-row-actions { display: flex; align-items: center; gap: 4px; }
 .history-row strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .history-row p { margin: 7px 0 4px; overflow: hidden; color: #667085; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .history-row > span { color: #98a2b3; font-size: 10px; }

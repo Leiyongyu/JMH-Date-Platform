@@ -181,7 +181,7 @@ ebay:
   search-max-workers: ${EBAY_SEARCH_MAX_WORKERS:8}
   detail-max-workers: ${EBAY_DETAIL_MAX_WORKERS:8}
   detail-max-retries: ${EBAY_DETAIL_MAX_RETRIES:3}
-  audit-max-oes: ${EBAY_AUDIT_MAX_OES:100}
+  audit-max-oes: ${EBAY_AUDIT_MAX_OES:2000}
   audit-max-concurrent-tasks: ${EBAY_AUDIT_MAX_CONCURRENT_TASKS:3}
 
 # Goodcang WMS API configuration

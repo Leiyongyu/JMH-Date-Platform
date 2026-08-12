@@ -23,7 +23,7 @@ public class EbayProperties
     private int searchMaxWorkers = 8;
     private int detailMaxWorkers = 8;
     private int detailMaxRetries = 3;
-    private int auditMaxOes = 100;
+    private int auditMaxOes = 2000;
     private int auditMaxConcurrentTasks = 3;
 
     public String getBaseUrl() { return baseUrl; }

@@ -144,6 +144,18 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         DELETE FROM ebay_price_audit_item WHERE audit_oe_id = #{oeId}
     </delete>
 
+    <delete id="deleteItemsByTask">
+        DELETE FROM ebay_price_audit_item WHERE task_id = #{taskId}
+    </delete>
+
+    <delete id="deleteOesByTask">
+        DELETE FROM ebay_price_audit_oe WHERE task_id = #{taskId}
+    </delete>
+
+    <delete id="deleteTask">
+        DELETE FROM ebay_price_audit_task WHERE id = #{taskId} AND user_id = #{userId}
+    </delete>
+
     <insert id="batchInsertItems">
         INSERT INTO ebay_price_audit_item (
             task_id, audit_oe_id, rank_no, oe, item_id, product_id, title,

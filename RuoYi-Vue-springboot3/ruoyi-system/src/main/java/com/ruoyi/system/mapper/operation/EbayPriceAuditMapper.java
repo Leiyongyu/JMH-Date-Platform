@@ -35,6 +35,12 @@ public interface EbayPriceAuditMapper
 
     int deleteItemsByOe(@Param("oeId") Long oeId);
 
+    int deleteItemsByTask(@Param("taskId") Long taskId);
+
+    int deleteOesByTask(@Param("taskId") Long taskId);
+
+    int deleteTask(@Param("taskId") Long taskId, @Param("userId") Long userId);
+
     int batchInsertItems(@Param("rows") List<EbayPriceAuditItem> rows);
 
     int markOeFinished(@Param("oeId") Long oeId, @Param("queryStatus") String queryStatus,

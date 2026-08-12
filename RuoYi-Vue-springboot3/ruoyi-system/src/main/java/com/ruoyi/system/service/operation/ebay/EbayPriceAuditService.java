@@ -36,7 +36,10 @@ import com.ruoyi.system.domain.operation.ebay.EbayPriceAuditItem;
 import com.ruoyi.system.domain.operation.ebay.EbayPriceAuditOe;
 import com.ruoyi.system.domain.operation.ebay.EbayPriceAuditReviewRequest;
 import com.ruoyi.system.domain.operation.ebay.EbayPriceAuditTask;
+import com.ruoyi.system.domain.operation.ebay.EbayPriceSearchRequest;
+import com.ruoyi.system.domain.operation.ebay.EbaySkuOeMapping;
 import com.ruoyi.system.mapper.operation.EbayPriceAuditMapper;
+import com.ruoyi.system.mapper.operation.EbaySkuOeMappingMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,11 +49,13 @@ public class EbayPriceAuditService
 {
     private static final Logger LOG = LoggerFactory.getLogger(EbayPriceAuditService.class);
     private static final Set<String> SUPPORTED_SITES = Set.of("de", "uk", "us");
+    private static final Set<String> SKU_HEADERS = Set.of("sku", "skuno", "sku号", "sku编号");
     private static final Set<String> OE_HEADERS = Set.of("oe", "oe号", "oe号码", "oenumber");
     private static final DateTimeFormatter TASK_TIME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
 
     private final EbayPriceAuditMapper mapper;
+    private final EbaySkuOeMappingMapper skuOeMappingMapper;
     private final EbayPriceService priceService;
     private final EbayProperties properties;
     private final ObjectMapper objectMapper;
@@ -58,12 +63,14 @@ public class EbayPriceAuditService
     private final ThreadPoolTaskExecutor auditExecutor;
     private final Set<Long> runningTaskIds = ConcurrentHashMap.newKeySet();
 
-    public EbayPriceAuditService(EbayPriceAuditMapper mapper, EbayPriceService priceService,
+    public EbayPriceAuditService(EbayPriceAuditMapper mapper,
+            EbaySkuOeMappingMapper skuOeMappingMapper, EbayPriceService priceService,
             EbayProperties properties, ObjectMapper objectMapper,
             @Qualifier("ebaySearchExecutor") ThreadPoolTaskExecutor searchExecutor,
             @Qualifier("ebayAuditExecutor") ThreadPoolTaskExecutor auditExecutor)
     {
         this.mapper = mapper;
+        this.skuOeMappingMapper = skuOeMappingMapper;
         this.priceService = priceService;
         this.properties = properties;
         this.objectMapper = objectMapper;
@@ -94,11 +101,101 @@ public class EbayPriceAuditService
     {
         String normalizedSite = normalizeSite(site);
         ParsedOeFile parsed = parse(file);
-        int maxOes = Math.max(1, properties.getAuditMaxOes());
-        if (parsed.oes().size() > maxOes)
+        int maxInputs = Math.max(1, properties.getAuditMaxOes());
+        int effectiveRows = parsed.totalRows() - parsed.blankRows();
+        if (effectiveRows > maxInputs)
         {
-            throw new ServiceException("单个文件最多允许 " + maxOes + " 个不同的OE号，本次读取到 "
-                    + parsed.oes().size() + " 个，请拆分文件后重试");
+            throw new ServiceException("单个文件最多允许 " + maxInputs + " 个非空SKU或OE输入，"
+                    + "本次读取到 " + effectiveRows + " 行，请拆分文件后重试");
+        }
+        String sourceFileName = safeFileName(file.getOriginalFilename());
+        return persistTask(parsed.oes(), parsed.totalRows(), parsed.duplicateOe(),
+                parsed.blankRows(), sourceFileName, normalizedSite, userId, username);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public synchronized Map<String, Object> createManualTask(EbayPriceSearchRequest request,
+            Long userId, String username)
+    {
+        if (request == null)
+        {
+            throw new ServiceException("手工查询参数不能为空");
+        }
+        String normalizedSite = normalizeSite(request.getSite());
+        String inputType = request.getInputType() == null
+                ? "" : request.getInputType().trim().toLowerCase(Locale.ROOT);
+        if (!Set.of("sku", "oe").contains(inputType))
+        {
+            throw new ServiceException("请选择手工输入类型：SKU 或 OE号");
+        }
+        List<String> inputs = EbayPriceService.normalizeKeywords(request.getKeywords());
+        if (inputs.isEmpty())
+        {
+            throw new ServiceException("请输入至少一个SKU或OE号，多个值使用逗号或换行分隔");
+        }
+        int maxOes = Math.max(1, properties.getAuditMaxOes());
+        if (inputs.size() > maxOes)
+        {
+            throw new ServiceException("单个任务最多允许 " + maxOes + " 个不同的SKU或OE号，本次输入 "
+                    + inputs.size() + " 个，请拆分后重试");
+        }
+
+        List<String> oes = new ArrayList<>();
+        if ("oe".equals(inputType))
+        {
+            for (String oe : inputs)
+            {
+                validateOe(oe, "手工输入");
+                oes.add(oe);
+            }
+        }
+        else
+        {
+            for (String sku : inputs)
+            {
+                if (sku.length() > 255)
+                {
+                    throw new ServiceException("SKU超过255个字符：" + sku);
+                }
+            }
+            Map<String, String> firstOeBySku = loadFirstOeBySku(inputs);
+            List<String> missing = new ArrayList<>();
+            for (String sku : inputs)
+            {
+                String oe = firstOeBySku.get(normalizedKey(sku));
+                if (oe == null || oe.isBlank())
+                {
+                    missing.add(sku);
+                }
+                else
+                {
+                    validateOe(oe, "SKU“" + sku + "”映射");
+                    oes.add(oe);
+                }
+            }
+            if (!missing.isEmpty())
+            {
+                String preview = String.join("、", missing.subList(0, Math.min(10, missing.size())));
+                String suffix = missing.size() > 10 ? "等共" + missing.size() + "个" : "";
+                throw new ServiceException("以下SKU未在SKU-OE映射表中找到对应OE：" + preview + suffix
+                        + "。请先导入SKU-OE对照表，或改为选择OE号后直接输入");
+            }
+        }
+
+        List<String> uniqueOes = uniqueOes(oes);
+        return persistTask(uniqueOes, inputs.size(), inputs.size() - uniqueOes.size(), 0,
+                "手工输入-" + inputType.toUpperCase(Locale.ROOT), normalizedSite, userId, username);
+    }
+
+    private Map<String, Object> persistTask(List<String> oes, int totalRows,
+            int duplicateOe, int blankRows, String sourceFileName,
+            String normalizedSite, Long userId, String username)
+    {
+        int maxOes = Math.max(1, properties.getAuditMaxOes());
+        if (oes.size() > maxOes)
+        {
+            throw new ServiceException("单个任务最多允许 " + maxOes + " 个不同的查询OE，本次解析到 "
+                    + oes.size() + " 个，请拆分后重试");
         }
         int maxTasks = Math.max(1, properties.getAuditMaxConcurrentTasks());
         if (mapper.countQueryingTasks() >= maxTasks)
@@ -106,27 +203,26 @@ public class EbayPriceAuditService
             throw new ServiceException("当前已有 " + maxTasks + " 个批量查询任务在运行，请稍后再上传");
         }
 
-        String sourceFileName = safeFileName(file.getOriginalFilename());
         EbayPriceAuditTask task = new EbayPriceAuditTask();
         task.setTaskName(stripExtension(sourceFileName) + "-" + LocalDateTime.now().format(TASK_TIME));
         task.setSourceFileName(sourceFileName);
         task.setSite(normalizedSite);
         task.setStatus("QUERYING");
-        task.setTotalRows(parsed.totalRows());
-        task.setTotalOe(parsed.oes().size());
-        task.setDuplicateOe(parsed.duplicateOe());
-        task.setBlankRows(parsed.blankRows());
+        task.setTotalRows(totalRows);
+        task.setTotalOe(oes.size());
+        task.setDuplicateOe(duplicateOe);
+        task.setBlankRows(blankRows);
         task.setUserId(userId);
         task.setCreateBy(username);
         mapper.insertTask(task);
 
         List<EbayPriceAuditOe> rows = new ArrayList<>();
-        for (int index = 0; index < parsed.oes().size(); index++)
+        for (int index = 0; index < oes.size(); index++)
         {
             EbayPriceAuditOe row = new EbayPriceAuditOe();
             row.setTaskId(task.getId());
             row.setSortNo(index + 1);
-            row.setOe(parsed.oes().get(index));
+            row.setOe(oes.get(index));
             rows.add(row);
         }
         mapper.batchInsertOes(rows);
@@ -143,6 +239,22 @@ public class EbayPriceAuditService
     public List<EbayPriceAuditTask> recentTasks(Long userId)
     {
         return mapper.selectRecentTasks(userId);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteTask(Long taskId, Long userId)
+    {
+        EbayPriceAuditTask task = requireTask(taskId, userId);
+        if ("QUERYING".equals(task.getStatus()) || runningTaskIds.contains(taskId))
+        {
+            throw new ServiceException("该批次仍在后台查询中，完成查询后才能删除");
+        }
+        mapper.deleteItemsByTask(taskId);
+        mapper.deleteOesByTask(taskId);
+        if (mapper.deleteTask(taskId, userId) != 1)
+        {
+            throw new ServiceException("历史任务删除失败，请刷新后重试");
+        }
     }
 
     public Map<String, Object> taskView(Long taskId, Long userId)
@@ -452,39 +564,102 @@ public class EbayPriceAuditService
             }
             DataFormatter formatter = new DataFormatter(Locale.ROOT);
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
-            String headerName = normalizeHeader(cellText(header, 0, formatter, evaluator));
-            if (!OE_HEADERS.contains(headerName))
+            String headerA = normalizeHeader(cellText(header, 0, formatter, evaluator));
+            String headerB = normalizeHeader(cellText(header, 1, formatter, evaluator));
+            boolean oeOnlyLayout = OE_HEADERS.contains(headerA);
+            boolean skuOeLayout = SKU_HEADERS.contains(headerA) && OE_HEADERS.contains(headerB);
+            if (!oeOnlyLayout && !skuOeLayout)
             {
-                throw new ServiceException("Excel A1表头应为“OE”或“OE号”，实际为“"
-                        + cellText(header, 0, formatter, evaluator) + "”");
+                throw new ServiceException("Excel表头不匹配：一列表应为A列“OE号”；两列表应为A列“SKU”、"
+                        + "B列“OE号”。当前A列为“" + cellText(header, 0, formatter, evaluator)
+                        + "”，B列为“" + cellText(header, 1, formatter, evaluator) + "”");
             }
 
-            LinkedHashMap<String, String> unique = new LinkedHashMap<>();
+            List<InputQueryRow> inputRows = new ArrayList<>();
             int totalRows = 0;
             int blankRows = 0;
-            int duplicateOe = 0;
             for (int rowIndex = header.getRowNum() + 1; rowIndex <= sheet.getLastRowNum(); rowIndex++)
             {
                 totalRows++;
-                String oe = cellText(sheet.getRow(rowIndex), 0, formatter, evaluator).trim();
-                if (oe.isEmpty())
+                Row row = sheet.getRow(rowIndex);
+                String sku = skuOeLayout ? cellText(row, 0, formatter, evaluator).trim() : "";
+                String oe = cellText(row, skuOeLayout ? 1 : 0, formatter, evaluator).trim();
+                if (sku.isEmpty() && oe.isEmpty())
                 {
                     blankRows++;
                     continue;
+                }
+                if (sku.length() > 255)
+                {
+                    throw new ServiceException("Excel第 " + (rowIndex + 1)
+                            + " 行SKU超过255个字符，请检查单元格内容");
                 }
                 if (oe.length() > 128)
                 {
                     throw new ServiceException("Excel第 " + (rowIndex + 1) + " 行OE号超过128个字符，请检查单元格内容");
                 }
-                String key = oe.toUpperCase(Locale.ROOT);
-                if (unique.putIfAbsent(key, oe) != null)
+                inputRows.add(new InputQueryRow(rowIndex + 1, sku, oe));
+            }
+            if (inputRows.isEmpty())
+            {
+                throw new ServiceException(oeOnlyLayout
+                        ? "Excel A列没有读取到有效的OE号"
+                        : "Excel A、B列没有读取到有效的SKU或OE号");
+            }
+
+            LinkedHashSet<String> skuKeys = new LinkedHashSet<>();
+            LinkedHashMap<String, String> skuValues = new LinkedHashMap<>();
+            for (InputQueryRow row : inputRows)
+            {
+                if (!row.sku().isBlank())
+                {
+                    String key = normalizedKey(row.sku());
+                    skuKeys.add(key);
+                    skuValues.putIfAbsent(key, row.sku());
+                }
+            }
+            Map<String, String> firstOeBySku = skuKeys.isEmpty()
+                    ? Map.of()
+                    : loadFirstOeBySku(skuKeys.stream().map(skuValues::get).toList());
+
+            LinkedHashMap<String, String> unique = new LinkedHashMap<>();
+            List<String> unresolvedRows = new ArrayList<>();
+            int duplicateOe = 0;
+            for (InputQueryRow row : inputRows)
+            {
+                String oe = row.oe();
+                if (!row.sku().isBlank())
+                {
+                    String mappedOe = firstOeBySku.get(normalizedKey(row.sku()));
+                    if (mappedOe != null && !mappedOe.isBlank())
+                    {
+                        oe = mappedOe;
+                    }
+                    else if (oe.isBlank())
+                    {
+                        unresolvedRows.add("第" + row.rowNumber() + "行SKU“" + row.sku() + "”");
+                        continue;
+                    }
+                }
+                if (oe.length() > 128)
+                {
+                    throw new ServiceException("SKU映射得到的OE号超过128个字符：" + oe);
+                }
+                if (unique.putIfAbsent(normalizedKey(oe), oe) != null)
                 {
                     duplicateOe++;
                 }
             }
+            if (!unresolvedRows.isEmpty())
+            {
+                String preview = String.join("、", unresolvedRows.subList(0, Math.min(10, unresolvedRows.size())));
+                String suffix = unresolvedRows.size() > 10 ? "等共" + unresolvedRows.size() + "行" : "";
+                throw new ServiceException(preview + suffix
+                        + "未在SKU-OE映射表中找到对应OE，且该行B列OE为空；请补充映射或填写OE号");
+            }
             if (unique.isEmpty())
             {
-                throw new ServiceException("Excel A列没有读取到有效的OE号");
+                throw new ServiceException("Excel中没有可用于查询的有效OE号");
             }
             return new ParsedOeFile(new ArrayList<>(unique.values()), totalRows, blankRows, duplicateOe);
         }
@@ -526,6 +701,55 @@ public class EbayPriceAuditService
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT).replaceAll("[\\s_]", "");
     }
 
+    private static String normalizedKey(String value)
+    {
+        return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private Map<String, String> loadFirstOeBySku(List<String> skus)
+    {
+        LinkedHashMap<String, String> result = new LinkedHashMap<>();
+        final int chunkSize = 500;
+        for (int start = 0; start < skus.size(); start += chunkSize)
+        {
+            List<String> chunk = skus.subList(start, Math.min(start + chunkSize, skus.size()));
+            for (EbaySkuOeMapping mapping : skuOeMappingMapper.selectBySkus(chunk))
+            {
+                if (mapping.getSku() != null && mapping.getOe() != null
+                        && !mapping.getOe().isBlank())
+                {
+                    result.putIfAbsent(normalizedKey(mapping.getSku()), mapping.getOe().trim());
+                }
+            }
+        }
+        return result;
+    }
+
+    private static List<String> uniqueOes(List<String> values)
+    {
+        LinkedHashMap<String, String> unique = new LinkedHashMap<>();
+        for (String value : values)
+        {
+            if (value != null && !value.isBlank())
+            {
+                unique.putIfAbsent(normalizedKey(value), value.trim());
+            }
+        }
+        return new ArrayList<>(unique.values());
+    }
+
+    private static void validateOe(String oe, String source)
+    {
+        if (oe == null || oe.isBlank())
+        {
+            throw new ServiceException(source + "未提供有效OE号");
+        }
+        if (oe.length() > 128)
+        {
+            throw new ServiceException(source + "得到的OE号超过128个字符：" + oe);
+        }
+    }
+
     private static String normalizeSite(String site)
     {
         String value = site == null || site.isBlank() ? "de" : site.trim().toLowerCase(Locale.ROOT);
@@ -565,4 +789,6 @@ public class EbayPriceAuditService
     }
 
     private record ParsedOeFile(List<String> oes, int totalRows, int blankRows, int duplicateOe) {}
+
+    private record InputQueryRow(int rowNumber, String sku, String oe) {}
 }

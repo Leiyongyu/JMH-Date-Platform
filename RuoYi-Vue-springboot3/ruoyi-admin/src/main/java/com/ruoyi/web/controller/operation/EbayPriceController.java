@@ -5,6 +5,7 @@ import java.util.UUID;
 import java.util.concurrent.Semaphore;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -131,6 +132,19 @@ public class EbayPriceController extends BaseController
         return result;
     }
 
+    @Log(title = "eBay价格手工批量审核", businessType = BusinessType.OTHER)
+    @PreAuthorize("@ss.hasPermi('scripts:ebayPrice:query')")
+    @PostMapping("/audit-tasks/manual")
+    public AjaxResult createManualAuditTask(@RequestBody EbayPriceSearchRequest request,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        String actualRequestId = requestId(requestId);
+        AjaxResult result = AjaxResult.success("输入解析成功，后台查询已开始",
+                auditService.createManualTask(request, SecurityUtils.getUserId(), SecurityUtils.getUsername()));
+        result.put("request_id", actualRequestId);
+        return result;
+    }
+
     @PreAuthorize("@ss.hasPermi('scripts:ebayPrice:list')")
     @GetMapping("/audit-tasks/latest")
     public AjaxResult latestAuditTask()
@@ -143,6 +157,15 @@ public class EbayPriceController extends BaseController
     public AjaxResult auditTasks()
     {
         return AjaxResult.success(auditService.recentTasks(SecurityUtils.getUserId()));
+    }
+
+    @Log(title = "eBay价格历史审核任务", businessType = BusinessType.DELETE)
+    @PreAuthorize("@ss.hasPermi('scripts:ebayPrice:query')")
+    @DeleteMapping("/audit-tasks/{taskId}")
+    public AjaxResult deleteAuditTask(@PathVariable Long taskId)
+    {
+        auditService.deleteTask(taskId, SecurityUtils.getUserId());
+        return AjaxResult.success("历史任务已删除");
     }
 
     @PreAuthorize("@ss.hasPermi('scripts:ebayPrice:list')")

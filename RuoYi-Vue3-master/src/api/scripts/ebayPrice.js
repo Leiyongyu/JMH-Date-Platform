@@ -69,6 +69,19 @@ export function createEbayAuditTask(file, site, requestId) {
   })
 }
 
+export function createEbayManualAuditTask(data, requestId) {
+  return request({
+    url: `${baseUrl}/audit-tasks/manual`,
+    method: 'post',
+    data,
+    headers: {
+      'X-Request-ID': requestId,
+      repeatSubmit: false
+    },
+    timeout: 120000
+  })
+}
+
 export function getLatestEbayAuditTask() {
   return request({
     url: `${baseUrl}/audit-tasks/latest`,
@@ -87,6 +100,13 @@ export function getEbayAuditTask(taskId) {
   return request({
     url: `${baseUrl}/audit-tasks/${taskId}`,
     method: 'get'
+  })
+}
+
+export function deleteEbayAuditTask(taskId) {
+  return request({
+    url: `${baseUrl}/audit-tasks/${taskId}`,
+    method: 'delete'
   })
 }
 
