@@ -33,6 +33,7 @@ RuoYi-Vue3-master/node_modules/
 RuoYi-Vue3-master/dist/
 outputs/
 .codex-backups/
+优化文档.md
 .agents/
 docs/
 !RuoYi-Vue-springboot3/docs/
