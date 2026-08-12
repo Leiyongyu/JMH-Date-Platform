@@ -1,0 +1,1088 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>跨境电商图片 SOP 自动生成系统</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+      .local-backend-warn { margin: 0 0 16px; padding: 12px 14px; border-radius: 10px; border: 1px solid #fecaca; background: #fef2f2; color: #991b1b; font-size: 13px; line-height: 1.55; }
+      .local-backend-warn a { color: #b91c1c; font-weight: 600; }
+      :root {
+        --bg: #eef2ff;
+        --bg-accent: #e0e7ff;
+        --surface: #ffffff;
+        --surface-muted: #f8fafc;
+        --border: #e2e8f0;
+        --border-strong: #cbd5e1;
+        --text: #0f172a;
+        --text-muted: #64748b;
+        --primary: #4f46e5;
+        --primary-dark: #4338ca;
+        --primary-soft: #eef2ff;
+        --success: #059669;
+        --success-soft: #ecfdf5;
+        --warn: #d97706;
+        --danger: #dc2626;
+        --premium: #7c3aed;
+        --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+        --shadow-md: 0 10px 30px rgba(15, 23, 42, 0.08);
+        --shadow-lg: 0 20px 50px rgba(79, 70, 229, 0.12);
+        --radius: 14px;
+        --radius-sm: 10px;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        padding: 0 0 48px;
+        color: var(--text);
+        background:
+          radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.18), transparent),
+          radial-gradient(circle at 100% 0%, rgba(124, 58, 237, 0.08), transparent 40%),
+          linear-gradient(180deg, var(--bg) 0%, #f1f5f9 100%);
+        line-height: 1.55;
+        min-height: 100vh;
+      }
+      .app-header {
+        background: linear-gradient(135deg, #1e1b4b 0%, #312e81 45%, #4338ca 100%);
+        color: #fff;
+        padding: 28px 24px 32px;
+        margin-bottom: -18px;
+        position: relative;
+        overflow: hidden;
+      }
+      .app-header::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at 85% 20%, rgba(255,255,255,0.12), transparent 45%);
+        pointer-events: none;
+      }
+      .app-header-inner { max-width: 1200px; margin: 0 auto; position: relative; z-index: 1; }
+      .brand { display: flex; align-items: center; gap: 16px; }
+      .brand-icon {
+        width: 52px; height: 52px; border-radius: 14px;
+        background: linear-gradient(135deg, #818cf8, #c4b5fd);
+        color: #1e1b4b; font-weight: 800; font-size: 15px;
+        display: flex; align-items: center; justify-content: center;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+        letter-spacing: -0.02em;
+      }
+      .brand h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+      .brand p { margin: 4px 0 0; font-size: 13px; opacity: 0.82; }
+      .page-wrap { max-width: 1200px; margin: 0 auto; padding: 28px 20px 0; }
+      .card {
+        border: 1px solid rgba(255,255,255,0.8);
+        border-radius: var(--radius);
+        padding: 28px;
+        background: var(--surface);
+        margin-bottom: 24px;
+        box-shadow: var(--shadow-md);
+      }
+      .card-main { border-top: 4px solid var(--primary); }
+      .card-preview {
+        border-top: 4px solid var(--premium);
+        animation: fadeUp 0.45s ease;
+      }
+      @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .card > h2 { margin: 0 0 6px; font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
+      .card > p.lead { margin: 0 0 24px; color: var(--text-muted); font-size: 14px; line-height: 1.7; }
+      .form-section {
+        margin-bottom: 22px;
+        padding: 18px 18px 6px;
+        border-radius: var(--radius-sm);
+        background: var(--surface-muted);
+        border: 1px solid var(--border);
+      }
+      .form-section-title {
+        font-size: 12px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 14px;
+        display: flex; align-items: center; gap: 8px;
+      }
+      .form-section-title::before {
+        content: ""; width: 8px; height: 8px; border-radius: 999px; background: var(--primary);
+      }
+      .form-section.section-source .form-section-title::before { background: #6366f1; }
+      .form-section.section-images .form-section-title::before { background: #10b981; }
+      .upload-block {
+        margin-bottom: 16px;
+        padding: 14px;
+        border-radius: var(--radius-sm);
+        background: #fff;
+        border: 1px dashed var(--border-strong);
+        transition: border-color 0.2s, box-shadow 0.2s;
+      }
+      .upload-block:hover { border-color: #a5b4fc; box-shadow: var(--shadow-sm); }
+      .upload-block:last-child { margin-bottom: 0; }
+      .row { margin-bottom: 14px; }
+      label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; color: #334155; }
+      input[type="text"], textarea {
+        width: 100%;
+        padding: 11px 14px;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-sm);
+        font-size: 14px;
+        font-family: inherit;
+        background: #fff;
+        color: var(--text);
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+      input[type="text"]:focus, textarea:focus, select:focus {
+        outline: none;
+        border-color: #818cf8;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+      }
+      select {
+        width: 100%;
+        padding: 11px 14px;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-sm);
+        background: #fff;
+        font-size: 14px;
+        font-family: inherit;
+        color: var(--text);
+      }
+      .store-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+      .store-row input[type="text"] { flex: 0 0 220px; max-width: 100%; }
+      .store-row select { flex: 1; min-width: 220px; }
+      .store-status { display: block; margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+      button {
+        padding: 10px 18px;
+        border: 0;
+        border-radius: var(--radius-sm);
+        background: linear-gradient(135deg, var(--primary), #6366f1);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        transition: transform 0.12s, box-shadow 0.12s, opacity 0.12s;
+        box-shadow: 0 4px 14px rgba(79, 70, 229, 0.28);
+      }
+      button:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(79, 70, 229, 0.34); }
+      button:active { transform: translateY(0); }
+      button.secondary {
+        background: linear-gradient(135deg, var(--success), #10b981);
+        box-shadow: 0 4px 14px rgba(5, 150, 105, 0.25);
+      }
+      button.btn-generate {
+        width: 100%;
+        margin-top: 8px;
+        padding: 14px 20px;
+        font-size: 16px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%);
+        box-shadow: var(--shadow-lg);
+      }
+      button.btn-generate:hover { box-shadow: 0 16px 40px rgba(79, 70, 229, 0.35); }
+      button.upload-add {
+        background: #fff;
+        color: #475569;
+        border: 1px dashed #94a3b8;
+        box-shadow: none;
+      }
+      button.upload-add:hover { background: var(--primary-soft); border-color: #818cf8; color: var(--primary-dark); transform: none; }
+      button:disabled { opacity: 0.55; cursor: not-allowed; transform: none !important; }
+      .status {
+        margin: 14px 0 0;
+        padding: 10px 14px;
+        border-radius: var(--radius-sm);
+        font-size: 14px;
+        color: #334155;
+        background: #f1f5f9;
+        border: 1px solid var(--border);
+      }
+      .status.warn { color: #92400e; background: #fffbeb; border-color: #fde68a; }
+      .status.error { color: #991b1b; background: #fef2f2; border-color: #fecaca; }
+      .status.generating { color: #3730a3; background: #eef2ff; border-color: #c7d2fe; font-weight: 500; }
+      .download { margin-top: 12px; }
+      .download a {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 10px 16px; border-radius: var(--radius-sm);
+        background: var(--primary-soft); color: var(--primary-dark);
+        font-weight: 600; text-decoration: none;
+      }
+      .download a:hover { background: #e0e7ff; }
+      .hidden { display: none !important; }
+      .analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 4px; }
+      .analysis-item {
+        border: 1px solid #c7d2fe;
+        border-radius: var(--radius-sm);
+        padding: 16px 18px;
+        background: linear-gradient(180deg, #fafbff 0%, #f8fafc 100%);
+      }
+      .analysis-item h4 { margin: 0 0 10px; font-size: 12px; font-weight: 700; color: var(--primary-dark); letter-spacing: 0.06em; text-transform: uppercase; }
+      .analysis-item p { margin: 0; font-size: 14px; line-height: 1.65; color: #475569; }
+      .section-header {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        margin: 0 0 16px; padding-bottom: 12px;
+        border-bottom: 2px solid var(--border);
+      }
+      .section-header h3 { margin: 0; font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
+      .section-header .section-meta { font-size: 13px; color: var(--text-muted); }
+      .info-panel {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 20px;
+        background: linear-gradient(180deg, #fafafa 0%, #fff 100%);
+      }
+      .meta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+      .meta-item {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 12px 14px;
+        box-shadow: var(--shadow-sm);
+      }
+      .meta-item .label { display: block; font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+      .meta-item .value { font-size: 14px; color: var(--text); word-break: break-word; font-weight: 500; }
+      .field-block { margin-bottom: 16px; }
+      .field-block:last-child { margin-bottom: 0; }
+      .field-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+      .field-value { font-size: 14px; line-height: 1.65; color: #334155; word-break: break-word; }
+      .bullet-list { margin: 0; padding-left: 20px; }
+      .bullet-list li { margin-bottom: 8px; font-size: 14px; line-height: 1.6; color: #475569; }
+      .tag-list { display: flex; flex-wrap: wrap; gap: 8px; }
+      .tag { display: inline-block; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #e0e7ff; color: #3730a3; }
+      .tag.tag-oe { background: #fef3c7; color: #92400e; }
+      .tag.tag-keyword { background: #d1fae5; color: #065f46; }
+      .tag.tag-listing { background: #fce7f3; color: #9d174d; }
+      .copy-block { margin-top: 28px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 18px 20px; background: #fff; box-shadow: var(--shadow-sm); }
+      .copy-block h4 { margin: 0 0 14px; font-size: 15px; color: var(--text); }
+      .copy-lines { display: grid; gap: 10px; }
+      .copy-line { display: grid; grid-template-columns: 88px 1fr; gap: 10px; font-size: 14px; line-height: 1.6; }
+      .copy-line .label { font-weight: 600; color: var(--text-muted); }
+      .image-req-list { display: flex; flex-direction: column; gap: 16px; }
+      .image-req-card { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: #fff; box-shadow: var(--shadow-sm); }
+      .image-req-card:nth-child(odd) { border-left: 4px solid var(--primary); }
+      .image-req-card:nth-child(even) { border-left: 4px solid var(--success); }
+      .image-req-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 14px 18px; background: var(--surface-muted); border-bottom: 1px solid var(--border); }
+      .image-req-index { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, #1e293b, #334155); color: #fff; font-size: 14px; font-weight: 700; }
+      .image-req-theme { font-size: 16px; font-weight: 700; color: var(--text); }
+      .image-req-size { margin-left: auto; padding: 4px 10px; border-radius: 999px; background: #e2e8f0; font-size: 12px; font-weight: 600; color: #475569; }
+      .image-req-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+      .image-req-col { padding: 16px 18px; }
+      .image-req-col+.image-req-col { border-left: 1px solid var(--border); }
+      .image-req-col-title { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+      .copy-cell { white-space: pre-wrap; line-height: 1.55; font-size: 14px; color: #111827; background: var(--success-soft); border: 1px solid #bbf7d0; border-radius: var(--radius-sm); padding: 12px; }
+      .design-cell p { margin: 0 0 10px; font-size: 14px; line-height: 1.7; color: #475569; }
+      .image-req-foot { padding: 12px 18px; border-top: 1px solid var(--border); background: var(--surface-muted); font-size: 13px; color: #64748b; }
+      .image-req-foot a { color: var(--primary); text-decoration: none; font-weight: 600; }
+      .asset-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+      .asset-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+      .asset-badge.main { background: #dbeafe; color: #1d4ed8; }
+      .asset-badge.web { background: #fef3c7; color: #92400e; }
+      .asset-badge.operator { background: #dcfce7; color: #166534; }
+      .asset-badge.plain { background: #e2e8f0; color: #475569; }
+      .export-bar {
+        margin-top: 28px;
+        padding: 20px;
+        border-radius: var(--radius-sm);
+        background: linear-gradient(135deg, #faf5ff 0%, #f5f3ff 100%);
+        border: 1px solid #ddd6fe;
+      }
+      .export-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+      .export-actions button { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+      #premiumExportBtn {
+        background: linear-gradient(135deg, #6d28d9, #a78bfa) !important;
+        box-shadow: 0 4px 16px rgba(124, 58, 237, 0.35) !important;
+      }
+      .hint { color: var(--text-muted); font-size: 13px; margin-top: 6px; line-height: 1.5; }
+      .hint code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+      .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #e0e7ff; color: #4338ca; font-size: 12px; font-weight: 600; margin-left: 8px; }
+      .upload-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+      .upload-count { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+      .file-preview-list { display: flex; flex-wrap: wrap; gap: 12px; min-height: 8px; }
+      .file-preview-item {
+        position: relative; width: 108px; height: 108px;
+        border: 1px solid var(--border); border-radius: 12px;
+        overflow: hidden; background: #f8fafc;
+        box-shadow: var(--shadow-sm);
+        transition: transform 0.15s;
+      }
+      .file-preview-item:hover { transform: scale(1.02); }
+      .file-preview-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .file-preview-item .file-name { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 4px; font-size: 10px; color: #fff; background: rgba(0,0,0,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .file-preview-item img { cursor: zoom-in; }
+      .file-preview-item .file-remove,
+      .file-preview-item .file-zoom,
+      .nas-picked-item .picked-remove,
+      .nas-picked-item .picked-zoom {
+        position: absolute; width: 22px; height: 22px; border: 0; border-radius: 999px;
+        background: rgba(17,24,39,0.78); color: #fff; line-height: 1; padding: 0;
+        cursor: pointer; box-shadow: none; z-index: 3;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .file-preview-item .file-remove,
+      .nas-picked-item .picked-remove { top: 4px; right: 4px; font-size: 16px; }
+      .file-preview-item .file-zoom,
+      .nas-picked-item .picked-zoom { top: 4px; left: 4px; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+      .file-preview-item:hover .file-zoom,
+      .nas-picked-item:hover .picked-zoom { opacity: 1; pointer-events: auto; }
+      .file-preview-item .file-remove:hover,
+      .nas-picked-item .picked-remove:hover { background: var(--danger); transform: none; }
+      .file-preview-item .file-zoom:hover,
+      .nas-picked-item .picked-zoom:hover { background: rgba(0,0,0,0.92); transform: none; }
+      .file-preview-item.is-primary .file-zoom { top: 28px; }
+      .file-preview-item.is-primary { border: 2px solid var(--primary); box-shadow: 0 0 0 3px rgba(99,102,241,0.2); }
+      .file-preview-item .primary-tag { position: absolute; top: 4px; left: 4px; padding: 1px 6px; border-radius: 999px; background: var(--primary); color: #fff; font-size: 10px; font-weight: 700; }
+      .total-ref-row {
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 16px !important;
+        border-radius: var(--radius-sm);
+        background: #fff;
+        border: 1px solid var(--border) !important;
+        font-size: 13px !important;
+        color: var(--text-muted) !important;
+        margin-bottom: 16px !important;
+      }
+      .total-ref-row strong { font-weight: 700; }
+      .total-ref-row #totalRefCount { color: var(--primary); }
+      /* modals - keep structure, polish */
+      .nas-modal-overlay, .link-modal-overlay, .vehicle-modal-overlay, .img-lightbox-overlay {
+        display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55);
+        backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; padding: 20px;
+      }
+      .nas-modal-overlay.active, .link-modal-overlay.active, .vehicle-modal-overlay.active, .img-lightbox-overlay.active { display: flex; }
+      .nas-modal, .link-modal, .vehicle-modal {
+        background: #fff; border-radius: 16px; width: 100%;
+        box-shadow: 0 25px 60px rgba(0,0,0,0.25); overflow: hidden;
+      }
+      .nas-modal { max-width: 1000px; max-height: 85vh; display: flex; flex-direction: column; }
+      .nas-modal-header, .link-modal-header, .vehicle-modal-header {
+        display: flex; align-items: center; gap: 12px; padding: 16px 20px;
+        border-bottom: 1px solid var(--border); background: var(--surface-muted);
+      }
+      .nas-modal-header h3, .link-modal-header h3, .vehicle-modal-header h3 { margin: 0; font-size: 17px; color: var(--text); }
+      .nas-modal-close, .link-modal-close, .vehicle-modal-close {
+        margin-left: auto; background: #fff; border: 1px solid var(--border); font-size: 18px;
+        cursor: pointer; color: var(--text-muted); width: 36px; height: 36px; border-radius: 10px;
+        display: flex; align-items: center; justify-content: center; box-shadow: none;
+      }
+      .nas-modal-close:hover, .link-modal-close:hover, .vehicle-modal-close:hover { background: #f1f5f9; color: var(--text); transform: none; }
+      .nas-modal-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+      .nas-modal-body .nas-status { margin-bottom: 10px; display: block; color: var(--text-muted); font-size: 13px; }
+      .nas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+      .nas-item { position: relative; aspect-ratio: 1; border: 2px solid var(--border); border-radius: 12px; overflow: hidden; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; background: #f3f4f6; }
+      .nas-item:hover { border-color: #a78bfa; transform: translateY(-2px); }
+      .nas-item.selected { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,0.22); }
+      .nas-item img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 0.3s; }
+      .nas-item img.loaded { opacity: 1; }
+      .nas-item .nas-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+      .nas-item .nas-loading::after { content: ""; width: 24px; height: 24px; border: 3px solid #e5e7eb; border-top-color: var(--premium); border-radius: 50%; animation: nasSpin 0.8s linear infinite; }
+      @keyframes nasSpin { to { transform: rotate(360deg); } }
+      .nas-item img.loaded + .nas-loading { display: none; }
+      .nas-item .nas-check { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 999px; background: var(--primary); color: #fff; font-size: 13px; font-weight: 700; display: none; align-items: center; justify-content: center; }
+      .nas-item.selected .nas-check { display: flex; }
+      .nas-item .nas-name { position: absolute; bottom: 0; left: 0; right: 0; padding: 2px 4px; font-size: 10px; color: #fff; background: rgba(0,0,0,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .nas-item .nas-white-tag { position: absolute; top: 6px; left: 6px; padding: 1px 6px; border-radius: 4px; background: #16a34a; color: #fff; font-size: 10px; font-weight: 600; z-index: 2; display: none; }
+      .nas-item.is-white-bg .nas-white-tag { display: block; }
+      .nas-item.is-white-bg { border-color: #16a34a; }
+      .nas-item .nas-zoom { position: absolute; top: 6px; left: 6px; width: 24px; height: 24px; border-radius: 999px; background: rgba(0,0,0,0.55); color: #fff; border: 0; font-size: 13px; cursor: pointer; display: none; align-items: center; justify-content: center; z-index: 2; box-shadow: none; }
+      .nas-item .nas-zoom:hover { background: rgba(0,0,0,0.85); transform: none; }
+      .nas-item:hover .nas-zoom { display: flex; }
+      .nas-folder-group { border: 1px solid var(--border); border-radius: 12px; margin-bottom: 18px; overflow: hidden; background: #fff; }
+      .nas-folder-header { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--surface-muted); border-bottom: 1px solid var(--border); }
+      .nas-folder-rank { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; border-radius: 6px; background: linear-gradient(135deg, var(--primary), #60a5fa); color: #fff; font-size: 12px; font-weight: 700; }
+      .nas-folder-path { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .nas-folder-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+      .nas-folder-score { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: #eef2ff; color: #4338ca; font-weight: 600; white-space: nowrap; }
+      .nas-folder-score.best { background: linear-gradient(135deg, var(--premium), #a78bfa); color: #fff; }
+      .nas-select-all { border: 1px solid #c4b5fd; background: #f5f3ff; color: #6d28d9; border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; box-shadow: none; }
+      .nas-select-all:hover { background: #ede9fe; transform: none; }
+      .ai-label { position: absolute; top: 0; left: 0; right: 0; padding: 3px 6px; font-size: 11px; font-weight: 700; color: #fff; background: linear-gradient(135deg, var(--premium), #a78bfa); text-align: center; z-index: 1; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.95; }
+      .img-lightbox-wrap { position: relative; max-width: 92vw; max-height: 92vh; display: flex; flex-direction: column; align-items: center; }
+      .img-lightbox-img { max-width: 100%; max-height: 88vh; object-fit: contain; border-radius: 8px; box-shadow: 0 20px 80px rgba(0,0,0,0.4); }
+      .img-lightbox-close { position: absolute; top: -36px; right: -36px; width: 36px; height: 36px; border: 0; border-radius: 999px; background: rgba(255,255,255,0.15); color: #fff; font-size: 20px; cursor: pointer; box-shadow: none; }
+      .link-modal { max-width: 640px; }
+      .link-modal-tabs { display: flex; gap: 0; background: #e2e8f0; border-radius: 10px; padding: 3px; }
+      .link-tab { padding: 6px 16px; border: 0; border-radius: 8px; font-size: 13px; cursor: pointer; background: transparent; color: var(--text-muted); box-shadow: none; }
+      .link-tab.active { background: #fff; color: var(--text); box-shadow: var(--shadow-sm); }
+      .link-panel { display: none; }
+      .link-panel.active { display: block; }
+      .link-web-input-row { display: flex; gap: 8px; }
+      .link-web-input-row input { flex: 1; }
+      .link-web-input-row button { padding: 8px 18px; white-space: nowrap; font-size: 13px; background: var(--primary); box-shadow: none; }
+      .link-modal-footer, .nas-modal-footer, .vehicle-modal-footer {
+        display: flex; align-items: center; gap: 10px; padding: 14px 20px;
+        border-top: 1px solid var(--border); background: var(--surface-muted);
+      }
+      .refresh-btn { background: linear-gradient(135deg, #f59e0b, #fbbf24) !important; color: #fff !important; box-shadow: 0 4px 12px rgba(245,158,11,0.3) !important; }
+      .nas-pick-btn {
+        display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px;
+        border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+        background: #fff; color: #475569; font-size: 14px; cursor: pointer;
+        box-shadow: none; font-weight: 500;
+      }
+      .nas-pick-btn:hover { border-color: #a78bfa; background: #faf5ff; color: #6d28d9; transform: none; }
+      .nas-pick-btn svg { width: 16px; height: 16px; }
+      .nas-picked-preview { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; min-height: 8px; }
+      .nas-picked-item {
+        position: relative; width: 108px; height: 108px;
+        border: 1px solid var(--border); border-radius: 12px;
+        overflow: hidden; background: #f8fafc;
+        box-shadow: var(--shadow-sm);
+        transition: transform 0.15s;
+      }
+      .nas-picked-item:hover { transform: scale(1.02); }
+      .nas-picked-item img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+      .sku-row { display: flex; align-items: flex-end; gap: 10px; }
+      .sku-row .sku-input-wrap { flex: 1; }
+      .btn-ai-vehicle {
+        display: inline-flex; align-items: center; gap: 6px; padding: 10px 18px;
+        border: 0; border-radius: var(--radius-sm);
+        background: linear-gradient(135deg, var(--premium), #a78bfa);
+        color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;
+        box-shadow: 0 4px 14px rgba(124,58,237,0.3);
+      }
+      .btn-ai-vehicle.loading { animation: aiPulse 1.2s ease-in-out infinite; }
+      @keyframes aiPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
+      .vehicle-modal { max-width: 680px; max-height: 85vh; display: flex; flex-direction: column; }
+      .vehicle-modal-header { background: linear-gradient(135deg, #f5f3ff, #faf5ff); }
+      .vehicle-modal-header h3 .icon-ai {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 28px; height: 28px; border-radius: 8px;
+        background: linear-gradient(135deg, var(--premium), #a78bfa); color: #fff; font-size: 14px; font-weight: 700;
+      }
+      .vehicle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+      .vehicle-item { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; font-size: 14px; transition: border-color 0.15s, background 0.15s; }
+      .vehicle-item:hover { border-color: #a78bfa; background: #faf5ff; }
+      .source-mode-bar {
+        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      }
+      .source-mode-tabs {
+        display: flex; gap: 6px; padding: 4px;
+        background: #e2e8f0; border-radius: 12px;
+        flex: 0 1 auto; min-width: 280px; max-width: 480px;
+      }
+      .source-tab {
+        flex: 1; padding: 10px 16px; border: 0; border-radius: 10px;
+        background: transparent; color: var(--text-muted); font-size: 14px;
+        font-weight: 500; cursor: pointer; transition: all 0.2s; box-shadow: none;
+      }
+      .source-tab:hover { color: var(--text); background: rgba(255,255,255,0.5); transform: none; }
+      .source-tab.active {
+        background: #fff; color: var(--text); font-weight: 700;
+        box-shadow: 0 2px 8px rgba(15,23,42,0.08);
+      }
+      .source-tab[data-mode="sku"].active { color: #c2410c; }
+      .source-tab[data-mode="ebay"].active { color: #1d4ed8; }
+      .ebay-url-row { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
+      .ebay-url-row input[type="text"] { flex: 1; min-width: 220px; }
+      .ebay-url-row button { white-space: nowrap; }
+      .source-mode-bar .btn-ai-vehicle { flex-shrink: 0; margin: 0; }
+      .ebay-preview-panel { margin-top: 12px; border-color: #bfdbfe; background: linear-gradient(180deg, #eff6ff, #fff); }
+      .nas-results-list { display: block; }
+      .nas-results-list.empty { display: none; }
+      .nas-modal-footer .count { font-size: 14px; color: var(--text-muted); margin-right: auto; }
+      .nas-modal-footer .count b { color: var(--text); }
+      .nas-modal-footer button { padding: 10px 22px; }
+      .link-modal-body { padding: 16px 20px; }
+      .link-modal-body label { display: block; font-size: 14px; color: #374151; margin-bottom: 8px; }
+      .link-modal-body textarea { width: 100%; height: 100px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 14px; resize: vertical; box-sizing: border-box; font-family: inherit; }
+      .link-modal-body .hint { margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+      .vehicle-modal-body { flex: 1; overflow-y: auto; padding: 20px; }
+      .vehicle-modal-body .loading-msg { text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 15px; }
+      .vehicle-modal-body .loading-spin { display: inline-block; width: 32px; height: 32px; border: 3px solid #e5e7eb; border-top-color: var(--premium); border-radius: 50%; animation: nasSpin 0.8s linear infinite; margin-bottom: 12px; }
+      .vehicle-list-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+      .vehicle-list-title .count-badge { font-size: 12px; padding: 2px 10px; background: var(--premium); color: #fff; border-radius: 999px; font-weight: 600; }
+      .vehicle-item .v-idx { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; border-radius: 999px; background: linear-gradient(135deg, var(--premium), #a78bfa); color: #fff; font-size: 12px; font-weight: 700; }
+      .vehicle-item .v-name { flex: 1; line-height: 1.4; }
+      .vehicle-result-oe { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+      .vehicle-result-oe .oe-title { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; }
+      .vehicle-result-oe .oe-list { display: flex; flex-wrap: wrap; gap: 6px; }
+      .vehicle-result-oe .oe-tag { font-size: 12px; font-family: monospace; padding: 4px 10px; border-radius: 6px; background: #fef3c7; color: #92400e; }
+      .vehicle-modal-footer .hint { font-size: 12px; color: #9ca3af; margin-right: auto; }
+      .vehicle-modal-footer button { padding: 10px 22px; }
+      .vehicle-error { text-align: center; padding: 30px 20px; color: var(--danger); font-size: 14px; }
+      .asset-links { font-size: 13px; line-height: 1.6; color: var(--text-muted); }
+      .img-lightbox-caption { margin-top: 12px; color: #e5e7eb; font-size: 14px; text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .label-hint { font-weight: 400; color: var(--text-muted); font-size: 12px; margin-left: 4px; }
+      @media (max-width: 900px) {
+        .meta-grid, .analysis-grid, .image-req-body { grid-template-columns: 1fr; }
+        .image-req-col+.image-req-col { border-left: 0; border-top: 1px solid var(--border); }
+        .image-req-size { margin-left: 0; }
+        .copy-line { grid-template-columns: 1fr; gap: 4px; }
+      }
+      @media (max-width: 768px) {
+        .page-wrap { padding: 0 12px; }
+        .card { padding: 18px; }
+        .app-header { padding: 20px 16px 28px; }
+        .brand h1 { font-size: 20px; }
+        .export-actions { flex-direction: column; align-items: stretch; }
+        .export-actions button { width: 100%; }
+      }
+</style>
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="app-header-inner">
+        <div class="brand">
+          <div class="brand-icon">SOP</div>
+          <div>
+            <h1>跨境电商图片 SOP 自动生成</h1>
+            <p>领星 Listing · DeepSeek AI · 结构化图片文案与设计需求</p>
+          </div>
+        </div>
+      </div>
+    </header>
+    <div class="page-wrap">
+    <div class="card card-main">
+      <h2>新建 SOP 任务</h2>
+      <p class="lead" id="pageLead">输入 MSKU，系统通过领星读取 Listing 数据，调用 DeepSeek AI 分析并生成结构化英文图片文案与中文设计需求。</p>
+      <div id="invalidPageWarn" class="local-backend-warn hidden"><strong>当前页面地址无效（地址栏若为 about:blank，API 无法工作）。</strong> 请用 Chrome / Edge 打开：<a href="http://127.0.0.1:8005/web/" target="_blank" rel="noreferrer">本机 http://127.0.0.1:8005/web/</a> 或 <a href="http://8.137.177.25/hub/" target="_blank" rel="noreferrer">线上 Portal</a>（登录后点 SOP）。Cursor 内置预览不支持 NAS 搜索。</div>
+      <form id="sopForm" novalidate>
+        <div class="form-section section-source">
+          <div class="form-section-title">数据来源</div>
+        <div class="row">
+          <label>模式选择</label>
+          <div class="source-mode-bar">
+            <div class="source-mode-tabs" id="sourceModeTabs">
+              <button type="button" class="source-tab active" data-mode="sku">亚马逊 MSKU</button>
+              <button type="button" class="source-tab" data-mode="ebay">eBay 竞品链接</button>
+            </div>
+            <button type="button" class="btn-ai-vehicle" id="btnAiVehicle" title="AI 分析该产品的热门适配车型">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+              AI 车型搜索
+            </button>
+          </div>
+        </div>
+        <div id="amazonSourceBlock">
+        <div class="row">
+          <label for="storeSelect">亚马逊店铺</label>
+          <div class="store-row">
+            <input id="storeFilter" type="text" placeholder="搜索店铺名称..." autocomplete="off" />
+            <select id="storeSelect" required>
+              <option value="">加载中...</option>
+            </select>
+          </div>
+          <span class="store-status" id="storeStatus">正在加载店铺列表...</span>
+        </div>
+        <div class="row">
+          <label for="sku">MSKU（seller_sku）</label>
+          <input id="sku" name="sku" type="text" placeholder="例如：XZN-BMW-30307-2-0458" required />
+        </div>
+        </div>
+        <div id="ebaySourceBlock" class="hidden">
+          <div class="row">
+            <label for="ebayUrl">eBay 产品链接</label>
+            <div class="ebay-url-row">
+              <input id="ebayUrl" type="text" placeholder="https://www.ebay.com/itm/167628163700" autocomplete="off" />
+              <button type="button" class="secondary" id="btnFetchEbay">获取产品信息</button>
+            </div>
+            <span class="hint" id="ebayFetchStatus">请粘贴<strong>商品详情页</strong>链接（地址栏含 <code>/itm/</code> + 数字），或直接输入 item ID。直播/搜索/店铺链接不可用。</span>
+          </div>
+          <div class="row">
+            <label for="ebaySku">SKU / MSKU（必填）</label>
+            <input id="ebaySku" type="text" placeholder="例如：XZN-BMW-30307-2-0458（NAS 取图 + SOP 标识，与 eBay 竞品无关）" autocomplete="off" />
+            <span class="hint">填写你们自己的 MSKU；eBay 链接只用于拉取标题/描述/规格/竞品图，不会使用竞品的 SKU 或 Item ID。</span>
+          </div>
+          <div id="ebayPreviewPanel" class="info-panel ebay-preview-panel hidden">
+            <div class="field-block"><div class="field-label">标题</div><div class="field-value" id="ebayPreviewTitle">-</div></div>
+            <div class="field-block"><div class="field-label">Item Specifics / 规格</div><ul class="bullet-list" id="ebayPreviewSpecifics"></ul></div>
+            <div class="field-block"><div class="field-label">产品要点</div><ul class="bullet-list" id="ebayPreviewBullets"></ul></div>
+            <div class="field-block"><div class="field-label">产品详情</div><div class="field-value" id="ebayPreviewDesc" style="max-height:220px;overflow:auto;white-space:pre-wrap;font-size:13px;">-</div></div>
+            <div class="field-block"><div class="field-label">OE 号</div><div class="tag-list" id="ebayPreviewOe"></div></div>
+            <div class="field-block"><div class="field-label">图片</div><div class="field-value" id="ebayPreviewImages">-</div></div>
+          </div>
+        </div>
+        </div>
+        <div class="form-section section-images">
+          <div class="form-section-title">参考图片</div>
+        <div class="upload-block">
+        <div class="row">
+          <label>主图<span class="label-hint">白底产品图，可多选</span></label>
+          <div class="upload-toolbar">
+            <button type="button" class="upload-add" id="addMainBtn">本地上传</button>
+            <button type="button" class="nas-pick-btn" id="nasMainPickBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+              从 NAS 选择
+            </button>
+            <span class="upload-count" id="mainCount">已选 0 张</span>
+          </div>
+          <div class="file-preview-list" id="mainPreviewList"></div>
+          <div class="nas-picked-preview" id="nasMainPreview"></div>
+        </div>
+        </div>
+        <div class="upload-block">
+        <div class="row">
+          <label>细节图<span class="label-hint">建议 6 张</span></label>
+          <div class="upload-toolbar">
+            <button type="button" class="upload-add" id="addRefBtn">本地上传</button>
+            <button type="button" class="nas-pick-btn" id="nasRefPickBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+              从 NAS 选择
+            </button>
+            <span class="upload-count" id="refCount">已选 0 张</span>
+          </div>
+          <div class="file-preview-list" id="refPreviewList"></div>
+          <div class="nas-picked-preview" id="nasRefPreview"></div>
+        </div>
+        </div>
+        <div class="upload-block">
+        <div class="row">
+          <label>局部图<span class="label-hint">建议 4 张，可选</span></label>
+          <div class="upload-toolbar">
+            <button type="button" class="upload-add" id="addDetailLocalBtn">本地上传</button>
+            <button type="button" class="nas-pick-btn" id="nasDetailLocalPickBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+              从 NAS 选择
+            </button>
+            <span class="upload-count" id="detailLocalCount">已选 0 张</span>
+          </div>
+          <div class="file-preview-list" id="detailLocalPreviewList"></div>
+          <div class="nas-picked-preview" id="nasDetailLocalPreview"></div>
+        </div>
+        </div>
+        <div class="upload-block">
+        <div class="row">
+          <label>场景物品图<span class="label-hint">建议 4 张</span></label>
+          <div class="upload-toolbar">
+            <button type="button" class="upload-add" id="addMixBtn">本地上传</button>
+            <button type="button" class="nas-pick-btn" id="aiMixBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>
+              AI 获取
+            </button>
+            <button type="button" class="nas-pick-btn" id="linkMixBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              链接获取
+            </button>
+            <span class="upload-count" id="mixCount">已选 0 张</span>
+          </div>
+          <div class="file-preview-list" id="mixPreviewList"></div>
+          <div class="nas-picked-preview" id="aiMixPreview"></div>
+        </div>
+        </div>
+        </div>
+        <div class="row total-ref-row" id="totalRefRow">
+          <span>参考图合计：<strong id="totalRefCount">0</strong> / <strong>6</strong>（最低要求）</span>
+          <span style="margin-left:auto" id="totalRefHint"></span>
+        </div>
+        <button type="submit" class="btn-generate" id="btnGenerateSop">生成 SOP</button>
+      </form>
+      <div class="status" id="status"></div>
+    </div>
+    <input id="mainFileInput" type="file" class="hidden" multiple accept=".jpg,.jpeg,.png,.webp,.gif,.bmp" />
+    <input id="refFileInput" type="file" class="hidden" multiple accept=".jpg,.jpeg,.png,.webp,.gif,.bmp" />
+    <input id="mixFileInput" type="file" class="hidden" multiple accept=".jpg,.jpeg,.png,.webp,.gif,.bmp" />
+    <input id="detailLocalFileInput" type="file" class="hidden" multiple accept=".jpg,.jpeg,.png,.webp,.gif,.bmp" />
+    <div class="nas-modal-overlay" id="nasModal">
+      <div class="nas-modal">
+        <div class="nas-modal-header">
+          <h3 id="nasModalTitle">从 NAS 选择图片</h3>
+          <button class="nas-modal-close" id="nasModalClose">&#x2715;</button>
+        </div>
+        <div class="nas-modal-body">
+          <span class="nas-status" id="nasStatus">输入 MSKU 后自动搜索 NAS 供应链中心</span>
+          <div class="nas-results-list empty" id="nasGrid"></div>
+        </div>
+        <div class="nas-modal-footer">
+          <span class="count" id="nasModalCount">已选 0 张</span>
+          <button type="button" id="nasModalCancel">取消</button>
+          <button type="button" id="nasModalConfirm">确认选择</button>
+        </div>
+      </div>
+    </div>
+    <div class="nas-modal-overlay" id="aiImageModal">
+      <div class="nas-modal" style="max-width:700px">
+        <div class="nas-modal-header">
+          <h3 id="aiImageModalTitle">AI 搜索结果</h3>
+          <button class="nas-modal-close" id="aiImageModalClose">&#x2715;</button>
+        </div>
+        <div class="nas-modal-body">
+          <span class="nas-status" id="aiImageStatus">正在搜索...</span>
+          <div class="nas-grid empty" id="aiImageGrid" style="grid-template-columns:repeat(auto-fill,minmax(110px,1fr))"></div>
+        </div>
+        <div class="nas-modal-footer">
+          <span class="count" id="aiImageModalCount">已选 0 张</span>
+          <button type="button" class="refresh-btn" id="aiImageModalRefresh">重新选择</button>
+          <button type="button" id="aiImageModalCancel">取消</button>
+          <button type="button" id="aiImageModalConfirm">确认选择</button>
+        </div>
+      </div>
+    </div>
+    <div class="img-lightbox-overlay" id="imgLightbox">
+      <div class="img-lightbox-wrap">
+        <button class="img-lightbox-close" id="imgLightboxClose" type="button">&#x2715;</button>
+        <img class="img-lightbox-img" id="imgLightboxImg" src="" alt="" />
+        <div class="img-lightbox-caption" id="imgLightboxCaption"></div>
+      </div>
+    </div>
+    <div class="link-modal-overlay" id="linkModal">
+      <div class="link-modal">
+        <div class="link-modal-header">
+          <div class="link-modal-tabs">
+            <button type="button" class="link-tab active" data-tab="direct" id="linkTabDirect">图片链接</button>
+            <button type="button" class="link-tab" data-tab="web" id="linkTabWeb">网页提取</button>
+          </div>
+          <button class="link-modal-close" id="linkModalClose">&#x2715;</button>
+        </div>
+        <div class="link-modal-body">
+          <!-- 图片链接模式 -->
+          <div class="link-panel active" data-panel="direct" id="linkPanelDirect">
+            <label for="linkUrlInput">粘贴图片链接（每行一个，支持多个链接）</label>
+            <textarea id="linkUrlInput" placeholder="https://example.com/image1.jpg&#10;https://example.com/image2.png"></textarea>
+            <div class="hint">支持 jpg / png / webp / gif / bmp 格式，图片将从链接下载到服务器</div>
+          </div>
+          <!-- 网页提取模式 -->
+          <div class="link-panel" data-panel="web" id="linkPanelWeb">
+            <label for="linkWebUrlInput">粘贴网页链接（如 Amazon / JD 商品页）</label>
+            <div class="link-web-input-row">
+              <input type="text" id="linkWebUrlInput" placeholder="https://www.amazon.com/dp/B0xxxxx" />
+              <button type="button" id="linkWebExtractBtn">提取图片</button>
+            </div>
+            <div class="hint" id="linkWebHint">将自动抓取网页中的商品图片供挑选</div>
+            <div class="nas-grid nas-grid-empty" id="linkWebImageGrid" style="max-height:260px;overflow-y:auto;margin-top:10px;"></div>
+          </div>
+        </div>
+        <div class="link-modal-footer">
+          <span class="status" id="linkModalStatus"></span>
+          <button type="button" id="linkModalCancel">取消</button>
+          <button type="button" id="linkModalConfirm">下载并添加</button>
+        </div>
+      </div>
+    </div>
+    <!-- AI 车型搜索结果弹窗 -->
+    <div class="vehicle-modal-overlay" id="vehicleModal">
+      <div class="vehicle-modal">
+        <div class="vehicle-modal-header">
+          <h3><span class="icon-ai">AI</span> AI 热门车型分析</h3>
+          <span class="hint" id="vehicleModalSku" style="font-size:12px;color:#9ca3af;margin-left:8px;"></span>
+          <button class="vehicle-modal-close" id="vehicleModalClose">&#x2715;</button>
+        </div>
+        <div class="vehicle-modal-body" id="vehicleModalBody">
+          <div class="loading-msg"><div class="loading-spin"></div><div>AI 正在分析产品信息，推断热门适配车型...</div></div>
+        </div>
+        <div class="vehicle-modal-footer">
+          <span class="hint" id="vehicleModalHint">AI 推荐 10+ 款热门适配车型（含 listing 明确车型 + 市场热门补充），仅供参考</span>
+          <button type="button" id="vehicleModalCloseBtn">关闭</button>
+        </div>
+      </div>
+    </div>
+    <div id="previewBox" class="card card-preview hidden">
+      <div class="section-header"><h3>Listing 数据</h3><span class="section-meta" id="previewSource"></span></div>
+      <div class="info-panel">
+        <div class="meta-grid">
+          <div class="meta-item"><span class="label">MSKU</span><span class="value" id="previewSku">-</span></div>
+          <div class="meta-item"><span class="label">ASIN</span><span class="value" id="previewAsin">-</span></div>
+          <div class="meta-item"><span class="label">数据源</span><span class="value" id="previewDataSource">-</span></div>
+        </div>
+        <div class="field-block"><div class="field-label">标题</div><div class="field-value" id="previewTitle">-</div></div>
+        <div class="field-block"><div class="field-label">五点描述</div><ul class="bullet-list" id="previewBullets"></ul></div>
+        <div class="field-block"><div class="field-label">产品描述</div><div class="field-value" id="previewDesc">-</div></div>
+        <div class="field-block"><div class="field-label">OE 号</div><div class="tag-list" id="previewOe"></div></div>
+        <div class="field-block"><div class="field-label">关键词</div><div class="tag-list" id="previewKeywords"></div></div>
+        <div class="field-block"><div class="field-label">Listing 标签</div><div class="tag-list" id="previewTags"></div></div>
+      </div>
+      <div class="section-header" style="margin-top:28px"><h3>AI 产品分析 <span class="badge" id="aiProvider"></span></h3></div>
+      <div class="analysis-grid">
+        <div class="analysis-item"><h4>产品功能</h4><p id="analysisFunction"></p></div>
+        <div class="analysis-item"><h4>安装方案</h4><p id="analysisInstallation"></p></div>
+        <div class="analysis-item"><h4>巡检与故障症状</h4><p id="analysisInspection"></p></div>
+        <div class="analysis-item"><h4>维护与延长寿命</h4><p id="analysisMaintenance"></p></div>
+        <div class="analysis-item"><h4>适配车型</h4><p id="analysisCompatibility"></p></div>
+        <div class="analysis-item"><h4>OE 号说明</h4><p id="analysisOe"></p></div>
+        <div class="analysis-item" style="grid-column:1/-1"><h4>品质描述</h4><p id="analysisQuality"></p></div>
+      </div>
+      <div class="copy-block">
+        <h4>营销文案摘要（英文）</h4>
+        <div class="copy-lines">
+          <div class="copy-line"><span class="label">主标题</span><span id="copyHeadline">-</span></div>
+          <div class="copy-line"><span class="label">副标题</span><span id="copySubheadline">-</span></div>
+          <div class="copy-line"><span class="label">正文摘要</span><span id="copyBody">-</span></div>
+        </div>
+      </div>
+      <div class="section-header" style="margin-top:28px"><h3>图片需求</h3><span class="section-meta" id="imageReqMeta"></span></div>
+      <div id="imageReqList" class="image-req-list"></div>
+      <div class="export-bar">
+        <div id="exportStatus" class="status" style="margin:0 0 12px;background:transparent;border:0;padding:0;"></div>
+        <div class="export-actions">
+          <button id="confirmExportBtn" class="secondary" type="button">下载标准 Excel</button>
+          <span id="premiumExportWrap" class="premium-export-wrap">
+            <button id="premiumExportBtn" class="secondary" type="button">下载高级A+ Excel</button>
+            <span id="premiumExportHint" class="hint" style="margin:0;">高级A+：9列模板，文案先车型/OE后产品特点，尺寸不同</span>
+          </span>
+        </div>
+        <div class="download" id="download"></div>
+      </div>
+    </div>
+    </div>
+<script>
+function pageParam(name){try{return new URLSearchParams(location.search).get(name)||""}catch(e){return""}}
+function toolBase(){var configured=pageParam("api_base").trim();if(configured&&configured.charAt(0)==="/"&&configured.indexOf("//")!==0&&configured.indexOf("..")<0&&configured.indexOf("\\")<0)return configured.replace(/\/+$/,"");return "/image-sop";}
+function erpSession(){return pageParam("erp_session").trim()}
+function appendErpSession(url){var token=erpSession();if(!token||/(?:[?&])erp_session=/.test(url))return url;var join=url.indexOf("?")>=0?"&":"?";return url+join+"erp_session="+encodeURIComponent(token)}
+function pageContextOk(){if(location.protocol==="about:")return false;if(!location.hostname)return false;return true}
+(function(){var base=toolBase();if(base)try{sessionStorage.setItem("oa_tool_base",base)}catch(e){}if(pageContextOk())try{sessionStorage.setItem("oa_page_origin",location.origin+(base||""))}catch(e){}})();
+(function(){var w=document.getElementById("invalidPageWarn");if(!w)return;if(!pageContextOk())w.classList.remove("hidden");})();
+function apiPath(p){var base=toolBase();var path=(p&&p.charAt(0)==="/")?p:"/"+(p||"");if(base!=="/image-sop"&&(path==="/image-sop"||path.indexOf("/image-sop/")===0))path=path.slice("/image-sop".length)||"/";var url=base&&(path===base||path.indexOf(base+"/")===0)?path:base+path;return appendErpSession(url);}
+async function apiFetch(path,opts){if(!pageContextOk())throw new Error("当前是无效预览窗口，请从 Date-Project 工作台打开图片 SOP");opts=opts||{};if(!opts.credentials)opts.credentials="include";var url=apiPath(path);var resp;try{resp=await fetch(url,opts)}catch(err){var msg=getErrorMsg(err);if(/failed to fetch|networkerror|load failed/i.test(msg))throw new Error("网络请求失败：请确认 Date-Project 后端 8010 和前端 5174 已启动");throw err}var ct=(resp.headers.get("content-type")||"").toLowerCase();if(ct.indexOf("application/json")<0){if(resp.status===401||resp.status===403)throw new Error("内部接口令牌无效，请检查 PYTHON_INTERNAL_API_TOKEN");throw new Error("服务器返回异常（HTTP "+resp.status+"），请稍后重试")}var data=await resp.json();return {resp:resp,data:data};}
+async function apiPostJson(path,body){return apiFetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})})}
+async function apiPostForm(path,formData){return apiFetch(path,{method:"POST",body:formData})}
+function assetUrl(u){if(!u)return u;if(/^https?:\/\//i.test(u)||/^data:/i.test(u)||/^blob:/i.test(u))return u;return apiPath(u.charAt(0)==="/"?u:"/"+u);}
+function nasMediaUrl(kind,path){return apiPath("/api/nas/"+kind+"?p="+encodeURIComponent(path||""));}
+function getErrorMsg(err){if(typeof err==="string")return err;if(err&&err.message&&typeof err.message==="string"&&err.message!=="")return err.message;if(err&&err.detail&&typeof err.detail==="string"&&err.detail!=="")return err.detail;try{return JSON.stringify(err)}catch(e){return String(err)}};
+const form=document.getElementById("sopForm"),statusEl=document.getElementById("status"),exportStatusEl=document.getElementById("exportStatus"),downloadEl=document.getElementById("download"),previewBox=document.getElementById("previewBox"),previewSku=document.getElementById("previewSku"),previewAsin=document.getElementById("previewAsin"),previewDataSource=document.getElementById("previewDataSource"),previewTitle=document.getElementById("previewTitle"),previewBullets=document.getElementById("previewBullets"),previewDesc=document.getElementById("previewDesc"),previewOe=document.getElementById("previewOe"),previewKeywords=document.getElementById("previewKeywords"),previewTags=document.getElementById("previewTags"),previewSource=document.getElementById("previewSource"),imageReqList=document.getElementById("imageReqList"),imageReqMeta=document.getElementById("imageReqMeta"),aiProvider=document.getElementById("aiProvider"),analysisFunction=document.getElementById("analysisFunction"),analysisInstallation=document.getElementById("analysisInstallation"),analysisInspection=document.getElementById("analysisInspection"),analysisMaintenance=document.getElementById("analysisMaintenance"),analysisCompatibility=document.getElementById("analysisCompatibility"),analysisOe=document.getElementById("analysisOe"),analysisQuality=document.getElementById("analysisQuality"),copyHeadline=document.getElementById("copyHeadline"),copySubheadline=document.getElementById("copySubheadline"),copyBody=document.getElementById("copyBody"),confirmExportBtn=document.getElementById("confirmExportBtn"),addMainBtn=document.getElementById("addMainBtn"),addRefBtn=document.getElementById("addRefBtn"),addMixBtn=document.getElementById("addMixBtn"),aiMixBtn=document.getElementById("aiMixBtn"),linkMixBtn=document.getElementById("linkMixBtn"),mainFileInput=document.getElementById("mainFileInput"),refFileInput=document.getElementById("refFileInput"),mixFileInput=document.getElementById("mixFileInput"),mainPreviewList=document.getElementById("mainPreviewList"),refPreviewList=document.getElementById("refPreviewList"),mixPreviewList=document.getElementById("mixPreviewList"),mainCount=document.getElementById("mainCount"),refCount=document.getElementById("refCount"),mixCount=document.getElementById("mixCount"),nasModal=document.getElementById("nasModal"),nasModalTitle=document.getElementById("nasModalTitle"),nasModalClose=document.getElementById("nasModalClose"),nasModalCancel=document.getElementById("nasModalCancel"),nasModalConfirm=document.getElementById("nasModalConfirm"),nasModalCount=document.getElementById("nasModalCount"),nasGrid=document.getElementById("nasGrid"),nasStatus=document.getElementById("nasStatus"),nasMainPickBtn=document.getElementById("nasMainPickBtn"),nasRefPickBtn=document.getElementById("nasRefPickBtn"),nasMainPreview=document.getElementById("nasMainPreview"),nasRefPreview=document.getElementById("nasRefPreview"),aiImageModal=document.getElementById("aiImageModal"),aiImageModalTitle=document.getElementById("aiImageModalTitle"),aiImageModalClose=document.getElementById("aiImageModalClose"),aiImageModalCancel=document.getElementById("aiImageModalCancel"),aiImageModalConfirm=document.getElementById("aiImageModalConfirm"),aiImageModalRefresh=document.getElementById("aiImageModalRefresh"),aiImageModalCount=document.getElementById("aiImageModalCount"),aiImageGrid=document.getElementById("aiImageGrid"),aiImageStatus=document.getElementById("aiImageStatus"),aiMixPreview=document.getElementById("aiMixPreview"),addDetailLocalBtn=document.getElementById("addDetailLocalBtn"),detailLocalFileInput=document.getElementById("detailLocalFileInput"),detailLocalPreviewList=document.getElementById("detailLocalPreviewList"),detailLocalCount=document.getElementById("detailLocalCount"),nasDetailLocalPickBtn=document.getElementById("nasDetailLocalPickBtn"),nasDetailLocalPreview=document.getElementById("nasDetailLocalPreview"),storeSelectEl=document.getElementById("storeSelect"),storeFilterEl=document.getElementById("storeFilter"),storeStatusEl=document.getElementById("storeStatus"),pageLeadEl=document.getElementById("pageLead"),ebayUrlEl=document.getElementById("ebayUrl"),ebayFetchStatusEl=document.getElementById("ebayFetchStatus"),ebayPreviewPanelEl=document.getElementById("ebayPreviewPanel"),btnFetchEbayEl=document.getElementById("btnFetchEbay"),ebayPreviewTitleEl=document.getElementById("ebayPreviewTitle"),ebayPreviewOeEl=document.getElementById("ebayPreviewOe"),ebaySkuEl=document.getElementById("ebaySku"),ebayPreviewSpecificsEl=document.getElementById("ebayPreviewSpecifics"),ebayPreviewBulletsEl=document.getElementById("ebayPreviewBullets"),ebayPreviewDescEl=document.getElementById("ebayPreviewDesc"),ebayPreviewImagesEl=document.getElementById("ebayPreviewImages");let currentDraftId="",mainFiles=[],referenceFiles=[],mixFiles=[],detailLocalFiles=[],nasMainPicked={},nasRefPicked={},nasDetailLocalPicked={},aiMixPicked={},nasModalMode="ref",nasModalTempSelections={},aiModalTempSelections={},allStores=[],STORE_LS_KEY="sop_selected_store_sid",AMAZON_MSKU_LS_KEY="sop_amazon_msku",DRAFT_LS_KEY="sop_draft_id",sourceMode="sku",ebayListingData=null,ebaySourceUrl="",premiumPollTimer=null,sopGenerating=false,nasSearchCache={sku:"",data:null};
+function saveDraftId(id){currentDraftId=id||"";try{if(currentDraftId)localStorage.setItem(DRAFT_LS_KEY,currentDraftId);else localStorage.removeItem(DRAFT_LS_KEY)}catch(e){}}
+function stopPremiumPolling(){if(premiumPollTimer){clearInterval(premiumPollTimer);premiumPollTimer=null}}
+function updatePremiumUi(ready,opts){opts=opts||{};if(!premiumExportBtn)return;if(ready){premiumExportBtn.disabled=false;premiumExportBtn.textContent="下载高级A+ Excel";if(exportStatusEl&&!exportStatusEl.textContent)exportStatusEl.textContent="高级 A+ 已就绪，可导出"}else if(opts.failed){premiumExportBtn.disabled=false;premiumExportBtn.textContent="下载高级A+ Excel";if(exportStatusEl)exportStatusEl.textContent="高级 A+ 后台生成未完成，点击导出将实时生成"}else{premiumExportBtn.disabled=true;premiumExportBtn.textContent="高级 A+ 生成中..."}}
+async function pollPremiumOnce(){if(!currentDraftId)return;try{var result=await apiFetch("/api/sop/premium-status?draft_id="+encodeURIComponent(currentDraftId));if(result.resp.status===404){stopPremiumPolling();saveDraftId("");return}var data=result.data;if(data.ready){stopPremiumPolling();updatePremiumUi(true);return}if(data.status==="failed"){stopPremiumPolling();updatePremiumUi(false,{failed:true})}}catch(e){}}
+function startPremiumPolling(){stopPremiumPolling();updatePremiumUi(false);pollPremiumOnce();premiumPollTimer=setInterval(pollPremiumOnce,4000)}
+function updatePremiumHint(){var hint=document.getElementById("premiumExportHint");if(!hint)return;hint.textContent=sourceMode==="ebay"?"高级A+：9列模板，按 eBay 合规规则生成":"高级A+：9列模板，文案先车型/OE后产品特点，尺寸不同"}
+function saveAmazonMsku(raw){var v=(raw||"").trim();if(!v||/^ebay:/i.test(v))return;try{localStorage.setItem(AMAZON_MSKU_LS_KEY,v)}catch(e){}}
+function restoreAmazonMsku(){var skuEl=document.getElementById("sku");if(!skuEl)return;var saved="";try{saved=localStorage.getItem(AMAZON_MSKU_LS_KEY)||""}catch(e){}if(/^ebay:/i.test(skuEl.value))skuEl.value="";if(!skuEl.value.trim()&&saved)skuEl.value=saved}
+function getSelectedStoreSid(){if(!storeSelectEl||!storeSelectEl.value)return null;var sid=parseInt(storeSelectEl.value,10);return sid>0?sid:null}
+function storeOptionLabel(s){var parts=[s.name||("店铺 "+s.sid)];if(s.country)parts.push(s.country);else if(s.region)parts.push(s.region);return parts.join(" · ")}
+function renderStoreOptions(filter){if(!storeSelectEl)return;var q=(filter||"").trim().toLowerCase();var prev=storeSelectEl.value;storeSelectEl.innerHTML="";var matched=allStores.filter(function(s){if(!q)return true;var label=storeOptionLabel(s).toLowerCase();return label.indexOf(q)>=0||String(s.sid).indexOf(q)>=0||(s.region||"").toLowerCase().indexOf(q)>=0});if(!matched.length){var emptyOpt=document.createElement("option");emptyOpt.value="";emptyOpt.textContent=q?"无匹配店铺":"暂无店铺";storeSelectEl.appendChild(emptyOpt);return}matched.forEach(function(s){var opt=document.createElement("option");opt.value=String(s.sid);opt.textContent=storeOptionLabel(s);storeSelectEl.appendChild(opt)});var saved=localStorage.getItem(STORE_LS_KEY);if(saved&&matched.some(function(s){return String(s.sid)===saved})){storeSelectEl.value=saved}else if(prev&&matched.some(function(s){return String(s.sid)===prev})){storeSelectEl.value=prev}else{storeSelectEl.value=String(matched[0].sid)}}
+async function loadStores(){if(!storeSelectEl||!storeStatusEl||sourceMode!=="sku")return;storeStatusEl.textContent="正在加载店铺列表...";try{var result=await apiFetch("/api/lingxing/stores");var data=result.data;if(!result.resp.ok)throw new Error((Array.isArray(data.detail)?data.detail.map(function(d){return d.msg||d.type||JSON.stringify(d)}).join("; "):data.detail)||"加载失败");allStores=data.stores||[];if(!allStores.length){storeStatusEl.textContent="未找到店铺，请检查领星授权";renderStoreOptions("");return}renderStoreOptions(storeFilterEl?storeFilterEl.value:"");var sid=getSelectedStoreSid();if(sid)localStorage.setItem(STORE_LS_KEY,String(sid));storeStatusEl.textContent="共 "+allStores.length+" 个店铺，当前 sid="+(sid||"-")}catch(err){var msg=getErrorMsg(err);if(/403|ip|白名单|not allowed/i.test(msg))msg="领星拒绝连接：本机公网 IP 未加入领星白名单。请关闭 :8002 直连，改用 Portal 连接服务器后台（http://127.0.0.1:5173/hub/ 或 http://8.137.177.25/hub/），登录后进入 SOP。";storeStatusEl.textContent="店铺加载失败: "+msg;renderStoreOptions("")}}
+function ensureStoresLoaded(){if(sourceMode==="sku")loadStores()}
+if(storeSelectEl){storeSelectEl.addEventListener("change",function(){var sid=getSelectedStoreSid();if(sid)localStorage.setItem(STORE_LS_KEY,String(sid));if(storeStatusEl&&allStores.length)storeStatusEl.textContent="共 "+allStores.length+" 个店铺，当前 sid="+sid})}
+if(storeFilterEl){storeFilterEl.addEventListener("input",function(){renderStoreOptions(storeFilterEl.value)})}
+function getNasSearchSku(){if(sourceMode==="ebay")return ebaySkuEl?(ebaySkuEl.value||"").trim():"";var skuEl=document.getElementById("sku");return skuEl?(skuEl.value||"").trim():""}
+function getGenerateSku(){if(sourceMode==="ebay")return ebaySkuEl?(ebaySkuEl.value||"").trim():"";var skuEl=document.getElementById("sku");return skuEl?(skuEl.value||"").trim():""}
+function switchSourceMode(mode){sourceMode=mode;try{localStorage.setItem("sop_source_mode",mode)}catch(e){}document.querySelectorAll(".source-tab").forEach(function(btn){btn.classList.toggle("active",btn.dataset.mode===mode)});var amazonBlock=document.getElementById("amazonSourceBlock"),ebayBlock=document.getElementById("ebaySourceBlock");if(amazonBlock)amazonBlock.classList.toggle("hidden",mode!=="sku");if(ebayBlock)ebayBlock.classList.toggle("hidden",mode!=="ebay");if(storeSelectEl)storeSelectEl.required=(mode==="sku");var skuEl=document.getElementById("sku");if(skuEl)skuEl.required=(mode==="sku");if(ebaySkuEl)ebaySkuEl.required=(mode==="ebay");if(mode==="sku")restoreAmazonMsku();updatePremiumHint();if(pageLeadEl){pageLeadEl.textContent=mode==="ebay"?"粘贴 eBay 竞品链接获取文案；填写 SKU 可从 NAS 取主图/细节图/局部图，竞品图自动进场景物品图。":"输入 MSKU，系统通过领星读取 Listing 数据，调用 DeepSeek AI 分析并生成结构化英文图片文案与中文设计需求。"}if(mode==="sku")ensureStoresLoaded()}
+document.querySelectorAll(".source-tab").forEach(function(btn){btn.addEventListener("click",function(){switchSourceMode(btn.dataset.mode||"sku")})});
+(function initSourceMode(){var saved="";try{saved=localStorage.getItem("sop_source_mode")||""}catch(e){}if(saved==="ebay"||saved==="sku")switchSourceMode(saved);else{restoreAmazonMsku();ensureStoresLoaded();updatePremiumHint()}})();
+var skuInputEl=document.getElementById("sku");if(skuInputEl){skuInputEl.addEventListener("input",function(){saveAmazonMsku(skuInputEl.value);clearNasSearchCache()})}
+if(ebaySkuEl){ebaySkuEl.addEventListener("input",clearNasSearchCache)}
+function normalizeEbayInput(raw){var s=String(raw||"").trim().replace(/[\u200b\u200c\u200d\ufeff]/g,"");if(!s)return"";if(/^\d{6,19}$/.test(s))return s;if(!/^https?:\/\//i.test(s)&&(/^www\.ebay\.(com|de|co\.uk)/i.test(s)||/^ebay\.(com|de|co\.uk)\//i.test(s))){s="https://"+s.replace(/^\/\//,"")}return s}
+function validateEbayInput(url){if(/^\d{6,19}$/.test(url))return"";if(/\/ebaylive\//i.test(url))return"这是 eBay Live 直播链接，不是商品页。请打开商品详情页复制 /itm/ 链接";if(/\/sch\//i.test(url))return"这是搜索页链接，请打开具体商品页再复制";if(/\/itm\//i.test(url))return"";if(/ebay\.(com|de|co\.uk)/i.test(url))return"当前链接不像商品页，请使用含 /itm/ 的商品详情链接或直接输入 item 数字 ID";return""}
+async function downloadImageUrlToMix(url,referer){var result=await apiPostJson("/api/download-from-url",{url:url,referer:referer||""});var data=result.data;if(!result.resp.ok)throw new Error(data.detail||"下载失败");var blobResp=await fetch(assetUrl(data.url),{credentials:"include"});if(!blobResp.ok)throw new Error("获取图片失败");var blob=await blobResp.blob();var ext=(data.filename.split(".").pop()||"jpg").toLowerCase();var mimeMap={jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",webp:"image/webp",gif:"image/gif",bmp:"image/bmp"};var mime=mimeMap[ext]||"image/jpeg";return new File([blob],data.filename,{type:mime})}
+async function downloadEbayImagesToMix(images,referer){var success=0,failed=0;var concurrency=3;var cursor=0;async function worker(){while(true){var i=cursor++;if(i>=images.length)break;if(ebayFetchStatusEl)ebayFetchStatusEl.textContent="正在下载竞品图片到场景物品图 ("+(i+1)+"/"+images.length+")...";try{var file=await downloadImageUrlToMix(images[i].url,referer);var added=await appendMixFiles([file],true);if(added.length)success++}catch(e){console.warn("eBay image download failed",images[i].url,e);failed++}}}await Promise.all(Array.from({length:Math.min(concurrency,Math.max(1,images.length))},function(){return worker()}));refreshMixPreview();return {success:success,failed:failed}}
+function renderEbayPreview(data){if(!ebayPreviewPanelEl)return;var listing=(data&&data.listing)||{};ebayPreviewTitleEl.textContent=listing.title||"-";var specifics=(data.item_specifics||[]).slice(0,20);if(ebayPreviewSpecificsEl){ebayPreviewSpecificsEl.innerHTML="";if(!specifics.length){var spLi=document.createElement("li");spLi.textContent="-";ebayPreviewSpecificsEl.appendChild(spLi)}else{specifics.forEach(function(row){var li=document.createElement("li");li.textContent=(row.name||"")+": "+(row.value||"");ebayPreviewSpecificsEl.appendChild(li)})}}if(ebayPreviewBulletsEl){renderBulletList(ebayPreviewBulletsEl,(listing.bullet_points||[]).slice(0,15))}if(ebayPreviewDescEl){var desc=listing.description||"-";ebayPreviewDescEl.textContent=desc.length>1200?desc.slice(0,1200)+"...":desc}renderTagList(ebayPreviewOeEl,listing.oe_numbers||[],"tag-oe","暂无 OE 号");var imgCount=(data.images||[]).length;ebayPreviewImagesEl.textContent=imgCount?("已解析 "+imgCount+" 张，正在/已下载到场景物品图"):"无图片";ebayPreviewPanelEl.classList.remove("hidden")}
+if(btnFetchEbayEl){btnFetchEbayEl.addEventListener("click",async function(){var url=normalizeEbayInput(ebayUrlEl&&ebayUrlEl.value||"");if(!url){if(ebayFetchStatusEl)ebayFetchStatusEl.textContent="请先粘贴 eBay 商品链接或 item 数字 ID";return}var preErr=validateEbayInput(url);if(preErr){if(ebayFetchStatusEl)ebayFetchStatusEl.textContent=preErr;return}if(ebayUrlEl)ebayUrlEl.value=url;btnFetchEbayEl.disabled=true;ebayListingData=null;ebaySourceUrl=url;if(ebayFetchStatusEl)ebayFetchStatusEl.textContent="正在通过 eBay API 获取产品信息...";if(ebayPreviewPanelEl)ebayPreviewPanelEl.classList.add("hidden");try{var result=await apiPostJson("/api/ebay/parse-url",{url:url});var data=result.data;if(!result.resp.ok)throw new Error((Array.isArray(data.detail)?data.detail.join("; "):data.detail)||"获取失败");ebayListingData=data.listing||null;if(ebayListingData){ebayListingData.sku="";ebayListingData.asin=""}ebaySourceUrl=data.source_url||url;renderEbayPreview(data);var dl=await downloadEbayImagesToMix(data.images||[],ebaySourceUrl);if(ebayFetchStatusEl){var msg="已获取："+((ebayListingData&&ebayListingData.title)||"").slice(0,60);if(dl.success)msg+=" · 场景图 +"+dl.success;if(dl.failed)msg+=" · 下载失败 "+dl.failed;ebayFetchStatusEl.textContent=msg}}catch(err){if(ebayFetchStatusEl)ebayFetchStatusEl.textContent="获取失败: "+getErrorMsg(err)}finally{btnFetchEbayEl.disabled=false}})}
+function clearNasSearchCache(){nasSearchCache={sku:"",data:null}}
+function showFormStatus(msg,cls){if(!statusEl)return;statusEl.className=cls||"status";statusEl.textContent=msg||"";try{statusEl.scrollIntoView({behavior:"smooth",block:"nearest"})}catch(e){}}
+function startSopGenerating(msg){sopGenerating=true;statusEl.dataset.generating="1";statusEl.dataset.startedAt=String(Date.now());showFormStatus(msg||"正在生成 SOP...","status generating")}
+function stopSopGenerating(msg,cls){sopGenerating=false;delete statusEl.dataset.generating;delete statusEl.dataset.startedAt;showFormStatus(msg||"",cls||"status")}
+setInterval(async function(){if(!sopGenerating||!statusEl||statusEl.dataset.generating!=="1")return;if(!statusEl.dataset.startedAt)statusEl.dataset.startedAt=String(Date.now());try{var result=await apiFetch("/api/sop/generation-status");if(!result.resp.ok)return;var data=result.data;var elapsed=Math.round((Date.now()-Number(statusEl.dataset.startedAt))/1000);statusEl.textContent="正在生成 SOP... 已用时 "+elapsed+" 秒（处理中 "+(data.active||0)+"，排队 "+(data.waiting||0)+"）"}catch(e){}},2000);
+const previewUrls=new WeakMap();
+function escapeHtml(t){return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+function renderTagList(c,n,cls,emp){c.innerHTML="";const v=(n||[]).filter(Boolean);if(!v.length){c.textContent=emp||"-";return}v.forEach(function(t){var e=document.createElement("span");e.className="tag "+(cls||"").trim();e.textContent=t;c.appendChild(e)})}
+function renderBulletList(c,n){c.innerHTML="";const v=(n||[]).filter(Boolean);if(!v.length){var li=document.createElement("li");li.textContent="-";c.appendChild(li);return}v.forEach(function(t){var li=document.createElement("li");li.textContent=t;c.appendChild(li)})}
+function formatDesignRequest(t){if(!t)return"<p>-</p>";var p=String(t).split(/(?<=\u3002)/).map(function(s){return s.trim()}).filter(Boolean);if(p.length<=1)return"<p>"+escapeHtml(t)+"</p>";return p.map(function(s){return"<p>"+escapeHtml(s)+"</p>"}).join("")}
+function referenceSourceLabel(s){var map={main:"白底主图",main_scene:"主图+场景",main_edit:"主图编辑",operator:"运营细节图",detail:"细节图",scene:"场景图",composite:"场景+细节",detail_local:"局部细节图"};return map[s]||"参考图"}
+function renderImageRequirements(items){imageReqList.innerHTML="";var list=items||[];var size=(list[0]&&list[0].size)||"1600*1600";var opCount=list.filter(function(i){return i.reference_source==="operator"}).length;var edCount=list.filter(function(i){return i.reference_source==="main_edit"}).length;var meta="共 "+list.length+" · 尺寸 "+size;if(opCount)meta+=" · 运营细节 "+opCount+"张";if(edCount)meta+=" · 主图编辑 "+edCount+"张";imageReqMeta.textContent=meta;list.forEach(function(item){var card=document.createElement("article");card.className="image-req-card";var head=document.createElement("div");head.className="image-req-head";head.innerHTML='<span class="image-req-index">'+item.index+'</span><span class="image-req-theme">'+escapeHtml(item.theme||"图片")+'</span><span class="image-req-size">'+escapeHtml(item.size||size)+'</span>';var body=document.createElement("div");body.className="image-req-body";var copyCol=document.createElement("div");copyCol.className="image-req-col";copyCol.innerHTML='<div class="image-req-col-title">文案（英文 · 上图文案）</div>';var copyBox=document.createElement("div");copyBox.className="copy-cell";copyBox.textContent=item.copy_text||"-";copyCol.appendChild(copyBox);var designCol=document.createElement("div");designCol.className="image-req-col";designCol.innerHTML='<div class="image-req-col-title">设计需求（中文）</div>';var designBox=document.createElement("div");designBox.className="design-cell";designBox.innerHTML=formatDesignRequest(item.design_request||"-");designCol.appendChild(designBox);body.appendChild(copyCol);body.appendChild(designCol);var foot=document.createElement("div");foot.className="image-req-foot";var src=item.reference_source||"";var refImg=item.reference_image||"";var mainImg=item.main_image||"";var detailImg=item.detail_image||"";var sceneImg=item.scene_image||"";var footHtml="";var hasDetail=!!detailImg,hasScene=!!sceneImg,hasRef=!!refImg,hasMain=!!mainImg;if(hasDetail||hasScene||hasRef||hasMain){footHtml+='<div class="asset-badges">';if(src)footHtml+='<span class="asset-badge">'+referenceSourceLabel(src)+'</span>';footHtml+='</div><div class="asset-links">';if(hasMain)footHtml+='<a href="'+escapeHtml(assetUrl(mainImg))+'" target="_blank">主图</a> ';if(hasDetail)footHtml+='<a href="'+escapeHtml(assetUrl(detailImg))+'" target="_blank">细节图</a> ';if(hasScene)footHtml+='<a href="'+escapeHtml(assetUrl(sceneImg))+'" target="_blank">场景图</a> ';if(hasRef&&!hasDetail&&!hasScene)footHtml+='<a href="'+escapeHtml(assetUrl(refImg))+'" target="_blank">参考图</a>';footHtml+='</div>'}else{footHtml='<span style="color:#9ca3af">无参考图</span>'}foot.innerHTML=footHtml;card.appendChild(head);card.appendChild(body);card.appendChild(foot);imageReqList.appendChild(card)})}
+async function compressImageFile(file){if(!file||!file.type||file.type.indexOf("image/")!==0||file.type==="image/gif")return file;try{var bitmap=await createImageBitmap(file);var maxSide=Math.max(bitmap.width,bitmap.height);if(maxSide<=1600&&file.size<=2*1024*1024){bitmap.close();return file}var scale=Math.min(1,1600/maxSide);var width=Math.max(1,Math.round(bitmap.width*scale));var height=Math.max(1,Math.round(bitmap.height*scale));var canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;var ctx=canvas.getContext("2d");ctx.fillStyle="#fff";ctx.fillRect(0,0,width,height);ctx.drawImage(bitmap,0,0,width,height);bitmap.close();var blob=await new Promise(function(resolve){canvas.toBlob(resolve,"image/jpeg",0.88)});if(!blob)return file;var base=(file.name||"image").replace(/\.[^.]+$/,"");return new File([blob],base+".jpg",{type:"image/jpeg",lastModified:file.lastModified||Date.now()})}catch(err){console.warn("图片压缩失败，使用原图",err);return file}}
+async function prepareImageFiles(files){return Promise.all(Array.from(files||[]).map(function(f){return compressImageFile(f)}))}
+function appendFiles(tgt,files){var m=new Map();tgt.forEach(function(f){if(f.name)m.set(f.name+"__"+f.size,f)});var added=[];Array.from(files).forEach(function(f){if(!f||!f.name)return;var k=f.name+"__"+f.size;if(m.has(k))return;m.set(k,f);tgt.push(f);added.push(f)});return added}
+const mixFileFromLink=new WeakMap();
+async function appendMixFiles(files,fromLink){var prepared=await prepareImageFiles(files);var added=appendFiles(mixFiles,prepared);added.forEach(function(f){if(fromLink)mixFileFromLink.set(f,true)});return added}
+function removeFile(tgt,f){var i=tgt.indexOf(f);if(i>=0)tgt.splice(i,1);mixFileFromLink.delete(f);var u=previewUrls.get(f);if(u){URL.revokeObjectURL(u);previewUrls.delete(f)}}
+function addThumbActions(it,im,opts){var previewUrl=opts.previewUrl,caption=opts.caption||"";if(previewUrl){im.addEventListener("click",function(){openImagePreview(previewUrl,caption)});var zm=document.createElement("button");zm.type="button";zm.className=opts.zoomClass||"file-zoom";zm.title="放大查看";zm.innerHTML="&#x26F6;";zm.addEventListener("click",function(e){e.stopPropagation();openImagePreview(previewUrl,caption)});it.appendChild(zm)}if(opts.onRemove){var rm=document.createElement("button");rm.type="button";rm.className=opts.removeClass||"file-remove";rm.title=opts.removeTitle||"删除";rm.textContent="x";rm.addEventListener("click",function(e){e.stopPropagation();opts.onRemove()});it.appendChild(rm)}}
+function renderPreviewList(c,files,opts){c.innerHTML="";files.forEach(function(f,i){var u=previewUrls.get(f);if(!u){u=URL.createObjectURL(f);previewUrls.set(f,u)}var it=document.createElement("div");it.className="file-preview-item";if(opts.markPrimary&&i===0)it.classList.add("is-primary");var im=document.createElement("img");im.src=u;im.alt=f.name;var nm=document.createElement("div");nm.className="file-name";nm.title=f.name;nm.textContent=f.name;if(opts.markPrimary&&i===0){var tg=document.createElement("span");tg.className="primary-tag";tg.textContent="主图";it.appendChild(tg)}it.appendChild(im);it.appendChild(nm);addThumbActions(it,im,{previewUrl:u,caption:f.name,onRemove:function(){removeFile(files,f);renderPreviewList(c,files,opts);opts.onChange()}});c.appendChild(it)})}
+function refreshMainPreview(){renderPreviewList(mainPreviewList,mainFiles,{markPrimary:true,onChange:refreshMainPreview});mainCount.textContent="已选 "+mainFiles.length+" 张"+(Object.keys(nasMainPicked).length?" + NAS "+Object.keys(nasMainPicked).length+" 张":"");refreshTotalRef()}
+function refreshRefPreview(){renderPreviewList(refPreviewList,referenceFiles,{markPrimary:false,onChange:refreshRefPreview});var n=referenceFiles.length+Object.keys(nasRefPicked).length;refCount.textContent="已选 "+n+" 张 / 建议 6 张";refreshTotalRef()}
+addMainBtn.addEventListener("click",function(){mainFileInput.value="";mainFileInput.click()});addRefBtn.addEventListener("click",function(){refFileInput.value="";refFileInput.click()});addMixBtn.addEventListener("click",function(){mixFileInput.value="";mixFileInput.click()});
+mainFileInput.addEventListener("change",async function(){statusEl.textContent="正在优化图片...";var files=await prepareImageFiles(Array.from(mainFileInput.files||[]));appendFiles(mainFiles,files);refreshMainPreview();statusEl.textContent=""});
+refFileInput.addEventListener("change",async function(){statusEl.textContent="正在优化图片...";var files=await prepareImageFiles(Array.from(refFileInput.files||[]));appendFiles(referenceFiles,files);refreshRefPreview();statusEl.textContent=""});
+mixFileInput.addEventListener("change",async function(){statusEl.textContent="正在优化图片...";await appendMixFiles(Array.from(mixFileInput.files||[]),false);refreshMixPreview();statusEl.textContent=""});
+addDetailLocalBtn.addEventListener("click",function(){detailLocalFileInput.value="";detailLocalFileInput.click()});
+detailLocalFileInput.addEventListener("change",async function(){statusEl.textContent="正在优化图片...";var files=await prepareImageFiles(Array.from(detailLocalFileInput.files||[]));appendFiles(detailLocalFiles,files);refreshDetailLocalPreview();statusEl.textContent=""});
+function refreshMixPreview(){renderPreviewList(mixPreviewList,mixFiles,{markPrimary:false,onChange:refreshMixPreview});var n=mixFiles.length+Object.keys(aiMixPicked).length;mixCount.textContent="已选 "+n+" 张 / 建议 4 张";refreshTotalRef()}
+function refreshDetailLocalPreview(){renderPreviewList(detailLocalPreviewList,detailLocalFiles,{markPrimary:false,onChange:refreshDetailLocalPreview});var n=detailLocalFiles.length+Object.keys(nasDetailLocalPicked).length;detailLocalCount.textContent="已选 "+n+" 张 / 建议 4 张"}
+function refreshTotalRef(){var d=referenceFiles.length+Object.keys(nasRefPicked).length+Math.max(0,Object.keys(nasMainPicked).length-1);var s=mixFiles.length+Object.keys(aiMixPicked).length;var t=d+s;var el=document.getElementById("totalRefCount");var hint=document.getElementById("totalRefHint");if(el)el.textContent=t;if(t>=6){el.style.color="#16a34a";el.parentElement.style.color="#16a34a";hint.textContent="已达标";hint.style.color="#16a34a"}else{el.style.color="#dc2626";el.parentElement.style.color="#6b7280";hint.textContent="还需 "+(6-t)+" 张";hint.style.color="#dc2626"}}
+function renderNasPicked(c,picked){c.innerHTML="";Object.entries(picked).forEach(function(e){var path=e[0],info=e[1];var it=document.createElement("div");it.className="nas-picked-item";var im=document.createElement("img");im.src=assetUrl(info.thumb||info.url)||nasMediaUrl("thumb",path);im.alt=info.name;im.onload=function(){im.classList.add("loaded")};im.onerror=function(){im.classList.add("loaded")};it.appendChild(im);var fullUrl=assetUrl(info.url)||nasMediaUrl("image",path);addThumbActions(it,im,{previewUrl:fullUrl,caption:info.name||path,removeClass:"picked-remove",removeTitle:"移除",zoomClass:"picked-zoom",onRemove:function(){delete picked[path];renderNasPicked(c,picked);refreshMainPreview();refreshRefPreview();refreshDetailLocalPreview()}});c.appendChild(it)})}
+function openNasModal(target){nasModalMode=target;nasModalTempSelections={};Object.assign(nasModalTempSelections,target==="main"?Object.assign({},nasMainPicked):target==="detail_local"?Object.assign({},nasDetailLocalPicked):Object.assign({},nasRefPicked));nasModal.classList.add("active");nasModalTitle.textContent=target==="main"?"从 NAS 选择主图":target==="detail_local"?"从 NAS 选择局部图":"从 NAS 选择细节图";nasModalCount.textContent="已选 "+Object.keys(nasModalTempSelections).length+" 张";nasGrid.innerHTML="";nasGrid.classList.add("empty");nasStatus.textContent="正在加载 NAS 图片...";searchNas()}
+function closeNasModal(){nasModal.classList.remove("active");nasGrid.innerHTML="";nasGrid.classList.add("empty")}
+nasModalClose.addEventListener("click",closeNasModal);nasModalCancel.addEventListener("click",closeNasModal);
+nasModalConfirm.addEventListener("click",function(){if(nasModalMode==="main"){nasMainPicked=Object.assign({},nasModalTempSelections);renderNasPicked(nasMainPreview,nasMainPicked);refreshMainPreview()}else if(nasModalMode==="detail_local"){nasDetailLocalPicked=Object.assign({},nasModalTempSelections);renderNasPicked(nasDetailLocalPreview,nasDetailLocalPicked);refreshDetailLocalPreview()}else{nasRefPicked=Object.assign({},nasModalTempSelections);renderNasPicked(nasRefPreview,nasRefPicked);refreshRefPreview()}closeNasModal()});
+nasMainPickBtn.addEventListener("click",function(){openNasModal("main")});nasRefPickBtn.addEventListener("click",function(){openNasModal("ref")});nasDetailLocalPickBtn.addEventListener("click",function(){openNasModal("detail_local")});
+// ---- Image Lightbox ----
+function openImagePreview(url, caption){var box=document.getElementById("imgLightbox"),img=document.getElementById("imgLightboxImg"),cap=document.getElementById("imgLightboxCaption");img.src=assetUrl(url);img.alt=caption||"";cap.textContent=caption||"";box.classList.add("active");document.body.style.overflow="hidden"}
+function closeImagePreview(){var box=document.getElementById("imgLightbox"),img=document.getElementById("imgLightboxImg");box.classList.remove("active");img.src="";document.body.style.overflow=""}
+document.getElementById("imgLightboxClose").addEventListener("click",closeImagePreview);
+document.getElementById("imgLightbox").addEventListener("click",function(e){if(e.target.id==="imgLightbox")closeImagePreview()});
+
+// ---- Link URL Modal ----
+var _linkMode = "direct", _linkWebSelections = {}, _linkWebImages = [];
+function openLinkModal(){_linkMode="direct";_linkWebSelections={};_linkWebImages=[];document.getElementById("linkTabDirect").click();document.getElementById("linkUrlInput").value="";document.getElementById("linkWebUrlInput").value="";document.getElementById("linkWebImageGrid").innerHTML="";document.getElementById("linkWebImageGrid").classList.add("nas-grid-empty");document.getElementById("linkWebHint").textContent="将自动抓取网页中的商品图片供挑选";document.getElementById("linkModalStatus").textContent="";document.getElementById("linkModalStatus").className="status";document.getElementById("linkModal").classList.add("active")}
+function closeLinkModal(){document.getElementById("linkModal").classList.remove("active")}
+document.getElementById("linkModalClose").addEventListener("click",closeLinkModal);
+document.getElementById("linkModalCancel").addEventListener("click",closeLinkModal);
+document.getElementById("linkModal").addEventListener("click",function(e){if(e.target.id==="linkModal")closeLinkModal()});
+// Tab 切换
+document.getElementById("linkTabDirect").addEventListener("click",function(){_linkMode="direct";this.classList.add("active");document.getElementById("linkTabWeb").classList.remove("active");document.getElementById("linkPanelDirect").classList.add("active");document.getElementById("linkPanelWeb").classList.remove("active");document.getElementById("linkModalStatus").textContent="";document.getElementById("linkModalStatus").className="status"});
+document.getElementById("linkTabWeb").addEventListener("click",function(){_linkMode="web";this.classList.add("active");document.getElementById("linkTabDirect").classList.remove("active");document.getElementById("linkPanelDirect").classList.remove("active");document.getElementById("linkPanelWeb").classList.add("active");document.getElementById("linkModalStatus").textContent="";document.getElementById("linkModalStatus").className="status"});
+// 网页提取
+document.getElementById("linkWebExtractBtn").addEventListener("click",async function(){
+  var url=document.getElementById("linkWebUrlInput").value.trim();
+  if(!url){document.getElementById("linkWebHint").textContent="请输入网页链接";return}
+  var grid=document.getElementById("linkWebImageGrid"),hint=document.getElementById("linkWebHint"),btn=document.getElementById("linkWebExtractBtn");
+  _linkWebSelections={};_linkWebImages=[];
+  hint.textContent="正在抓取网页...";grid.innerHTML="";grid.classList.add("nas-grid-empty");btn.disabled=true;
+  try{
+    var result=await apiPostJson("/api/extract-web-images",{url:url});
+    if(!result.resp.ok)throw new Error(result.data.detail||"提取失败");
+    var data=result.data;
+    var imgs=data.images||[];
+    _linkWebImages=imgs;
+    if(imgs.length===0){hint.textContent="网页中未找到图片";grid.classList.add("nas-grid-empty");return}
+    hint.textContent="找到 "+imgs.length+" 张图片，点击选择（将逐张下载）";
+    grid.innerHTML="";grid.classList.remove("nas-grid-empty");
+    imgs.forEach(function(img,i){
+      var it=document.createElement("div");it.className="nas-item";
+      var imEl=document.createElement("img");imEl.src=assetUrl(img.url);imEl.alt=img.alt||("image_"+i);imEl.loading="lazy";imEl.onload=function(){imEl.classList.add("loaded")};imEl.onerror=function(){imEl.classList.add("loaded");this.src="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27100%27 height=%27100%27%3E%3Crect fill=%27%23f3f4f6%27 width=%27100%27 height=%27100%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27 fill=%27%239ca3af%27 font-size=%2712%27%3Ex%3C/text%3E%3C/svg%3E"};
+      var spinner=document.createElement("div");spinner.className="nas-loading";
+      var chk=document.createElement("span");chk.className="nas-check";chk.textContent="v";
+      it.appendChild(imEl);it.appendChild(spinner);it.appendChild(chk);
+      it.addEventListener("click",function(){
+        if(_linkWebSelections[i]){delete _linkWebSelections[i];it.classList.remove("selected")}else{_linkWebSelections[i]=img;it.classList.add("selected")}
+      });
+      grid.appendChild(it);
+    });
+  }catch(e){hint.textContent="提取失败: "+getErrorMsg(e);grid.classList.add("nas-grid-empty")}
+  finally{btn.disabled=false}
+});
+// 下载并添加
+document.getElementById("linkModalConfirm").addEventListener("click",async function(){
+  var statusEl=document.getElementById("linkModalStatus"),confirmBtn=document.getElementById("linkModalConfirm");
+  if(_linkMode==="web"){
+    var selKeys=Object.keys(_linkWebSelections);
+    if(selKeys.length===0){statusEl.textContent="请先选择要下载的图片";statusEl.className="status error";return}
+    statusEl.textContent="下载中...";statusEl.className="status";confirmBtn.disabled=true;
+    var success=0,failed=0,failMsgs=[],tgtFiles=mixFiles;
+    for(var i=0;i<selKeys.length;i++){
+      var img=_linkWebSelections[selKeys[i]];
+      statusEl.textContent="下载中 ("+(i+1)+"/"+selKeys.length+")...";
+      try{
+        var dlResult=await apiPostJson("/api/download-from-url",{url:img.url});
+        if(!dlResult.resp.ok)throw new Error(dlResult.data.detail||"下载失败");
+        var data=dlResult.data;
+        var blobResp=await fetch(assetUrl(data.url),{credentials:"include"});
+        if(!blobResp.ok)throw new Error("获取图片失败");
+        var blob=await blobResp.blob();
+        var ext=(data.filename.split(".").pop()||"jpg").toLowerCase();
+        var mimeMap={jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",webp:"image/webp",gif:"image/gif",bmp:"image/bmp"};
+        var mime=mimeMap[ext]||"image/jpeg";
+        var file=new File([blob],data.filename,{type:mime});
+        var added=await appendMixFiles([file],true);
+        if(added.length){success++}else{failed++;failMsgs.push(img.url.slice(0,50)+": 重复")}
+      }catch(e){console.warn("网页图片下载失败: "+img.url,e);failed++;failMsgs.push(img.url.slice(0,40)+": "+getErrorMsg(e))}
+    }
+    confirmBtn.disabled=false;
+    if(success>0&&failed===0){statusEl.textContent="成功下载 "+success+" 张";statusEl.className="status ok"}else if(success>0){statusEl.textContent="成功 "+success+" 张，失败 "+failed+" 张"+(failMsgs.length?" | "+failMsgs[0]:"");statusEl.className="status"}else{statusEl.textContent="全部下载失败"+(failMsgs.length?" | "+failMsgs[0]:"");statusEl.className="status error"}
+    refreshMixPreview()
+  }else{
+    var raw=document.getElementById("linkUrlInput").value.trim();
+    if(!raw){statusEl.textContent="请输入至少一个图片链接";statusEl.className="status error";return}
+    var urls=raw.split(/[\n\r]+/).map(function(s){return s.trim()}).filter(Boolean);
+    statusEl.textContent="下载中...";statusEl.className="status";confirmBtn.disabled=true;
+    var success=0,failed=0,failMsgs=[],tgtFiles=mixFiles;
+    for(var i=0;i<urls.length;i++){
+      statusEl.textContent="下载中 ("+(i+1)+"/"+urls.length+")...";
+      try{
+        var dlResult=await apiPostJson("/api/download-from-url",{url:urls[i]});
+        if(!dlResult.resp.ok){var errMsg=dlResult.data.detail||("HTTP "+dlResult.resp.status);throw new Error(errMsg);}
+        var data=dlResult.data;
+        var blobResp=await fetch(assetUrl(data.url),{credentials:"include"});
+        if(!blobResp.ok)throw new Error("获取图片失败");
+        var blob=await blobResp.blob();
+        var ext=(data.filename.split(".").pop()||"jpg").toLowerCase();
+        var mimeMap={jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",webp:"image/webp",gif:"image/gif",bmp:"image/bmp"};
+        var mime=mimeMap[ext]||"image/jpeg";
+        var file=new File([blob],data.filename,{type:mime});
+        var added=await appendMixFiles([file],true);
+        if(added.length){success++}else{failed++;failMsgs.push(urls[i].slice(0,50)+": 重复")}
+      }catch(e){console.warn("链接下载失败: "+urls[i],e);failed++;failMsgs.push(urls[i].slice(0,50)+": "+getErrorMsg(e))}
+    }
+    confirmBtn.disabled=false;
+    if(success>0&&failed===0){statusEl.textContent="成功下载 "+success+" 张";statusEl.className="status ok"}
+    else if(success>0){statusEl.textContent="成功 "+success+" 张，失败 "+failed+" 张"+(failMsgs.length?" | "+failMsgs[0]:"");statusEl.className="status"}
+    else{statusEl.textContent="全部下载失败"+(failMsgs.length?" | "+failMsgs[0]:"");statusEl.className="status error"}
+    if(success>0){document.getElementById("linkUrlInput").value=""}
+    refreshMixPreview()
+  }
+});
+
+function renderAiPicked(c,picked){c.innerHTML="";Object.keys(picked).forEach(function(fn){var info=picked[fn];var it=document.createElement("div");it.className="nas-picked-item";var im=document.createElement("img");im.src=assetUrl(info.url);im.alt=info.filename;im.onload=function(){im.classList.add("loaded")};im.onerror=function(){im.classList.add("loaded")};it.appendChild(im);addThumbActions(it,im,{previewUrl:assetUrl(info.url),caption:info.filename||fn,removeClass:"picked-remove",removeTitle:"移除",zoomClass:"picked-zoom",onRemove:function(){delete picked[fn];renderAiPicked(c,picked);refreshMixPreview()}});c.appendChild(it)})}
+function openAiModal(){aiModalTempSelections={};Object.assign(aiModalTempSelections,aiMixPicked);aiImageModal.classList.add("active");aiImageModalTitle.textContent="AI 搜索热门车型场景图";aiImageModalCount.textContent="已选 "+Object.keys(aiModalTempSelections).length+" 张";aiImageGrid.innerHTML="";aiImageGrid.classList.add("empty");aiImageStatus.textContent="正在分析产品信息...";searchAiImages(false)}
+function closeAiModal(){aiImageModal.classList.remove("active");aiImageGrid.innerHTML="";aiImageGrid.classList.add("empty")}
+aiImageModalClose.addEventListener("click",closeAiModal);aiImageModalCancel.addEventListener("click",closeAiModal);
+aiImageModalConfirm.addEventListener("click",function(){aiMixPicked=Object.assign({},aiModalTempSelections);renderAiPicked(aiMixPreview,aiMixPicked);refreshMixPreview();closeAiModal()});
+aiMixBtn.addEventListener("click",function(){openAiModal()});
+linkMixBtn.addEventListener("click",function(){openLinkModal()});
+aiImageModalRefresh.addEventListener("click",function(){aiImageModalRefresh.disabled=true;aiImageStatus.textContent="正在重新搜索...";aiImageGrid.innerHTML="";aiImageGrid.classList.add("empty");searchAiImages(true)});
+function buildProductContext(){if(sourceMode==="ebay"&&ebayListingData){var bullets=(ebayListingData.bullet_points||[]).filter(Boolean);return{title:ebayListingData.title||"",function:bullets.slice(0,2).join("; ")||"",compatibility:(ebayListingData.description||"").slice(0,240)||"",quality:bullets.slice(2,5).join("; ")||"",sku:getNasSearchSku()||getGenerateSku()}}return{title:document.getElementById("previewTitle").textContent||"",function:document.getElementById("analysisFunction").textContent||"",compatibility:document.getElementById("analysisCompatibility").textContent||"",quality:document.getElementById("analysisQuality").textContent||"",sku:getNasSearchSku()||getGenerateSku()}}
+function buildSmartQuery(){var ctx=buildProductContext();var parts=[];if(ctx.title&&ctx.title!=="-"&&ctx.title!=="..."){var t=ctx.title.split(" ").slice(0,6).join(" ");if(t)parts.push(t)}if(ctx.function&&ctx.function!=="-"&&ctx.function.length>3)parts.push(ctx.function.slice(0,80));if(ctx.compatibility&&ctx.compatibility!=="-"&&ctx.compatibility.length>3)parts.push(ctx.compatibility.slice(0,80));if(ctx.quality&&ctx.quality!=="-"&&ctx.quality.length>3)parts.push(ctx.quality.slice(0,50));var q=parts.join(" ").trim();if(!q&&ctx.sku)q=ctx.sku;return q}
+async function searchAiImages(refresh){var ctx=buildProductContext();var hasCtx=ctx.title&&ctx.title!=="-"&&ctx.title!=="..."||ctx.function&&ctx.function!=="-"&&ctx.function.length>3||ctx.compatibility&&ctx.compatibility!=="-"&&ctx.compatibility.length>3;var fallbackQuery=buildSmartQuery();if(!hasCtx&&!fallbackQuery){aiImageStatus.textContent=sourceMode==="ebay"?"请先点击「获取产品信息」解析 eBay 链接":"请先生成 SOP 以获取产品分析信息";aiImageGrid.classList.add("empty");aiImageModalRefresh.disabled=false;return}var tip=refresh?"正在重新搜索...":"正在分析产品信息，搜索热门车型场景图...";aiImageStatus.textContent=tip;aiImageModalRefresh.disabled=true;try{var result=await apiPostJson("/api/ai-search-images",{query:hasCtx?"":fallbackQuery,source_type:"mix",refresh:!!refresh,product_context:hasCtx?ctx:{}});var data=result.data;if(!result.resp.ok)throw new Error(data.detail||"搜索失败");var images=data.images||[];if(images.length===0){aiImageStatus.textContent="未搜到图片，点击「重新选择」再试或使用本地上传";aiImageModalRefresh.disabled=false;return}var hint=refresh?"(已刷新)":"(基于产品信息 · 热门车型优先)";aiImageStatus.textContent="找到 "+images.length+" 张 "+hint+"，点击选择";aiImageGrid.innerHTML="";images.forEach(function(img){var it=document.createElement("div");it.className="nas-item";if(aiModalTempSelections[img.filename])it.classList.add("selected");var imEl=document.createElement("img");imEl.src=assetUrl(img.url);imEl.alt=img.filename;imEl.loading="lazy";imEl.onload=function(){imEl.classList.add("loaded")};imEl.onerror=function(){imEl.classList.add("loaded");this.src="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27100%27 height=%27100%27%3E%3Crect fill=%27%23f3f4f6%27 width=%27100%27 height=%27100%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27 fill=%27%239ca3af%27 font-size=%2712%27%3Ex%3C/text%3E%3C/svg%3E"};var spinner=document.createElement("div");spinner.className="nas-loading";var chk=document.createElement("span");chk.className="nas-check";chk.textContent="v";var nm=document.createElement("span");nm.className="nas-name";nm.textContent=img.label||img.filename;it.appendChild(imEl);it.appendChild(spinner);it.appendChild(chk);it.appendChild(nm);var zoom=document.createElement("button");zoom.type="button";zoom.className="nas-zoom";zoom.title="放大查看";zoom.innerHTML="&#x26F6;";zoom.addEventListener("click",function(e){e.stopPropagation();openImagePreview(img.url,img.filename)});it.appendChild(zoom);if(img.label){var lbl=document.createElement("span");lbl.className="ai-label";lbl.textContent=img.label;it.appendChild(lbl)}it.addEventListener("click",function(){if(aiModalTempSelections[img.filename]){delete aiModalTempSelections[img.filename];it.classList.remove("selected")}else{aiModalTempSelections[img.filename]={filename:img.filename,url:assetUrl(img.url),label:img.label||""};it.classList.add("selected")}aiImageModalCount.textContent="已选 "+Object.keys(aiModalTempSelections).length+" 张"});aiImageGrid.appendChild(it)});aiImageGrid.classList.remove("empty");aiImageModalRefresh.disabled=false}catch(err){aiImageStatus.textContent="搜索失败: "+getErrorMsg(err);aiImageModalRefresh.disabled=false}}
+// ---- NAS 搜索 ----
+async function searchNas(){var sku=getNasSearchSku();if(!sku){nasStatus.textContent=sourceMode==="ebay"?"请先在上方输入 SKU / MSKU":"请先在上方输入 MSKU";nasGrid.classList.add("empty");nasGrid.innerHTML="";return}nasGrid.classList.add("empty");nasGrid.innerHTML="";var data=null,fromCache=false;try{if(nasSearchCache.sku===sku&&nasSearchCache.data){data=nasSearchCache.data;fromCache=true}else{nasStatus.textContent="正在搜索 NAS（SKU: "+sku+"）...";var result=await apiFetch("/api/nas/search?sku="+encodeURIComponent(sku));data=result.data;if(!result.resp.ok)throw new Error((Array.isArray(data.detail)?data.detail.map(function(d){return d.msg||d.type||JSON.stringify(d)}).join("; "):data.detail)||"搜索失败");nasSearchCache={sku:sku,data:data}}var matches=data.matches||[];if(matches.length===0){nasStatus.textContent="未找到匹配图片";return}nasStatus.textContent=(fromCache?"已缓存 · ":"")+"找到 "+data.match_count+" 个文件夹共 "+data.total_images+" 张图"+(fromCache?"":" · 耗时 "+Math.round(data.search_time_ms||0)+"ms");nasGrid.innerHTML="";matches.forEach(function(match,idx){var score=match.match_score||0;var folderName=match.sku_code||"";var monthDir=match.month_dir||"";var matchedPatterns=(match.matched_patterns||[]).join(", ");var whiteBgCount=match.images.filter(function(i){return i.is_white_bg}).length;match.images.sort(function(a,b){return(b.is_white_bg?-1:0)-(a.is_white_bg?-1:0)});var group=document.createElement("div");group.className="nas-folder-group";var header=document.createElement("div");header.className="nas-folder-header";var rank=document.createElement("span");rank.className="nas-folder-rank";rank.textContent=idx+1;var info=document.createElement("div");info.className="nas-folder-info";var pathLine=document.createElement("div");pathLine.className="nas-folder-path";pathLine.textContent=folderName;var metaLine=document.createElement("div");metaLine.className="nas-folder-meta";metaLine.textContent=monthDir+"  ·  "+match.images.length+" 张图"+(whiteBgCount>0?"（白底 "+whiteBgCount+" 张）":"")+(matchedPatterns?"  ·  匹配: "+matchedPatterns:"");info.appendChild(pathLine);info.appendChild(metaLine);var scoreBadge=document.createElement("span");scoreBadge.className="nas-folder-score"+(idx===0?" best":"");scoreBadge.textContent="匹配度 "+Math.min(Math.round(score),100);var selectAllBtn=document.createElement("button");selectAllBtn.type="button";selectAllBtn.className="nas-select-all";selectAllBtn.textContent="全选本组";selectAllBtn.addEventListener("click",function(e){e.stopPropagation();match.images.forEach(function(img){nasModalTempSelections[img.path]={path:img.path,name:img.name,url:nasMediaUrl("image",img.path),thumb:nasMediaUrl("thumb",img.path)}});nasModalCount.textContent="已选 "+Object.keys(nasModalTempSelections).length+" 张";group.querySelectorAll(".nas-item").forEach(function(it){it.classList.add("selected")})});header.appendChild(rank);header.appendChild(info);header.appendChild(selectAllBtn);header.appendChild(scoreBadge);group.appendChild(header);var imgWrap=document.createElement("div");imgWrap.className="nas-folder-images";if(match.images.length===0){var empty=document.createElement("div");empty.className="nas-folder-empty";empty.textContent="该文件夹无图片";imgWrap.appendChild(empty)}else{var innerGrid=document.createElement("div");innerGrid.className="nas-grid";innerGrid.style.display="grid";match.images.forEach(function(img){var it=document.createElement("div");it.className="nas-item";if(img.is_white_bg){it.classList.add("is-white-bg");var wtag=document.createElement("span");wtag.className="nas-white-tag";wtag.textContent="白底";it.appendChild(wtag)}if(nasModalTempSelections[img.path])it.classList.add("selected");var imEl=document.createElement("img");imEl.src=assetUrl(img.thumb||img.url)||nasMediaUrl("thumb",img.path);imEl.alt=img.name;imEl.loading="lazy";imEl.onload=function(){imEl.classList.add("loaded")};imEl.onerror=function(){imEl.classList.add("loaded");this.src="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27100%27 height=%27100%27%3E%3Crect fill=%27%23f3f4f6%27 width=%27100%27 height=%27100%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27 fill=%27%239ca3af%27 font-size=%2712%27%3Ex%3C/text%3E%3C/svg%3E"};var spinner=document.createElement("div");spinner.className="nas-loading";var chk=document.createElement("span");chk.className="nas-check";chk.textContent="v";var nm=document.createElement("span");nm.className="nas-name";nm.textContent=img.name;it.appendChild(imEl);it.appendChild(spinner);it.appendChild(chk);it.appendChild(nm);var zoom=document.createElement("button");zoom.type="button";zoom.className="nas-zoom";zoom.title="放大查看";zoom.innerHTML="&#x26F6;";zoom.addEventListener("click",function(e){e.stopPropagation();openImagePreview(assetUrl(img.url)||nasMediaUrl("image",img.path),img.name)});it.appendChild(zoom);it.addEventListener("click",function(){if(nasModalTempSelections[img.path]){delete nasModalTempSelections[img.path];it.classList.remove("selected")}else{nasModalTempSelections[img.path]={path:img.path,name:img.name,url:nasMediaUrl("image",img.path),thumb:nasMediaUrl("thumb",img.path)};it.classList.add("selected")}nasModalCount.textContent="已选 "+Object.keys(nasModalTempSelections).length+" 张"});innerGrid.appendChild(it)});imgWrap.appendChild(innerGrid)}group.appendChild(imgWrap);nasGrid.appendChild(group)});nasGrid.classList.remove("empty");if(nasModalMode==="main"&&Object.keys(nasModalTempSelections).length===0){var firstGroup=nasGrid.querySelector(".nas-folder-group");if(firstGroup){var wb=firstGroup.querySelector(".is-white-bg");if(wb){wb.click()}else{var firstImg=firstGroup.querySelector(".nas-item");if(firstImg)firstImg.click()}}}}catch(err){nasStatus.textContent="搜索失败: " + getErrorMsg(err)}}
+confirmExportBtn.addEventListener("click",async function(){if(!currentDraftId)return;exportStatusEl.className="status";exportStatusEl.textContent="正在导出 Excel...";try{var result=await apiPostJson("/api/sop/export",{draft_id:currentDraftId});var data=result.data;if(!result.resp.ok)throw new Error((Array.isArray(data.detail)?data.detail.map(function(d){return d.msg||d.type||JSON.stringify(d)}).join("; "):data.detail)||"导出失败");exportStatusEl.textContent="导出成功";downloadEl.innerHTML="";var lnk=document.createElement("a");lnk.href=assetUrl(data.excel_file);lnk.textContent="下载 Excel";lnk.target="_blank";downloadEl.appendChild(lnk)}catch(err){exportStatusEl.className="status error";exportStatusEl.textContent="导出失败: " + getErrorMsg(err)}});
+premiumExportBtn=document.getElementById("premiumExportBtn");
+premiumExportBtn.addEventListener("click",async function(){if(!currentDraftId){exportStatusEl.className="status error";exportStatusEl.textContent="请先生成 SOP";return}exportStatusEl.className="status";exportStatusEl.textContent="正在导出高级A+ Excel...";downloadEl.innerHTML="";premiumExportBtn.disabled=true;try{var stResult=await apiFetch("/api/sop/premium-status?draft_id="+encodeURIComponent(currentDraftId));if(stResult.resp.ok){var st=stResult.data;if(!st.ready)exportStatusEl.textContent="高级 A+ 仍在后台生成，导出可能需要 30~60 秒..."}var result=await apiPostJson("/api/sop/export-premium",{draft_id:currentDraftId});var data=result.data;if(!result.resp.ok)throw new Error((Array.isArray(data.detail)?data.detail.map(function(d){return d.msg||d.type||JSON.stringify(d)}).join("; "):data.detail)||"导出失败");exportStatusEl.textContent="高级A+ 导出成功";downloadEl.innerHTML="";var lnk=document.createElement("a");lnk.href=assetUrl(data.excel_file);lnk.textContent="下载高级A+ Excel";lnk.target="_blank";lnk.style.color="#7c3aed";downloadEl.appendChild(lnk);updatePremiumUi(true)}catch(err){exportStatusEl.className="status error";exportStatusEl.textContent="导出失败: " + getErrorMsg(err)}finally{premiumExportBtn.disabled=false}});
+(function initDraftRestore(){try{var saved=localStorage.getItem(DRAFT_LS_KEY)||"";if(!saved||saved.length<=8)return;saveDraftId(saved);apiFetch("/api/sop/premium-status?draft_id="+encodeURIComponent(saved)).then(function(result){if(result.resp.status===404){saveDraftId("");return}if(exportStatusEl)exportStatusEl.textContent="已恢复上次草稿 ID，高级 A+ 状态同步中…";startPremiumPolling()}).catch(function(){})}catch(e){}})();
+// ---- AI Vehicle Search ----
+var btnAiVehicle=document.getElementById("btnAiVehicle");
+var vehicleModal=document.getElementById("vehicleModal");
+var vehicleModalBody=document.getElementById("vehicleModalBody");
+var vehicleModalSku=document.getElementById("vehicleModalSku");
+var vehicleModalHint=document.getElementById("vehicleModalHint");
+function openVehicleModal(){vehicleModal.classList.add("active")}
+function closeVehicleModal(){vehicleModal.classList.remove("active");vehicleModalBody.innerHTML='<div class="loading-msg"><div class="loading-spin"></div><div>AI 正在分析产品信息，推断热门适配车型...</div></div>';vehicleModalSku.textContent="";vehicleModalHint.textContent="AI 推荐 10+ 款热门适配车型（含 listing 明确车型 + 市场热门补充），仅供参考"}
+document.getElementById("vehicleModalClose").addEventListener("click",closeVehicleModal);
+document.getElementById("vehicleModalCloseBtn").addEventListener("click",closeVehicleModal);
+vehicleModal.addEventListener("click",function(e){if(e.target===vehicleModal)closeVehicleModal()});
+if(btnAiVehicle)btnAiVehicle.addEventListener("click",runAiVehicleSearch);
+async function runAiVehicleSearch(){
+  var sku=getGenerateSku();
+  if(!sku){alert(sourceMode==="ebay"?"请先填写 SKU / MSKU":"请先在 MSKU 输入框中输入 SKU");return}
+  var btn=btnAiVehicle;
+  if(sourceMode==="sku"){
+    var storeSid=getSelectedStoreSid();
+    if(!storeSid){alert("请先选择亚马逊店铺");return}
+  }else if(!ebayListingData){alert("请先点击「获取产品信息」解析 eBay 链接");return}
+  if(btn){btn.disabled=true;btn.classList.add("loading");btn.textContent="分析中..."}
+  vehicleModalSku.textContent="MSKU: "+sku;vehicleModalHint.textContent="AI 正在分析中，将推荐 10+ 款热门车型...";
+  vehicleModalBody.innerHTML='<div class="loading-msg"><div class="loading-spin"></div><div>AI 正在分析产品信息，推断热门适配车型...</div></div>';
+  openVehicleModal();
+  try{
+    var formData=new FormData();formData.append("sku",sku);formData.append("source_mode",sourceMode);
+    if(sourceMode==="sku"){formData.append("sid",String(getSelectedStoreSid()))}
+    else{formData.append("listing_data_json",JSON.stringify(ebayListingData))}
+    var result=await apiPostForm("/api/ai/vehicle-search",formData);
+    var data=result.data;
+    if(!result.resp.ok)throw new Error(data.detail||"请求失败");
+    var vehicles=data.compatible_vehicles||[];
+    var productName=data.product_name||"";
+    var category=data.product_category||"";
+    var productType=data.product_type||"";
+    var oeNumbers=data.oe_numbers||[];
+    var vhtml='';
+    if(productName){
+      vhtml+='<div class="vehicle-result-product"><h4>'+escapeHtml(productName)+'</h4><div class="meta-row"><span>'+escapeHtml(category||"Auto Part")+'</span>'+(productType?'<span>'+escapeHtml(productType)+'</span>':'')+'</div></div>';
+    }
+    if(vehicles.length>0){
+      vhtml+='<div class="vehicle-list-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg> 热门适配车型 / 设备 <span class="count-badge">'+vehicles.length+' 款</span></div>';
+      vhtml+='<div class="vehicle-grid">';
+      vehicles.forEach(function(v,i){
+        vhtml+='<div class="vehicle-item"><span class="v-idx">'+(i+1)+'</span><span class="v-name">'+escapeHtml(v)+'</span></div>';
+      });
+      vhtml+='</div>';
+    }else{
+      vhtml+='<div class="vehicle-error">AI 未能推断出热门车型，请确认产品信息完整</div>';
+    }
+    if(oeNumbers.length>0){
+      vhtml+='<div class="vehicle-result-oe"><div class="oe-title">OE / OEM 零件号</div><div class="oe-list">';
+      oeNumbers.forEach(function(oe){vhtml+='<span class="oe-tag">'+escapeHtml(oe)+'</span>'});
+      vhtml+='</div></div>';
+    }
+    vehicleModalBody.innerHTML=vhtml;
+    vehicleModalHint.textContent="共推荐 "+vehicles.length+" 款热门适配车型，含 listing 明确车型与市场热门补充，仅供参考";
+  }catch(err){
+    vehicleModalBody.innerHTML='<div class="vehicle-error">'+escapeHtml(getErrorMsg(err))+'</div>';
+    vehicleModalHint.textContent="分析失败";
+  }finally{
+    if(btn){btn.disabled=false;btn.classList.remove("loading");btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg> AI 车型搜索'}
+  }
+}
+if(form){form.addEventListener("submit",async function(e){e.preventDefault();var storeSid=getSelectedStoreSid();if(sourceMode==="sku"){if(!storeSid){showFormStatus("请先选择亚马逊店铺（若提示 IP 白名单，请在领星后台添加本机公网 IP）","status error");return}var amazonSku=getGenerateSku();if(!amazonSku||/^ebay:/i.test(amazonSku)){showFormStatus("请输入真实的亚马逊 MSKU，不能使用 ebay: 开头的竞品 ID","status error");return}saveAmazonMsku(amazonSku)}else{if(!ebayListingData){showFormStatus("请先点击「获取产品信息」解析 eBay 链接","status error");return}var ebayMsku=getGenerateSku();if(!ebayMsku){showFormStatus("请填写 SKU / MSKU（用于 NAS 取图与 SOP 标识）","status error");return}}var hasMain=mainFiles.length>0||Object.keys(nasMainPicked).length>0;if(!hasMain){showFormStatus("请至少上传或从 NAS 选择一张主图","status error");return}var detailCnt=referenceFiles.length+Object.keys(nasRefPicked).length+Math.max(0,Object.keys(nasMainPicked).length-1);var sceneCnt=mixFiles.length+Object.keys(aiMixPicked).length;var totalRef=detailCnt+sceneCnt;if(totalRef<6){showFormStatus("细节图+场景物品图合计至少需要 6 张（当前 "+totalRef+" 张，还缺 "+(6-totalRef)+" 张）","status error");return}startSopGenerating("正在获取 Listing、翻译适配信息并生成 SOP...");downloadEl.innerHTML="";exportStatusEl.textContent="";previewBox.classList.add("hidden");saveDraftId("");stopPremiumPolling();var fd=new FormData();fd.append("sku",getGenerateSku());fd.append("source_mode",sourceMode);if(sourceMode==="ebay"){fd.append("listing_data_json",JSON.stringify(ebayListingData));if(storeSid)fd.append("sid",String(storeSid))}else{fd.append("sid",String(storeSid))}mainFiles.forEach(function(f){fd.append("main_images",f,f.name)});referenceFiles.forEach(function(f){fd.append("reference_images",f,f.name)});mixFiles.forEach(function(f){fd.append("mix_images",f,f.name)});fd.append("mix_image_sources",JSON.stringify(mixFiles.map(function(f){return mixFileFromLink.get(f)?"link":"upload"})));var mk=Object.keys(nasMainPicked);if(mk.length>0){fd.append("nas_main_image",mk[0]);mk.slice(1).forEach(function(p){fd.append("nas_reference_images",p)})}Object.keys(nasRefPicked).forEach(function(p){fd.append("nas_reference_images",p)});Object.keys(aiMixPicked).forEach(function(fn){fd.append("ai_mix_images",fn)});detailLocalFiles.forEach(function(f){fd.append("detail_local_images",f,f.name)});Object.keys(nasDetailLocalPicked).forEach(function(p){fd.append("nas_detail_local_images",p)});try{try{var qResult=await apiFetch("/api/sop/queue-status");if(qResult.resp.ok){var qData=qResult.data;if(qData.waiting>0)statusEl.textContent="排队中（前方约 "+qData.waiting+" 个任务）...";else if(qData.active>=qData.limit)statusEl.textContent="生成任务进行中，请稍候..."}}catch(qe){}var resp=await apiPostForm("/api/sop/generate",fd);var data;if(resp.resp.ok){data=resp.data}else{var respText=await resp.resp.text();var errMsg=respText;if(resp.resp.status===413||respText.toLowerCase().indexOf("request entity too large")!==-1){errMsg="上传文件过大（超过 50MB），请压缩或分批次上传图片"}else{try{var errData=JSON.parse(respText);errMsg=errData.detail||errData.message||respText}catch(e){}if(resp.resp.status>=500&&(!errMsg||errMsg===respText)){errMsg=(resp.resp.status===502||resp.resp.status===503)?"SOP 服务未响应（可能已重启或内存不足），请稍后重试或联系管理员":("服务器错误 HTTP "+resp.resp.status+(errMsg&&errMsg!==respText?": "+errMsg:"，请稍后重试"))}}throw new Error(typeof errMsg==="string"?errMsg:JSON.stringify(errMsg))}var sc=data.scrape_feedback||{};if(sc.status==="failed"){stopSopGenerating("生成成功（领星提示: "+sc.reason+")","status warn")}else{stopSopGenerating("生成成功","status")}saveDraftId(data.draft_id||"");startPremiumPolling();exportStatusEl.textContent="高级 A+ 后台生成中，就绪后可导出";var ls=data.listing_data||{};previewSku.textContent=ls.sku||data.sku||"-";previewAsin.textContent=ls.asin||"-";previewDataSource.textContent=ls.data_source||"-";previewTitle.textContent=ls.title||"-";renderBulletList(previewBullets,ls.bullet_points);previewDesc.textContent=ls.description||"-";renderTagList(previewOe,ls.oe_numbers,"tag-oe","暂无 OE 号");renderTagList(previewKeywords,ls.keywords,"tag-keyword","暂无");renderTagList(previewTags,ls.listing_tags,"tag-listing","暂无");previewSource.textContent=ls.data_source?"来源: "+ls.data_source:"";var an=data.product_analysis||{};analysisFunction.textContent=an.function||"-";analysisInstallation.textContent=an.installation||"-";analysisInspection.textContent=an.inspection||"-";analysisMaintenance.textContent=an.maintenance||"-";analysisCompatibility.textContent=an.compatibility||"-";analysisOe.textContent=an.oe_numbers||"-";analysisQuality.textContent=an.quality||"-";aiProvider.textContent=data.ai_provider||"本地";var cp=data.copy_block||{};copyHeadline.textContent=cp.headline||"-";copySubheadline.textContent=cp.subheadline||"-";copyBody.textContent=cp.body||"-";renderImageRequirements(data.image_requirements);previewBox.classList.remove("hidden");previewBox.scrollIntoView({behavior:"smooth",block:"start"})}catch(err){stopSopGenerating("生成失败: " + getErrorMsg(err),"status error")}});}else{console.error("sopForm 未找到，无法绑定生成 SOP")}
+</script>
+</body>
+</html>

@@ -214,6 +214,14 @@ ai-assistant:
     read-timeout: 200000
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
 
+# 图片SOP通过Java安全代理访问Python；支持多图片上传、长时间AI生成和二进制下载
+image-sop:
+  python:
+    base-url: ${IMAGE_SOP_PYTHON_BASE_URL:http://127.0.0.1:8010/image-sop}
+    connect-timeout: 5000
+    read-timeout: 900000
+    internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+
 # Python 绩效排名服务
 performance:
   python:

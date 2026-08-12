@@ -583,6 +583,7 @@ onBeforeUnmount(clearPollTimer)
         <a href="#declaration-workbench"><i>02</i>申报工作台</a>
         <a href="#inventory-query"><i>03</i>库存查询</a>
         <a href="#performance-ranking"><i>04</i>绩效排名测试</a>
+        <a href="#image-sop"><i>05</i>图片 SOP</a>
       </nav>
       <div class="sidebar-status">
         <span :class="{ online: health?.ok }"></span>
@@ -1027,6 +1028,22 @@ onBeforeUnmount(clearPollTimer)
               </ul>
             </article>
           </div>
+        </section>
+
+        <section id="image-sop" class="erp-panel image-sop-panel">
+          <div class="panel-header image-sop-heading">
+            <div>
+              <h2>跨境电商图片 SOP</h2>
+              <p>Amazon / eBay Listing、NAS 取图、AI 图片规范与标准/高级 A+ Excel 导出</p>
+            </div>
+            <a class="secondary-button image-sop-open" href="/image-sop/index.html" target="_blank" rel="noopener">新窗口打开</a>
+          </div>
+          <iframe
+            class="image-sop-frame"
+            src="/image-sop/index.html"
+            title="跨境电商图片 SOP"
+            loading="lazy"
+          ></iframe>
         </section>
       </main>
     </div>
