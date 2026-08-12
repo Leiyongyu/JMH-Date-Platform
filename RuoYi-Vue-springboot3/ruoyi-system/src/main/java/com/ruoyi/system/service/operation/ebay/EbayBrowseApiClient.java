@@ -67,6 +67,26 @@ public class EbayBrowseApiClient
         return get("/buy/browse/v1/item/" + encode(itemId), Map.of(), site);
     }
 
+    /**
+     * 使用 eBay 商品网页中的 legacy listing ID 获取商品详情。
+     * 例如 https://www.ebay.co.uk/itm/xxx/186929412574 中的 186929412574。
+     */
+    public JsonNode getItemByLegacyId(String legacyItemId, String legacyVariationId, String site)
+    {
+        if (legacyItemId == null || !legacyItemId.matches("\\d{9,15}"))
+        {
+            throw new ServiceException("eBay legacy itemId 格式不正确");
+        }
+        LinkedHashMap<String, String> query = new LinkedHashMap<>();
+        query.put("legacy_item_id", legacyItemId);
+        if (legacyVariationId != null && legacyVariationId.matches("\\d{6,20}"))
+        {
+            query.put("legacy_variation_id", legacyVariationId);
+        }
+        query.put("fieldgroups", "PRODUCT,ADDITIONAL_SELLER_DETAILS");
+        return get("/buy/browse/v1/item/get_item_by_legacy_id", query, site);
+    }
+
     private JsonNode get(String path, Map<String, String> query, String site)
     {
         String marketplace = MARKETPLACES.get(normalizeSite(site));
