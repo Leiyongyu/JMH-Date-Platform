@@ -52,6 +52,23 @@ MAX_AUTOMATION_SLOTS = 5
 SHOP_AUTH_TTL_SECONDS = 30 * 60
 USER_CONFIG_HEADER = "X-Ziniao-User-Config"
 
+
+def _new_automation_event_loop() -> asyncio.AbstractEventLoop:
+    """Create an event loop that can launch Playwright's driver on Windows.
+
+    Uvicorn reload mode installs WindowsSelectorEventLoopPolicy globally.  A
+    selector loop cannot create subprocesses, so Playwright fails with an empty
+    NotImplementedError before it ever connects to Ziniao's CDP port.
+    """
+    if os.name == "nt":
+        return asyncio.WindowsProactorEventLoopPolicy().new_event_loop()
+    return asyncio.new_event_loop()
+
+
+def _exception_text(exc: BaseException) -> str:
+    detail = str(exc).strip()
+    return detail or f"{type(exc).__name__}: {exc!r}"
+
 # ---------------------------------------------------------------------------
 # 全局状态
 # ---------------------------------------------------------------------------
@@ -794,7 +811,7 @@ def _run_upload_thread(
     user_id: int | None,
 ) -> None:
     """在独立线程中运行 asyncio 事件循环，执行上传任务。"""
-    loop = asyncio.new_event_loop()
+    loop = _new_automation_event_loop()
     asyncio.set_event_loop(loop)
 
     upload_app = UploadApp(
@@ -838,8 +855,9 @@ def _run_upload_thread(
             stopped = bool(_active_uploads.get(task_id, {}).get("stop_requested"))
         repository.finish_task(task_id, "stopped" if stopped else "completed")
     except Exception as e:
-        _log("ERROR", f"运行异常: {e}", task_id)
-        repository.finish_task(task_id, "failed", str(e))
+        detail = _exception_text(e)
+        _log("ERROR", f"运行异常: {detail}", task_id)
+        repository.finish_task(task_id, "failed", detail)
     finally:
         try:
             upload_app.ziniao.exit_client()
@@ -864,7 +882,7 @@ def _run_upload_multi_thread(
     user_id: int | None,
 ) -> None:
     """在独立线程中运行多店铺上传任务。"""
-    loop = asyncio.new_event_loop()
+    loop = _new_automation_event_loop()
     asyncio.set_event_loop(loop)
 
     upload_app = UploadApp(
@@ -907,8 +925,9 @@ def _run_upload_multi_thread(
             stopped = bool(_active_uploads.get(task_id, {}).get("stop_requested"))
         repository.finish_task(task_id, "stopped" if stopped else "completed")
     except Exception as e:
-        _log("ERROR", f"运行异常: {e}", task_id)
-        repository.finish_task(task_id, "failed", str(e))
+        detail = _exception_text(e)
+        _log("ERROR", f"运行异常: {detail}", task_id)
+        repository.finish_task(task_id, "failed", detail)
     finally:
         try:
             upload_app.ziniao.exit_client()

@@ -87,6 +87,9 @@ public class SysUser extends BaseEntity
     /** 角色对象 */
     private List<SysRole> roles;
 
+    /** 角色名称，多个角色使用顿号分隔 */
+    private String roleNames;
+
     /** 角色组 */
     private Long[] roleIds;
 
@@ -280,6 +283,16 @@ public class SysUser extends BaseEntity
         this.roles = roles;
     }
 
+    public String getRoleNames()
+    {
+        return roleNames;
+    }
+
+    public void setRoleNames(String roleNames)
+    {
+        this.roleNames = roleNames;
+    }
+
     public Long[] getRoleIds()
     {
         return roleIds;
@@ -333,6 +346,7 @@ public class SysUser extends BaseEntity
             .append("updateTime", getUpdateTime())
             .append("remark", getRemark())
             .append("dept", getDept())
+            .append("roleNames", getRoleNames())
             .toString();
     }
 }

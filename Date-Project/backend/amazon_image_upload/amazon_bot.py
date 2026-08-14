@@ -105,13 +105,27 @@ class AmazonBot:
 
         logger.info("连接紫鸟浏览器 (CDP端口={})", debugging_port)
 
-        self._pw = await async_playwright().start()
+        try:
 
-        self._browser = await self._pw.chromium.connect_over_cdp(
+            self._pw = await async_playwright().start()
 
-            f"http://127.0.0.1:{debugging_port}"
+            self._browser = await self._pw.chromium.connect_over_cdp(
 
-        )
+                f"http://127.0.0.1:{debugging_port}"
+
+            )
+
+        except BaseException:
+
+            if self._pw:
+
+                await self._pw.stop()
+
+            self._pw = None
+
+            self._browser = None
+
+            raise
 
         self._context = self._browser.contexts[0] if self._browser.contexts else await self._browser.new_context()
 
@@ -134,6 +148,14 @@ class AmazonBot:
         if self._pw:
 
             await self._pw.stop()
+
+        self._browser = None
+
+        self._pw = None
+
+        self._context = None
+
+        self._page = None
 
         logger.info("已断开紫鸟浏览器连接")
 

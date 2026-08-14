@@ -138,7 +138,7 @@ try {
 
     $backendProcess = Start-Process `
         -FilePath $pythonExe `
-        -ArgumentList @('-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', "$backendPort", '--reload') `
+        -ArgumentList @('-u', '-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', "$backendPort") `
         -WorkingDirectory $projectRoot `
         -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $runtimeDir 'backend.log') `

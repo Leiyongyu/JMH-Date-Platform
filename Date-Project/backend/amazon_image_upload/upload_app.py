@@ -24,6 +24,11 @@ LogCallback = Callable[[str], None]
 ProgressCallback = Callable[[int, int, str], None]  # done_sku, total_sku, msg
 
 
+def _exception_text(exc: BaseException) -> str:
+    detail = str(exc).strip()
+    return detail or f"{type(exc).__name__}: {exc!r}"
+
+
 class UploadApp:
     """主调度器。"""
 
@@ -177,16 +182,17 @@ class UploadApp:
         # 2. 启动紫鸟浏览器 + 店铺
         debug_port = self._start_ziniao_browser()
         if debug_port is None:
-            self._log("紫鸟浏览器启动失败，任务终止")
-            return
+            raise RuntimeError("紫鸟浏览器启动失败，任务终止")
 
         # 3. 连接浏览器
         try:
             await self.bot.start(debug_port)
         except Exception as e:
-            self._log(f"连接紫鸟浏览器失败: {e}")
+            detail = _exception_text(e)
+            self._log(f"连接紫鸟浏览器失败: {detail}")
+            await self.bot.close()
             self._stop_ziniao_browser()
-            return
+            raise RuntimeError(f"连接紫鸟浏览器失败: {detail}") from e
 
         try:
             for i, sku in enumerate(skus, 1):
@@ -242,6 +248,8 @@ class UploadApp:
         domain = marketplace["domain"]
 
         total_shops = len(shop_tasks)
+        browser_attempts = 0
+        browser_connections = 0
         self._log(f"========== 多店铺上传开始，共 {total_shops} 个店铺 ==========")
 
         for shop_idx, shop_task in enumerate(shop_tasks, 1):
@@ -282,6 +290,7 @@ class UploadApp:
                 continue
 
             # 2. 设置店铺ID并启动紫鸟
+            browser_attempts += 1
             self.set_shop_id(shop_id)
             debug_port = self._start_ziniao_browser()
             if debug_port is None:
@@ -292,9 +301,12 @@ class UploadApp:
             try:
                 await self.bot.start(debug_port)
             except Exception as e:
-                self._log(f"连接紫鸟浏览器失败: {e}")
+                detail = _exception_text(e)
+                self._log(f"连接紫鸟浏览器失败: {detail}")
+                await self.bot.close()
                 self._stop_ziniao_browser()
                 continue
+            browser_connections += 1
 
             # 4. 循环上传该店铺的所有 SKU
             completed = self._load_progress()
@@ -363,6 +375,8 @@ class UploadApp:
                 await asyncio.sleep(wait)
 
         self._log(f"========== 全部店铺上传结束 ==========")
+        if browser_attempts > 0 and browser_connections == 0:
+            raise RuntimeError("所有店铺均未能连接紫鸟浏览器，请查看任务错误日志")
 
     async def _upload_one(
         self,

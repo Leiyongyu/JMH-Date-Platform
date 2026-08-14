@@ -120,7 +120,7 @@ def release_executor(task_id: int) -> None:
                 """
                 UPDATE amazon_image_upload_executor
                 SET active_task_id=NULL, claimed_at=NULL
-                WHERE executor_id=1 AND active_task_id=%s
+                WHERE active_task_id=%s
                 """,
                 (task_id,),
             )
