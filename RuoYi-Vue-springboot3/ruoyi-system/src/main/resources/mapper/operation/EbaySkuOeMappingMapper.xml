@@ -36,6 +36,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <foreach collection="list" item="item" separator=",">
             (#{item.sku}, #{item.oe}, #{item.oeIndex}, #{item.sourceFileName})
         </foreach>
+        ON DUPLICATE KEY UPDATE
+            oe_index = LEAST(oe_index, VALUES(oe_index)),
+            source_file_name = VALUES(source_file_name)
     </insert>
 
     <select id="selectBySkus" resultMap="EbaySkuOeMappingResult">

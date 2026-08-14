@@ -17,6 +17,13 @@ endlocal & exit /b %RESTART_EXIT_CODE%
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+# 某些终端会同时注入大小写不同的 Path/PATH。Windows PowerShell 的
+# Start-Process 会把它们视为重复字典键并拒绝启动子进程，先在当前脚本
+# 进程内合并为一个键；不会修改用户或系统环境变量。
+$normalizedProcessPath = [Environment]::GetEnvironmentVariable('PATH', 'Process')
+[Environment]::SetEnvironmentVariable('PATH', $null, 'Process')
+[Environment]::SetEnvironmentVariable('Path', $normalizedProcessPath, 'Process')
+
 $scriptPath = $env:DATE_PROJECT_RESTART_SCRIPT
 $projectRoot = Split-Path -Parent $scriptPath
 $runtimeDir = Join-Path $projectRoot '.run'

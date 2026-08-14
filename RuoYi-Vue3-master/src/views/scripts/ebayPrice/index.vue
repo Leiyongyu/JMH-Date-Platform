@@ -48,7 +48,7 @@
           <ul>
             <li><b>一列表：</b>A1 为“OE号”，从 A2 开始每行一个 OE。</li>
             <li><b>两列表：</b>A1 为“SKU”、B1 为“OE号”，数据顺序固定为 A列SKU、B列OE。</li>
-            <li>有 SKU 时优先查询 SKU-OE 对照表，同一 SKU 有多个 OE 时取排序第一的 OE；SKU 无映射时回退使用该行 B 列 OE。</li>
+            <li>有 SKU 时优先查询 SKU-OE 对照表；同一 SKU 有多个 OE 时，每次任务随机取其中一个；SKU 无映射时回退使用该行 B 列 OE。</li>
             <li>支持 .xlsx、.xlsm、.xls；单批最多 2000 个不同 SKU 或查询 OE，空白行会自动忽略。</li>
             <li>重复 OE 只查询一次，并在任务概览中提示数量。</li>
             <li>单个 OE 查询失败不会影响其他 OE，可在审核时单独重试。</li>
@@ -115,8 +115,8 @@
               maxlength="100000"
               resize="vertical"
               :placeholder="manualInputType === 'sku'
-                ? '输入SKU，多个使用逗号或换行分隔。系统将从SKU-OE映射表取第一个OE。'
-                : '输入OE号，多个使用逗号或换行分隔。'"
+                ? '输入SKU，多个使用分号、逗号或换行分隔。系统将从SKU-OE映射表随机取一个OE。'
+                : '输入OE号，多个使用分号、逗号或换行分隔。'"
             />
             <p v-if="manualInputType === 'sku'">SKU 未建立映射时会明确提示，请先导入 SKU-OE 对照表。</p>
             <el-button
@@ -393,7 +393,8 @@
       <div class="mapping-import-dialog">
         <el-alert type="info" :closable="false" show-icon>
           <template #title>按 SKU 增量覆盖，不会清空整张映射表</template>
-          <p>Excel 表头必须包含 <b>sku</b> 和 <b>oe</b> 两列；一个 SKU 的多个 OE 可使用英文逗号、中文逗号或换行分隔。</p>
+          <p>Excel 表头必须包含 <b>sku</b> 和 <b>oe</b> 两列；一个 SKU 的多个 OE 可使用英文分号 <b>;</b>、中文分号 <b>；</b>、逗号或换行分隔。</p>
+          <p>系统会把每个 OE 拆成独立映射保存；查询 SKU 时会随机取该 SKU 的一个 OE。</p>
           <p>文件中出现的 SKU 会删除旧 OE 后重建；文件中没有出现的 SKU 保持不变。</p>
         </el-alert>
 
@@ -420,6 +421,8 @@
           <div><span>新增 SKU</span><strong>{{ mappingImportResult.createdSkus || 0 }}</strong></div>
           <div><span>覆盖 SKU</span><strong>{{ mappingImportResult.updatedSkus || 0 }}</strong></div>
           <div><span>写入映射</span><strong>{{ mappingImportResult.insertedMappings || 0 }}</strong></div>
+          <div><span>多OE SKU</span><strong>{{ mappingImportResult.multiOeSkus || 0 }}</strong></div>
+          <div><span>单SKU最多OE</span><strong>{{ mappingImportResult.maxOesPerSku || 0 }}</strong></div>
           <div><span>跳过行</span><strong>{{ mappingImportResult.skippedRows || 0 }}</strong></div>
         </div>
       </div>
@@ -990,7 +993,7 @@ function normalizeIds(values) {
 
 function splitManualKeywords(value) {
   const unique = new Map()
-  String(value || '').split(/[\r\n,，]+/).forEach(item => {
+  String(value || '').split(/[\r\n,，;；]+/).forEach(item => {
     const normalized = item.trim()
     if (normalized) unique.set(normalized.toUpperCase(), normalized)
   })

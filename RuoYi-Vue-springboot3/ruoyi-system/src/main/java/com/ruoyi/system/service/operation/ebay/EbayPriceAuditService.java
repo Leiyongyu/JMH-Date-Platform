@@ -37,9 +37,7 @@ import com.ruoyi.system.domain.operation.ebay.EbayPriceAuditOe;
 import com.ruoyi.system.domain.operation.ebay.EbayPriceAuditReviewRequest;
 import com.ruoyi.system.domain.operation.ebay.EbayPriceAuditTask;
 import com.ruoyi.system.domain.operation.ebay.EbayPriceSearchRequest;
-import com.ruoyi.system.domain.operation.ebay.EbaySkuOeMapping;
 import com.ruoyi.system.mapper.operation.EbayPriceAuditMapper;
-import com.ruoyi.system.mapper.operation.EbaySkuOeMappingMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,7 +53,6 @@ public class EbayPriceAuditService
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
 
     private final EbayPriceAuditMapper mapper;
-    private final EbaySkuOeMappingMapper skuOeMappingMapper;
     private final EbayPriceService priceService;
     private final EbayProperties properties;
     private final ObjectMapper objectMapper;
@@ -64,13 +61,11 @@ public class EbayPriceAuditService
     private final Set<Long> runningTaskIds = ConcurrentHashMap.newKeySet();
 
     public EbayPriceAuditService(EbayPriceAuditMapper mapper,
-            EbaySkuOeMappingMapper skuOeMappingMapper, EbayPriceService priceService,
-            EbayProperties properties, ObjectMapper objectMapper,
+            EbayPriceService priceService, EbayProperties properties, ObjectMapper objectMapper,
             @Qualifier("ebaySearchExecutor") ThreadPoolTaskExecutor searchExecutor,
             @Qualifier("ebayAuditExecutor") ThreadPoolTaskExecutor auditExecutor)
     {
         this.mapper = mapper;
-        this.skuOeMappingMapper = skuOeMappingMapper;
         this.priceService = priceService;
         this.properties = properties;
         this.objectMapper = objectMapper;
@@ -131,7 +126,7 @@ public class EbayPriceAuditService
         List<String> inputs = EbayPriceService.normalizeKeywords(request.getKeywords());
         if (inputs.isEmpty())
         {
-            throw new ServiceException("请输入至少一个SKU或OE号，多个值使用逗号或换行分隔");
+            throw new ServiceException("请输入至少一个SKU或OE号，多个值使用分号、逗号或换行分隔");
         }
         int maxOes = Math.max(1, properties.getAuditMaxOes());
         if (inputs.size() > maxOes)
@@ -158,11 +153,11 @@ public class EbayPriceAuditService
                     throw new ServiceException("SKU超过255个字符：" + sku);
                 }
             }
-            Map<String, String> firstOeBySku = loadFirstOeBySku(inputs);
+            Map<String, String> randomOeBySku = priceService.loadRandomOeBySku(inputs);
             List<String> missing = new ArrayList<>();
             for (String sku : inputs)
             {
-                String oe = firstOeBySku.get(normalizedKey(sku));
+                String oe = randomOeBySku.get(normalizedKey(sku));
                 if (oe == null || oe.isBlank())
                 {
                     missing.add(sku);
@@ -618,9 +613,9 @@ public class EbayPriceAuditService
                     skuValues.putIfAbsent(key, row.sku());
                 }
             }
-            Map<String, String> firstOeBySku = skuKeys.isEmpty()
+            Map<String, String> randomOeBySku = skuKeys.isEmpty()
                     ? Map.of()
-                    : loadFirstOeBySku(skuKeys.stream().map(skuValues::get).toList());
+                    : priceService.loadRandomOeBySku(skuKeys.stream().map(skuValues::get).toList());
 
             LinkedHashMap<String, String> unique = new LinkedHashMap<>();
             List<String> unresolvedRows = new ArrayList<>();
@@ -630,7 +625,7 @@ public class EbayPriceAuditService
                 String oe = row.oe();
                 if (!row.sku().isBlank())
                 {
-                    String mappedOe = firstOeBySku.get(normalizedKey(row.sku()));
+                    String mappedOe = randomOeBySku.get(normalizedKey(row.sku()));
                     if (mappedOe != null && !mappedOe.isBlank())
                     {
                         oe = mappedOe;
@@ -704,25 +699,6 @@ public class EbayPriceAuditService
     private static String normalizedKey(String value)
     {
         return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private Map<String, String> loadFirstOeBySku(List<String> skus)
-    {
-        LinkedHashMap<String, String> result = new LinkedHashMap<>();
-        final int chunkSize = 500;
-        for (int start = 0; start < skus.size(); start += chunkSize)
-        {
-            List<String> chunk = skus.subList(start, Math.min(start + chunkSize, skus.size()));
-            for (EbaySkuOeMapping mapping : skuOeMappingMapper.selectBySkus(chunk))
-            {
-                if (mapping.getSku() != null && mapping.getOe() != null
-                        && !mapping.getOe().isBlank())
-                {
-                    result.putIfAbsent(normalizedKey(mapping.getSku()), mapping.getOe().trim());
-                }
-            }
-        }
-        return result;
     }
 
     private static List<String> uniqueOes(List<String> values)

@@ -382,6 +382,27 @@ def _connect(database: str | None = None) -> Connection:
     )
 
 
+def _ensure_amazon_image_upload_columns(cursor) -> None:
+    """兼容已经执行过旧版 Amazon 主图迁移的数据库。"""
+    cursor.execute("SHOW TABLES LIKE 'amazon_image_upload_task'")
+    if cursor.fetchone() is None:
+        return
+    cursor.execute("SHOW COLUMNS FROM amazon_image_upload_task")
+    columns = {row["Field"] for row in cursor.fetchall()}
+    if "executor_slot" not in columns:
+        cursor.execute(
+            "ALTER TABLE amazon_image_upload_task "
+            "ADD COLUMN executor_slot TINYINT NULL "
+            "COMMENT '本机紫鸟执行器槽位1-5' AFTER payload_json"
+        )
+    if "automation_port" not in columns:
+        cursor.execute(
+            "ALTER TABLE amazon_image_upload_task "
+            "ADD COLUMN automation_port INT NULL "
+            "COMMENT '本次任务使用的紫鸟HTTP端口' AFTER executor_slot"
+        )
+
+
 def init_database() -> None:
     database_name = settings.mysql_database.replace("`", "``")
     connection = _connect()
@@ -413,6 +434,7 @@ def init_database() -> None:
             for statement in schema.split(";"):
                 if statement.strip():
                     cursor.execute(statement)
+            _ensure_amazon_image_upload_columns(cursor)
             _ensure_customs_declaration_columns(cursor)
             _ensure_export_detail_columns(cursor)
             _ensure_purchase_invoice_summary_indexes(cursor)

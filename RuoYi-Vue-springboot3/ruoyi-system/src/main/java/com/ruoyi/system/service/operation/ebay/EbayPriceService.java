@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -92,14 +93,14 @@ public class EbayPriceService
         }
         else
         {
-            Map<String, List<String>> databaseMappings = loadMappings(keywords);
+            Map<String, String> databaseMappings = loadRandomOeBySku(keywords);
             for (String keyword : keywords)
             {
-                List<String> oes = databaseMappings.get(key(keyword));
-                if (oes != null && !oes.isEmpty())
+                String oe = databaseMappings.get(key(keyword));
+                if (oe != null && !oe.isBlank())
                 {
-                    skuMapping.put(keyword, oes);
-                    oeList.addAll(oes);
+                    skuMapping.put(keyword, List.of(oe));
+                    oeList.add(oe);
                 }
                 else if ("sku".equals(inputType))
                 {
@@ -389,12 +390,36 @@ public class EbayPriceService
         return item;
     }
 
+    Map<String, String> loadRandomOeBySku(List<String> skus)
+    {
+        LinkedHashMap<String, String> selected = new LinkedHashMap<>();
+        for (Map.Entry<String, List<String>> entry : loadMappings(skus).entrySet())
+        {
+            List<String> oes = entry.getValue();
+            if (!oes.isEmpty())
+            {
+                selected.put(entry.getKey(), oes.get(ThreadLocalRandom.current().nextInt(oes.size())));
+            }
+        }
+        return selected;
+    }
+
     private Map<String, List<String>> loadMappings(List<String> keywords)
     {
         LinkedHashMap<String, List<String>> result = new LinkedHashMap<>();
-        for (EbaySkuOeMapping mapping : mapper.selectBySkus(keywords))
+        final int chunkSize = 500;
+        for (int start = 0; start < keywords.size(); start += chunkSize)
         {
-            result.computeIfAbsent(key(mapping.getSku()), ignored -> new ArrayList<>()).add(mapping.getOe());
+            List<String> chunk = keywords.subList(start, Math.min(start + chunkSize, keywords.size()));
+            for (EbaySkuOeMapping mapping : mapper.selectBySkus(chunk))
+            {
+                if (mapping.getSku() != null && mapping.getOe() != null
+                        && !mapping.getOe().isBlank())
+                {
+                    result.computeIfAbsent(key(mapping.getSku()), ignored -> new ArrayList<>())
+                            .add(mapping.getOe().trim());
+                }
+            }
         }
         return result;
     }

@@ -36,6 +36,9 @@ outputs/
 优化文档.md
 .agents/
 docs/
+!Date-Project/docs/
+Date-Project/docs/*
+!Date-Project/docs/Amazon主图批量上传内嵌说明.md
 !RuoYi-Vue-springboot3/docs/
 RuoYi-Vue-springboot3/docs/*
 !RuoYi-Vue-springboot3/docs/OperationAssistant-ERP-Nginx.conf.example

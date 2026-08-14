@@ -31,6 +31,8 @@ public class EbaySkuOeImportService
 {
     private static final int SQL_BATCH_SIZE = 500;
     private static final int MAX_FILE_NAME_LENGTH = 255;
+    private static final int MAX_SKU_LENGTH = 128;
+    private static final int MAX_OE_LENGTH = 128;
 
     private final EbaySkuOeMappingMapper mapper;
 
@@ -40,7 +42,7 @@ public class EbaySkuOeImportService
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> importMappings(MultipartFile file)
+    public synchronized Map<String, Object> importMappings(MultipartFile file)
     {
         checkFile(file);
         ParsedWorkbook parsed = parse(file);
@@ -98,6 +100,18 @@ public class EbaySkuOeImportService
         result.put("createdSkus", skus.size() - updated);
         result.put("updatedSkus", updated);
         result.put("insertedMappings", rows.size());
+        int multiOeSkus = 0;
+        int maxOesPerSku = 0;
+        for (SkuOes entry : parsed.skuToOes.values())
+        {
+            if (entry.oes.size() > 1)
+            {
+                multiOeSkus++;
+            }
+            maxOesPerSku = Math.max(maxOesPerSku, entry.oes.size());
+        }
+        result.put("multiOeSkus", multiOeSkus);
+        result.put("maxOesPerSku", maxOesPerSku);
         result.put("skippedRows", parsed.skippedRows);
         return result;
     }
@@ -152,6 +166,19 @@ public class EbaySkuOeImportService
                     skippedRows++;
                     continue;
                 }
+                if (sku.length() > MAX_SKU_LENGTH)
+                {
+                    throw new ServiceException("Excel第 " + (rowIndex + 1)
+                            + " 行SKU超过" + MAX_SKU_LENGTH + "个字符");
+                }
+                for (String oe : oes)
+                {
+                    if (oe.length() > MAX_OE_LENGTH)
+                    {
+                        throw new ServiceException("Excel第 " + (rowIndex + 1)
+                                + " 行拆分后的OE超过" + MAX_OE_LENGTH + "个字符：" + oe);
+                    }
+                }
                 SkuOes entry = values.computeIfAbsent(key(sku), ignored -> new SkuOes(sku));
                 entry.addAll(oes);
             }
@@ -200,7 +227,9 @@ public class EbaySkuOeImportService
         LinkedHashMap<String, String> unique = new LinkedHashMap<>();
         if (value != null)
         {
-            for (String part : value.split("[\\r\\n,，]+"))
+            // Excel 映射表实际主要使用英文分号；同时兼容中文分号、逗号和换行。
+            // 每个拆分结果单独存一行，避免把整串OE写入 varchar(128)。
+            for (String part : value.split("[\\r\\n,，;；]+"))
             {
                 String normalized = part.trim();
                 if (!normalized.isEmpty())
