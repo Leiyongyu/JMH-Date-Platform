@@ -16,7 +16,11 @@ from pathlib import Path
 from uuid import uuid4
 from urllib.parse import quote, unquote
 
-from backend.image_sop.security import client_is_internal, sanitize_health
+from backend.image_sop.security import (
+    browser_request_is_same_origin,
+    client_is_internal,
+    sanitize_health,
+)
 
 import httpx as _httpx_for_dl
 from bs4 import BeautifulSoup
@@ -247,8 +251,16 @@ class ImageSopInternalAccessMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         configured = platform_settings.python_internal_api_token
         provided = request.headers.get("X-Internal-Token", "")
+        direct_browser = browser_request_is_same_origin(
+            request.headers.get("host", ""),
+            request.headers.get("referer", ""),
+            request.headers.get("sec-fetch-site", ""),
+        )
         if configured:
-            if not provided or not secrets.compare_digest(provided, configured):
+            token_valid = bool(provided) and secrets.compare_digest(
+                provided, configured
+            )
+            if not token_valid and not direct_browser:
                 return Response(
                     content='{"code":401,"message":"内部接口令牌无效","data":null,"request_id":""}',
                     status_code=401,
@@ -256,7 +268,10 @@ class ImageSopInternalAccessMiddleware(BaseHTTPMiddleware):
                 )
         else:
             client_host = request.client.host if request.client else ""
-            if client_host not in {"127.0.0.1", "::1", "localhost", "testclient"}:
+            if (
+                client_host not in {"127.0.0.1", "::1", "localhost", "testclient"}
+                and not direct_browser
+            ):
                 return Response(
                     content='{"code":403,"message":"未配置内部接口令牌时，仅允许本机访问","data":null,"request_id":""}',
                     status_code=403,

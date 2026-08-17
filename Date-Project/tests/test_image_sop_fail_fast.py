@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from backend.image_sop.config import Settings
+from backend.image_sop.security import browser_request_is_same_origin
 from backend.image_sop.services.excel_service import ExcelService
 from backend.image_sop.services.lingxing_service import LingxingService
 
@@ -89,3 +90,19 @@ def test_nas_likely_main_only_in_design_dept() -> None:
     assert not Nas._is_likely_main_image("7.jpg", month)
     assert not Nas._is_likely_main_image("白底.jpg", design)
     assert Nas._is_white_bg_image("白底.jpg")
+
+
+def test_direct_image_sop_page_can_call_same_origin_python_api() -> None:
+    assert browser_request_is_same_origin(
+        "192.168.1.20:8010",
+        "http://192.168.1.20:8010/image-sop/",
+        "same-origin",
+    )
+
+
+def test_direct_image_sop_api_rejects_cross_origin_page() -> None:
+    assert not browser_request_is_same_origin(
+        "192.168.1.20:8010",
+        "http://other-host/image-sop/",
+        "cross-site",
+    )

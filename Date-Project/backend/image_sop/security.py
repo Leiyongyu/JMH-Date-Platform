@@ -4,6 +4,10 @@ Compatible with Python 3.6+ (replenishment runs on 3.6.8).
 """
 
 from typing import Any, Dict, List, Optional
+try:
+    from urllib.parse import urlsplit
+except ImportError:  # pragma: no cover - Python 2 compatibility fallback
+    from urlparse import urlsplit
 
 INTERNAL_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
@@ -14,6 +18,23 @@ def client_is_internal(client_host, forwarded_for=""):
         return True
     first = (forwarded_for or "").split(",")[0].strip()
     return first in INTERNAL_HOSTS
+
+
+def browser_request_is_same_origin(host, referer, sec_fetch_site=""):
+    # type: (str, str, str) -> bool
+    """Allow the directly served Image SOP page to call its own Python APIs."""
+    if (sec_fetch_site or "").strip().lower() not in {"", "same-origin"}:
+        return False
+    try:
+        parsed = urlsplit((referer or "").strip())
+    except (TypeError, ValueError):
+        return False
+    if not parsed.scheme or not parsed.netloc:
+        return False
+    if parsed.netloc.lower() != (host or "").strip().lower():
+        return False
+    path = parsed.path.rstrip("/")
+    return path == "/image-sop" or path.startswith("/image-sop/")
 
 
 def sanitize_health(payload):

@@ -8,7 +8,10 @@
       </div>
     </div>
 
-    <div class="config-bar">
+    <div
+      v-hasPermi="['sop:amazonImageUpload:use']"
+      class="config-bar"
+    >
       <div class="config-summary">
         <div class="config-status-icon" :class="configStatus.ready ? 'is-ready' : 'is-warning'">
           <el-icon><Lock /></el-icon>
@@ -34,7 +37,35 @@
     </div>
 
     <div class="tool-grid">
-      <div class="tool-card">
+      <div
+        v-hasPermi="['sop:imageSop:use']"
+        class="tool-card image-sop-tool"
+      >
+        <div class="tool-icon image-sop-icon">
+          <el-icon><MagicStick /></el-icon>
+        </div>
+        <div class="tool-content">
+          <h3>图片 SOP</h3>
+          <p>根据领星或 eBay 商品信息生成图片需求，匹配 NAS 图片并导出标准 Excel。</p>
+          <div class="tool-tags">
+            <el-tag size="small" type="primary">Python 直连</el-tag>
+            <el-tag size="small" type="success">新窗口打开</el-tag>
+          </div>
+        </div>
+        <el-button
+          v-hasPermi="['sop:imageSop:use']"
+          type="primary"
+          @click="openImageSop"
+        >
+          <el-icon><TopRight /></el-icon>
+          打开工具
+        </el-button>
+      </div>
+
+      <div
+        v-hasPermi="['sop:amazonImageUpload:use']"
+        class="tool-card"
+      >
         <div class="tool-icon">
           <el-icon><PictureFilled /></el-icon>
         </div>
@@ -146,7 +177,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Lock, PictureFilled, Setting, TopRight } from '@element-plus/icons-vue'
+import { Lock, MagicStick, PictureFilled, Setting, TopRight } from '@element-plus/icons-vue'
 import {
   clearAmazonImageUploadPassword,
   createAmazonImageUploadSession,
@@ -222,6 +253,23 @@ const configRules = {
 function proxyBase() {
   const baseApi = String(import.meta.env.VITE_APP_BASE_API || '').replace(/\/$/, '')
   return `${baseApi}/sop/script-tools/amazon-image-upload/proxy`
+}
+
+function directImageSopUrl() {
+  const configured = String(import.meta.env.VITE_IMAGE_SOP_URL || '').trim()
+  if (configured) return configured
+  const host = window.location.hostname || '127.0.0.1'
+  return `http://${host}:8010/image-sop/`
+}
+
+function openImageSop() {
+  const toolWindow = window.open('about:blank', '_blank')
+  if (!toolWindow) {
+    ElMessage.warning('浏览器阻止了新窗口，请允许本站弹出窗口后重试')
+    return
+  }
+  toolWindow.opener = null
+  toolWindow.location.replace(directImageSopUrl())
 }
 
 async function openAmazonImageUpload() {
@@ -432,6 +480,10 @@ h2 { margin: 0; color: #172033; font-size: 24px; }
   color: #fff;
   font-size: 26px;
   background: linear-gradient(135deg, #2563eb, #7c3aed);
+}
+
+.image-sop-icon {
+  background: linear-gradient(135deg, #0891b2, #4f46e5);
 }
 
 .tool-content h3 { margin: 2px 0 8px; color: #1e293b; font-size: 18px; }
