@@ -272,6 +272,7 @@ flowchart LR
 - Java 按 Controller / Service / Mapper / Domain 分层，核心计算与第三方客户端独立封装。
 - Python 按 API / Service / Repository / Integration / Schema 分层，领域接口使用独立适配器。
 - 页面、接口、权限标识和 SQL 菜单脚本保持一致，支持功能按模块部署。
+- 所有新建 MySQL 表必须填写中文表注释，每个字段（包括主键、技术字段和原始接口字段）必须填写明确的中文字段注释；接口字段优先采用官方接口文档中的中文定义。
 - 配置通过环境变量注入，同一套代码可适配本地、测试和生产环境。
 
 ## 项目结构

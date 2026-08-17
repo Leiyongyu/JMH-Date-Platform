@@ -264,49 +264,6 @@ class LingxingService:
         payload = {"store_id": int(store_id), "skus": cleaned_skus}
         return await self._post_json(self.settings.lingxing_amazon_product_search_path, payload)
 
-    async def batch_assign_listing_principal(
-        self, sid_asin_list: list[dict[str, Any]]
-    ) -> dict[str, Any]:
-        if not sid_asin_list:
-            raise ValueError("sid_asin_list 不能为空")
-        if len(sid_asin_list) > 200:
-            raise ValueError("sid_asin_list 最多支持 200 条")
-
-        cleaned: list[dict[str, Any]] = []
-        for index, item in enumerate(sid_asin_list):
-            sid = int(item.get("sid", 0))
-            asin = str(item.get("asin", "")).strip()
-            principals = item.get("principal_name", [])
-            if sid <= 0:
-                raise ValueError(f"第{index + 1}条 sid 必须是正整数")
-            if not asin:
-                raise ValueError(f"第{index + 1}条 asin 不能为空")
-            if principals is None:
-                principals = []
-            if not isinstance(principals, list):
-                raise ValueError(f"第{index + 1}条 principal_name 必须是数组")
-            cleaned.append(
-                {
-                    "sid": sid,
-                    "asin": asin,
-                    "principal_name": [str(v).strip() for v in principals if str(v).strip()],
-                }
-            )
-
-        if self.settings.lingxing_use_mock:
-            total = len(cleaned)
-            return {
-                "code": 0,
-                "message": "success",
-                "error_details": [],
-                "data": {"total": total, "success": total, "error": 0},
-                "request_id": "mock-request-id",
-                "response_time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-            }
-
-        payload = {"sid_asin_list": cleaned}
-        return await self._post_json(self.settings.lingxing_update_principal_path, payload)
-
     async def _fetch_real_listing(self, sku: str, sid: int | None = None) -> ListingData:
         if not self.settings.lingxing_api_base:
             raise ValueError("领星配置缺失，请设置 LINGXING_API_BASE")
@@ -636,10 +593,10 @@ class LingxingService:
         return False
 
     def _resolve_store_id(self, sid: int | None = None) -> int:
-        if self.settings.lingxing_publish_store_id > 0:
-            return int(self.settings.lingxing_publish_store_id)
         if sid is not None and sid > 0:
             return int(sid)
+        if self.settings.lingxing_publish_store_id > 0:
+            return int(self.settings.lingxing_publish_store_id)
         if self.settings.lingxing_default_sid > 0:
             return int(self.settings.lingxing_default_sid)
         return 0

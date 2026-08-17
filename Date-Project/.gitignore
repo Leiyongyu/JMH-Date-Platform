@@ -18,6 +18,7 @@ frontend/dist/
 exports/
 tmp/
 .run/
+_composites/
 *.log
 *.pid
 

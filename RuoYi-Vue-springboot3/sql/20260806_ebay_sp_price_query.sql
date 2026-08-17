@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS dim_ebay_sku_oe_mapping (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
     sku VARCHAR(128) NOT NULL COMMENT 'SKU；导入文件中出现的SKU按整组覆盖更新',
-    oe VARCHAR(128) NOT NULL COMMENT 'OE号；同一SKU允许对应多个OE',
+    oe VARCHAR(128) NOT NULL COMMENT '单个OE号；同一SKU的多个OE分别存为多行',
     oe_index INT NOT NULL DEFAULT 1 COMMENT '同一SKU下OE展示顺序',
     source_file_name VARCHAR(255) NULL COMMENT '最近一次导入来源文件名',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',

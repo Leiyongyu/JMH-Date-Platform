@@ -100,6 +100,48 @@ public class PerformancePythonClient extends PythonHttpSupport
                 Map.of("limit", limit), requestId);
     }
 
+    public Map<String, Object> monthlyInventoryReportMonths(
+            int limit, String requestId)
+    {
+        return get("/monthly-inventory-report/months",
+                Map.of("limit", limit), requestId);
+    }
+
+    public Map<String, Object> monthlyInventoryReportSummary(
+            String statMonth, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("stat_month", statMonth);
+        return get("/monthly-inventory-report/summary", params, requestId);
+    }
+
+    public Map<String, Object> monthlyInventoryReportDetails(
+            Map<String, ?> params, String requestId)
+    {
+        return get("/monthly-inventory-report/details", params, requestId);
+    }
+
+    public Map<String, Object> rebuildMonthlyInventoryReport(
+            String statMonth, String requestId)
+    {
+        try
+        {
+            String json = objectMapper.writeValueAsString(
+                    Map.of("stat_month", statMonth));
+            HttpRequest request = baseRequest(
+                    "/monthly-inventory-report/rebuilds", requestId)
+                    .header("Content-Type", "application/json;charset=utf-8")
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            json, StandardCharsets.UTF_8))
+                    .build();
+            return sendJson(request, false);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
     public Map<String, Object> amzSopAfterSalesSummary(
             Map<String, ?> params, String requestId)
     {

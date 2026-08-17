@@ -50,6 +50,8 @@ PATTERN_SCORES = {
 MIN_SCORE_IF_BETTER_EXISTS = 35
 MIN_SCORE_WHEN_STRONG_MATCH = 50
 STRONG_MATCH_SCORE = 60
+LIKELY_MAIN_NAME_RE = re.compile(r"^\d{1,2}(?:\s*拷贝)?\.(?:jpe?g|png|webp)$", re.I)
+RAW_FILE_EXTS = {".tif", ".tiff", ".cr2", ".nef", ".arw", ".dng"}
 _top_dir_cache: dict[str, tuple[float, list[dict]]] = {}
 _top_dir_cache_lock = threading.Lock()
 # ---- 路径编码修复 ----
@@ -87,6 +89,7 @@ class NasSkuMatch:
     images: list[NasImageFile] = field(default_factory=list)
     match_score: float = 0.0
     matched_patterns: list[str] = field(default_factory=list)
+    has_raw: bool = False
 
 
 @dataclass
@@ -499,16 +502,16 @@ class NasImageService:
             folder_path = folder.get("path", "")
             month_dir = folder.get("month_dir", top_name)
             try:
-                image_files = self._collect_images_from_folder(folder_path, folder_name)
+                image_files, has_raw = self._collect_images_from_folder(folder_path, folder_name)
             except Exception as exc:
                 logger.warning("收集图片失败 %s: %s", folder_path, exc)
                 continue
-            if not image_files:
+            if not image_files and not has_raw:
                 continue
             white_bg_count = sum(
                 1 for img in image_files if self._is_white_bg_image(img.name)
             )
-            white_bg_ratio = white_bg_count / len(image_files)
+            white_bg_ratio = (white_bg_count / len(image_files)) if image_files else 0
             final_score = score + white_bg_ratio * 20
             matches.append(
                 NasSkuMatch(
@@ -518,6 +521,7 @@ class NasImageService:
                     images=image_files,
                     match_score=round(final_score, 1),
                     matched_patterns=matched_pats,
+                    has_raw=has_raw,
                 )
             )
         return matches
@@ -537,6 +541,36 @@ class NasImageService:
         return [m for m in matches if m.match_score >= min_score]
 
     @staticmethod
+    def _is_raw_dir(name: str) -> bool:
+        text = (name or "").strip()
+        lowered = text.lower()
+        if not lowered:
+            return False
+        if lowered in {"raw", "original", "orig"}:
+            return True
+        return "raw" in lowered or "原始" in text
+
+    @staticmethod
+    def _is_refined_dir(name: str) -> bool:
+        text = (name or "").strip().lower()
+        if not text or NasImageService._is_raw_dir(name):
+            return False
+        return any(token in text for token in ("jpg", "jpeg", "白底", "精修"))
+
+    @staticmethod
+    def _is_raw_file(name: str) -> bool:
+        return Path(name or "").suffix.lower() in RAW_FILE_EXTS
+
+    @classmethod
+    def _is_likely_main_image(cls, name: str, folder_path: str = "") -> bool:
+        if cls._is_white_bg_image(name) or cls._is_raw_file(name):
+            return False
+        if not LIKELY_MAIN_NAME_RE.match((name or "").strip()):
+            return False
+        blob = f"{folder_path}/{name}".replace("\\", "/")
+        return "/设计部/" in f"{blob}/" or blob.endswith("/设计部")
+
+    @staticmethod
     def _is_white_bg_image(name: str) -> bool:
         """判断文件名是否包含白底图/主图关键词（大小写不敏感）"""
         name_lower = name.lower()
@@ -554,18 +588,14 @@ class NasImageService:
         folder_path: str,
         folder_name: str,
         max_depth: int | None = None,
-    ) -> list[NasImageFile]:
-        """
-        收集指定文件夹内的图片文件，并可递归搜索子文件夹。
-
-        设计部等目录经常把白底图放在 SKU 文件夹下的子目录中（如 jpg/、
-        白底图/），因此需要往下探多级，避免漏掉白底图。
-        全部分页遍历，防止文件夹图片过多时遗漏。
-        """
+        allow_bonus: bool = True,
+    ) -> tuple[list[NasImageFile], bool]:
+        """收集指定文件夹内的图片；RAW 目录不深入，jpg/白底/精修在深度用尽后可再探一层。"""
         if max_depth is None:
             max_depth = self.image_collect_depth
         image_files: list[NasImageFile] = []
         seen_paths: set[str] = set()
+        has_raw = False
         offset = 0
         limit = 500
         while True:
@@ -581,12 +611,18 @@ class NasImageService:
                 name_lower = fname.lower()
                 fpath = _fix_nas_path(f.get("path", ""))
                 if f.get("isdir"):
-                    if max_depth > 0:
-                        sub_images = self._collect_images_from_folder(
+                    if self._is_raw_dir(fname):
+                        has_raw = True
+                        continue
+                    bonus = allow_bonus and max_depth <= 0 and self._is_refined_dir(fname)
+                    if max_depth > 0 or bonus:
+                        sub_images, sub_raw = self._collect_images_from_folder(
                             fpath,
                             folder_name,
-                            max_depth=max_depth - 1,
+                            max_depth=max_depth - 1 if max_depth > 0 else 0,
+                            allow_bonus=False if bonus else allow_bonus,
                         )
+                        has_raw = has_raw or sub_raw
                         for img in sub_images:
                             if img.path not in seen_paths:
                                 seen_paths.add(img.path)
@@ -605,7 +641,7 @@ class NasImageService:
             if offset + limit >= total:
                 break
             offset += limit
-        return image_files
+        return image_files, has_raw
 
     def search_by_sku(self, msku: str) -> NasSearchResult:
         """
@@ -798,61 +834,6 @@ class NasImageService:
                     temp_path.unlink()
                 except OSError:
                     pass
-
-    def download_all_for_sku(self, msku: str) -> list[Path]:
-        """
-        搜索 SKU 并下载所有匹配图片到本地缓存。
-        返回本地文件路径列表。
-        """
-        result = self.search_by_sku(msku)
-        paths = []
-        for match in result.matches:
-            for img in match.images:
-                local = self.download_image(img.path)
-                if local:
-                    paths.append(local)
-        return paths
-
-    # ---- 便捷方法 ----
-
-    def get_main_image(self, msku: str) -> Optional[Path]:
-        """获取 SKU 的主图（优先选白底图，其次取文件夹中第一张）"""
-        result = self.search_by_sku(msku)
-        all_images: list[NasImageFile] = []
-        for match in result.matches:
-            all_images.extend(match.images)
-
-        if not all_images:
-            return None
-
-        # 优先找白底图
-        for img in all_images:
-            if self._is_white_bg_image(img.name):
-                logger.info(f"NAS 主图命中白底图: {img.name}")
-                return self.download_image(img.path)
-
-        # 没有白底图，取第一张兜底
-        logger.info(f"NAS 未找到白底图，取首张兜底: {all_images[0].name}")
-        return self.download_image(all_images[0].path)
-
-    def get_detail_images(self, msku: str, limit: int = 6) -> list[Path]:
-        """获取 SKU 的细节图（跳过白底图/主图，最多返回 limit 张）"""
-        result = self.search_by_sku(msku)
-        all_images: list[NasImageFile] = []
-        for match in result.matches:
-            all_images.extend(match.images)
-
-        # 排除白底图/主图，剩下的作为细节图
-        detail_imgs = [img for img in all_images if not self._is_white_bg_image(img.name)]
-        detail_imgs = detail_imgs[:limit]
-
-        paths: list[Path] = []
-        for img in detail_imgs:
-            local = self.download_image(img.path)
-            if local:
-                paths.append(local)
-        logger.info(f"NAS 细节图: {len(all_images)} 张总量, 排除白底后 {len(detail_imgs)} 张, 下载 {len(paths)} 张")
-        return paths
 
     def close(self):
         """关闭连接"""

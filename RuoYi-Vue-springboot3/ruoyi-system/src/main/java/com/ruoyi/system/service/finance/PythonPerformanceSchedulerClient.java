@@ -19,6 +19,8 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
             "amz_monthly_order_profit_sync";
     private static final String CLEARANCE_TASK =
             "amz_fba_inventory_snapshot_sync";
+    private static final String INVENTORY_REPORT_SOURCE_TASK =
+            "monthly_inventory_report_source_sync";
     private static final String AMZ_SOP_TASK =
             "amz_sop_after_sales_chain";
     private static final String SERVICE_NAME = "Python绩效ETL";
@@ -44,6 +46,12 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
             String pullMonth, String requestId)
     {
         return run(CLEARANCE_TASK, pullMonth, requestId);
+    }
+
+    public Map<String, Object> runInventoryReportSources(
+            String statMonth, String requestId)
+    {
+        return run(INVENTORY_REPORT_SOURCE_TASK, statMonth, requestId);
     }
 
     public Map<String, Object> runAmzSop(
@@ -73,7 +81,8 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
                 payload.put("start_date", startDate);
                 payload.put("end_date", endDate);
             }
-            else if (CLEARANCE_TASK.equals(taskCode))
+            else if (CLEARANCE_TASK.equals(taskCode)
+                    || INVENTORY_REPORT_SOURCE_TASK.equals(taskCode))
                 payload.put("pull_month", statMonth);
             else
                 payload.put("stat_month", statMonth);

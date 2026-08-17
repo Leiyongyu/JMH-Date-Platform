@@ -10,6 +10,10 @@ class PerformanceRefreshRequest(BaseModel):
     require_all_platforms: bool = False
 
 
+class InventoryReportRebuildRequest(BaseModel):
+    stat_month: str = Field(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$")
+
+
 class SchedulerRunRequest(BaseModel):
     stat_month: str | None = Field(default=None, pattern=r"^20\d{2}-(0[1-9]|1[0-2])$")
     pull_month: str | None = Field(default=None, pattern=r"^20\d{2}-(0[1-9]|1[0-2])$")

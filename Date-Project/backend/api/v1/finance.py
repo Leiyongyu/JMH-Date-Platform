@@ -8,7 +8,10 @@ from io import BytesIO
 
 from backend.api.deps import require_internal_access
 from backend.api.upload_helpers import read_excel_upload
-from backend.schemas.performance_requests import PerformanceRefreshRequest
+from backend.schemas.performance_requests import (
+    InventoryReportRebuildRequest,
+    PerformanceRefreshRequest,
+)
 from backend.schemas.responses import success_response
 from backend.repositories import clearance_repository as clearance_repo
 from backend.services.performance_service import (
@@ -24,6 +27,12 @@ from backend.services.performance_source_export_service import (
 )
 from backend.services.clearance_service import import_inventory_age_cost
 from backend.services.clearance_export_service import export_inventory_age_details
+from backend.services.inventory_report_etl_service import (
+    get_department_summary,
+    list_details as list_inventory_report_details,
+    list_months as list_inventory_report_months,
+    rebuild_monthly_inventory_report,
+)
 from backend.repositories import amz_sop_repository as amz_sop_repo
 from backend.services.amz_sop_after_sales_service import (
     BIG_CATEGORIES,
@@ -285,6 +294,69 @@ def get_slow_moving_clearance_months(request: Request, limit: int = 24):
     return success_response(
         clearance_repo.months(limit),
         request_id=request.state.request_id,
+    )
+
+
+@router.get("/monthly-inventory-report/months")
+def get_monthly_inventory_report_months(request: Request, limit: int = 24):
+    return success_response(
+        list_inventory_report_months(limit),
+        request_id=request.state.request_id,
+    )
+
+
+@router.get("/monthly-inventory-report/summary")
+def get_monthly_inventory_report_summary(
+    request: Request,
+    stat_month: str | None = Query(None, pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+):
+    return success_response(
+        get_department_summary(stat_month),
+        request_id=request.state.request_id,
+    )
+
+
+@router.get("/monthly-inventory-report/details")
+def get_monthly_inventory_report_details(
+    request: Request,
+    source_type: str = Query(..., pattern="^(fba|overseas|local)$"),
+    stat_month: str | None = Query(None, pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+    department_code: str | None = None,
+    principal_name: str | None = None,
+    keyword: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+):
+    try:
+        data = list_inventory_report_details(
+            source_type,
+            stat_month,
+            department_code,
+            principal_name,
+            keyword,
+            page,
+            page_size,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success_response(data, request_id=request.state.request_id)
+
+
+@router.post("/monthly-inventory-report/rebuilds", status_code=201)
+def post_monthly_inventory_report_rebuild(
+    payload: InventoryReportRebuildRequest,
+    request: Request,
+):
+    try:
+        data = rebuild_monthly_inventory_report(payload.stat_month)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"月度库存报表重建失败: {exc}") from exc
+    return success_response(
+        data,
+        request_id=request.state.request_id,
+        message="monthly inventory report rebuilt",
     )
 
 

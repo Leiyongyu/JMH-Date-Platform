@@ -29,13 +29,10 @@ _BACKUP_USER_AGENTS = [
 
 SUPPORTED_IMG_EXT = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif"}
 
-BING_SEARCH_URL = "https://www.bing.com/images/search"
 BAIDU_JSON_URL = "https://image.baidu.com/search/acjson"
-DUCKDUCKGO_SEARCH_URL = "https://duckduckgo.com/"
-DUCKDUCKGO_IMG_API = "https://duckduckgo.com/i.js"
-GOOGLE_IMG_SEARCH_URL = "https://www.google.com/search"
-YANDEX_IMG_SEARCH_URL = "https://yandex.com/images/search"
-BIGBIGWORK_SEARCH_URL = "https://www.bigbigwork.com/sr/images"
+_BING_BLOCK_HOSTS = {
+    "bing.com/sa/", "bing.com/rp/", "bing.com/fd/",
+}
 
 # DNS 预解析缓存
 _dns_cache: dict[str, list[tuple[str, int]]] = {}
@@ -522,18 +519,7 @@ def _strip_sku_patterns(query: str) -> str:
 
 class WebImageSearchService:
 
-    """通过 Baidu / Bing / Yandex / DuckDuckGo / Google / 大作 图片搜索获取场景图、车型图、物品图。
-
-    不需要 API Key；主引擎失败时自动降级到备用引擎。
-    包含重试、多策略防盗链、DNS 预解析等容错机制。
-
-    支持的引擎: baidu, bing, yandex, duckduckgo, google, bigbigwork, auto（自动尝试全部）
-    auto 模式会根据是否配置了代理智能选择顺序：
-      - 无代理（国内服务器）：优先百度、Yandex、Bing
-      - 有代理：优先 Bing、DuckDuckGo、Google
-    大作 (bigbigwork): 聚合全球设计社区灵感图片，适合找高质量场景参考图/设计参考，
-    汽车零件术语命中率可能较低，作为补充来源。
-    """
+    """通过百度图片搜索获取场景图。不需要 API Key。"""
 
     # 需要主动加 Referer 的防盗链域名（常见汽车零件/论坛站点）
     _REFERER_DOMAINS = (
@@ -553,7 +539,7 @@ class WebImageSearchService:
         timeout: int = 8,
         user_agent: str = "",
         max_image_size_mb: int = 5,
-        engine: str = "bing",
+        engine: str = "baidu",
         proxy: str = "",
     ) -> None:
         self.timeout = timeout
@@ -601,46 +587,19 @@ class WebImageSearchService:
     # ------------------------------------------------------------------
 
     async def search_images(self, query: str, max_results: int = 3) -> list[str]:
-        """返回找到的图片 URL 列表。主引擎失败自动降级。
-
-        引擎优先级（按 _engine_order）：大作 → Google → DuckDuckGo → Bing → Yandex → Baidu
-        任一引擎成功即返回，全部失败才返回空列表。
-        搜索词自动追加排除关键词（图纸/示意图/3D渲染等），优先返回实拍照片。
-        """
+        """返回找到的图片 URL 列表。只使用百度，失败则返回空列表。"""
         if not query or not query.strip():
             return []
 
-        # 搜索词预处理：追加排除关键词，过滤图纸/示意图/3D渲染等非实拍内容
         clean_query = self._clean_search_query(query)
-
-        engines = self._engine_order()
-        last_err: Exception | None = None
-        logger.debug(f"开始图片搜索 '{clean_query[:40]}'，引擎顺序: {engines}")
-
-        for eng in engines:
-            try:
-                if eng == "bing":
-                    urls = await self._search_bing(clean_query, max_results)
-                elif eng == "duckduckgo":
-                    urls = await self._search_duckduckgo(clean_query, max_results)
-                elif eng == "google":
-                    urls = await self._search_google(clean_query, max_results)
-                elif eng == "yandex":
-                    urls = await self._search_yandex(clean_query, max_results)
-                elif eng == "bigbigwork":
-                    urls = await self._search_bigbigwork(clean_query, max_results)
-                else:
-                    urls = await self._search_baidu(clean_query, max_results)
-                if urls:
-                    src_tag = "电商" if self._is_ecommerce_domain(urls[0]) else "普通"
-                    logger.info(f"{eng}({src_tag}) 图片搜索 '{clean_query[:40]}' 返回 {len(urls)} 张")
-                    return urls
-            except Exception as exc:
-                last_err = exc
-                logger.warning(f"{eng} 图片搜索失败 '{clean_query[:30]}': {exc}")
-
-        if last_err:
-            logger.warning(f"所有引擎均搜索失败: {last_err}")
+        try:
+            urls = await self._search_baidu(clean_query, max_results)
+            if urls:
+                src_tag = "电商" if self._is_ecommerce_domain(urls[0]) else "普通"
+                logger.info("baidu(%s) 图片搜索 '%s' 返回 %s 张", src_tag, clean_query[:40], len(urls))
+                return urls
+        except Exception as exc:
+            logger.warning("百度图片搜索失败 '%s': %s", clean_query[:30], exc)
         return []
 
     async def download_images(
@@ -747,112 +706,6 @@ class WebImageSearchService:
         if not saved:
             logger.warning(f"图片搜索+下载后无有效结果: '{query[:50]}' (候选{len(clean_urls)}个)")
         return saved
-
-    # ------------------------------------------------------------------
-    # Bing 图片搜索（无 API Key，HTML 解析）
-    # ------------------------------------------------------------------
-
-    # 需要过滤的域名（Bing UI 资源 / 小图标）
-    _BING_BLOCK_HOSTS = {
-        "bing.com/sa/", "bing.com/rp/", "bing.com/fd/",
-    }
-
-    async def _search_bing(self, query: str, max_results: int) -> list[str]:
-        client = await self._get_client()
-        params: dict[str, str | int] = {
-            "q": query,
-            "first": 1,
-            "FORM": "HDRSC2",
-        }
-        resp = await client.get(BING_SEARCH_URL, params=params)
-        resp.raise_for_status()
-        text = resp.text
-
-        murls: list[str] = []       # 原始图片 URL（优先）
-        murl_seen: set[str] = set()
-        turls: list[str] = []       # Bing CDN 缩略图 URL（防盗链降级兜底）
-
-        def _add_murl(raw: str) -> None:
-            url = self._clean_url(raw)
-            if url and self._is_image_url(url) and url not in murl_seen:
-                murl_seen.add(url)
-                murls.append(url)
-
-        def _add_turl(raw: str) -> None:
-            url = self._clean_url(raw)
-            if url and url not in murl_seen and url not in turls:
-                turls.append(url)
-
-        # ---- 提取 murl（原始图片） ----
-
-        # 方式 1：标准 JSON "murl":"http..."（国际版 Bing）
-        for match in re.finditer(r'"murl"\s*:\s*"(https?://[^"]+)"', text):
-            _add_murl(match.group(1))
-            if len(murls) >= max_results:
-                break
-
-        # 方式 2：HTML 编码 &quot;murl&quot;:&quot;http...&quot;（cn.bing.com）
-        if len(murls) < max_results:
-            for match in re.finditer(
-                r'&quot;murl&quot;\s*:\s*&quot;(https?://[^&"]+)',
-                text,
-            ):
-                _add_murl(match.group(1))
-                if len(murls) >= max_results:
-                    break
-
-        # 方式 3：&quot;murl&quot;:&quot;URL&quot; 含图片后缀（更精准匹配 cn.bing.com）
-        if len(murls) < max_results:
-            for match in re.finditer(
-                r'&quot;murl&quot;\s*:\s*&quot;(https?://[^&"]+\.(?:jpg|jpeg|png)[^&"]*)',
-                text, re.IGNORECASE,
-            ):
-                _add_murl(match.group(1))
-                if len(murls) >= max_results:
-                    break
-
-        # ---- 提取 turl（Bing CDN 缩略图，防盗链兜底） ----
-
-        # 方式 T1：标准 JSON "turl":"http..."（国际版）
-        for match in re.finditer(r'"turl"\s*:\s*"(https?://[^"]+)"', text):
-            _add_turl(match.group(1))
-            if len(turls) >= max_results * 2:
-                break
-
-        # 方式 T2：HTML 编码 &quot;turl&quot;:&quot;http...&quot;（cn.bing.com）
-        if len(turls) < max_results * 2:
-            for match in re.finditer(
-                r'&quot;turl&quot;\s*:\s*&quot;(https?://[^&"]+)',
-                text,
-            ):
-                _add_turl(match.group(1))
-                if len(turls) >= max_results * 2:
-                    break
-
-        # 方式 T3：class="mimg" 的缩略图 src（cn.bing.com）
-        if len(turls) < max_results * 2:
-            for match in re.finditer(
-                r'<img[^>]*class="[^"]*mimg[^"]*"[^>]*src="(https?://[^"]+)"',
-                text, re.IGNORECASE,
-            ):
-                _add_turl(match.group(1))
-                if len(turls) >= max_results * 2:
-                    break
-
-        # 方式 T4：通用 <img> 标签（终极兜底）
-        if len(turls) < max_results:
-            for match in re.finditer(
-                r'<img[^>]+src="(https?://[^"]+\.(?:jpg|jpeg|png)[^"]*)"',
-                text, re.IGNORECASE,
-            ):
-                _add_turl(match.group(1))
-                if len(turls) >= max_results * 2:
-                    break
-
-        # 合并：原图优先，CDN 兜底
-        result = murls[: max_results * 3] + turls[: max_results * 3]
-        logger.debug(f"Bing 搜索 '{query[:30]}' → {len(murls)} orig + {len(turls)} cdn")
-        return result[: max_results * 6]
 
     # ------------------------------------------------------------------
     # 百度图片搜索（acjson 接口，免费无 Key）
@@ -963,359 +816,6 @@ class WebImageSearchService:
         return None
 
     # ------------------------------------------------------------------
-    # DuckDuckGo 图片搜索（免费，全球可用，与 Bing 结果互补）
-    # ------------------------------------------------------------------
-
-    async def _search_duckduckgo(self, query: str, max_results: int) -> list[str]:
-        """通过 DuckDuckGo i.js API 搜索图片。"""
-        client = await self._get_client()
-
-        # Step 1: 获取 vqd token（访问搜索页，带 cookies）
-        vqd = await self._get_duckduckgo_vqd(client, query)
-        if not vqd:
-            raise ValueError("无法获取 DuckDuckGo vqd token")
-
-        # Step 2: 调用图片搜索 API
-        params: dict[str, str | int] = {
-            "q": query,
-            "vqd": vqd,
-            "o": "json",
-            "p": "1",
-            "s": "0",
-            "f": ",,,,,",
-            "l": "us-en",
-        }
-        resp = await client.get(
-            DUCKDUCKGO_IMG_API,
-            params=params,
-            headers={
-                "Referer": f"https://duckduckgo.com/?q={query}&ia=images&iax=images",
-                "Accept-Language": "en-US,en;q=0.9",
-                "X-Requested-With": "XMLHttpRequest",
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-        results = data.get("results", []) or []
-        urls: list[str] = []
-        seen: set[str] = set()
-
-        for item in results:
-            if not isinstance(item, dict):
-                continue
-            img_url = item.get("image") or item.get("url") or item.get("thumbnail", "")
-            if not img_url or not img_url.startswith("http"):
-                continue
-            img_url = self._clean_url(img_url)
-            if not img_url:
-                continue
-            # 过滤 DuckDuckGo 自身资源
-            if "duckduckgo.com" in img_url.lower():
-                continue
-            if img_url not in seen:
-                seen.add(img_url)
-                urls.append(img_url)
-            if len(urls) >= max_results:
-                break
-
-        logger.debug(f"DuckDuckGo 搜索 '{query[:30]}' → {len(urls)} URLs")
-        return urls
-
-    async def _get_duckduckgo_vqd(self, client: httpx.AsyncClient, query: str = "test") -> str | None:
-        """从 DuckDuckGo 搜索页提取 vqd 反爬令牌。"""
-        try:
-            # 先访问首页建立 cookie
-            await client.get(
-                DUCKDUCKGO_SEARCH_URL,
-                params={"q": query, "ia": "images", "iax": "images"},
-                headers={
-                    "Accept": "text/html,application/xhtml+xml",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Referer": "https://duckduckgo.com/",
-                },
-                timeout=10,
-            )
-            resp = await client.get(
-                DUCKDUCKGO_SEARCH_URL,
-                params={"q": query, "ia": "images", "iax": "images"},
-                headers={
-                    "Accept": "text/html,application/xhtml+xml",
-                    "Accept-Language": "en-US,en;q=0.9",
-                },
-                timeout=10,
-            )
-            resp.raise_for_status()
-            text = resp.text
-
-            # 从 HTML/JS 中提取 vqd token，格式更宽松
-            for pattern in [
-                r'vqd\s*=\s*["\']([\w-]+)["\']',
-                r'vqd=["\']([\w-]+)["\']',
-                r'"vqd":"([\w-]+)"',
-                r"'vqd':'([\w-]+)'",
-                r'vqd=([\w-]+)&',
-                r'vqd%3D([\w-]+)',
-            ]:
-                match = re.search(pattern, text)
-                if match:
-                    return match.group(1)
-        except Exception as exc:
-            logger.debug(f"获取 DuckDuckGo vqd 失败: {exc}")
-
-        return None
-
-    # ------------------------------------------------------------------
-    # Yandex 图片搜索（HTML 解析，无需 API Key）
-    # ------------------------------------------------------------------
-
-    async def _search_yandex(self, query: str, max_results: int) -> list[str]:
-        """通过 Yandex 图片搜索 HTML 页面提取图片 URL。"""
-        client = await self._get_client()
-
-        params: dict[str, str] = {"text": query}
-        resp = await client.get(
-            YANDEX_IMG_SEARCH_URL,
-            params=params,
-            headers={
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Referer": "https://yandex.com/images/",
-            },
-        )
-        resp.raise_for_status()
-        text = resp.text
-
-        urls: list[str] = []
-        seen: set[str] = set()
-
-        def _add(raw: str) -> None:
-            url = self._clean_url(raw)
-            if url and url not in seen and self._is_image_url(url):
-                seen.add(url)
-                urls.append(url)
-
-        # Yandex 常见数据格式 1：serp-item 的 origin 原图 URL
-        for match in re.finditer(
-            r'"origUrl"\s*:\s*"(https?://[^"]+)"', text, re.IGNORECASE
-        ):
-            _add(match.group(1))
-            if len(urls) >= max_results:
-                return urls
-
-        # 数据格式 2：data-bem 或 JSON 中的 url
-        if len(urls) < max_results:
-            for match in re.finditer(
-                r'"url"\s*:\s*"(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
-                text, re.IGNORECASE,
-            ):
-                _add(match.group(1))
-                if len(urls) >= max_results:
-                    break
-
-        # 数据格式 3：img 标签（缩略图/原图）
-        if len(urls) < max_results:
-            for match in re.finditer(
-                r'<img[^>]+src="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
-                text, re.IGNORECASE,
-            ):
-                _add(match.group(1))
-                if len(urls) >= max_results:
-                    break
-
-        # 兜底：所有可能的图片 URL
-        if len(urls) < max_results:
-            for match in re.finditer(
-                r'(https?://[^"<>\s]+\.(?:jpg|jpeg|png|webp)[^"<>\s]*)',
-                text, re.IGNORECASE,
-            ):
-                _add(match.group(1))
-                if len(urls) >= max_results * 2:
-                    break
-
-        logger.debug(f"Yandex 搜索 '{query[:30]}' → {len(urls)} URLs")
-        return urls[:max_results]
-
-    # ------------------------------------------------------------------
-    # Google 图片搜索（HTML 解析，无需 API Key）
-    # ------------------------------------------------------------------
-
-    async def _search_google(self, query: str, max_results: int) -> list[str]:
-        """通过 Google 图片搜索 HTML 页面提取图片 URL。
-
-        从页面中的 AF_initDataCallback 或内嵌 JSON 数据提取图片链接。
-        注意：国内服务器可能需要代理才能访问 Google。
-        """
-        client = await self._get_client()
-
-        params: dict[str, str] = {
-            "tbm": "isch",
-            "q": query,
-            "safe": "active",
-            "hl": "en",
-        }
-        resp = await client.get(
-            GOOGLE_IMG_SEARCH_URL,
-            params=params,
-            headers={
-                "Accept": "text/html,application/xhtml+xml",
-                "Accept-Language": "en-US,en;q=0.9",
-            },
-        )
-        resp.raise_for_status()
-        text = resp.text
-
-        urls: list[str] = []
-        seen: set[str] = set()
-
-        def _add(raw: str) -> None:
-            url = self._clean_url(raw)
-            if url and url not in seen and self._is_image_url(url):
-                seen.add(url)
-                urls.append(url)
-
-        # 方式 1：从 AF_initDataCallback 提取（主要数据格式）
-        # Google 将图片数据编码在 script 标签的 AF_initDataCallback 调用中
-        for match in re.finditer(r'"ou"\s*:\s*"(https?://[^"]+)"', text):
-            _add(match.group(1))
-            if len(urls) >= max_results:
-                break
-
-        # 方式 2：标准 img 标签中的 data-src（缩略图→原图映射）
-        if len(urls) < max_results:
-            for match in re.finditer(
-                r'<img[^>]+src="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
-                text, re.IGNORECASE,
-            ):
-                _add(match.group(1))
-                if len(urls) >= max_results:
-                    break
-
-        # 方式 3：提取所有可能的图片 URL（含编码格式）
-        if len(urls) < max_results:
-            for match in re.finditer(
-                r'(https?://[^"<>\s]+\.(?:jpg|jpeg|png|webp)[^"<>\s]*)',
-                text, re.IGNORECASE,
-            ):
-                _add(match.group(1))
-                if len(urls) >= max_results * 2:
-                    break
-
-        logger.debug(f"Google 搜索 '{query[:30]}' → {len(urls[:max_results])}/{len(urls)} URLs")
-        return urls[: max_results * 3]
-
-    # ------------------------------------------------------------------
-    # 大作 (bigbigwork) 图片搜索 - HTML 解析，无 API Key
-    # 聚合全球设计社区的灵感图片，中文搜索优先，适合找高质量场景图/产品设计参考
-    # ------------------------------------------------------------------
-
-    async def _search_bigbigwork(self, query: str, max_results: int) -> list[str]:
-        """通过大作 sr/images 搜索页面提取图片 URL。
-
-        大作是中文设计师灵感搜索引擎，聚合全球设计资源。搜索词会自动翻译为
-        多语言进行检索，获取设计社区中的高质量参考图。
-
-        注意：
-        - 该站对英文搜索词会转为中文翻译后搜索，汽车零件术语可能命中率较低
-        - 搜索结果需要 VIP 才能查看大图，但预览缩略图仍可获取
-        - 若搜索结果被 VIP 墙拦截，返回空列表降级到其他引擎
-        """
-        client = await self._get_client()
-
-        # 第一步：搜索页（带浏览器伪装）
-        try:
-            resp = await client.get(
-                BIGBIGWORK_SEARCH_URL,
-                params={"w": query},
-                headers={
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.5",
-                    "Referer": "https://www.bigbigwork.com/",
-                    "Cache-Control": "no-cache",
-                },
-                timeout=15,
-            )
-            resp.raise_for_status()
-            text = resp.text
-        except Exception as exc:
-            logger.debug(f"大作搜索页请求失败 '{query[:30]}': {exc}")
-            return []
-
-        # 第二步：检测是否被 VIP 墙 / 无结果
-        if "没找到相关的图片" in text or "居然没找到" in text:
-            logger.debug(f"大作无搜索结果 '{query[:30]}'")
-            return []
-        if "开通VIP" in text[:2000] and "sr/images" not in text[:500]:
-            logger.debug(f"大作搜索结果被 VIP 拦截 '{query[:30]}'")
-            return []
-
-        urls: list[str] = []
-        seen: set[str] = set()
-
-        def _add(raw: str) -> None:
-            url = self._clean_url(raw)
-            if url and url not in seen:
-                # 过滤大作自身的 UI 资源
-                url_lower = url.lower()
-                if any(x in url_lower for x in ("/rp/", "/sa/", "favicon", "logo", "icon", "/static/")):
-                    return
-                seen.add(url)
-                urls.append(url)
-
-        # 方式 1：提取 data-src / data-original（懒加载主图）
-        for match in re.finditer(
-            r'data-(?:src|original)\s*=\s*"(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
-            text, re.IGNORECASE,
-        ):
-            _add(match.group(1))
-            if len(urls) >= max_results * 3:
-                break
-
-        # 方式 2：提取 src 属性中的图片 URL（非缩略图）
-        if len(urls) < max_results:
-            for match in re.finditer(
-                r'<img[^>]+src\s*=\s*"(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
-                text, re.IGNORECASE,
-            ):
-                raw_url = match.group(1)
-                # 跳过明显的缩略图/占位符（URL中包含 thumb、placeholder 等）
-                url_lower = raw_url.lower()
-                if any(x in url_lower for x in ("placeholder", "loading", "blank", "1x1", "pixel")):
-                    continue
-                _add(raw_url)
-                if len(urls) >= max_results * 3:
-                    break
-
-        # 方式 3：提取 JSON 内嵌的图片 URL
-        if len(urls) < max_results:
-            for match in re.finditer(
-                r'"(?:imgUrl|imageUrl|url|src)"\s*:\s*"(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
-                text, re.IGNORECASE,
-            ):
-                _add(match.group(1))
-                if len(urls) >= max_results * 2:
-                    break
-
-        # 方式 4：兜底 - 所有可能的图片 URL
-        if len(urls) < max_results:
-            for match in re.finditer(
-                r'(https?://[^"<>\s]+\.(?:jpg|jpeg|png|webp)[^"<>\s]*)',
-                text, re.IGNORECASE,
-            ):
-                raw_url = match.group(1)
-                url_lower = raw_url.lower()
-                # 过滤静态资源/UI元素
-                if any(x in url_lower for x in ("/fa/", "/ru/", "/sr/", "statics", "assets/js",
-                                                  "logo", "icon", "avatar", "favicon", "banner")):
-                    continue
-                _add(raw_url)
-                if len(urls) >= max_results * 3:
-                    break
-
-        logger.debug(f"大作搜索 '{query[:30]}' → {len(urls)} URLs")
-        return urls[: max_results * 3]
-
-    # ------------------------------------------------------------------
     # 下载 & 格式处理（带重试+多策略防盗链）
     # ------------------------------------------------------------------
 
@@ -1366,10 +866,10 @@ class WebImageSearchService:
                 pass
             elif attempt == 1:
                 # 尝试 2：加 Bing Referer
-                headers["Referer"] = "https://www.bing.com/"
+                headers["Referer"] = "https://image.baidu.com/"
             else:
                 # 尝试 3：加同源 Referer + 备用 UA
-                headers["Referer"] = source_referer or "https://www.bing.com/"
+                headers["Referer"] = source_referer or "https://image.baidu.com/"
                 headers["User-Agent"] = _BACKUP_USER_AGENTS[attempt % len(_BACKUP_USER_AGENTS)]
 
             try:
@@ -1498,7 +998,7 @@ class WebImageSearchService:
             return False
         url_lower = url.lower()
         # 检查是否来自 Bing UI 资源域名
-        if any(host in url_lower for host in self._BING_BLOCK_HOSTS):
+        if any(host in url_lower for host in _BING_BLOCK_HOSTS):
             return False
         return True
 
@@ -1518,22 +1018,6 @@ class WebImageSearchService:
         if len(url) > 2048:
             return None
         return url
-
-    # ------------------------------------------------------------------
-    # 引擎选择
-    # ------------------------------------------------------------------
-
-    def _engine_order(self) -> list[str]:
-        """返回引擎尝试顺序。国内服务器优先大作/百度。
-
-        - 有代理时：Google → DuckDuckGo → Bing → Yandex → Baidu → 大作
-        - 无代理时（国内服务器）：大作 → 百度 → Bing → Yandex → DuckDuckGo → Google
-          避免 Google/DuckDuckGo 在无代理时超时 15s 浪费时间。
-        """
-        if self.proxy:
-            return ["google", "duckduckgo", "bing", "yandex", "baidu", "bigbigwork"]
-        # 国内无代理：优先百度/Bing 实拍图；大作放最后作补充（易返回设计/时尚类无关图）
-        return ["baidu", "bing", "yandex", "duckduckgo", "google", "bigbigwork"]
 
     # ------------------------------------------------------------------
     # 水印 / 图库检测

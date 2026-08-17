@@ -23,7 +23,6 @@ class Settings(BaseSettings):
     lingxing_sellers_path: str = "/erp/sc/data/seller/lists"
     lingxing_us_country_codes: str = "US,美国"
     lingxing_us_sids: str = ""
-    lingxing_update_principal_path: str = "/listing/listing/open/api/asin/updatePrincipal"
     lingxing_vc_listing_page_path: str = "/basicOpen/listingManage/vcListing/pageList"
     lingxing_vc_default_store_ids: str = ""
     lingxing_vc_fallback_page_length: int = 200
@@ -75,11 +74,11 @@ class Settings(BaseSettings):
     upload_max_total_mb: int = 40
     web_ref_dir: str = os.getenv("IMAGE_SOP_WEB_REF_DIR", str(Path(__file__).resolve().parents[2] / "outputs" / "image_sop" / "web_refs"))
     web_search_enabled: bool = False
-    web_search_engine: str = "auto"     # baidu/bing/duckduckgo/google/yandex/bigbigwork/auto(依次尝试全部)
+    web_search_engine: str = "baidu"
     web_search_timeout: int = 15         # 下载图片超时(秒)，服务端网络通常较慢
     web_search_max_concurrent: int = 3   # 并发搜索/下载数
     web_search_max_image_size_mb: int = 5
-    web_search_proxy: str = ""           # HTTP/HTTPS 代理（国内访问 Google/DuckDuckGo 可能需要）
+    web_search_proxy: str = ""
 
     ebay_client_id: str = ""
     ebay_client_secret: str = ""

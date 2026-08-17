@@ -5,10 +5,11 @@ import mimetypes
 import os
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image
-from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
+from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, TwoCellAnchor, AnchorMarker
 from openpyxl.drawing.xdr import XDRPositiveSize2D
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils.units import pixels_to_EMU
@@ -199,10 +200,147 @@ class ExcelService:
         rows = (len(paths) + cols - 1) // cols
         return y_start_emu + max(0, rows) * (single_h + gap) * EMU_PER_PIXEL
 
+    def _embed_image_in_column(
+        self,
+        sheet,
+        img_path: Path,
+        col_0: int,
+        row_0: int,
+        row_span: int,
+        img_w: int,
+        img_h: int,
+    ) -> bool:
+        """把一张图锚到独立列，用 TwoCellAnchor 填满该列合并格，避免 WPS 丢图。"""
+        if img_path.suffix.lower() not in SUPPORTED_IMG_EXT:
+            return False
+        try:
+            img = Image(str(img_path))
+            img.width = img_w
+            img.height = img_h
+            img.anchor = TwoCellAnchor(
+                _from=AnchorMarker(col=col_0, row=row_0, colOff=0, rowOff=0),
+                to=AnchorMarker(
+                    col=col_0 + 1,
+                    row=row_0 + max(1, row_span),
+                    colOff=0,
+                    rowOff=0,
+                ),
+                editAs="oneCell",
+            )
+            sheet.add_image(img)
+            return True
+        except Exception as exc:
+            logger.warning("嵌入图片失败 %s: %s", img_path.name, exc)
+            return False
+
+    @staticmethod
+    def _nas_cache_name(nas_path: str) -> str:
+        return nas_path.replace("/", "_").lstrip("_")
+
+    def _resolve_upload_path_from_url(
+        self,
+        candidate: str,
+        upload_files: dict[str, Path],
+        web_ref_files: dict[str, Path],
+    ) -> Path | None:
+        """从 reference URL 解析本地文件路径（含 NAS 代理 URL）。"""
+        if not candidate:
+            return None
+
+        name_aliases: list[str] = []
+        if "/api/nas/" in candidate:
+            parsed = urlparse(candidate)
+            nas_path = unquote(parse_qs(parsed.query).get("p", [""])[0])
+            if nas_path:
+                cache_name = self._nas_cache_name(nas_path)
+                name_aliases.append(cache_name)
+                # NAS 下载会把 png/webp 转成 jpg，upload_files 的 key 已是 .jpg
+                stem = Path(cache_name).stem
+                for ext in (".jpg", ".jpeg", ".png", ".webp"):
+                    name_aliases.append(stem + ext)
+
+        filename = ""
+        if "?" in candidate and "/api/nas/" not in candidate:
+            filename = candidate.rsplit("/", 1)[-1].split("?")[0]
+        elif "/api/nas/" not in candidate:
+            filename = candidate.rsplit("/", 1)[-1]
+        if filename:
+            name_aliases.append(filename)
+            stem = Path(filename).stem
+            for ext in (".jpg", ".jpeg", ".png", ".webp"):
+                name_aliases.append(stem + ext)
+
+        seen_names: set[str] = set()
+        unique_aliases: list[str] = []
+        for name in name_aliases:
+            key = name.lower()
+            if not name or key in seen_names:
+                continue
+            seen_names.add(key)
+            unique_aliases.append(name)
+
+        for name in unique_aliases:
+            if name in upload_files:
+                return upload_files[name]
+            if name in web_ref_files:
+                return web_ref_files[name]
+
+        alias_stems = {Path(name).stem.lower() for name in unique_aliases}
+        for up_name, up_path in upload_files.items():
+            if Path(up_name).stem.lower() in alias_stems or up_path.stem.lower() in alias_stems:
+                return up_path
+        for web_name, web_path in web_ref_files.items():
+            if Path(web_name).stem.lower() in alias_stems or web_path.stem.lower() in alias_stems:
+                return web_path
+        return None
+
+    def _make_detail_local_grid(self, paths: list[Path], prefix: str = "") -> Path | None:
+        """把 2~4 张局部图拼成一张网格图，避免 WPS 同一单元格多图只显示第一张。"""
+        valid = [p for p in paths if p.exists()][:4]
+        if not valid:
+            return None
+        if len(valid) == 1:
+            return valid[0]
+        try:
+            from PIL import Image as PilImage
+
+            cell = 160
+            gap = 8
+            count = len(valid)
+            if count == 2:
+                cols, rows = 2, 1
+            elif count == 3:
+                cols, rows = 3, 1
+            else:
+                cols, rows = 2, 2
+            width = cols * cell + (cols + 1) * gap
+            height = rows * cell + (rows + 1) * gap
+            canvas = PilImage.new("RGB", (width, height), (247, 247, 249))
+            for idx, img_path in enumerate(valid):
+                with PilImage.open(img_path) as src:
+                    thumb = self._cover_crop(src.convert("RGB"), cell, cell)
+                row, col = divmod(idx, cols)
+                x = gap + col * (cell + gap)
+                y = gap + row * (cell + gap)
+                canvas.paste(thumb, (x, y))
+            temp_dir = self.export_dir / COMPOSITE_TEMP_DIR_NAME
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            save_name = f"{prefix}detail_local_grid_{count}.jpg".replace(" ", "_")[:120]
+            output = temp_dir / save_name
+            canvas.save(output, "JPEG", quality=90)
+            logger.info("局部图网格合成: %s 张 -> %s", count, output.name)
+            return output
+        except Exception as exc:
+            logger.warning("局部图网格合成失败: %s", exc)
+            return None
+
     def _ensure_jpg(self, path: Path | None) -> Path | None:
-        """将图片统一转换为 JPEG。如果无法转换，删除原文件返回 None。"""
-        if not path or not path.exists():
-            return path
+        """将图片统一转换为 JPEG。无法转换时保留原文件并返回 None。"""
+        if not path:
+            return None
+        if not path.exists():
+            logger.warning("图片不存在，无法转为 JPEG: %s", path)
+            return None
         try:
             from PIL import Image
 
@@ -223,20 +361,61 @@ class ExcelService:
                 img.save(jpg_path, "JPEG", quality=92)
             if jpg_path.exists() and jpg_path.stat().st_size > 0:
                 # 删除原始文件（如果不同）
-                if jpg_path != path:
+                if jpg_path != path and "nas_cache" not in str(path).replace("\\", "/"):
                     try:
                         path.unlink(missing_ok=True)
                     except Exception:
                         pass
                 return jpg_path
         except Exception as exc:
-            logger.warning(f"图片转换为 JPEG 失败 {path.name}: {exc}，删除并跳过")
-            try:
-                path.unlink(missing_ok=True)
-            except Exception:
-                pass
+            logger.warning("图片转换为 JPEG 失败 %s: %s", path.name, exc)
             return None
         return None
+
+    def _convert_file_map_or_raise(
+        self, file_map: dict[str, Path], label: str
+    ) -> dict[str, Path]:
+        converted_map: dict[str, Path] = {}
+        failed: list[str] = []
+        for name, path in file_map.items():
+            converted = self._ensure_jpg(path)
+            if converted is None:
+                failed.append(name)
+            else:
+                converted_map[name] = converted
+        if failed:
+            raise ValueError(
+                f"{label}无法转为 JPEG（{len(failed)} 张）："
+                + "、".join(failed[:8])
+                + ("…" if len(failed) > 8 else "")
+                + "。请更换图片后重新生成。"
+            )
+        return converted_map
+
+    def _require_converted_path(self, path: Path | None, label: str) -> Path | None:
+        if path is None:
+            return None
+        converted = self._ensure_jpg(path)
+        if converted is None:
+            raise ValueError(f"{label}无法转为 JPEG：{path.name}。请更换图片后重新生成。")
+        return converted
+
+    def _assert_supported_workbook_images(self, workbook) -> None:
+        removed: list[str] = []
+        for ws in workbook.worksheets:
+            safe_images = []
+            for img in ws._images:
+                img_path = getattr(img, "path", None)
+                if img_path and Path(str(img_path)).suffix.lower() not in SUPPORTED_IMG_EXT:
+                    removed.append(Path(str(img_path)).name)
+                    continue
+                safe_images.append(img)
+            ws._images = safe_images
+        if removed:
+            raise ValueError(
+                "Excel 含无法嵌入的图片格式，已中止导出："
+                + "、".join(removed[:8])
+            )
 
 
     def export_sop_premium(
@@ -251,24 +430,9 @@ class ExcelService:
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "Sheet1"
-        file_map = upload_files or {}
-        for name, path in list(file_map.items()):
-            converted = self._ensure_jpg(path)
-            if converted is None:
-                del file_map[name]
-            else:
-                file_map[name] = converted
-        if web_ref_files:
-            for name, path in list(web_ref_files.items()):
-                converted = self._ensure_jpg(path)
-                if converted is None:
-                    del web_ref_files[name]
-                else:
-                    web_ref_files[name] = converted
-        if main_image_path:
-            converted_main = self._ensure_jpg(main_image_path)
-            if converted_main is not None:
-                main_image_path = converted_main
+        file_map = self._convert_file_map_or_raise(upload_files or {}, "参考图")
+        web_ref_files = self._convert_file_map_or_raise(web_ref_files or {}, "场景搜图")
+        main_image_path = self._require_converted_path(main_image_path, "主图")
 
         # ── 表头行 ──
         headers = ["编号", "尺寸", "文字", "需求", "参考1", "参考2", "参考3", "参考4", "参考5"]
@@ -399,7 +563,7 @@ class ExcelService:
                     display_paths = [ref_paths[0], ref_paths[1]]
                     labels = ["主图", "场景图"]
             elif ref_source == "detail_local":
-                for rp in ref_paths[:5]:
+                for rp in ref_paths[:4]:
                     _append_path(rp, "局部图")
             else:
                 for sp in scene_paths[:2]:
@@ -416,40 +580,37 @@ class ExcelService:
             if display_paths:
                 base_col = 4  # E列 (0-based)
                 base_row_idx = block_start - 1  # 0-based
-                img_w = 120
-                img_h = 120
+                is_detail_local = ref_source == "detail_local"
+                img_w = 140 if is_detail_local else 120
+                img_h = 140 if is_detail_local else 120
                 for i, img_path in enumerate(display_paths[:5]):
-                    if i >= 5:
-                        break
-                    try:
-                        img = Image(str(img_path))
-                        img.width = img_w
-                        img.height = img_h
-                        # 同一列，垂直排列
-                        img.anchor = OneCellAnchor(
-                            _from=AnchorMarker(
-                                col=base_col + i,
-                                row=base_row_idx,
-                                colOff=0,
-                                rowOff=0,
-                            ),
-                            ext=XDRPositiveSize2D(
-                                cx=pixels_to_EMU(img_w),
-                                cy=pixels_to_EMU(img_h),
-                            ),
+                    ok = self._embed_image_in_column(
+                        sheet,
+                        img_path,
+                        col_0=base_col + i,
+                        row_0=base_row_idx,
+                        row_span=block_rows,
+                        img_w=img_w,
+                        img_h=img_h,
+                    )
+                    if not ok:
+                        raise ValueError(
+                            f"高级A+ 参考图嵌入失败：{img_path.name}。请更换图片后重新导出。"
                         )
-                        sheet.add_image(img)
-                    except Exception:
-                        pass
 
                 # 根据图片撑大行高
                 image_h_px = img_h + GRID_GAP
                 for row_idx in range(block_start, block_end + 1):
                     current_h = sheet.row_dimensions[row_idx].height or 20
-                    sheet.row_dimensions[row_idx].height = max(current_h, image_h_px)
+                    sheet.row_dimensions[row_idx].height = max(current_h, image_h_px / block_rows)
 
                 # 参考图标签
-                if labels:
+                if is_detail_local:
+                    for i, _path in enumerate(display_paths[:4]):
+                        cell = sheet.cell(row=block_start, column=5 + i)
+                        cell.value = f"局部图{i + 1}"
+                        cell.font = Font(italic=True, color="FF2563EB", size=9)
+                elif labels:
                     sheet.cell(row=block_start, column=5).value = " / ".join(labels)
                     sheet.cell(row=block_start, column=5).font = Font(italic=True, color="FF2563EB", size=9)
 
@@ -478,16 +639,7 @@ class ExcelService:
         filename = f"SOP_{sku}_Premium_{timestamp}.xlsx"
         output_file = self.export_dir / filename
 
-        for ws in workbook.worksheets:
-            safe_images = []
-            for img in ws._images:
-                img_path = getattr(img, "path", None)
-                if img_path and Path(img_path).suffix.lower() not in SUPPORTED_IMG_EXT:
-                    logger.warning(f"openpyxl 移除不支持图片: {img_path}")
-                    continue
-                safe_images.append(img)
-            ws._images = safe_images
-
+        self._assert_supported_workbook_images(workbook)
         workbook.save(output_file)
         return output_file
 
@@ -502,28 +654,11 @@ class ExcelService:
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "Sheet1"
-        file_map = upload_files or {}
-        # Convert all images to JPG before Excel export
-        for name, path in list(file_map.items()):
-            converted = self._ensure_jpg(path)
-            if converted is None:
-                del file_map[name]
-            else:
-                file_map[name] = converted
-        if web_ref_files:
-            for name, path in list(web_ref_files.items()):
-                converted = self._ensure_jpg(path)
-                if converted is None:
-                    del web_ref_files[name]
-                else:
-                    web_ref_files[name] = converted
-        # 主图也统一转换
-        if main_image_path:
-            converted_main = self._ensure_jpg(main_image_path)
-            if converted_main is not None:
-                main_image_path = converted_main
+        file_map = self._convert_file_map_or_raise(upload_files or {}, "参考图")
+        web_ref_files = self._convert_file_map_or_raise(web_ref_files or {}, "场景搜图")
+        main_image_path = self._require_converted_path(main_image_path, "主图")
 
-        sheet.merge_cells("A1:F1")
+        sheet.merge_cells("A1:I1")
         title_cell = sheet["A1"]
         title_cell.value = f"图片SOP - {sku}"
         title_cell.font = Font(bold=True, size=14, color="FFFFFFFF")
@@ -531,7 +666,7 @@ class ExcelService:
         title_cell.fill = PatternFill("solid", fgColor="1E293B")
         sheet.row_dimensions[1].height = 28
 
-        headers = ["编号", "主题", "尺寸", "文案", "需求", "参考图"]
+        headers = ["编号", "主题", "尺寸", "文案", "需求", "参考图1", "参考图2", "参考图3", "参考图4"]
         header_row = 2
         for col_idx, header in enumerate(headers, start=1):
             cell = sheet.cell(row=header_row, column=col_idx, value=header)
@@ -549,10 +684,14 @@ class ExcelService:
         data_palette = ["FFE5F0FA", "FFF8E9E1"]
         current_row = 3
         for item in requirements:
+            ref_source = getattr(item, "reference_source", "") or ""
+            is_detail_local = ref_source == "detail_local"
+            block_rows = 2
             block_start = current_row
-            block_end = current_row + 1
-            for col in ("A", "B", "C", "D", "E", "F"):
-                sheet.merge_cells(f"{col}{block_start}:{col}{block_end}")
+            block_end = current_row + block_rows - 1
+            for col_idx in range(1, (9 if is_detail_local else 6) + 1):
+                col_letter = chr(64 + col_idx)
+                sheet.merge_cells(f"{col_letter}{block_start}:{col_letter}{block_end}")
 
             fill_color = data_palette[(item.index - 1) % len(data_palette)]
             values = {
@@ -561,24 +700,35 @@ class ExcelService:
                 "C": item.size,
                 "D": item.copy_text,
                 "E": item.design_request,
-                "F": item.reference_image,
+                "F": "",
             }
             for col in ("A", "B", "C", "D", "E", "F"):
                 cell = sheet[f"{col}{block_start}"]
                 cell.value = values[col]
                 cell.alignment = Alignment(
                     horizontal="center" if col in ("A", "B", "C", "F") else "left",
-                    vertical="top" if col in ("D", "E", "F") else "center",
+                    vertical="top" if col in ("D", "E") else "center",
                     wrap_text=True,
                 )
                 cell.fill = PatternFill("solid", fgColor=fill_color)
                 cell.border = thin_border
+            if is_detail_local:
+                for col_idx in range(7, 10):
+                    cell = sheet.cell(row=block_start, column=col_idx, value="")
+                    cell.fill = PatternFill("solid", fgColor=fill_color)
+                    cell.border = thin_border
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
 
             content_len = len(item.copy_text or "") + len(item.design_request or "")
-            row_height = max(100, min(220, 60 + content_len // 6))
+            text_row_height = max(100, min(220, 60 + content_len // 6))
+            img_w = 140 if is_detail_local else GRID_SINGLE_W
+            img_h = 140 if is_detail_local else GRID_SINGLE_H
+            row_height = text_row_height
+            if is_detail_local:
+                row_height = max(text_row_height, img_h + 24)
 
-            for row_idx in (block_start, block_end):
-                sheet.row_dimensions[row_idx].height = row_height
+            for row_idx in range(block_start, block_end + 1):
+                sheet.row_dimensions[row_idx].height = row_height / block_rows
 
             ref_paths = self._resolve_reference_paths(
                 item.reference_image,
@@ -634,7 +784,6 @@ class ExcelService:
                             (ref_paths[1], "场景图"),
                         ]
                 elif ref_source == "detail_local":
-                    # 局部图：原图全部放入参考图列，不合成
                     for rp in ref_paths[:4]:
                         display_images.append((rp, "局部图"))
                 else:
@@ -653,69 +802,116 @@ class ExcelService:
                         display_images.append((rp, ""))
 
                 anchor = f"F{block_start}"
-                y_offset = 0
                 has_ref_image = False
-                base_col, base_row = self._col_row_from_anchor(anchor)
-
-                # 局部图允许展示全部 4 张原图，适当缩小以适配行高
-                is_detail_local = (ref_source == "detail_local")
                 max_display = 4 if is_detail_local else 2
-                img_w = 120 if is_detail_local else GRID_SINGLE_W
-                img_h = 120 if is_detail_local else GRID_SINGLE_H
+                place_w = img_w
+                place_h = img_h
+                grid_paths = [
+                    p for p, _ in display_images[:max_display]
+                    if p.suffix.lower() in SUPPORTED_IMG_EXT
+                ]
 
-                for img_path, img_label in display_images[:max_display]:
-                    if img_path.suffix.lower() not in SUPPORTED_IMG_EXT:
-                        continue
-                    try:
-                        img = Image(str(img_path))
-                        img.width = img_w
-                        img.height = img_h
-                        img.anchor = OneCellAnchor(
-                            _from=AnchorMarker(
-                                col=base_col,
-                                row=base_row,
-                                colOff=0,
-                                rowOff=y_offset,
-                            ),
-                            ext=XDRPositiveSize2D(
-                                cx=pixels_to_EMU(img_w),
-                                cy=pixels_to_EMU(img_h),
-                            ),
+                if is_detail_local and grid_paths:
+                    base_col, base_row = self._col_row_from_anchor(anchor)
+                    placed = 0
+                    for i, img_path in enumerate(grid_paths[:4]):
+                        ok = self._embed_image_in_column(
+                            sheet,
+                            img_path,
+                            col_0=base_col + i,
+                            row_0=base_row,
+                            row_span=block_rows,
+                            img_w=place_w,
+                            img_h=place_h,
                         )
-                        sheet.add_image(img)
-                        y_offset += (img_h + GRID_GAP) * EMU_PER_PIXEL
+                        if not ok:
+                            raise ValueError(
+                                f"局部图嵌入失败：{img_path.name}。"
+                                f"已放入 {placed}/{len(grid_paths[:4])} 张，请更换图片后重新导出。"
+                            )
+                        placed += 1
                         has_ref_image = True
-                    except Exception:
-                        pass
-
-                # 根据图片区域实际高度撑大行高
-                if has_ref_image:
-                    image_area_px = (y_offset / EMU_PER_PIXEL) + 10
-                    row_height = max(row_height, int(image_area_px))
-                for row_idx in (block_start, block_end):
-                    sheet.row_dimensions[row_idx].height = min(row_height, 409)
-
-                # 添加参考图来源标签
-                if has_ref_image:
-                    source_labels = [lbl for _, lbl in display_images[:max_display] if lbl]
-                    sheet[f"F{block_start}"].value = " / ".join(source_labels) if source_labels else ""
-                    if source_labels:
-                        sheet[f"F{block_start}"].font = Font(italic=True, color="FF2563EB", size=9)
-                    else:
-                        sheet[f"F{block_start}"].value = ""
+                        label_cell = sheet.cell(row=block_start, column=6 + i)
+                        label_cell.value = f"局部图{i + 1}"
+                        label_cell.font = Font(italic=True, color="FF2563EB", size=9)
+                        label_cell.alignment = Alignment(
+                            horizontal="center", vertical="top", wrap_text=True
+                        )
+                    logger.info(
+                        "局部图横向排放: sku=%s resolved=%d placed=%d cols=F-I paths=%s",
+                        sku,
+                        len(grid_paths[:4]),
+                        placed,
+                        [p.name for p in grid_paths[:4]],
+                    )
                 else:
-                    note = "（暂无参考图）"
-                    sheet[f"F{block_start}"].value = note
+                    base_col, base_row = self._col_row_from_anchor(anchor)
+                    y_offset = 0
+                    embed_failed: list[str] = []
+                    for img_path, _img_label in display_images[:max_display]:
+                        if img_path.suffix.lower() not in SUPPORTED_IMG_EXT:
+                            embed_failed.append(img_path.name)
+                            continue
+                        try:
+                            img = Image(str(img_path))
+                            img.width = img_w
+                            img.height = img_h
+                            img.anchor = OneCellAnchor(
+                                _from=AnchorMarker(
+                                    col=base_col,
+                                    row=base_row,
+                                    colOff=0,
+                                    rowOff=y_offset,
+                                ),
+                                ext=XDRPositiveSize2D(
+                                    cx=pixels_to_EMU(img_w),
+                                    cy=pixels_to_EMU(img_h),
+                                ),
+                            )
+                            sheet.add_image(img)
+                            y_offset += (img_h + GRID_GAP) * EMU_PER_PIXEL
+                            has_ref_image = True
+                        except Exception as exc:
+                            logger.warning("嵌入图片失败 %s: %s", img_path.name, exc)
+                            embed_failed.append(img_path.name)
+                    if embed_failed:
+                        raise ValueError(
+                            "参考图嵌入失败："
+                            + "、".join(embed_failed[:8])
+                            + "。请更换图片后重新导出。"
+                        )
+                    if has_ref_image and not is_detail_local:
+                        image_area_px = (y_offset / EMU_PER_PIXEL) + 10
+                        adjusted = max(row_height, int(image_area_px))
+                        for row_idx in range(block_start, block_end + 1):
+                            sheet.row_dimensions[row_idx].height = min(
+                                adjusted / block_rows, 409
+                            )
+
+                # 添加参考图来源标签（局部图已在各列单独标注）
+                if not is_detail_local:
+                    if has_ref_image:
+                        source_labels = [lbl for _, lbl in display_images[:max_display] if lbl]
+                        sheet[f"F{block_start}"].value = " / ".join(source_labels) if source_labels else ""
+                        if source_labels:
+                            sheet[f"F{block_start}"].font = Font(italic=True, color="FF2563EB", size=9)
+                        else:
+                            sheet[f"F{block_start}"].value = ""
+                    else:
+                        sheet[f"F{block_start}"].value = "（暂无参考图）"
+                        sheet[f"F{block_start}"].font = Font(italic=True, color="FF6B7280", size=9)
+                elif not has_ref_image:
+                    sheet[f"F{block_start}"].value = "（暂无参考图）"
                     sheet[f"F{block_start}"].font = Font(italic=True, color="FF6B7280", size=9)
 
-            current_row += 2
+            current_row += block_rows
 
-        widths = {1: 8, 2: 18, 3: 14, 4: 52, 5: 72, 6: 52}
+        widths = {1: 8, 2: 18, 3: 14, 4: 52, 5: 72, 6: 22, 7: 22, 8: 22, 9: 22}
         for col_idx, width in widths.items():
             sheet.column_dimensions[chr(64 + col_idx)].width = width
 
         for row_idx in range(1, sheet.max_row + 1):
-            for col_idx in range(1, 7):
+            for col_idx in range(1, 10):
                 cell = sheet.cell(row=row_idx, column=col_idx)
                 if not cell.border.left.style:
                     cell.border = thin_border
@@ -724,17 +920,7 @@ class ExcelService:
         filename = f"SOP_{sku}_{timestamp}.xlsx"
         output_file = self.export_dir / filename
 
-        # 最终防线：移除工作簿中任何扩展名不被支持的图片
-        for ws in workbook.worksheets:
-            safe_images = []
-            for img in ws._images:
-                img_path = getattr(img, "path", None)
-                if img_path and Path(img_path).suffix.lower() not in SUPPORTED_IMG_EXT:
-                    logger.warning(f"openpyxl 移除不支持图片: {img_path}")
-                    continue
-                safe_images.append(img)
-            ws._images = safe_images
-
+        self._assert_supported_workbook_images(workbook)
         workbook.save(output_file)
         return output_file
 
@@ -762,55 +948,36 @@ class ExcelService:
         web_paths: list[Path] = []
         seen: set[str] = set()
 
-        # 预先构建 upload_files 的 stem→path 映射（用于 NAS URL 模糊匹配）
-        upload_stems: dict[str, Path] = {}
-        for up_name, up_path in upload_files.items():
-            stem = Path(up_name).stem.lower()
-            if stem not in upload_stems:
-                upload_stems[stem] = up_path
-
         for candidate in candidates:
             if not candidate:
                 continue
 
-            # 从 URL 中提取文件名（处理普通路径和 NAS 查询参数两种格式）
-            filename = ""
-            if "?" in candidate:
-                filename = candidate.rsplit("/", 1)[-1].split("?")[0]
-            else:
-                filename = candidate.rsplit("/", 1)[-1]
-            if not filename:
-                filename = candidate.rsplit("/", 1)[-1]
-
-            if filename in seen:
+            dedup_key = candidate if "/api/nas/" in candidate else ""
+            if not dedup_key:
+                if "?" in candidate:
+                    dedup_key = candidate.rsplit("/", 1)[-1].split("?")[0]
+                else:
+                    dedup_key = candidate.rsplit("/", 1)[-1]
+            if not dedup_key or dedup_key in seen:
                 continue
-            seen.add(filename)
+            seen.add(dedup_key)
 
-            # ── 先解析文件路径，再以实际文件扩展名做格式检查 ──
-            # _ensure_jpg 可能在 export_sop 入口处已将 webp/png 转为 jpg，
-            # 但 upload_files 的 key 仍保留原扩展名，因此不能仅凭 URL 扩展名过滤。
-            resolved: Path | None = None
-            if filename in upload_files:
-                resolved = upload_files[filename]
-            if not resolved:
-                cand_stem = Path(filename).stem.lower()
-                if cand_stem in upload_stems:
-                    resolved = upload_stems[cand_stem]
-                if not resolved:
-                    for up_name, up_path in upload_stems.items():
-                        if up_name.endswith(cand_stem):
-                            resolved = up_path
-                            break
+            resolved = self._resolve_upload_path_from_url(
+                candidate, upload_files, web_ref_files
+            )
             if resolved and str(resolved) in seen:
                 resolved = None
             if resolved and resolved.exists():
-                # 用实际文件扩展名做格式校验（_ensure_jpg 已保证为支持格式）
                 if resolved.suffix.lower() not in SUPPORTED_IMG_EXT:
                     continue
                 seen.add(str(resolved))
-                operator_paths.append(resolved)
+                if str(resolved) in {str(p) for p in web_ref_files.values()}:
+                    web_paths.append(resolved)
+                else:
+                    operator_paths.append(resolved)
                 continue
 
+            filename = dedup_key
             if filename in web_ref_files:
                 resolved = web_ref_files[filename]
                 if resolved and resolved.suffix.lower() not in SUPPORTED_IMG_EXT:
@@ -822,6 +989,13 @@ class ExcelService:
         paths = operator_paths + web_paths
         paths = [p for p in paths if p.suffix.lower() in SUPPORTED_IMG_EXT]
         # 主图只能出现在主图行，其他行没有参考图时留空，不兜底主图
+        logger.info(
+            "resolve refs: candidates=%d operator=%d web=%d paths=%d",
+            len(candidates),
+            len(operator_paths),
+            len(web_paths),
+            len(paths),
+        )
         return paths
 
     def _split_reference_sources(

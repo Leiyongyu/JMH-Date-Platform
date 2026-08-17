@@ -5,10 +5,10 @@ import hashlib
 import ipaddress
 import json as _json
 import logging
-import mimetypes
 import random
 import re
 import secrets
+import shutil
 import socket
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -30,17 +30,13 @@ from urllib.parse import urljoin, urlparse
 from backend.image_sop.config import get_settings
 from backend.image_sop.repository import get_db, init_db
 from backend.image_sop.models import (
-    AmazonListingQueryRequest,
-    AmazonProductSearchRequest,
     CopyBlock,
     EbayParseUrlRequest,
     ImageRequirement,
     ListingData,
-    PrincipalAssignRequest,
     ProductAnalysis,
     SopExportRequest,
     SopResult,
-    VcListingPageRequest,
 )
 from backend.image_sop.services.lingxing_auth import LingxingAuthClient, LingxingAuthError
 from backend.image_sop.services.ai_service import AiService
@@ -66,6 +62,15 @@ settings.export_path.mkdir(parents=True, exist_ok=True)
 settings.web_ref_path.mkdir(parents=True, exist_ok=True)
 if settings.nas_enabled:
     settings.nas_cache_path.mkdir(parents=True, exist_ok=True)
+
+
+def _as_str_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def _nas_media_url(kind: str, path: str) -> str:
@@ -396,33 +401,6 @@ async def list_lingxing_stores() -> dict[str, object]:
     return {"stores": stores, "default_sid": default_sid}
 
 
-@app.get("/api/lingxing/listing-by-sku")
-async def get_listing_by_sku_api(
-    sku: str = Query(..., min_length=1),
-    sid: int | None = Query(None),
-) -> dict[str, object]:
-    """按 MSKU + sid 拉取 Listing（供本地 SOP 远程后台模式调用）。"""
-    normalized = sku.strip()
-    if not normalized:
-        raise HTTPException(status_code=400, detail="SKU 不能为空")
-    service = LingxingService(settings)
-    try:
-        if settings.lingxing_use_mock:
-            listing = service._mock_listing(normalized)
-        else:
-            listing = await service._fetch_real_listing(normalized, sid)
-    except LingxingAuthError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Listing 获取失败: {getattr(exc, 'message', str(exc))}",
-        ) from exc
-    return {"listing": listing.model_dump()}
-
-
 def _premium_detail_design_request(detail_count: int) -> str:
     if detail_count >= 4:
         return (
@@ -573,6 +551,7 @@ async def _pregenerate_premium_background(
 @app.post("/api/sop/generate", response_model=SopResult)
 async def generate_sop(
     background_tasks: BackgroundTasks,
+    request: Request,
     sku: str = Form(...),
     sid: int | None = Form(None),
     source_mode: str = Form(default="sku"),
@@ -588,6 +567,23 @@ async def generate_sop(
     nas_detail_local_images: list[str] = Form(default=[]),
 ) -> SopResult:
     request_started = time.perf_counter()
+    form = await request.form()
+    nas_detail_local_images = _as_str_list(nas_detail_local_images)
+    form_dtl = [str(v).strip() for v in form.getlist("nas_detail_local_images") if str(v).strip()]
+    if len(form_dtl) > len(nas_detail_local_images):
+        nas_detail_local_images = form_dtl
+    nas_reference_images = _as_str_list(nas_reference_images)
+    form_refs = [str(v).strip() for v in form.getlist("nas_reference_images") if str(v).strip()]
+    if len(form_refs) > len(nas_reference_images):
+        nas_reference_images = form_refs
+    logger.info(
+        "SOP generate form: sku=%s nas_detail_local=%d nas_ref=%d dtl_upload=%d nas_dtl=%s",
+        sku,
+        len(nas_detail_local_images),
+        len(nas_reference_images),
+        len([item for item in detail_local_images if getattr(item, "filename", None)]),
+        nas_detail_local_images,
+    )
     normalized_sku = sku.strip()
     if not normalized_sku:
         raise HTTPException(status_code=400, detail="SKU 不能为空")
@@ -641,9 +637,11 @@ async def generate_sop(
             return_exceptions=True,
         )
         downloaded: dict[str, Path] = {}
+        download_errors: list[str] = []
         for result in results:
             if isinstance(result, BaseException):
                 logger.warning("NAS 图片下载异常: %s", result)
+                download_errors.append(str(result))
                 continue
             path, local = result
             if local:
@@ -654,6 +652,25 @@ async def generate_sop(
             len(downloaded),
             (time.perf_counter() - started_at) * 1000,
         )
+        missing_paths = [path for path in requested_paths if path not in downloaded]
+        if missing_paths:
+            missing_names = [Path(path).name for path in missing_paths]
+            try:
+                nas_service.close()
+            except Exception:
+                logger.debug("NAS service close 时出现异常（不影响主流程）")
+            nas_service = None
+            extra = f"；错误: {download_errors[0]}" if download_errors else ""
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    f"NAS 图片下载失败 {len(missing_paths)}/{len(requested_paths)} 张："
+                    + "、".join(missing_names[:8])
+                    + ("…" if len(missing_names) > 8 else "")
+                    + extra
+                    + "。请重试或改选其他图片后再生成。"
+                ),
+            )
         nas_downloaded_main = downloaded.get(nas_main_image) if nas_main_image else None
         nas_downloaded_refs = {
             path: downloaded[path]
@@ -769,10 +786,22 @@ async def generate_sop(
 
     # ── 局部图池（产品详情图，可选，用于 Excel 额外展示行）──
     detail_local_urls: list[str] = []
-    for dtl_path, dtl_local in nas_downloaded_detail_locals.items():
-        dtl_url = _nas_media_url("image", dtl_path)
-        detail_local_urls.append(dtl_url)
-        upload_files[dtl_local.name] = dtl_local
+    for idx, (dtl_path, dtl_local) in enumerate(nas_downloaded_detail_locals.items(), start=1):
+        suffix = dtl_local.suffix or ".jpg"
+        upload_name = f"{normalized_sku}_dtl_nas{idx}_{uuid4().hex[:8]}{suffix}"
+        dest = settings.upload_path / upload_name
+        try:
+            shutil.copy2(dtl_local, dest)
+            stored = dest
+        except Exception:
+            stored = dtl_local
+            upload_name = dtl_local.name
+        detail_local_urls.append(f"/api/uploads/{upload_name}")
+        upload_files[upload_name] = stored
+        upload_files[dtl_local.name] = stored
+        orig_cache_name = dtl_path.replace("/", "_").lstrip("_")
+        if orig_cache_name and orig_cache_name not in upload_files:
+            upload_files[orig_cache_name] = stored
     dtl_save_tasks = [
         save_upload(dtl_upload, f"{normalized_sku}_dtl{idx + 1}")
         for idx, dtl_upload in enumerate(detail_local_images)
@@ -783,6 +812,13 @@ async def generate_sop(
         for dtl_name, dtl_path in dtl_saved:
             detail_local_urls.append(f"/api/uploads/{dtl_name}")
             upload_files[dtl_name] = dtl_path
+    logger.info(
+        "局部图入库: nas_in=%d upload_in=%d urls=%d files=%s",
+        len(nas_detail_local_images),
+        len([item for item in detail_local_images if item.filename]),
+        len(detail_local_urls),
+        [Path(u).name for u in detail_local_urls],
+    )
 
     has_operator_references = (len(detail_reference_urls) + len(scene_reference_urls)) > 0
 
@@ -1008,12 +1044,6 @@ async def generate_sop(
             "action": listing.scrape_action,
         },
     )
-
-
-@app.get("/api/sop/queue-status")
-async def sop_queue_status() -> dict[str, int]:
-    """生成队列状态，供前端显示排队等待。"""
-    return _generation_gate.snapshot()
 
 
 @app.get("/api/sop/premium-status")
@@ -1264,83 +1294,6 @@ async def export_sop_premium(payload: SopExportRequest) -> dict[str, str]:
         ) from exc
 
 
-@app.post("/api/lingxing/tags")
-async def query_lingxing_tags(
-    sku: str = Form(...),
-    sid: int | None = Form(None),
-) -> dict[str, object]:
-    normalized_sku = sku.strip()
-    if not normalized_sku:
-        raise HTTPException(status_code=400, detail="SKU 不能为空")
-
-    service = LingxingService(settings)
-    try:
-        tags = await service.query_listing_relation_tags(normalized_sku, sid=sid)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"领星标签查询失败: {getattr(exc, 'message', str(exc))}") from exc
-    return {"sku": normalized_sku, "sid": sid or settings.lingxing_default_sid, "tags": tags}
-
-
-@app.post("/api/lingxing/principal/batch")
-async def batch_assign_lingxing_principal(payload: PrincipalAssignRequest) -> dict[str, object]:
-    service = LingxingService(settings)
-    try:
-        result = await service.batch_assign_listing_principal(
-            [item.model_dump() for item in payload.sid_asin_list]
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"领星负责人分配失败: {exc}") from exc
-    return result
-
-
-@app.post("/api/lingxing/listings")
-async def query_lingxing_listings(payload: VcListingPageRequest) -> dict[str, object]:
-    service = LingxingService(settings)
-    try:
-        result = await service.query_vc_listing_page(
-            offset=payload.offset,
-            length=payload.length,
-            vc_store_ids=payload.vc_store_ids,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"领星Listing列表查询失败: {exc}") from exc
-    return result
-
-
-@app.post("/api/lingxing/amazon-listings")
-async def query_lingxing_amazon_listings(payload: AmazonListingQueryRequest) -> dict[str, object]:
-    service = LingxingService(settings)
-    try:
-        result = await service.query_amazon_listing(payload.model_dump())
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"亚马逊Listing查询失败: {exc}") from exc
-    return result
-
-
-@app.post("/api/lingxing/amazon-product-search")
-async def query_lingxing_amazon_product_search(
-    payload: AmazonProductSearchRequest,
-) -> dict[str, object]:
-    """按 store_id + MSKU 查询领星「已有商品信息」（五点/描述/关键词）。"""
-    service = LingxingService(settings)
-    try:
-        result = await service.query_amazon_product_search(payload.store_id, payload.skus)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except LingxingAuthError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"亚马逊商品信息查询失败: {exc}") from exc
-    return result
-
-
-
 def _preload_nas_thumbnails(paths: list[str], max_images: int | None = None, workers: int | None = None):
     """后台并行预下载 NAS 缩略图，避免前端一张张等待。不影响主流程。"""
     if not _nas_ready():
@@ -1401,6 +1354,7 @@ async def nas_search(background_tasks: BackgroundTasks, sku: str = "") -> dict[s
                     "month_dir": m.month_dir,
                     "match_score": m.match_score,
                     "matched_patterns": m.matched_patterns,
+                    "has_raw": m.has_raw,
                     "images": [
                         {
                             "name": img.name,
@@ -1409,6 +1363,10 @@ async def nas_search(background_tasks: BackgroundTasks, sku: str = "") -> dict[s
                             "url": _nas_media_url("image", img.path),
                             "thumb": _nas_media_url("thumb", img.path),
                             "is_white_bg": NasImageService._is_white_bg_image(img.name),
+                            "is_likely_main": NasImageService._is_likely_main_image(
+                                img.name, img.folder_path or m.folder_path
+                            ),
+                            "is_raw_file": NasImageService._is_raw_file(img.name),
                         }
                         for img in m.images
                     ],
@@ -1711,6 +1669,11 @@ async def ai_search_images(payload: AiImageSearchRequest) -> dict[str, object]:
     source_type = payload.source_type
     if source_type not in ("mix", "scene", "item"):
         raise HTTPException(status_code=400, detail="source_type 必须是 mix、scene 或 item")
+    if not settings.web_search_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="场景搜图未开启，请本地上传或从 NAS 选",
+        )
 
     refresh = payload.refresh
     product_ctx = payload.product_context or {}

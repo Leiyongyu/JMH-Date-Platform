@@ -422,6 +422,8 @@ def init_database() -> None:
         project_root / "migrations" / "20260807_amz_sop_after_sales.sql",
         project_root / "migrations" / "20260811_ebay_sop_after_sales.sql",
         project_root / "migrations" / "20260812_image_sop.sql",
+        project_root / "migrations" / "20260814_inventory_report_source_tables.sql",
+        project_root / "migrations" / "20260817_inventory_report_etl_tables.sql",
     ]
     schema = "\n".join(
         path.read_text(encoding="utf-8")

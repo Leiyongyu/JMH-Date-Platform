@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 
@@ -70,43 +68,6 @@ class SopResult(BaseModel):
     excel_file: str = ""
     scrape_feedback: dict[str, str] = Field(default_factory=dict)
     ai_provider: str = ""
-
-
-class PrincipalAssignItem(BaseModel):
-    sid: int
-    asin: str
-    principal_name: list[str] = Field(default_factory=list)
-
-
-class PrincipalAssignRequest(BaseModel):
-    sid_asin_list: list[PrincipalAssignItem]
-
-
-class VcListingPageRequest(BaseModel):
-    offset: int = 0
-    length: int = 20
-    vc_store_ids: list[str] = Field(default_factory=list)
-
-
-class AmazonProductSearchRequest(BaseModel):
-    store_id: int = Field(..., gt=0)
-    skus: list[str] = Field(..., min_length=1, max_length=20)
-
-
-class AmazonListingQueryRequest(BaseModel):
-    sid: str
-    is_pair: Optional[int] = None
-    is_delete: Optional[int] = None
-    pair_update_start_time: Optional[str] = None
-    pair_update_end_time: Optional[str] = None
-    listing_update_start_time: Optional[str] = None
-    listing_update_end_time: Optional[str] = None
-    search_field: Optional[str] = None
-    search_value: list[str] = Field(default_factory=list)
-    exact_search: Optional[int] = 1
-    store_type: Optional[int] = None
-    offset: int = 0
-    length: int = 100
 
 
 class SopExportRequest(BaseModel):

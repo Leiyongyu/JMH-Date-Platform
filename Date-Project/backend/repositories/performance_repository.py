@@ -666,6 +666,23 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
             INSERT INTO scheduler_task (
                 task_code, task_name, cron_expression, enabled, description
             ) VALUES (
+                'monthly_inventory_report_source_sync',
+                '领星月度库存报表三接口源数据同步',
+                '0 0 6 1 * ?',
+                1,
+                '每月1日06:00拉取上一个完整自然月的FBA、海外仓、本地仓明细，并重建DWD与DWS库存报表'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
                 'amz_sop_after_sales_chain',
                 'AMZ-SOP售后链路',
                 '0 30 22 ? * SUN',
