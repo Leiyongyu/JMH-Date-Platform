@@ -178,7 +178,9 @@ def test_order_profit_uses_full_month_cny_and_keeps_minimum_fields():
     }
 
 
-def test_month_end_sales_volume_rebuilds_only_amz_sales_dwd(monkeypatch):
+def test_day_11_sales_volume_defaults_to_previous_month_and_only_rebuilds_amz_dwd(
+    monkeypatch,
+):
     source_rows = [
         {
             "stat_month": "2026-08",
@@ -190,9 +192,16 @@ def test_month_end_sales_volume_rebuilds_only_amz_sales_dwd(monkeypatch):
             "currency_code": "CNY",
             "amount": Decimal("100"),
             "volume": Decimal("8"),
-            "pulled_at": datetime(2026, 8, 31, 23, 0, 0),
+            "pulled_at": datetime(2026, 9, 11, 23, 0, 0),
         }
     ]
+    scope_args = []
+    monkeypatch.setattr(
+        service,
+        "_month_scope",
+        lambda value: scope_args.append(value)
+        or ("2026-08", "2026-08-01", "2026-08-31"),
+    )
     monkeypatch.setattr(service.repo, "amazon_seller_ids", lambda: ["1001"])
     monkeypatch.setattr(
         service,
@@ -212,11 +221,12 @@ def test_month_end_sales_volume_rebuilds_only_amz_sales_dwd(monkeypatch):
     monkeypatch.setattr(
         service,
         "rebuild_monthly_inventory_report",
-        lambda _month: pytest.fail("月末销量任务不应重建完整库存报表"),
+        lambda _month: pytest.fail("11日销量任务不应重建完整库存报表"),
     )
 
-    result = sync_monthly_inventory_sales_volume("2026-08")
+    result = sync_monthly_inventory_sales_volume()
 
+    assert scope_args == [None]
     assert result["stat_month"] == "2026-08"
     assert result["order_profit_rows"] == 1
     assert result["ods_rows"] == 1

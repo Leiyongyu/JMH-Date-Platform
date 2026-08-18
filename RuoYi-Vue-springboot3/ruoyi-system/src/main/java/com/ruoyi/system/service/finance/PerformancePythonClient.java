@@ -121,33 +121,6 @@ public class PerformancePythonClient extends PythonHttpSupport
         return get("/monthly-inventory-report/details", params, requestId);
     }
 
-    public Map<String, Object> monthlyInventoryReportManualInputs(
-            String statMonth, String requestId)
-    {
-        return get("/monthly-inventory-report/manual-inputs",
-                Map.of("stat_month", statMonth), requestId);
-    }
-
-    public Map<String, Object> saveMonthlyInventoryReportManualInputs(
-            Map<String, ?> payload, String requestId)
-    {
-        try
-        {
-            String json = objectMapper.writeValueAsString(payload);
-            HttpRequest request = baseRequest(
-                    "/monthly-inventory-report/manual-inputs", requestId)
-                    .header("Content-Type", "application/json;charset=utf-8")
-                    .PUT(HttpRequest.BodyPublishers.ofString(
-                            json, StandardCharsets.UTF_8))
-                    .build();
-            return sendJson(request, false);
-        }
-        catch (Exception e)
-        {
-            throw asRuntime(e);
-        }
-    }
-
     public Map<String, Object> rebuildMonthlyInventoryReport(
             String statMonth, String requestId)
     {
@@ -204,6 +177,21 @@ public class PerformancePythonClient extends PythonHttpSupport
         params.put("operator", operator);
         return upload(
                 "/monthly-inventory-report/ebay-sales-imports",
+                params, file, requestId, idempotencyKey);
+    }
+
+    public Map<String, Object> importMonthlyInventoryPurchaseOrder(
+            String statMonth,
+            MultipartFile file,
+            String operator,
+            String requestId,
+            String idempotencyKey)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("stat_month", statMonth);
+        params.put("operator", operator);
+        return upload(
+                "/monthly-inventory-report/purchase-order-imports",
                 params, file, requestId, idempotencyKey);
     }
 

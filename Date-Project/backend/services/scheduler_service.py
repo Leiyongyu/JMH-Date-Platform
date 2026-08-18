@@ -28,15 +28,23 @@ from backend.services.inventory_report_source_sync_service import (
     sync_monthly_inventory_sales_volume,
     sync_monthly_inventory_report_sources,
 )
+from backend.services.inventory_report_etl_service import (
+    fill_next_month_opening_inventory,
+)
 
 
 AMZ_TASK_CODE = "amz_monthly_order_profit_sync"
+OPENING_INVENTORY_TASK_CODE = (
+    "monthly_inventory_report_opening_inventory_fill"
+)
+OPENING_INVENTORY_TASK_NAME = "月度库存次月月初库存填充"
 TASK_CODES = {
     AMZ_TASK_CODE,
     CLEARANCE_TASK_CODE,
     AMZ_SOP_TASK_CODE,
     INVENTORY_REPORT_TASK_CODE,
     SALES_VOLUME_TASK_CODE,
+    OPENING_INVENTORY_TASK_CODE,
 }
 
 
@@ -71,9 +79,12 @@ def run_scheduler_task(
         raise ValueError("未知任务编码")
     month = stat_month or (
         previous_natural_month()
-        if task_code in {AMZ_TASK_CODE, INVENTORY_REPORT_TASK_CODE}
-        else datetime.now().strftime("%Y-%m")
-        if task_code == SALES_VOLUME_TASK_CODE
+        if task_code in {
+            AMZ_TASK_CODE,
+            INVENTORY_REPORT_TASK_CODE,
+            SALES_VOLUME_TASK_CODE,
+            OPENING_INVENTORY_TASK_CODE,
+        }
         else (end_date or datetime.now().date()).strftime("%Y-%m")
     )
     run_id = str(uuid4())
@@ -93,8 +104,10 @@ def run_scheduler_task(
             lock_name = f"inventory:monthly-report-source:{month}"
         elif task_code == SALES_VOLUME_TASK_CODE:
             lock_name = f"inventory:monthly-sales-volume:{month}"
+        elif task_code == OPENING_INVENTORY_TASK_CODE:
+            lock_name = f"inventory:next-month-opening:{month}"
         else:
-            lock_name = f"warehouse:amz-fba-inventory:{month}"
+            lock_name = f"warehouse:amz-ebay-inventory-age:{month}"
         with repo.named_lock(lock_name) as acquired:
             if not acquired:
                 task_name = (
@@ -104,6 +117,10 @@ def run_scheduler_task(
                     if task_code == INVENTORY_REPORT_TASK_CODE
                     else SALES_VOLUME_TASK_NAME
                     if task_code == SALES_VOLUME_TASK_CODE
+                    else OPENING_INVENTORY_TASK_NAME
+                    if task_code == OPENING_INVENTORY_TASK_CODE
+                    else "AMZ FBA与eBay海外仓库存库龄同步"
+                    if task_code == CLEARANCE_TASK_CODE
                     else month + " AMZ任务"
                 )
                 raise SchedulerTaskAlreadyRunning(
@@ -125,6 +142,8 @@ def run_scheduler_task(
                 result = sync_monthly_inventory_report_sources(month)
             elif task_code == SALES_VOLUME_TASK_CODE:
                 result = sync_monthly_inventory_sales_volume(month)
+            elif task_code == OPENING_INVENTORY_TASK_CODE:
+                result = fill_next_month_opening_inventory(month)
             else:
                 result = run_amz_sop_chain(
                     start_date=start_date,

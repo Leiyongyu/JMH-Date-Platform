@@ -187,6 +187,7 @@ CREATE TABLE IF NOT EXISTS `dws_inventory_report_department_summary` (
     `fba_end_inventory_total_cost` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT 'FBA仓期末库存含移仓总成本',
     `fba_end_in_transit_qty` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT 'FBA仓期末在途数量',
     `fba_end_in_transit_total_cost` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT 'FBA仓期末在途总成本',
+    `next_month_opening_inventory_qty` DECIMAL(24,6) NULL DEFAULT NULL COMMENT '次月月初库存数量，取本月海外仓与FBA仓期末库存数量之和',
     `actual_achievement_amount` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '实际达成销售额，Amazon订单利润按部门汇总，币种CNY',
     `target_achievement_rate` DECIMAL(24,10) NOT NULL DEFAULT 0 COMMENT '目标达成率，实际达成除以销售冲刺目标',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',

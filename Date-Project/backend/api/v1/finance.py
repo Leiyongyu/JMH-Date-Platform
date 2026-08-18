@@ -9,7 +9,6 @@ from io import BytesIO
 from backend.api.deps import require_internal_access
 from backend.api.upload_helpers import read_excel_upload
 from backend.schemas.performance_requests import (
-    InventoryReportManualInputRequest,
     InventoryReportOrderProfitSyncRequest,
     InventoryReportRebuildRequest,
     PerformanceRefreshRequest,
@@ -31,12 +30,11 @@ from backend.services.clearance_service import import_inventory_age_cost
 from backend.services.clearance_export_service import export_inventory_age_details
 from backend.services.inventory_report_etl_service import (
     get_department_summary,
-    get_manual_inputs as get_inventory_report_manual_inputs,
     import_inventory_report_ebay_sales,
+    import_inventory_report_purchase_order,
     list_details as list_inventory_report_details,
     list_months as list_inventory_report_months,
     rebuild_monthly_inventory_report,
-    save_manual_inputs as save_inventory_report_manual_inputs,
 )
 from backend.services.inventory_report_source_sync_service import (
     InventoryReportSourceSyncError,
@@ -351,42 +349,6 @@ def get_monthly_inventory_report_details(
     return success_response(data, request_id=request.state.request_id)
 
 
-@router.get("/monthly-inventory-report/manual-inputs")
-def get_monthly_inventory_report_manual_inputs(
-    request: Request,
-    stat_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
-):
-    return success_response(
-        get_inventory_report_manual_inputs(stat_month),
-        request_id=request.state.request_id,
-    )
-
-
-@router.put("/monthly-inventory-report/manual-inputs")
-def put_monthly_inventory_report_manual_inputs(
-    payload: InventoryReportManualInputRequest,
-    request: Request,
-):
-    try:
-        data = save_inventory_report_manual_inputs(
-            payload.stat_month,
-            [item.model_dump() for item in payload.items],
-            payload.operator,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"月度库存人工在途数据保存失败: {exc}",
-        ) from exc
-    return success_response(
-        data,
-        request_id=request.state.request_id,
-        message="monthly inventory manual inputs saved",
-    )
-
-
 @router.post("/monthly-inventory-report/rebuilds", status_code=201)
 def post_monthly_inventory_report_rebuild(
     payload: InventoryReportRebuildRequest,
@@ -462,6 +424,39 @@ async def post_monthly_inventory_report_ebay_sales_import(
         data,
         request_id=request.state.request_id,
         message="monthly inventory ebay sales imported and report rebuilt",
+    )
+
+
+@router.post(
+    "/monthly-inventory-report/purchase-order-imports",
+    status_code=201,
+)
+async def post_monthly_inventory_report_purchase_order_import(
+    request: Request,
+    stat_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+    file: UploadFile = File(...),
+    operator: str | None = None,
+):
+    content, file_name = await read_excel_upload(file)
+    try:
+        data = await run_in_threadpool(
+            import_inventory_report_purchase_order,
+            content,
+            file_name,
+            stat_month,
+            operator,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"月度库存采购单在途导入失败: {exc}",
+        ) from exc
+    return success_response(
+        data,
+        request_id=request.state.request_id,
+        message="monthly inventory purchase order transit imported",
     )
 
 

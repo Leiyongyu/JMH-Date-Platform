@@ -28,7 +28,7 @@ from backend.schemas.inventory_report_source_fields import (
 TASK_CODE = "monthly_inventory_report_source_sync"
 TASK_NAME = "月度库存统计表数据拉取"
 SALES_VOLUME_TASK_CODE = "monthly_inventory_report_sales_volume_sync"
-SALES_VOLUME_TASK_NAME = "月度库存销量填充"
+SALES_VOLUME_TASK_NAME = "月度库存实际达成及销量填充"
 
 FBA_PATH = "cost/center/openApi/fba/detail/query"
 OVERSEAS_PATH = "inventory/center/openapi/storageReport/overseas/detail/page"
@@ -49,6 +49,7 @@ SOURCE_NAMES = {
     "local": "本地仓",
     "order_profit": "Amazon订单利润",
 }
+INVENTORY_SOURCE_TYPES = ("fba", "overseas", "local")
 
 LOG = logging.getLogger(__name__)
 
@@ -72,8 +73,6 @@ def sync_monthly_inventory_report_sources(stat_month: str | None = None) -> dict
         "fba_rows": 0,
         "overseas_rows": 0,
         "local_rows": 0,
-        "order_profit_rows": 0,
-        "order_profit_skipped_rows": 0,
     }
 
     try:
@@ -136,26 +135,15 @@ def sync_monthly_inventory_report_sources(stat_month: str | None = None) -> dict
         metrics["local_rows"] = len(local_rows)
         metrics["extract_rows"] += len(local_rows)
 
-        order_profit_rows, order_profit_skipped_rows = _fetch_order_profit(
-            LingXingOrderProfitDomain(),
-            month,
-            query_start,
-            query_end,
-            seller_ids,
-            pulled_at,
-        )
-        metrics["order_profit_rows"] = len(order_profit_rows)
-        metrics["order_profit_skipped_rows"] = order_profit_skipped_rows
-        metrics["extract_rows"] += len(order_profit_rows)
         _require_non_empty_extract(
             month,
             {
                 "fba": fba_rows,
                 "overseas": overseas_rows,
                 "local": local_rows,
-                "order_profit": order_profit_rows,
             },
             metrics,
+            required_sources=INVENTORY_SOURCE_TYPES,
         )
     except InventoryReportSourceSyncError:
         raise
@@ -171,7 +159,6 @@ def sync_monthly_inventory_report_sources(stat_month: str | None = None) -> dict
                 "fba": fba_rows,
                 "overseas": overseas_rows,
                 "local": local_rows,
-                "order_profit": order_profit_rows,
             },
         )
     except Exception as exc:
@@ -202,7 +189,7 @@ def sync_monthly_inventory_report_sources(stat_month: str | None = None) -> dict
     )
     metrics["inserted_rows"] = etl_result["inserted_rows"]
     metrics["updated_rows"] = 0
-    metrics["skipped_rows"] = order_profit_skipped_rows
+    metrics["skipped_rows"] = 0
     metrics["deleted_rows"] = (
         replace_stats["deleted_rows"] + etl_result["deleted_rows"]
     )
@@ -276,15 +263,18 @@ def sync_monthly_inventory_order_profit(
             ) from exc
 
         try:
-            etl_result = rebuild_monthly_inventory_report(month)
+            etl_result = rebuild_monthly_inventory_amz_sales(month)
         except Exception as exc:
             raise InventoryReportSourceSyncError(
                 "TRANSFORM",
-                f"订单利润已更新，但月度库存完整清洗与汇总失败: {exc}",
+                f"订单利润已更新，但Amazon实际达成和销量DWD清洗失败: {exc}",
                 metrics,
             ) from exc
     metrics["etl"] = etl_result
-    metrics["inserted_rows"] = etl_result["inserted_rows"]
+    metrics["dwd_rows"] = etl_result["dwd_rows"]
+    metrics["inserted_rows"] = (
+        replace_stats["inserted_rows"] + etl_result["dwd_rows"]
+    )
     metrics["updated_rows"] = 0
     metrics["skipped_rows"] = skipped
     metrics["deleted_rows"] = (
@@ -296,9 +286,8 @@ def sync_monthly_inventory_order_profit(
 def sync_monthly_inventory_sales_volume(
     stat_month: str | None = None,
 ) -> dict[str, Any]:
-    """Pull the current natural month's AMZ volume without rebuilding inventory."""
-    target_month = stat_month or datetime.now().strftime("%Y-%m")
-    month, query_start, query_end = _month_scope(target_month)
+    """Pull the previous complete month's AMZ achievement and volume on day 11."""
+    month, query_start, query_end = _month_scope(stat_month)
     batch_id = str(uuid4())
     pulled_at = datetime.now()
     metrics: dict[str, Any] = {
@@ -337,7 +326,7 @@ def sync_monthly_inventory_sales_volume(
     except Exception as exc:
         raise InventoryReportSourceSyncError(
             "SALES_VOLUME_EXTRACT",
-            f"领星Amazon当月销量拉取失败: {exc}",
+            f"领星Amazon上个完整自然月实际达成和销量拉取失败: {exc}",
             metrics,
         ) from exc
 
@@ -346,7 +335,7 @@ def sync_monthly_inventory_sales_volume(
     except Exception as exc:
         raise InventoryReportSourceSyncError(
             "SALES_VOLUME_LOAD_ODS",
-            f"Amazon当月销量整月替换失败: {exc}",
+            f"Amazon上个完整自然月实际达成和销量整月替换失败: {exc}",
             metrics,
         ) from exc
 
@@ -355,7 +344,7 @@ def sync_monthly_inventory_sales_volume(
     except Exception as exc:
         raise InventoryReportSourceSyncError(
             "SALES_VOLUME_TRANSFORM",
-            f"Amazon当月销量ODS已更新，但DWD清洗失败: {exc}",
+            f"Amazon上个完整自然月实际达成和销量ODS已更新，但DWD清洗失败: {exc}",
             metrics,
         ) from exc
 
@@ -370,7 +359,7 @@ def sync_monthly_inventory_sales_volume(
         replace_stats["deleted_rows"] + dwd_result["deleted_rows"]
     )
     metrics["skipped_rows"] = skipped
-    # 报表按“库存月份+1”读取销量；月末不能用尚未齐全的库存源表重建当月报表。
+    # 报表按“库存月份+1”读取销量；11日仅更新上月实际达成和销量DWD。
     return {**metrics, "status": "completed"}
 
 
@@ -380,7 +369,7 @@ def _require_non_empty_extract(
     metrics: dict[str, Any],
     required_sources: tuple[str, ...] | None = None,
 ) -> None:
-    sources = required_sources or tuple(SOURCE_NAMES)
+    sources = required_sources or INVENTORY_SOURCE_TYPES
     missing = [
         SOURCE_NAMES[source]
         for source in sources

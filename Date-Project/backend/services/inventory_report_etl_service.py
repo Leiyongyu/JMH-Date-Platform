@@ -14,6 +14,9 @@ from backend.parsers.performance_common import (
 from backend.parsers.inventory_report_ebay_sales_parser import (
     parse_inventory_report_ebay_sales_excel,
 )
+from backend.parsers.inventory_report_purchase_order_parser import (
+    parse_inventory_report_purchase_order_excel,
+)
 from backend.repositories import inventory_report_etl_repository as repo
 
 
@@ -60,7 +63,6 @@ SOURCE_NAMES = {
     "fba": "FBA仓",
     "overseas": "海外仓",
     "local": "本地仓",
-    "order_profit": "Amazon订单利润",
 }
 
 
@@ -68,14 +70,10 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
     month = _month(stat_month)
     sources = repo.source_rows(month)
     _require_complete_sources(month, sources)
+    opening_inventory = repo.opening_inventory_by_department(month)
     shops = repo.amazon_shop_map()
     amazon_rules = _amazon_rule_maps(repo.owner_rules(month, "amazon"))
     ebay_rules = _ebay_rule_map(repo.owner_rules(month, "ebay"))
-    manual_inputs = {
-        row["department_code"]: row
-        for row in repo.manual_inputs(month)
-    }
-
     fba_rows, fba_stats = _clean_fba(
         month, sources["fba"], shops, amazon_rules
     )
@@ -97,9 +95,10 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
         fba_rows,
         overseas_rows,
         local_rows,
-        manual_inputs=manual_inputs,
+        purchase_transit_rows=sources.get("purchase_order_transit", []),
         amz_sales_rows=amz_sales_rows,
         ebay_sales_rows=ebay_sales_rows,
+        opening_inventory=opening_inventory,
     )
     persisted = repo.replace_clean_month(
         month,
@@ -119,6 +118,9 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
         "source_local_rows": len(sources["local"]),
         "source_order_profit_rows": len(sources["order_profit"]),
         "source_ebay_sales_rows": len(sources.get("ebay_sales", [])),
+        "source_purchase_order_transit_rows": len(
+            sources.get("purchase_order_transit", [])
+        ),
         **fba_stats,
         **local_stats,
         **amz_sales_stats,
@@ -150,6 +152,48 @@ def rebuild_monthly_inventory_amz_sales(
     }
 
 
+def rebuild_monthly_inventory_ebay_sales(
+    stat_month: str,
+) -> dict[str, Any]:
+    """Rebuild one business month's uploaded eBay actual-achievement DWD."""
+    month = _month(stat_month)
+    sources = repo.ebay_sales_source_rows(month)
+    if not sources:
+        raise ValueError(f"{month} 缺少eBay实际达成上传源数据")
+    rules = _ebay_rule_map(repo.owner_rules(month, "ebay"))
+    rows, stats = _clean_ebay_sales(month, sources, rules)
+    persisted = repo.replace_ebay_sales_detail_month(month, rows)
+    return {
+        "stat_month": month,
+        "source_rows": len(sources),
+        "dwd_rows": persisted["inserted_rows"],
+        "deleted_rows": persisted["deleted_rows"],
+        **stats,
+        "status": "completed",
+    }
+
+
+def fill_next_month_opening_inventory(
+    stat_month: str,
+) -> dict[str, Any]:
+    """将本月期末的海外仓/FBA仓库存回填为次月月初库存。"""
+    month = _month(stat_month)
+    result = repo.fill_next_month_opening_inventory(month)
+    return {
+        "stat_month": month,
+        "opening_month": _next_month(month),
+        "sync_batch_id": None,
+        "extract_rows": result["source_rows"],
+        "source_rows": result["source_rows"],
+        "ods_rows": 0,
+        "inserted_rows": 0,
+        "updated_rows": result["updated_rows"],
+        "deleted_rows": 0,
+        "skipped_rows": 0,
+        "status": "completed",
+    }
+
+
 def _require_complete_sources(
     stat_month: str,
     sources: dict[str, list[dict[str, Any]]],
@@ -167,7 +211,12 @@ def _require_complete_sources(
 
 
 def list_months(limit: int = 24) -> list[dict[str, Any]]:
-    return [_json_ready(item) for item in repo.months(limit)]
+    items = []
+    for source in repo.months(limit):
+        item = dict(source)
+        item["report_month"] = _next_month(str(item["stat_month"]))
+        items.append(_json_ready(item))
+    return items
 
 
 def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
@@ -181,13 +230,14 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
         else {}
     )
     expected_groups = {
-        code.removeprefix("AMZ-")
+        code.removeprefix("AMZ-") if code.startswith("AMZ-") else code
         for code in VALID_DEPARTMENTS
-        if code.startswith("AMZ-")
     }
     complete_age_costs = expected_groups.issubset(age_costs)
     amz_volume_by_department: dict[str, Decimal] | None = None
+    amz_actual_by_department: dict[str, Decimal] | None = None
     ebay_volume: Decimal | None = None
+    ebay_actual: Decimal | None = None
     if sales_volume_month:
         stored_amz_volumes = repo.amz_sales_volume_by_department(
             sales_volume_month
@@ -199,6 +249,10 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
                 if code.startswith("AMZ-")
             }
         ebay_volume = repo.ebay_sales_volume(sales_volume_month)
+        amz_actual_by_department = repo.amz_sales_amount_by_department(
+            sales_volume_month
+        )
+        ebay_actual = repo.ebay_sales_amount(sales_volume_month)
     items = []
     for source in data["items"]:
         item = dict(source)
@@ -234,6 +288,14 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
             item["inventory_age_180_plus_cost"] = (
                 costs.get("inventory_181_plus_cost") if costs else None
             )
+        elif department == "EBAY-1":
+            costs = age_costs.get(department)
+            item["inventory_age_90_180_cost"] = (
+                costs.get("inventory_91_180_cost") if costs else None
+            )
+            item["inventory_age_180_plus_cost"] = (
+                costs.get("inventory_181_plus_cost") if costs else None
+            )
         else:
             item["inventory_age_90_180_cost"] = None
             item["inventory_age_180_plus_cost"] = None
@@ -261,72 +323,50 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
         else:
             item["monthly_sales_qty"] = None
         item["sales_volume_month"] = sales_volume_month
+        item["actual_achievement_month"] = sales_volume_month
+        if int(item.get("is_total") or 0) != 1:
+            if department == "EBAY-1":
+                item["actual_achievement_amount"] = (
+                    _num(ebay_actual) if ebay_actual is not None else ZERO
+                )
+            elif department.startswith("AMZ-"):
+                item["actual_achievement_amount"] = (
+                    _num(amz_actual_by_department.get(department))
+                    if amz_actual_by_department is not None
+                    else ZERO
+                )
+            else:
+                item["actual_achievement_amount"] = ZERO
+            sales_target = _sales_target(item)
+            item["target_achievement_rate"] = (
+                item["actual_achievement_amount"] / sales_target
+                if sales_target != ZERO
+                else ZERO
+            )
         items.append(item)
+    detail_items = [item for item in items if int(item.get("is_total") or 0) != 1]
+    total_item = next(
+        (item for item in items if int(item.get("is_total") or 0) == 1),
+        None,
+    )
+    if total_item is not None:
+        total_item["actual_achievement_amount"] = sum(
+            (_num(item.get("actual_achievement_amount")) for item in detail_items),
+            ZERO,
+        )
+        total_target = sum((_sales_target(item) for item in detail_items), ZERO)
+        total_item["target_achievement_rate"] = (
+            total_item["actual_achievement_amount"] / total_target
+            if total_target != ZERO
+            else ZERO
+        )
+        total_item["actual_achievement_month"] = sales_volume_month
     return {
         "stat_month": month,
+        "source_stat_month": month,
+        "report_month": sales_volume_month,
         "items": [_json_ready(item) for item in items],
     }
-
-
-def get_manual_inputs(stat_month: str) -> dict[str, Any]:
-    month = _month(stat_month)
-    saved = {
-        row["department_code"]: row
-        for row in repo.manual_inputs(month)
-    }
-    items = []
-    for code, name, order in DEPARTMENTS:
-        row = saved.get(code, {})
-        items.append(
-            _json_ready(
-                {
-                    "department_code": code,
-                    "department_name": name,
-                    "display_order": order,
-                    "local_end_in_transit_qty": row.get(
-                        "local_end_in_transit_qty", ZERO
-                    ),
-                    "local_end_in_transit_total_cost": row.get(
-                        "local_end_in_transit_total_cost", ZERO
-                    ),
-                    "updated_by": row.get("updated_by", ""),
-                    "updated_at": row.get("updated_at"),
-                }
-            )
-        )
-    return {"stat_month": month, "items": items}
-
-
-def save_manual_inputs(
-    stat_month: str,
-    items: list[dict[str, Any]],
-    operator: str | None = None,
-) -> dict[str, Any]:
-    month = _month(stat_month)
-    if not items:
-        raise ValueError("人工在途数据不能为空")
-    seen: set[str] = set()
-    rows = []
-    for item in items:
-        department = normalize_text(item.get("department_code")).upper()
-        if department not in VALID_DEPARTMENTS:
-            raise ValueError(f"不支持的部门编码: {department or '空值'}")
-        if department in seen:
-            raise ValueError(f"部门编码重复: {department}")
-        seen.add(department)
-        qty = _num(item.get("local_end_in_transit_qty"))
-        cost = _num(item.get("local_end_in_transit_total_cost"))
-        if qty < ZERO or cost < ZERO:
-            raise ValueError("人工填写的在途数量和金额不能小于0")
-        rows.append(
-            {
-                "department_code": department,
-                "local_end_in_transit_qty": qty,
-                "local_end_in_transit_total_cost": cost,
-            }
-        )
-    repo.upsert_manual_inputs(month, rows, normalize_text(operator)[:64])
-    return get_manual_inputs(month)
 
 
 def list_details(
@@ -367,10 +407,10 @@ def import_inventory_report_ebay_sales(
         parsed["stat_month"], parsed["rows"]
     )
     try:
-        rebuild = rebuild_monthly_inventory_report(parsed["stat_month"])
+        rebuild = rebuild_monthly_inventory_ebay_sales(parsed["stat_month"])
     except Exception as exc:
         raise RuntimeError(
-            "eBay实际达成源数据已更新，但月度库存报表重算失败: "
+            "eBay实际达成源数据已更新，但eBay实际达成DWD清洗失败: "
             f"{exc}"
         ) from exc
     return {
@@ -382,6 +422,34 @@ def import_inventory_report_ebay_sales(
         "skipped_rows": parsed["skipped_rows"],
         "total_amount": parsed["total_amount"],
         "rebuild": rebuild,
+    }
+
+
+def import_inventory_report_purchase_order(
+    content: bytes,
+    file_name: str,
+    stat_month: str,
+    operator: str | None = None,
+) -> dict[str, Any]:
+    parsed = parse_inventory_report_purchase_order_excel(
+        content,
+        file_name,
+        _month(stat_month),
+        operator,
+    )
+    replace_stats = repo.replace_purchase_order_transit(
+        parsed["stat_month"], parsed["rows"]
+    )
+    return {
+        "stat_month": parsed["stat_month"],
+        "batch_id": parsed["batch_id"],
+        "source_rows": parsed["source_rows"],
+        "inserted_rows": replace_stats["inserted_rows"],
+        "deleted_rows": replace_stats["deleted_rows"],
+        "updated_summary_rows": replace_stats["updated_summary_rows"],
+        "skipped_rows": parsed["skipped_rows"],
+        "total_pending_arrival_qty": parsed["total_pending_arrival_qty"],
+        "total_pending_cost": parsed["total_pending_cost"],
     }
 
 
@@ -718,9 +786,10 @@ def _department_summaries(
     fba_rows,
     overseas_rows,
     local_rows,
-    manual_inputs=None,
+    purchase_transit_rows=None,
     amz_sales_rows=None,
     ebay_sales_rows=None,
+    opening_inventory=None,
 ):
     fields = (
         "local_end_in_transit_qty",
@@ -768,29 +837,42 @@ def _department_summaries(
                 target["fba_end_in_transit_total_cost"] += row[
                     "end_in_transit_total_cost"
                 ]
-            else:
+            elif source_type == "overseas":
                 for metric in METRIC_KEYS:
                     target[f"{source_type}_{metric}"] += row[metric]
+            else:
+                # 本地仓API仅提供期末库存；本地仓在途统一以采购单上传为准。
+                target["local_end_inventory_qty"] += row["end_inventory_qty"]
+                target["local_end_inventory_total_cost"] += row[
+                    "end_inventory_total_cost"
+                ]
+    for row in purchase_transit_rows or []:
+        department = row.get("department_code")
+        if department not in aggregates:
+            continue
+        target = aggregates[department]
+        target["local_end_in_transit_qty"] += _num(
+            row.get("pending_arrival_qty")
+        )
+        target["local_end_in_transit_total_cost"] += _num(
+            row.get("sku_pending_total_cost")
+        )
     for row in amz_sales_rows or []:
         department = row.get("department_code")
         if department in aggregates:
             aggregates[department]["actual_achievement_amount"] += row["amount"]
     for row in ebay_sales_rows or []:
         aggregates["EBAY-1"]["actual_achievement_amount"] += row["amount"]
-    manual_inputs = manual_inputs or {}
+    opening_inventory = opening_inventory or {}
     for department, target in aggregates.items():
-        manual = manual_inputs.get(department, {})
-        target["local_end_in_transit_qty"] = _num(
-            manual.get("local_end_in_transit_qty")
-        )
-        target["local_end_in_transit_total_cost"] = _num(
-            manual.get("local_end_in_transit_total_cost")
-        )
         sales_target = _sales_target(target)
         target["target_achievement_rate"] = (
             target["actual_achievement_amount"] / sales_target
             if sales_target != ZERO
             else ZERO
+        )
+        target["next_month_opening_inventory_qty"] = opening_inventory.get(
+            department
         )
     rows = list(aggregates.values())
     total = {
@@ -804,6 +886,14 @@ def _department_summaries(
             for field in fields
         },
     }
+    opening_values = [
+        row.get("next_month_opening_inventory_qty") for row in rows
+    ]
+    total["next_month_opening_inventory_qty"] = (
+        sum((_num(value) for value in opening_values), ZERO)
+        if opening_values and all(value is not None for value in opening_values)
+        else None
+    )
     # 汽配小计的销售目标是各组按各自系数计算后的目标之和。
     total_sales_target = sum((_sales_target(row) for row in rows), ZERO)
     total["target_achievement_rate"] = (

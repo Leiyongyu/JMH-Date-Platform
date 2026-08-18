@@ -94,3 +94,44 @@ def test_ebay_sales_cleaning_matches_owner_and_updates_actual():
     )
     assert ebay["actual_achievement_amount"] == service.Decimal("105")
     assert total["actual_achievement_amount"] == service.Decimal("105")
+
+
+def test_ebay_actual_upload_rebuilds_business_month_sales_only(monkeypatch):
+    parsed = {
+        "stat_month": "2026-08",
+        "batch_id": "batch-1",
+        "source_rows": 1,
+        "rows": [{"stat_month": "2026-08", "sku": "BMW-1"}],
+        "skipped_rows": 0,
+        "total_amount": service.Decimal("105"),
+    }
+    monkeypatch.setattr(
+        service,
+        "parse_inventory_report_ebay_sales_excel",
+        lambda *_args, **_kwargs: parsed,
+    )
+    monkeypatch.setattr(
+        service.repo,
+        "replace_ebay_sales_source_month",
+        lambda month, rows: {"deleted_rows": 0, "inserted_rows": len(rows)},
+    )
+    monkeypatch.setattr(
+        service,
+        "rebuild_monthly_inventory_ebay_sales",
+        lambda month: {"stat_month": month, "dwd_rows": 1},
+    )
+    monkeypatch.setattr(
+        service,
+        "rebuild_monthly_inventory_report",
+        lambda _month: (_ for _ in ()).throw(
+            AssertionError("eBay业务月上传不应重建同月库存报表")
+        ),
+    )
+
+    result = service.import_inventory_report_ebay_sales(
+        b"xlsx", "SKU利润表.xlsx", "2026-08", "tester"
+    )
+
+    assert result["stat_month"] == "2026-08"
+    assert result["inserted_rows"] == 1
+    assert result["rebuild"]["dwd_rows"] == 1

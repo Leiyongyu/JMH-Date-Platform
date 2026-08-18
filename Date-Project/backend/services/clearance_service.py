@@ -150,10 +150,22 @@ def sync_fba_inventory(pull_month: str | None = None) -> dict:
             "pulled_at": pulled_at,
         })
     groups = _groups(month, dwd, pulled_at)
+    ebay_source = repo.ebay_inventory_age_source_rows(month)
+    if not ebay_source:
+        raise RuntimeError(
+            f"{month} 谷仓eBay库存库龄源数据为0条，拒绝覆盖清洗明细；"
+            "请先完成Java端谷仓和领星产品源数据同步"
+        )
+    ebay_rows, ebay_stats = _ebay_inventory_age_rows(
+        month, batch_id, pulled_at, ebay_source
+    )
     with repo.connection() as conn:
         try:
             ods_stats = repo.replace_ods_month(conn, month, ods)
             stats = repo.replace_month(conn, month, dwd, groups)
+            ebay_persisted = repo.replace_ebay_inventory_age_month(
+                conn, month, ebay_rows
+            )
             conn.commit()
         except Exception:
             conn.rollback()
@@ -161,7 +173,11 @@ def sync_fba_inventory(pull_month: str | None = None) -> dict:
     return {
         "pull_month": month, "sync_batch_id": batch_id,
         "extract_rows": len(remote), "ods_rows": len(ods),
-        **ods_stats, **stats, "unmatched_group_rows": len(remote) - len(dwd),
+        **ods_stats, **stats,
+        "unmatched_group_rows": len(remote) - len(dwd),
+        "ebay_extract_rows": len(ebay_source),
+        **ebay_stats,
+        **ebay_persisted,
         "status": "completed",
     }
 
@@ -283,3 +299,131 @@ def _groups(month, rows, pulled_at):
             "pulled_at": pulled_at,
         })
     return result
+
+
+def _ebay_inventory_age_rows(
+    month: str,
+    batch_id: str,
+    pulled_at: datetime,
+    source_rows: list[dict],
+) -> tuple[list[dict], dict[str, int]]:
+    """将谷仓库龄与领星采购、头程数据清洗为可追溯成本明细。"""
+    rows = []
+    status_counts: dict[str, int] = defaultdict(int)
+    for source in source_rows:
+        candidate_count = int(source.get("candidate_count") or 0)
+        non_jmh_count = int(source.get("non_jmh_count") or 0)
+        product_matched = non_jmh_count == 1 or (
+            non_jmh_count == 0 and candidate_count == 1
+        )
+        if not product_matched:
+            status = (
+                "PRODUCT_AMBIGUOUS"
+                if candidate_count > 0
+                else "PRODUCT_NOT_FOUND"
+            )
+            sku = None
+            source_product_batch_id = None
+            cg_price = None
+            step_price = None
+            purchase_price = None
+            first_leg_cost = None
+        else:
+            sku = source.get("sku")
+            source_product_batch_id = source.get("source_product_batch_id")
+            cg_price = _optional_num(source.get("cg_price"))
+            step_price = _optional_num(source.get("step_price"))
+            purchase_price = (
+                step_price
+                if step_price is not None and step_price > Decimal("0")
+                else cg_price
+            )
+            first_leg_cost = _optional_num(source.get("first_leg_cost"))
+            if purchase_price is None:
+                status = "PURCHASE_PRICE_NOT_FOUND"
+            elif first_leg_cost is None:
+                status = "TRANSPORT_COST_NOT_FOUND"
+            else:
+                status = "MATCHED"
+
+        quantity = _num(source.get("inventory_quantity"))
+        unit_landed_cost = (
+            purchase_price + first_leg_cost
+            if purchase_price is not None and first_leg_cost is not None
+            else None
+        )
+        inventory_age_cost = unit_landed_cost
+        age = _optional_int(source.get("warehouse_age_days"))
+        bucket = (
+            "UNKNOWN"
+            if age is None
+            else "0_90"
+            if age <= 90
+            else "91_180"
+            if age <= 180
+            else "181_PLUS"
+        )
+        status_counts[status] += 1
+        rows.append({
+            "pull_month": month,
+            "sync_batch_id": batch_id,
+            "source_inventory_age_id": source["source_inventory_age_id"],
+            "source_goodcang_batch_id": source["source_goodcang_batch_id"],
+            "source_product_batch_id": source_product_batch_id,
+            "source_product_sku": source.get("source_product_sku") or "",
+            "sku_middle": source.get("sku_middle") or "",
+            "sku": sku,
+            "warehouse_code": source.get("warehouse_code") or "",
+            "warehouse_name": source.get("warehouse_name"),
+            "transport_country_code": source.get("transport_country_code"),
+            "inventory_quantity": quantity,
+            "warehouse_age_days": age,
+            "inventory_age_bucket": bucket,
+            "cg_price": cg_price,
+            "step_price": step_price,
+            "purchase_price": purchase_price,
+            "first_leg_cost": first_leg_cost,
+            "unit_landed_cost": unit_landed_cost,
+            "inventory_age_cost": inventory_age_cost,
+            "match_status": status,
+            "source_pulled_at": source["source_pulled_at"],
+            "pulled_at": pulled_at,
+        })
+    return rows, {
+        "ebay_matched_rows": status_counts["MATCHED"],
+        "ebay_unmatched_rows": len(rows) - status_counts["MATCHED"],
+        "ebay_product_not_found_rows": status_counts["PRODUCT_NOT_FOUND"],
+        "ebay_product_ambiguous_rows": status_counts["PRODUCT_AMBIGUOUS"],
+        "ebay_purchase_price_missing_rows": status_counts[
+            "PURCHASE_PRICE_NOT_FOUND"
+        ],
+        "ebay_transport_cost_missing_rows": status_counts[
+            "TRANSPORT_COST_NOT_FOUND"
+        ],
+    }
+
+
+def _optional_num(value) -> Decimal | None:
+    if value is None or str(value).strip() == "":
+        return None
+    text = (
+        str(value)
+        .replace(",", "")
+        .replace("￥", "")
+        .replace("¥", "")
+        .replace("$", "")
+        .strip()
+    )
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        return None
+
+
+def _optional_int(value) -> int | None:
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        return int(Decimal(str(value).strip()))
+    except (InvalidOperation, ValueError):
+        return None

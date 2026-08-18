@@ -425,7 +425,7 @@ def _remove_inventory_report_chengdu_columns(cursor) -> None:
 
 
 def _ensure_inventory_report_sales_volume_columns(cursor) -> None:
-    """Keep existing inventory-report databases compatible with AMZ volume."""
+    """Keep existing inventory-report databases compatible with new fields."""
     definitions = (
         (
             "ods_lingxing_inventory_report_amz_order_profit",
@@ -438,6 +438,13 @@ def _ensure_inventory_report_sales_volume_columns(cursor) -> None:
             "volume",
             "DECIMAL(24,6) NOT NULL DEFAULT 0 "
             "COMMENT '清洗后自然月商品销量' AFTER `amount`",
+        ),
+        (
+            "dws_inventory_report_department_summary",
+            "next_month_opening_inventory_qty",
+            "DECIMAL(24,6) NULL DEFAULT NULL "
+            "COMMENT '次月月初库存数量，取本月海外仓与FBA仓期末库存数量之和' "
+            "AFTER `fba_end_in_transit_total_cost`",
         ),
     )
     for table_name, column_name, definition in definitions:
@@ -476,6 +483,8 @@ def init_database() -> None:
         project_root / "migrations" / "20260812_image_sop.sql",
         project_root / "migrations" / "20260814_inventory_report_source_tables.sql",
         project_root / "migrations" / "20260817_inventory_report_etl_tables.sql",
+        project_root / "migrations" / "20260818_ebay_inventory_age_cost.sql",
+        project_root / "migrations" / "20260818_inventory_report_purchase_order_transit.sql",
     ]
     schema = "\n".join(
         path.read_text(encoding="utf-8")

@@ -23,6 +23,8 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
             "monthly_inventory_report_source_sync";
     private static final String INVENTORY_REPORT_SALES_VOLUME_TASK =
             "monthly_inventory_report_sales_volume_sync";
+    private static final String INVENTORY_REPORT_OPENING_INVENTORY_TASK =
+            "monthly_inventory_report_opening_inventory_fill";
     private static final String AMZ_SOP_TASK =
             "amz_sop_after_sales_chain";
     private static final String SERVICE_NAME = "Python绩效ETL";
@@ -62,6 +64,15 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run(INVENTORY_REPORT_SALES_VOLUME_TASK, statMonth, requestId);
     }
 
+    public Map<String, Object> runInventoryReportOpeningInventory(
+            String statMonth, String requestId)
+    {
+        return run(
+                INVENTORY_REPORT_OPENING_INVENTORY_TASK,
+                statMonth,
+                requestId);
+    }
+
     public Map<String, Object> runAmzSop(
             String startDate, String endDate,
             String requestId, String triggerType)
@@ -91,7 +102,8 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
             }
             else if (CLEARANCE_TASK.equals(taskCode)
                     || INVENTORY_REPORT_SOURCE_TASK.equals(taskCode)
-                    || INVENTORY_REPORT_SALES_VOLUME_TASK.equals(taskCode))
+                    || INVENTORY_REPORT_SALES_VOLUME_TASK.equals(taskCode)
+                    || INVENTORY_REPORT_OPENING_INVENTORY_TASK.equals(taskCode))
                 payload.put("pull_month", statMonth);
             else
                 payload.put("stat_month", statMonth);

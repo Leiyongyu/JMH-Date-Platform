@@ -666,11 +666,28 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
             INSERT INTO scheduler_task (
                 task_code, task_name, cron_expression, enabled, description
             ) VALUES (
-                'monthly_inventory_report_sales_volume_sync',
-                '月度库存销量填充',
-                '0 0 23 L * ?',
+                'monthly_inventory_report_opening_inventory_fill',
+                '月度库存次月月初库存填充',
+                '0 0 23 2 * ?',
                 1,
-                '每月最后一天23:00拉取当月完整自然月Amazon订单利润volume并覆盖ODS、重建销量DWD；eBay销量由ebay_sales按payment_time实时汇总'
+                '每月2日23:00将上月海外仓与FBA仓期末库存数量之和回填为次月月初库存数量'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
+                'monthly_inventory_report_sales_volume_sync',
+                '月度库存实际达成及销量填充',
+                '0 0 23 11 * ?',
+                1,
+                '每月11日23:00一次拉取上个完整自然月Amazon订单利润amount和volume，覆盖ODS并重建实际达成及销量DWD；eBay销量由ebay_sales按payment_time实时汇总'
             )
             ON DUPLICATE KEY UPDATE
                 task_name = VALUES(task_name),
@@ -687,7 +704,7 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
                 '月度库存统计表数据拉取',
                 '0 0 6 1 * ?',
                 1,
-                'FBA、海外仓、本地仓和Amazon订单利润四个接口拉取上个自然月并按月份覆盖ODS；订单利润固定CNY并计算实际达成、目标达成率；随后重建DWD明细和DWS汇总'
+                '每月1日拉取上月FBA、海外仓、本地仓数据，每月2日23:00回填次月月初库存，每月11日23:00拉取上月Amazon实际达成和销量'
             )
             ON DUPLICATE KEY UPDATE
                 task_name = VALUES(task_name),
@@ -718,10 +735,10 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
                 task_code, task_name, cron_expression, enabled, description
             ) VALUES (
                 'amz_fba_inventory_snapshot_sync',
-                'Amazon FBA库存月度快照',
+                'AMZ FBA与eBay海外仓库存库龄月度快照',
                 '0 30 22 1 * ?',
                 1,
-                '每月1日22:30拉取当前月FBA库存并重建滞销清货汇总'
+                '每月1日22:30由Java先刷新谷仓eBay库龄和领星产品成本，再拉取当前月FBA库存并重建滞销清货汇总'
             )
             ON DUPLICATE KEY UPDATE
                 task_name = VALUES(task_name),

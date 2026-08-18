@@ -31,6 +31,8 @@ TABLE_FIELDS = {
     ),
 }
 
+INVENTORY_SOURCE_TYPES = ("fba", "overseas", "local")
+
 ORDER_PROFIT_FIELDS = (
     "stat_month",
     "sid",
@@ -105,12 +107,13 @@ def replace_source_month(
     stat_month: str,
     rows_by_source: dict[str, list[dict[str, Any]]],
 ) -> dict[str, Any]:
-    """Atomically replace the same month in all inventory-report source tables."""
+    """Atomically replace one month in the three inventory source tables."""
     source_stats: dict[str, dict[str, int]] = {}
     with db_connection() as connection:
         try:
             with connection.cursor() as cursor:
-                for source, (table, fields) in TABLE_FIELDS.items():
+                for source in INVENTORY_SOURCE_TYPES:
+                    table, fields = TABLE_FIELDS[source]
                     cursor.execute(
                         f"SELECT COUNT(1) AS total FROM `{table}` "
                         "WHERE stat_month = %s",
@@ -122,12 +125,7 @@ def replace_source_month(
                         (stat_month,),
                     )
                     new_rows = rows_by_source.get(source, [])
-                    if source == "order_profit":
-                        _insert_explicit_rows(
-                            cursor, table, ORDER_PROFIT_FIELDS, new_rows
-                        )
-                    else:
-                        _insert_rows(cursor, table, fields, new_rows)
+                    _insert_rows(cursor, table, fields, new_rows)
                     source_stats[source] = {
                         "deleted_rows": old_rows,
                         "inserted_rows": len(new_rows),

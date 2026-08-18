@@ -27,6 +27,18 @@ def test_rebuild_does_not_replace_existing_results_when_any_source_is_empty(
         service.rebuild_monthly_inventory_report("2026-07")
 
 
+def test_rebuild_inventory_does_not_require_order_profit(monkeypatch):
+    sources = {
+        "fba": [{"id": 1}],
+        "overseas": [{"id": 2}],
+        "local": [{"id": 3}],
+        "order_profit": [],
+        "ebay_sales": [],
+    }
+
+    service._require_complete_sources("2026-07", sources)
+
+
 def test_overseas_rows_are_all_ebay_and_match_owner_by_sku_brand():
     rows = service._clean_overseas(
         "2026-07",

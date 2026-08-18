@@ -26,10 +26,17 @@ public class PythonMonthlyInventoryReportTask
     private static final String SALES_VOLUME_SYNC_TYPE =
             "python_monthly_inventory_report_sales_volume";
     private static final String SALES_VOLUME_SYNC_NAME =
-            "月度库存销量填充";
+            "月度库存实际达成及销量填充";
     private static final String SALES_VOLUME_API_PATH =
             "/api/v1/internal/scheduler/tasks/"
             + "monthly_inventory_report_sales_volume_sync/run";
+    private static final String OPENING_INVENTORY_SYNC_TYPE =
+            "python_monthly_inventory_report_opening_inventory";
+    private static final String OPENING_INVENTORY_SYNC_NAME =
+            "月度库存次月月初库存填充";
+    private static final String OPENING_INVENTORY_API_PATH =
+            "/api/v1/internal/scheduler/tasks/"
+            + "monthly_inventory_report_opening_inventory_fill/run";
     private static final DateTimeFormatter REQUEST_TIME =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
@@ -65,26 +72,53 @@ public class PythonMonthlyInventoryReportTask
         execute(statMonth);
     }
 
-    /** 每月最后一天23:00拉取当月Amazon销量，eBay销量由上传表实时汇总。 */
-    public void syncCurrentMonthSalesVolume()
+    /** 每月11日23:00拉取上个完整自然月Amazon实际达成和销量。 */
+    public void syncPreviousMonthSalesVolume()
     {
         execute(null, true);
+    }
+
+    /** 兼容旧Quartz调用入口，实际同样拉取上个完整自然月。 */
+    public void syncCurrentMonthSalesVolume()
+    {
+        syncPreviousMonthSalesVolume();
+    }
+
+    /** 每月2日23:00使用上月期末数回填次月月初库存数量。 */
+    public void fillPreviousMonthOpeningInventory()
+    {
+        execute(null, false, true);
     }
 
     @SuppressWarnings("unchecked")
     private void execute(String statMonth)
     {
-        execute(statMonth, false);
+        execute(statMonth, false, false);
     }
 
     @SuppressWarnings("unchecked")
     private void execute(String statMonth, boolean salesVolumeOnly)
     {
+        execute(statMonth, salesVolumeOnly, false);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void execute(
+            String statMonth,
+            boolean salesVolumeOnly,
+            boolean openingInventoryOnly)
+    {
         long started = System.currentTimeMillis();
         String requestId = requestId();
-        String syncType = salesVolumeOnly ? SALES_VOLUME_SYNC_TYPE : SYNC_TYPE;
-        String syncName = salesVolumeOnly ? SALES_VOLUME_SYNC_NAME : SYNC_NAME;
-        String apiPath = salesVolumeOnly ? SALES_VOLUME_API_PATH : API_PATH;
+        String syncType = openingInventoryOnly
+                ? OPENING_INVENTORY_SYNC_TYPE
+                : salesVolumeOnly ? SALES_VOLUME_SYNC_TYPE : SYNC_TYPE;
+        String syncName = openingInventoryOnly
+                ? OPENING_INVENTORY_SYNC_NAME
+                : salesVolumeOnly ? SALES_VOLUME_SYNC_NAME : SYNC_NAME;
+        String apiPath = openingInventoryOnly
+                ? OPENING_INVENTORY_API_PATH
+                : salesVolumeOnly ? SALES_VOLUME_API_PATH : API_PATH;
         Long logId = logService.start(
                 syncType, syncName, apiPath,
                 "JOB", "SYSTEM", null, null);
@@ -92,7 +126,10 @@ public class PythonMonthlyInventoryReportTask
         try
         {
             Map<String, Object> response =
-                    salesVolumeOnly
+                    openingInventoryOnly
+                    ? client.runInventoryReportOpeningInventory(
+                            statMonth, requestId)
+                    : salesVolumeOnly
                     ? client.runInventoryReportSalesVolume(statMonth, requestId)
                     : client.runInventoryReportSources(statMonth, requestId);
             Map<String, Object> data = map(response.get("data"));
@@ -112,10 +149,18 @@ public class PythonMonthlyInventoryReportTask
                     System.currentTimeMillis() - started);
             result.setRequestParams(requestParams);
             result.setDetails(response);
-            if (salesVolumeOnly)
+            if (openingInventoryOnly)
                 result.setBusinessSummary(
-                        "销量月份" + resultData.get("stat_month")
-                        + "；Amazon订单利润销量 " + orderProfitRows + "条"
+                        "库存月份" + resultData.get("stat_month")
+                        + "；月初库存月份"
+                        + resultData.get("opening_month")
+                        + "；回填部门汇总 "
+                        + integer(resultData.get("updated_rows"))
+                        + "条；requestId=" + requestId);
+            else if (salesVolumeOnly)
+                result.setBusinessSummary(
+                        "业务月份" + resultData.get("stat_month")
+                        + "；Amazon实际达成及销量 " + orderProfitRows + "条"
                         + "；按月覆盖ODS " + integer(resultData.get("ods_rows"))
                         + "条；销量DWD " + dwdRows
                         + "条；requestId=" + requestId);
@@ -125,7 +170,6 @@ public class PythonMonthlyInventoryReportTask
                         + "；FBA " + fbaRows + "条"
                         + "；海外仓 " + overseasRows + "条"
                         + "；本地仓 " + localRows + "条"
-                        + "；订单利润 " + orderProfitRows + "条"
                         + "；DWD明细 " + dwdRows + "条"
                         + "；DWS汇总 " + summaryRows + "条"
                         + "；requestId=" + requestId);
@@ -147,8 +191,10 @@ public class PythonMonthlyInventoryReportTask
             logService.finish(logId, failed);
             OperationSyncContext.set(failed);
             throw new IllegalStateException(
-                    (salesVolumeOnly
-                            ? "Python月度库存销量填充失败，requestId="
+                    (openingInventoryOnly
+                            ? "Python月度库存次月月初库存填充失败，requestId="
+                            : salesVolumeOnly
+                            ? "Python月度库存实际达成及销量填充失败，requestId="
                             : "Python月度库存报表源数据同步失败，requestId=")
                     + requestId + "：" + e.getMessage(), e);
         }

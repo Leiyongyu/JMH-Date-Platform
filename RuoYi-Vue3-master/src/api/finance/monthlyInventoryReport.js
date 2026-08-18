@@ -24,22 +24,6 @@ export function listMonthlyInventoryDetails(query) {
   })
 }
 
-export function getMonthlyInventoryManualInputs(statMonth) {
-  return request({
-    url: '/finance/monthly-inventory-report/manual-inputs',
-    method: 'get',
-    params: { statMonth }
-  })
-}
-
-export function saveMonthlyInventoryManualInputs(data) {
-  return request({
-    url: '/finance/monthly-inventory-report/manual-inputs',
-    method: 'put',
-    data
-  })
-}
-
 export function rebuildMonthlyInventoryReport(statMonth) {
   return request({
     url: '/finance/monthly-inventory-report/rebuild',
@@ -62,6 +46,19 @@ export function importMonthlyInventoryEbaySales(statMonth, file) {
   data.append('file', file)
   return request({
     url: '/finance/monthly-inventory-report/ebay-sales-import',
+    method: 'post',
+    params: { statMonth },
+    data,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 600000
+  })
+}
+
+export function importMonthlyInventoryPurchaseOrder(statMonth, file) {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/finance/monthly-inventory-report/purchase-order-import',
     method: 'post',
     params: { statMonth },
     data,

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.GoodcangInventoryAgeSnapshotMapper">
+
+    <delete id="deleteBySnapshotMonth">
+        DELETE FROM ods_goodcang_inventory_age_monthly
+        WHERE snapshot_month = #{snapshotMonth}
+    </delete>
+
+    <insert id="batchInsert">
+        INSERT INTO ods_goodcang_inventory_age_monthly (
+            snapshot_month, warehouse_code, product_sku, iba_quantity,
+            iba_fifo_time, iba_warning_age, product_title, product_title_en,
+            warehouse_desc, warehouse_age, expiration_date, source_page,
+            source_row_no, api_code, api_message, api_total, sync_batch_id,
+            raw_json, pulled_at
+        ) VALUES
+        <foreach collection="list" item="e" separator=",">
+            (
+                #{e.snapshotMonth}, #{e.warehouseCode}, #{e.productSku},
+                #{e.ibaQuantity}, #{e.ibaFifoTime}, #{e.ibaWarningAge},
+                #{e.productTitle}, #{e.productTitleEn}, #{e.warehouseDesc},
+                #{e.warehouseAge}, #{e.expirationDate}, #{e.sourcePage},
+                #{e.sourceRowNo}, #{e.apiCode}, #{e.apiMessage},
+                #{e.apiTotal}, #{e.syncBatchId}, #{e.rawJson}, #{e.pulledAt}
+            )
+        </foreach>
+    </insert>
+
+</mapper>

@@ -3,9 +3,9 @@
     <el-card shadow="never" class="hero-card">
       <div class="hero">
         <div>
-          <div class="eyebrow">FINANCE / FBA INVENTORY AGE</div>
+          <div class="eyebrow">FINANCE / INVENTORY AGE</div>
           <h2>滞销清货</h2>
-          <p>按 EU、US1、US2 及拆分后的 US3 组别，展示 FBA 库龄成本与上月库存成本差异。</p>
+          <p>按 eBay、EU、US1、US2 及拆分后的 US3 组别，展示海外仓/FBA 库龄成本与上月库存成本差异。</p>
         </div>
         <el-dropdown
           trigger="click"
@@ -87,8 +87,8 @@
       <template #header>
         <div class="table-header">
           <div>
-            <div class="table-title">FBA 库龄组别汇总</div>
-            <div class="table-hint">欧洲组：EU；美国组：US1、US2、US2-MJ、US1-ZXY</div>
+            <div class="table-title">eBay / FBA 库龄组别汇总</div>
+            <div class="table-hint">eBay组：EBAY-1；欧洲组：EU；美国组：US1、US2、US2-MJ、US1-ZXY</div>
           </div>
           <el-tag effect="light">{{ summary.pull_month || '最新月份' }}</el-tag>
         </div>
@@ -104,7 +104,7 @@
       >
         <el-table-column prop="region_name" label="区域" width="100" fixed>
           <template #default="{ row }">
-            <el-tag :type="row.region_code === 'EU' ? 'primary' : 'success'" effect="light">
+            <el-tag :type="row.region_code === 'EBAY' ? 'warning' : row.region_code === 'EU' ? 'primary' : 'success'" effect="light">
               {{ row.region_name }}
             </el-tag>
           </template>
@@ -112,7 +112,7 @@
         <el-table-column prop="group_name" label="组名" width="90" fixed>
           <template #default="{ row }"><strong>{{ row.group_name }}</strong></template>
         </el-table-column>
-        <el-table-column prop="shop_count" label="店铺数" width="90" align="right">
+        <el-table-column prop="shop_count" label="店铺/仓库数" width="115" align="right">
           <template #default="{ row }">{{ number(row.shop_count) }}</template>
         </el-table-column>
         <el-table-column label="0–90天" align="center">

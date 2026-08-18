@@ -11,7 +11,7 @@ SET job_name = '月度库存统计表数据拉取',
     status = '0',
     update_by = 'SYSTEM',
     update_time = NOW(),
-    remark = '每月1日06:00调用Python拉取上个自然月：FBA、海外仓、本地仓和Amazon订单利润(/basicOpen/finance/mreport/OrderProfit)四个接口按月份覆盖ODS；订单利润固定CNY并计算实际达成、目标达成率；随后重建库存DWD明细和DWS汇总。'
+    remark = '每月1日06:00调用Python拉取上月FBA、海外仓、本地仓数据，每月2日23:00回填次月月初库存，每月11日23:00拉取上月Amazon实际达成和销量。'
 WHERE invoke_target IN (
     'pythonMonthlyInventoryReportTask.syncCurrentMonth',
     'pythonMonthlyInventoryReportTask.syncCurrentMonth()',
@@ -31,7 +31,7 @@ SELECT
     '0 0 6 1 * ?',
     '2', '1', '0',
     'SYSTEM', NOW(),
-    '每月1日06:00调用Python拉取上个自然月：FBA、海外仓、本地仓和Amazon订单利润(/basicOpen/finance/mreport/OrderProfit)四个接口按月份覆盖ODS；订单利润固定CNY并计算实际达成、目标达成率；随后重建库存DWD明细和DWS汇总。'
+    '每月1日06:00调用Python拉取上月FBA、海外仓、本地仓数据，每月2日23:00回填次月月初库存，每月11日23:00拉取上月Amazon实际达成和销量。'
 WHERE NOT EXISTS (
     SELECT 1
     FROM sys_job

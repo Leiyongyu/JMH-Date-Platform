@@ -78,6 +78,16 @@ public class GoodcangClient
         return post("/product/get_product_sku_list", body);
     }
 
+    /** 获取库龄列表（文档规定每页最大200条） */
+    public Map<String, Object> getInventoryAgeList(int page, int pageSize)
+            throws Exception
+    {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("page", page);
+        body.put("page_size", pageSize);
+        return post("/inventory/inventory_age_list", body);
+    }
+
     // ========== 内部方法 ==========
 
     private Map<String, Object> post(String path, Map<String, Object> body) throws Exception
