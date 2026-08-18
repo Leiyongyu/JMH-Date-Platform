@@ -102,18 +102,16 @@ public class EbayPriceService
                     skuMapping.put(keyword, List.of(oe));
                     oeList.add(oe);
                 }
-                else if ("sku".equals(inputType))
-                {
-                    notFoundSkus.add(keyword);
-                }
                 else
                 {
+                    if ("sku".equals(inputType))
+                    {
+                        notFoundSkus.add(keyword);
+                    }
+                    // 映射表只是查询辅助数据。没有映射时仍把用户输入直接当作 OE 查询，
+                    // 避免临时 OE 或尚未维护映射的数据无法创建查询任务。
                     oeList.add(keyword);
                 }
-            }
-            if ("sku".equals(inputType) && oeList.isEmpty())
-            {
-                throw new ServiceException("未找到任何 SKU 对应的 OE 号");
             }
         }
         oeList = unique(oeList);
@@ -162,8 +160,9 @@ public class EbayPriceService
     private Map<String, Object> searchOneOe(String oe, String site)
     {
         int groupSize = Math.min(Math.max(properties.getSearchTopN(), 1), 10);
-        JsonNode highPayload = apiClient.searchItems(oe, site, "-price", groupSize);
-        JsonNode lowPayload = apiClient.searchItems(oe, site, "price", groupSize);
+        int searchLimit = searchLimit(groupSize);
+        JsonNode highPayload = apiClient.searchItems(oe, site, "-price", searchLimit);
+        JsonNode lowPayload = apiClient.searchItems(oe, site, "price", searchLimit);
         List<JsonNode> highCandidates = priceCandidates(highPayload, true, groupSize);
         List<JsonNode> lowCandidates = priceCandidates(lowPayload, false, groupSize);
 
@@ -238,7 +237,8 @@ public class EbayPriceService
             throw new ServiceException("不支持的 eBay 站点: " + normalizedSite);
         }
         int groupSize = Math.min(Math.max(properties.getSearchTopN(), 1), 10);
-        JsonNode payload = apiClient.searchItems(normalizedOe, normalizedSite, "price", groupSize);
+        JsonNode payload = apiClient.searchItems(
+                normalizedOe, normalizedSite, "price", searchLimit(groupSize));
         List<JsonNode> candidates = priceCandidates(payload, false, groupSize);
         List<CompletableFuture<EbayItemDetail>> futures = new ArrayList<>();
         for (JsonNode candidate : candidates)
@@ -249,7 +249,11 @@ public class EbayPriceService
         List<EbayItemDetail> items = new ArrayList<>();
         for (CompletableFuture<EbayItemDetail> future : futures)
         {
-            items.add(future.join());
+            EbayItemDetail item = future.join();
+            if (isFreeShippingItem(item))
+            {
+                items.add(item);
+            }
         }
         items.sort(Comparator.comparing(EbayItemDetail::getPf));
         return items;
@@ -262,7 +266,9 @@ public class EbayPriceService
         if (summaries != null && summaries.isArray())
         {
             summaries.forEach(candidate -> {
-                if (candidate.has("price") && priceValue(candidate).compareTo(BigDecimal.ZERO) > 0)
+                if (candidate.has("price")
+                        && priceValue(candidate).compareTo(BigDecimal.ZERO) > 0
+                        && isFreeShipping(candidate))
                 {
                     candidates.add(candidate);
                 }
@@ -282,7 +288,7 @@ public class EbayPriceService
         for (JsonNode candidate : candidates)
         {
             EbayItemDetail item = itemByCandidateKey.get(candidateKey(candidate));
-            if (item != null)
+            if (isFreeShippingItem(item))
             {
                 items.add(item);
             }
@@ -509,19 +515,82 @@ public class EbayPriceService
         {
             return "";
         }
+        for (JsonNode option : options)
+        {
+            BigDecimal value = shippingCost(option);
+            if (value != null && value.compareTo(BigDecimal.ZERO) == 0)
+            {
+                return "免运费";
+            }
+        }
         JsonNode cost = options.get(0).path("shippingCost");
-        if (cost.isMissingNode() || cost.isNull() || !cost.has("value"))
+        BigDecimal value = shippingCost(options.get(0));
+        if (value == null)
         {
             return "";
-        }
-        BigDecimal value = decimal(cost.path("value").asText("0"));
-        if (value.compareTo(BigDecimal.ZERO) <= 0)
-        {
-            return "免运费";
         }
         String currency = cost.path("currency").asText(defaultCurrency == null ? "" : defaultCurrency);
         return value.setScale(2, RoundingMode.HALF_UP).toPlainString()
                 + (currency.isBlank() ? "" : " " + currency);
+    }
+
+    /** eBay 可能返回多种配送方案，任意一种运费为 0 即视为免运费。 */
+    static boolean isFreeShipping(JsonNode source)
+    {
+        if (source == null)
+        {
+            return false;
+        }
+        JsonNode options = source.path("shippingOptions");
+        if (!options.isArray() || options.isEmpty())
+        {
+            return false;
+        }
+        for (JsonNode option : options)
+        {
+            BigDecimal value = shippingCost(option);
+            if (value != null && value.compareTo(BigDecimal.ZERO) == 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static BigDecimal shippingCost(JsonNode option)
+    {
+        if (option == null)
+        {
+            return null;
+        }
+        JsonNode cost = option.path("shippingCost");
+        if (cost.isMissingNode() || cost.isNull() || !cost.hasNonNull("value"))
+        {
+            return null;
+        }
+        String value = cost.path("value").asText("").trim();
+        if (value.isEmpty())
+        {
+            return null;
+        }
+        try
+        {
+            return new BigDecimal(value);
+        }
+        catch (NumberFormatException ignored)
+        {
+            return null;
+        }
+    }
+
+    private static boolean isFreeShippingItem(EbayItemDetail item)
+    {
+        return item != null && "免运费".equals(item.getShipping());
+    }
+
+    private int searchLimit(int groupSize)
+    {
+        return Math.min(Math.max(properties.getSearchLimit(), groupSize), 200);
     }
 
     private static BigDecimal priceValue(JsonNode source)

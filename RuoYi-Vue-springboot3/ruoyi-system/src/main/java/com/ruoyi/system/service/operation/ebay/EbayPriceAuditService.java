@@ -154,26 +154,15 @@ public class EbayPriceAuditService
                 }
             }
             Map<String, String> randomOeBySku = priceService.loadRandomOeBySku(inputs);
-            List<String> missing = new ArrayList<>();
             for (String sku : inputs)
             {
                 String oe = randomOeBySku.get(normalizedKey(sku));
                 if (oe == null || oe.isBlank())
                 {
-                    missing.add(sku);
+                    oe = sku;
                 }
-                else
-                {
-                    validateOe(oe, "SKU“" + sku + "”映射");
-                    oes.add(oe);
-                }
-            }
-            if (!missing.isEmpty())
-            {
-                String preview = String.join("、", missing.subList(0, Math.min(10, missing.size())));
-                String suffix = missing.size() > 10 ? "等共" + missing.size() + "个" : "";
-                throw new ServiceException("以下SKU未在SKU-OE映射表中找到对应OE：" + preview + suffix
-                        + "。请先导入SKU-OE对照表，或改为选择OE号后直接输入");
+                validateOe(oe, "SKU“" + sku + "”解析");
+                oes.add(oe);
             }
         }
 
@@ -606,7 +595,7 @@ public class EbayPriceAuditService
             LinkedHashMap<String, String> skuValues = new LinkedHashMap<>();
             for (InputQueryRow row : inputRows)
             {
-                if (!row.sku().isBlank())
+                if (!row.sku().isBlank() && row.oe().isBlank())
                 {
                     String key = normalizedKey(row.sku());
                     skuKeys.add(key);
@@ -618,39 +607,27 @@ public class EbayPriceAuditService
                     : priceService.loadRandomOeBySku(skuKeys.stream().map(skuValues::get).toList());
 
             LinkedHashMap<String, String> unique = new LinkedHashMap<>();
-            List<String> unresolvedRows = new ArrayList<>();
             int duplicateOe = 0;
             for (InputQueryRow row : inputRows)
             {
                 String oe = row.oe();
-                if (!row.sku().isBlank())
+                if (oe.isBlank() && !row.sku().isBlank())
                 {
                     String mappedOe = randomOeBySku.get(normalizedKey(row.sku()));
                     if (mappedOe != null && !mappedOe.isBlank())
                     {
                         oe = mappedOe;
                     }
-                    else if (oe.isBlank())
+                    else
                     {
-                        unresolvedRows.add("第" + row.rowNumber() + "行SKU“" + row.sku() + "”");
-                        continue;
+                        oe = row.sku();
                     }
                 }
-                if (oe.length() > 128)
-                {
-                    throw new ServiceException("SKU映射得到的OE号超过128个字符：" + oe);
-                }
+                validateOe(oe, "Excel第 " + row.rowNumber() + " 行");
                 if (unique.putIfAbsent(normalizedKey(oe), oe) != null)
                 {
                     duplicateOe++;
                 }
-            }
-            if (!unresolvedRows.isEmpty())
-            {
-                String preview = String.join("、", unresolvedRows.subList(0, Math.min(10, unresolvedRows.size())));
-                String suffix = unresolvedRows.size() > 10 ? "等共" + unresolvedRows.size() + "行" : "";
-                throw new ServiceException(preview + suffix
-                        + "未在SKU-OE映射表中找到对应OE，且该行B列OE为空；请补充映射或填写OE号");
             }
             if (unique.isEmpty())
             {

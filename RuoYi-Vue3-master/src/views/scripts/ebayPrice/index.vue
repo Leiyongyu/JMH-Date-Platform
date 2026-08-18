@@ -4,7 +4,7 @@
       <div>
         <div class="eyebrow">EBAY SP PRICE REVIEW</div>
         <h2>eBay SP 价格批量审核</h2>
-        <p>上传 SKU / OE 清单，系统解析查询 OE 后异步获取最低价前 10 个商品，再由人工逐项确认导出范围。</p>
+        <p>上传 SKU / OE 清单，系统解析查询 OE 后异步获取最低价前 10 个免运费商品，再由人工逐项确认导出范围。</p>
       </div>
       <div class="heading-actions">
         <el-tag :type="health.configured ? 'success' : 'danger'" effect="plain" round>
@@ -48,7 +48,8 @@
           <ul>
             <li><b>一列表：</b>A1 为“OE号”，从 A2 开始每行一个 OE。</li>
             <li><b>两列表：</b>A1 为“SKU”、B1 为“OE号”，数据顺序固定为 A列SKU、B列OE。</li>
-            <li>有 SKU 时优先查询 SKU-OE 对照表；同一 SKU 有多个 OE 时，每次任务随机取其中一个；SKU 无映射时回退使用该行 B 列 OE。</li>
+            <li>B列已填 OE 时直接查询该 OE；B列为空时再按 SKU 查询对照表，无映射则把 A 列输入值直接当作 OE 查询。</li>
+            <li>只保留 eBay 明确返回运费为 0 的免运费商品，付费运输和运费未知商品都会排除。</li>
             <li>支持 .xlsx、.xlsm、.xls；单批最多 2000 个不同 SKU 或查询 OE，空白行会自动忽略。</li>
             <li>重复 OE 只查询一次，并在任务概览中提示数量。</li>
             <li>单个 OE 查询失败不会影响其他 OE，可在审核时单独重试。</li>
@@ -115,10 +116,10 @@
               maxlength="100000"
               resize="vertical"
               :placeholder="manualInputType === 'sku'
-                ? '输入SKU，多个使用分号、逗号或换行分隔。系统将从SKU-OE映射表随机取一个OE。'
+                ? '输入SKU，多个使用分号、逗号或换行分隔。有映射时随机取一个OE，无映射时直接按输入值查询。'
                 : '输入OE号，多个使用分号、逗号或换行分隔。'"
             />
-            <p v-if="manualInputType === 'sku'">SKU 未建立映射时会明确提示，请先导入 SKU-OE 对照表。</p>
+            <p v-if="manualInputType === 'sku'">SKU 未建立映射时，系统会直接把该输入值作为 OE 查询，不会阻断批次。</p>
             <el-button
               v-hasPermi="['scripts:ebayPrice:query']"
               type="primary"
@@ -250,7 +251,7 @@
           <div v-else-if="currentOe.queryStatus === 'EMPTY'" class="state-panel empty-state">
             <div class="state-icon empty"><el-icon><Search /></el-icon></div>
             <h3>没有搜索到商品</h3>
-            <p>eBay 在当前站点没有返回有效且价格大于 0 的商品。该 OE 已自动计入“无结果”，不会阻塞最终导出。</p>
+            <p>eBay 在当前站点没有返回价格大于 0 的免运费商品。该 OE 已自动计入“无结果”，不会阻塞最终导出。</p>
             <div>
               <el-button :icon="Refresh" :loading="retrying" @click="retryCurrent">重新查询</el-button>
               <el-button type="primary" :icon="ArrowRight" @click="goNextAfterHandled">继续下一个</el-button>
