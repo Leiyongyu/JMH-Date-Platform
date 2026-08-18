@@ -403,6 +403,58 @@ def _ensure_amazon_image_upload_columns(cursor) -> None:
         )
 
 
+def _remove_inventory_report_chengdu_columns(cursor) -> None:
+    """移除与本地仓期末在途重复的旧成都仓字段。"""
+    for table_name in (
+        "monthly_inventory_report_manual_input",
+        "dws_inventory_report_department_summary",
+    ):
+        cursor.execute("SHOW TABLES LIKE %s", (table_name,))
+        if cursor.fetchone() is None:
+            continue
+        cursor.execute(f"SHOW COLUMNS FROM `{table_name}`")
+        existing = {row["Field"] for row in cursor.fetchall()}
+        for column in (
+            "chengdu_in_transit_total_cost",
+            "chengdu_in_transit_qty",
+        ):
+            if column in existing:
+                cursor.execute(
+                    f"ALTER TABLE `{table_name}` DROP COLUMN `{column}`"
+                )
+
+
+def _ensure_inventory_report_sales_volume_columns(cursor) -> None:
+    """Keep existing inventory-report databases compatible with AMZ volume."""
+    definitions = (
+        (
+            "ods_lingxing_inventory_report_amz_order_profit",
+            "volume",
+            "DECIMAL(24,6) NOT NULL DEFAULT 0 "
+            "COMMENT '自然月商品销量' AFTER `amount`",
+        ),
+        (
+            "dwd_inventory_report_amz_sales_detail",
+            "volume",
+            "DECIMAL(24,6) NOT NULL DEFAULT 0 "
+            "COMMENT '清洗后自然月商品销量' AFTER `amount`",
+        ),
+    )
+    for table_name, column_name, definition in definitions:
+        cursor.execute("SHOW TABLES LIKE %s", (table_name,))
+        if cursor.fetchone() is None:
+            continue
+        cursor.execute(
+            f"SHOW COLUMNS FROM `{table_name}` LIKE %s",
+            (column_name,),
+        )
+        if cursor.fetchone() is None:
+            cursor.execute(
+                f"ALTER TABLE `{table_name}` "
+                f"ADD COLUMN `{column_name}` {definition}"
+            )
+
+
 def init_database() -> None:
     database_name = settings.mysql_database.replace("`", "``")
     connection = _connect()
@@ -437,6 +489,8 @@ def init_database() -> None:
                 if statement.strip():
                     cursor.execute(statement)
             _ensure_amazon_image_upload_columns(cursor)
+            _remove_inventory_report_chengdu_columns(cursor)
+            _ensure_inventory_report_sales_volume_columns(cursor)
             _ensure_customs_declaration_columns(cursor)
             _ensure_export_detail_columns(cursor)
             _ensure_purchase_invoice_summary_indexes(cursor)

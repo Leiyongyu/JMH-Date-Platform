@@ -24,11 +24,48 @@ export function listMonthlyInventoryDetails(query) {
   })
 }
 
+export function getMonthlyInventoryManualInputs(statMonth) {
+  return request({
+    url: '/finance/monthly-inventory-report/manual-inputs',
+    method: 'get',
+    params: { statMonth }
+  })
+}
+
+export function saveMonthlyInventoryManualInputs(data) {
+  return request({
+    url: '/finance/monthly-inventory-report/manual-inputs',
+    method: 'put',
+    data
+  })
+}
+
 export function rebuildMonthlyInventoryReport(statMonth) {
   return request({
     url: '/finance/monthly-inventory-report/rebuild',
     method: 'post',
     params: { statMonth },
+    timeout: 600000
+  })
+}
+
+export function syncMonthlyInventoryOrderProfit(statMonth) {
+  return request({
+    url: '/finance/monthly-inventory-report/order-profit-sync',
+    method: 'post',
+    params: statMonth ? { statMonth } : {}
+  })
+}
+
+export function importMonthlyInventoryEbaySales(statMonth, file) {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/finance/monthly-inventory-report/ebay-sales-import',
+    method: 'post',
+    params: { statMonth },
+    data,
+    headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 600000
   })
 }

@@ -342,14 +342,56 @@ CREATE TABLE IF NOT EXISTS `ods_lingxing_local_monthly_inventory_detail` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='ODS-领星本地仓月度库存报表明细原始数据';
 
+CREATE TABLE IF NOT EXISTS `ods_lingxing_inventory_report_amz_order_profit` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+    `stat_month` CHAR(7) NOT NULL COMMENT '数据归属年月，格式YYYY-MM',
+    `sid` VARCHAR(32) NOT NULL COMMENT '领星Amazon店铺SID',
+    `msku` VARCHAR(255) NOT NULL COMMENT 'Amazon卖家SKU（MSKU）',
+    `local_sku` VARCHAR(255) NULL COMMENT '本地商品SKU',
+    `asin` VARCHAR(64) NULL COMMENT 'Amazon商品标识码（ASIN）',
+    `item_name` TEXT NULL COMMENT '商品名称',
+    `currency_code` VARCHAR(16) NOT NULL DEFAULT 'CNY' COMMENT '销售额币种，本链路固定请求CNY',
+    `amount` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '上个自然月销售额',
+    `volume` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '自然月商品销量',
+    `pulled_at` DATETIME NOT NULL COMMENT '数据拉取时间',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_inventory_amz_profit_month_sid_msku` (`stat_month`,`sid`,`msku`),
+    KEY `idx_inventory_amz_profit_month_local_sku` (`stat_month`,`local_sku`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='ODS-月度库存统计使用的领星Amazon订单利润最小字段快照';
+
+CREATE TABLE IF NOT EXISTS `ods_inventory_report_ebay_sales` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+    `stat_month` CHAR(7) NOT NULL COMMENT '数据归属年月，格式YYYY-MM，由上传时选择',
+    `sku` VARCHAR(255) NOT NULL COMMENT 'eBay商品SKU',
+    `brand_code` VARCHAR(32) NOT NULL COMMENT '从SKU解析出的品牌编码',
+    `image_url` TEXT NULL COMMENT '商品图片链接',
+    `multi_variant` VARCHAR(16) NULL COMMENT '是否多属性',
+    `product_sales_amount` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '商品销售额',
+    `receivable_shipping_amount` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '应收运费',
+    `amount` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '实际达成金额，商品销售额加应收运费',
+    `source_file_name` VARCHAR(255) NOT NULL COMMENT '上传源文件名',
+    `source_sheet` VARCHAR(128) NOT NULL COMMENT '上传源工作表名',
+    `source_row` INT NOT NULL COMMENT '上传源文件行号',
+    `import_batch_id` VARCHAR(64) NOT NULL COMMENT '上传批次ID，用于数据追溯',
+    `imported_by` VARCHAR(64) NULL COMMENT '上传人账号',
+    `imported_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '数据导入时间',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_inventory_ebay_sales_month_sku` (`stat_month`,`sku`),
+    KEY `idx_inventory_ebay_sales_month_brand` (`stat_month`,`brand_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='ODS-月度库存统计eBay SKU销售额上传源数据';
+
 INSERT INTO `scheduler_task` (
     task_code, task_name, cron_expression, enabled, description
 ) VALUES (
     'monthly_inventory_report_source_sync',
-    '领星月度库存报表三接口源数据同步',
+    '月度库存统计表数据拉取',
     '0 0 6 1 * ?',
     1,
-    '每月1日06:00拉取上一个完整自然月的FBA、海外仓、本地仓明细，并重建DWD与DWS库存报表'
+    'FBA、海外仓、本地仓和Amazon订单利润四个接口均拉取上个完整自然月并按月份覆盖ODS；订单利润固定CNY，仅保存商品标识和销售额；随后重建库存DWD明细、实际达成和DWS汇总'
 )
 ON DUPLICATE KEY UPDATE
     task_name = VALUES(task_name),

@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from decimal import Decimal
 from typing import Any
 
 from backend.config import settings
 from backend.database import db_connection
 
 
+ZERO = Decimal("0")
+
+
 DETAIL_TABLES = {
     "fba": "dwd_inventory_report_fba_detail",
     "overseas": "dwd_inventory_report_overseas_detail",
     "local": "dwd_inventory_report_local_detail",
+    "ebay_sales": "dwd_inventory_report_ebay_sales_detail",
 }
 
 FBA_FIELDS = (
@@ -40,6 +45,27 @@ OVERSEAS_FIELDS = (
     "end_inventory_total_cost",
 )
 
+AMZ_SALES_FIELDS = (
+    "stat_month", "source_id", "sid", "store_name",
+    "group_code", "department_code", "principal_name",
+    "principal_match_source", "msku", "local_sku", "asin", "item_name",
+    "currency_code", "amount", "volume",
+)
+
+EBAY_SALES_SOURCE_FIELDS = (
+    "stat_month", "sku", "brand_code", "image_url", "multi_variant",
+    "product_sales_amount", "receivable_shipping_amount", "amount",
+    "source_file_name", "source_sheet", "source_row", "import_batch_id",
+    "imported_by",
+)
+
+EBAY_SALES_FIELDS = (
+    "stat_month", "source_id", "sku", "brand_code", "image_url",
+    "multi_variant", "department_code", "principal_name",
+    "principal_match_source", "product_sales_amount",
+    "receivable_shipping_amount", "amount",
+)
+
 DIMENSION_FIELDS = (
     "stat_month", "source_type", "platform_code", "dimension_type",
     "dimension_value", "department_code", "source_rows",
@@ -55,7 +81,8 @@ DEPARTMENT_FIELDS = (
     "overseas_end_in_transit_total_cost", "overseas_end_inventory_qty",
     "overseas_end_inventory_total_cost", "fba_end_inventory_qty",
     "fba_end_inventory_total_cost", "fba_end_in_transit_qty",
-    "fba_end_in_transit_total_cost",
+    "fba_end_in_transit_total_cost", "actual_achievement_amount",
+    "target_achievement_rate",
 )
 
 
@@ -84,6 +111,18 @@ def source_rows(stat_month: str) -> dict[str, list[dict[str, Any]]]:
                    allocation_in_transit_count,allocation_in_transit_cost,
                    day_end_count,day_end_cost,child_list
             FROM ods_lingxing_local_monthly_inventory_detail
+            WHERE stat_month=%s ORDER BY id
+        """,
+        "order_profit": """
+            SELECT id,stat_month,sid,msku,local_sku,asin,
+                   item_name,currency_code,amount,volume
+            FROM ods_lingxing_inventory_report_amz_order_profit
+            WHERE stat_month=%s ORDER BY id
+        """,
+        "ebay_sales": """
+            SELECT id,stat_month,sku,brand_code,image_url,multi_variant,
+                   product_sales_amount,receivable_shipping_amount,amount
+            FROM ods_inventory_report_ebay_sales
             WHERE stat_month=%s ORDER BY id
         """,
     }
@@ -125,11 +164,38 @@ def owner_rules(stat_month: str, platform: str) -> list[dict[str, Any]]:
         return list(cursor.fetchall())
 
 
+def replace_ebay_sales_source_month(
+    stat_month: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, int]:
+    table = "ods_inventory_report_ebay_sales"
+    with db_connection() as connection:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT COUNT(*) AS total FROM `{table}` WHERE stat_month=%s",
+                    (stat_month,),
+                )
+                deleted_rows = int(cursor.fetchone()["total"] or 0)
+                cursor.execute(
+                    f"DELETE FROM `{table}` WHERE stat_month=%s",
+                    (stat_month,),
+                )
+                _insert_rows(cursor, table, EBAY_SALES_SOURCE_FIELDS, rows)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    return {"deleted_rows": deleted_rows, "inserted_rows": len(rows)}
+
+
 def replace_clean_month(
     stat_month: str,
     fba_rows: list[dict[str, Any]],
     overseas_rows: list[dict[str, Any]],
     local_rows: list[dict[str, Any]],
+    amz_sales_rows: list[dict[str, Any]],
+    ebay_sales_rows: list[dict[str, Any]],
     dimension_rows: list[dict[str, Any]],
     department_rows: list[dict[str, Any]],
 ) -> dict[str, int]:
@@ -137,6 +203,8 @@ def replace_clean_month(
         ("dwd_inventory_report_fba_detail", FBA_FIELDS, fba_rows),
         ("dwd_inventory_report_overseas_detail", OVERSEAS_FIELDS, overseas_rows),
         ("dwd_inventory_report_local_detail", WAREHOUSE_FIELDS, local_rows),
+        ("dwd_inventory_report_amz_sales_detail", AMZ_SALES_FIELDS, amz_sales_rows),
+        ("dwd_inventory_report_ebay_sales_detail", EBAY_SALES_FIELDS, ebay_sales_rows),
         ("dws_inventory_report_dimension_summary", DIMENSION_FIELDS, dimension_rows),
         ("dws_inventory_report_department_summary", DEPARTMENT_FIELDS, department_rows),
     )
@@ -164,6 +232,8 @@ def replace_clean_month(
         "fba_detail_rows": len(fba_rows),
         "overseas_detail_rows": len(overseas_rows),
         "local_detail_rows": len(local_rows),
+        "amz_sales_detail_rows": len(amz_sales_rows),
+        "ebay_sales_detail_rows": len(ebay_sales_rows),
         "dimension_summary_rows": len(dimension_rows),
         "department_summary_rows": len(department_rows),
         "inserted_rows": sum(len(rows) for _, _, rows in payloads),
@@ -207,6 +277,201 @@ def department_summary(stat_month: str | None = None) -> dict[str, Any]:
         return {"stat_month": month, "items": list(cursor.fetchall())}
 
 
+def inventory_age_group_costs(pull_month: str) -> dict[str, dict[str, Any]]:
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT group_code,inventory_91_180_cost,inventory_181_plus_cost
+            FROM dws_amz_fba_inventory_age_group
+            WHERE pull_month=%s
+            """,
+            (pull_month,),
+        )
+        return {
+            str(row["group_code"]): row
+            for row in cursor.fetchall()
+        }
+
+
+def order_profit_rows(stat_month: str) -> list[dict[str, Any]]:
+    """Return the AMZ order-profit snapshot used to calculate monthly volume."""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id,stat_month,sid,msku,local_sku,asin,item_name,
+                   currency_code,amount,volume
+            FROM ods_lingxing_inventory_report_amz_order_profit
+            WHERE stat_month=%s
+            ORDER BY id
+            """,
+            (stat_month,),
+        )
+        return list(cursor.fetchall())
+
+
+def replace_amz_sales_detail_month(
+    stat_month: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Replace only the AMZ sales DWD partition used by month-end volume."""
+    table = "dwd_inventory_report_amz_sales_detail"
+    with db_connection() as connection:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT COUNT(*) AS total FROM `{table}` WHERE stat_month=%s",
+                    (stat_month,),
+                )
+                deleted_rows = int(cursor.fetchone()["total"] or 0)
+                cursor.execute(
+                    f"DELETE FROM `{table}` WHERE stat_month=%s",
+                    (stat_month,),
+                )
+                _insert_rows(cursor, table, AMZ_SALES_FIELDS, rows)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    return {"deleted_rows": deleted_rows, "inserted_rows": len(rows)}
+
+
+def amz_sales_volume_by_department(
+    stat_month: str,
+) -> dict[str, Decimal] | None:
+    """Aggregate cleaned AMZ volume; None means the month has no DWD source."""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS source_rows
+            FROM dwd_inventory_report_amz_sales_detail
+            WHERE stat_month=%s
+            """,
+            (stat_month,),
+        )
+        if int(cursor.fetchone()["source_rows"] or 0) == 0:
+            return None
+        cursor.execute(
+            """
+            SELECT department_code,COALESCE(SUM(volume),0) AS sales_volume
+            FROM dwd_inventory_report_amz_sales_detail
+            WHERE stat_month=%s AND department_code IS NOT NULL
+            GROUP BY department_code
+            """,
+            (stat_month,),
+        )
+        return {
+            str(row["department_code"]): row.get("sales_volume") or ZERO
+            for row in cursor.fetchall()
+        }
+
+
+def ebay_sales_volume(stat_month: str) -> Decimal | None:
+    """Sum eBay quantity by payment time; no source rows is represented by None."""
+    database = _source_database()
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) AS source_rows,
+                   COALESCE(SUM(COALESCE(quantity,0)),0) AS sales_volume
+            FROM `{database}`.`ebay_sales`
+            WHERE payment_time >= STR_TO_DATE(CONCAT(%s,'-01'), '%%Y-%%m-%%d')
+              AND payment_time < DATE_ADD(
+                    STR_TO_DATE(CONCAT(%s,'-01'), '%%Y-%%m-%%d'),
+                    INTERVAL 1 MONTH
+                  )
+            """,
+            (stat_month, stat_month),
+        )
+        row = cursor.fetchone()
+        if not row or int(row.get("source_rows") or 0) == 0:
+            return None
+        return row.get("sales_volume") or 0
+
+
+def manual_inputs(stat_month: str) -> list[dict[str, Any]]:
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT stat_month,department_code,local_end_in_transit_qty,
+                   local_end_in_transit_total_cost,updated_by,updated_at
+            FROM monthly_inventory_report_manual_input
+            WHERE stat_month=%s
+            ORDER BY department_code
+            """,
+            (stat_month,),
+        )
+        return list(cursor.fetchall())
+
+
+def upsert_manual_inputs(
+    stat_month: str,
+    rows: list[dict[str, Any]],
+    operator: str,
+) -> None:
+    with db_connection() as connection:
+        try:
+            with connection.cursor() as cursor:
+                cursor.executemany(
+                    """
+                    INSERT INTO monthly_inventory_report_manual_input (
+                        stat_month,department_code,local_end_in_transit_qty,
+                        local_end_in_transit_total_cost,updated_by
+                    ) VALUES (%s,%s,%s,%s,%s)
+                    ON DUPLICATE KEY UPDATE
+                        local_end_in_transit_qty=VALUES(local_end_in_transit_qty),
+                        local_end_in_transit_total_cost=VALUES(local_end_in_transit_total_cost),
+                        updated_by=VALUES(updated_by),updated_at=NOW()
+                    """,
+                    [
+                        (
+                            stat_month,
+                            row["department_code"],
+                            row["local_end_in_transit_qty"],
+                            row["local_end_in_transit_total_cost"],
+                            operator,
+                        )
+                        for row in rows
+                    ],
+                )
+                _apply_manual_inputs_to_summary(cursor, stat_month)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
+
+def _apply_manual_inputs_to_summary(cursor, stat_month: str) -> None:
+    cursor.execute(
+        """
+        UPDATE dws_inventory_report_department_summary d
+        LEFT JOIN monthly_inventory_report_manual_input m
+          ON m.stat_month=d.stat_month
+         AND m.department_code=d.department_code
+        SET d.local_end_in_transit_qty=COALESCE(m.local_end_in_transit_qty,0),
+            d.local_end_in_transit_total_cost=COALESCE(m.local_end_in_transit_total_cost,0)
+        WHERE d.stat_month=%s AND d.is_total=0
+        """,
+        (stat_month,),
+    )
+    cursor.execute(
+        """
+        UPDATE dws_inventory_report_department_summary d
+        JOIN (
+            SELECT stat_month,
+                   COALESCE(SUM(local_end_in_transit_qty),0) AS total_qty,
+                   COALESCE(SUM(local_end_in_transit_total_cost),0) AS total_cost
+            FROM dws_inventory_report_department_summary
+            WHERE stat_month=%s AND is_total=0
+            GROUP BY stat_month
+        ) totals ON totals.stat_month=d.stat_month
+        SET d.local_end_in_transit_qty=totals.total_qty,
+            d.local_end_in_transit_total_cost=totals.total_cost
+        WHERE d.stat_month=%s AND d.is_total=1
+        """,
+        (stat_month, stat_month),
+    )
+
+
 def detail_rows(
     source_type: str,
     stat_month: str | None,
@@ -218,7 +483,7 @@ def detail_rows(
 ) -> dict[str, Any]:
     source = source_type.lower()
     if source not in DETAIL_TABLES:
-        raise ValueError("source_type必须是fba、overseas或local")
+        raise ValueError("source_type必须是fba、overseas、local或ebay_sales")
     table = DETAIL_TABLES[source]
     page = max(1, page)
     page_size = max(1, min(page_size, 500))
@@ -250,12 +515,18 @@ def detail_rows(
                     "msku LIKE %s OR local_sku LIKE %s OR asin LIKE %s)"
                 )
                 params.extend([value] * 5)
-            else:
+            elif source in {"overseas", "local"}:
                 where.append(
                     "(seller_name LIKE %s OR ware_house_name LIKE %s OR "
                     "sku LIKE %s OR fnsku LIKE %s OR product_name LIKE %s)"
                 )
                 params.extend([value] * 5)
+            else:
+                where.append(
+                    "(sku LIKE %s OR brand_code LIKE %s OR "
+                    "principal_name LIKE %s)"
+                )
+                params.extend([value] * 3)
         where_sql = " AND ".join(where)
         cursor.execute(
             f"SELECT COUNT(*) AS total FROM `{table}` WHERE {where_sql}",

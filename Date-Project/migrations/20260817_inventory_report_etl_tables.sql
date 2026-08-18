@@ -98,6 +98,55 @@ CREATE TABLE IF NOT EXISTS `dwd_inventory_report_local_detail` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='DWD-领星本地仓月度库存报表清洗明细';
 
+CREATE TABLE IF NOT EXISTS `dwd_inventory_report_amz_sales_detail` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+    `stat_month` CHAR(7) NOT NULL COMMENT '数据归属年月，格式YYYY-MM',
+    `source_id` BIGINT UNSIGNED NOT NULL COMMENT 'Amazon订单利润ODS源表主键',
+    `sid` VARCHAR(32) NOT NULL COMMENT '领星Amazon店铺SID',
+    `store_name` VARCHAR(255) NULL COMMENT 'ERP店铺名称',
+    `group_code` VARCHAR(32) NULL COMMENT '销售归属组别',
+    `department_code` VARCHAR(32) NULL COMMENT '汇总部门编码',
+    `principal_name` VARCHAR(100) NOT NULL DEFAULT '未分配' COMMENT '负责人姓名',
+    `principal_match_source` VARCHAR(32) NOT NULL DEFAULT 'UNMATCHED' COMMENT '负责人匹配来源',
+    `msku` VARCHAR(255) NOT NULL COMMENT 'Amazon卖家SKU（MSKU）',
+    `local_sku` VARCHAR(255) NULL COMMENT '本地商品SKU',
+    `asin` VARCHAR(64) NULL COMMENT 'Amazon商品标识码（ASIN）',
+    `item_name` TEXT NULL COMMENT '商品名称',
+    `currency_code` VARCHAR(16) NOT NULL DEFAULT 'CNY' COMMENT '销售额币种，本链路固定为CNY',
+    `amount` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '用于实际达成计算的销售额',
+    `volume` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '清洗后自然月商品销量',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_inventory_amz_sales_month_source` (`stat_month`,`source_id`),
+    KEY `idx_inventory_amz_sales_month_department` (`stat_month`,`department_code`),
+    KEY `idx_inventory_amz_sales_month_owner` (`stat_month`,`principal_name`),
+    KEY `idx_inventory_amz_sales_month_sid_msku` (`stat_month`,`sid`,`msku`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='DWD-月度库存统计Amazon销售额清洗明细';
+
+CREATE TABLE IF NOT EXISTS `dwd_inventory_report_ebay_sales_detail` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+    `stat_month` CHAR(7) NOT NULL COMMENT '数据归属年月，格式YYYY-MM',
+    `source_id` BIGINT UNSIGNED NOT NULL COMMENT 'eBay销售额ODS源表主键',
+    `sku` VARCHAR(255) NOT NULL COMMENT 'eBay商品SKU',
+    `brand_code` VARCHAR(32) NOT NULL COMMENT '从SKU解析出的品牌编码',
+    `image_url` TEXT NULL COMMENT '商品图片链接',
+    `multi_variant` VARCHAR(16) NULL COMMENT '是否多属性',
+    `department_code` VARCHAR(32) NOT NULL DEFAULT 'EBAY-1' COMMENT '汇总部门编码，固定EBAY-1',
+    `principal_name` VARCHAR(100) NOT NULL DEFAULT '未分配' COMMENT '按eBay品牌规则匹配的负责人',
+    `principal_match_source` VARCHAR(32) NOT NULL DEFAULT 'UNMATCHED' COMMENT '负责人匹配来源',
+    `product_sales_amount` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '商品销售额',
+    `receivable_shipping_amount` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '应收运费',
+    `amount` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT 'eBay实际达成金额，商品销售额加应收运费',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_inventory_ebay_sales_month_source` (`stat_month`,`source_id`),
+    KEY `idx_inventory_ebay_sales_month_owner` (`stat_month`,`principal_name`),
+    KEY `idx_inventory_ebay_sales_month_brand` (`stat_month`,`brand_code`),
+    KEY `idx_inventory_ebay_sales_month_sku` (`stat_month`,`sku`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='DWD-月度库存统计eBay实际达成负责人清洗明细';
+
 CREATE TABLE IF NOT EXISTS `dws_inventory_report_dimension_summary` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
     `stat_month` CHAR(7) NOT NULL COMMENT '数据归属年月，格式YYYY-MM',
@@ -138,6 +187,8 @@ CREATE TABLE IF NOT EXISTS `dws_inventory_report_department_summary` (
     `fba_end_inventory_total_cost` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT 'FBA仓期末库存含移仓总成本',
     `fba_end_in_transit_qty` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT 'FBA仓期末在途数量',
     `fba_end_in_transit_total_cost` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT 'FBA仓期末在途总成本',
+    `actual_achievement_amount` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '实际达成销售额，Amazon订单利润按部门汇总，币种CNY',
+    `target_achievement_rate` DECIMAL(24,10) NOT NULL DEFAULT 0 COMMENT '目标达成率，实际达成除以销售冲刺目标',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '记录更新时间',
     PRIMARY KEY (`id`),
@@ -145,3 +196,18 @@ CREATE TABLE IF NOT EXISTS `dws_inventory_report_department_summary` (
     KEY `idx_inventory_department_month_order` (`stat_month`,`display_order`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='DWS-月度库存报表部门主表';
+
+CREATE TABLE IF NOT EXISTS `monthly_inventory_report_manual_input` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+    `stat_month` CHAR(7) NOT NULL COMMENT '数据归属年月，格式YYYY-MM',
+    `department_code` VARCHAR(32) NOT NULL COMMENT '部门编码',
+    `local_end_in_transit_qty` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '人工填写的本地仓期末在途数量',
+    `local_end_in_transit_total_cost` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '人工填写的本地仓期末在途总成本',
+    `updated_by` VARCHAR(64) NOT NULL DEFAULT '' COMMENT '最后修改人',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后修改时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_inventory_manual_month_department` (`stat_month`,`department_code`),
+    KEY `idx_inventory_manual_month` (`stat_month`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='月度库存报表本地仓期末在途人工录入表；按月份与部门唯一';

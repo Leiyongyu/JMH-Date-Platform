@@ -666,11 +666,28 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
             INSERT INTO scheduler_task (
                 task_code, task_name, cron_expression, enabled, description
             ) VALUES (
+                'monthly_inventory_report_sales_volume_sync',
+                '月度库存销量填充',
+                '0 0 23 L * ?',
+                1,
+                '每月最后一天23:00拉取当月完整自然月Amazon订单利润volume并覆盖ODS、重建销量DWD；eBay销量由ebay_sales按payment_time实时汇总'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
                 'monthly_inventory_report_source_sync',
-                '领星月度库存报表三接口源数据同步',
+                '月度库存统计表数据拉取',
                 '0 0 6 1 * ?',
                 1,
-                '每月1日06:00拉取上一个完整自然月的FBA、海外仓、本地仓明细，并重建DWD与DWS库存报表'
+                'FBA、海外仓、本地仓和Amazon订单利润四个接口拉取上个自然月并按月份覆盖ODS；订单利润固定CNY并计算实际达成、目标达成率；随后重建DWD明细和DWS汇总'
             )
             ON DUPLICATE KEY UPDATE
                 task_name = VALUES(task_name),

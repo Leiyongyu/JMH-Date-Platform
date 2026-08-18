@@ -20,9 +20,12 @@ from backend.services.amz_sop_after_sales_service import (
     run_amz_sop_chain,
 )
 from backend.services.inventory_report_source_sync_service import (
+    SALES_VOLUME_TASK_CODE,
+    SALES_VOLUME_TASK_NAME,
     TASK_CODE as INVENTORY_REPORT_TASK_CODE,
     TASK_NAME as INVENTORY_REPORT_TASK_NAME,
     InventoryReportSourceSyncError,
+    sync_monthly_inventory_sales_volume,
     sync_monthly_inventory_report_sources,
 )
 
@@ -33,6 +36,7 @@ TASK_CODES = {
     CLEARANCE_TASK_CODE,
     AMZ_SOP_TASK_CODE,
     INVENTORY_REPORT_TASK_CODE,
+    SALES_VOLUME_TASK_CODE,
 }
 
 
@@ -68,6 +72,8 @@ def run_scheduler_task(
     month = stat_month or (
         previous_natural_month()
         if task_code in {AMZ_TASK_CODE, INVENTORY_REPORT_TASK_CODE}
+        else datetime.now().strftime("%Y-%m")
+        if task_code == SALES_VOLUME_TASK_CODE
         else (end_date or datetime.now().date()).strftime("%Y-%m")
     )
     run_id = str(uuid4())
@@ -85,6 +91,8 @@ def run_scheduler_task(
             lock_name = "sop:amz-after-sales-chain"
         elif task_code == INVENTORY_REPORT_TASK_CODE:
             lock_name = f"inventory:monthly-report-source:{month}"
+        elif task_code == SALES_VOLUME_TASK_CODE:
+            lock_name = f"inventory:monthly-sales-volume:{month}"
         else:
             lock_name = f"warehouse:amz-fba-inventory:{month}"
         with repo.named_lock(lock_name) as acquired:
@@ -94,6 +102,8 @@ def run_scheduler_task(
                     if task_code == AMZ_SOP_TASK_CODE
                     else INVENTORY_REPORT_TASK_NAME
                     if task_code == INVENTORY_REPORT_TASK_CODE
+                    else SALES_VOLUME_TASK_NAME
+                    if task_code == SALES_VOLUME_TASK_CODE
                     else month + " AMZ任务"
                 )
                 raise SchedulerTaskAlreadyRunning(
@@ -113,6 +123,8 @@ def run_scheduler_task(
                 result = sync_fba_inventory(month)
             elif task_code == INVENTORY_REPORT_TASK_CODE:
                 result = sync_monthly_inventory_report_sources(month)
+            elif task_code == SALES_VOLUME_TASK_CODE:
+                result = sync_monthly_inventory_sales_volume(month)
             else:
                 result = run_amz_sop_chain(
                     start_date=start_date,
@@ -151,7 +163,11 @@ def run_scheduler_task(
             exc.stage
             if isinstance(
                 exc,
-                (AmazonProfitEtlError, AmzSopEtlError, InventoryReportSourceSyncError),
+                (
+                    AmazonProfitEtlError,
+                    AmzSopEtlError,
+                    InventoryReportSourceSyncError,
+                ),
             )
             else "LOCK" if isinstance(exc, SchedulerTaskAlreadyRunning)
             else "UNKNOWN"
@@ -160,7 +176,11 @@ def run_scheduler_task(
             exc.metrics
             if isinstance(
                 exc,
-                (AmazonProfitEtlError, AmzSopEtlError, InventoryReportSourceSyncError),
+                (
+                    AmazonProfitEtlError,
+                    AmzSopEtlError,
+                    InventoryReportSourceSyncError,
+                ),
             )
             else {}
         )

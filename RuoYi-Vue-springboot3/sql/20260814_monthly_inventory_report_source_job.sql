@@ -1,9 +1,8 @@
 -- 目标库：jmh_data_platform（Java ERP / Quartz 数据库）。
--- 仅注册三类月度库存报表源数据同步任务，不创建 Python ODS 表。
--- Python 三张表请执行：Date-Project/migrations/20260814_inventory_report_source_tables.sql
+-- 注册月度库存统计表数据拉取任务，不创建 Python ODS/DWD/DWS 表。
 
 UPDATE sys_job
-SET job_name = '领星-月度库存报表三接口源数据同步',
+SET job_name = '月度库存统计表数据拉取',
     job_group = 'DATA_CENTER',
     invoke_target = 'pythonMonthlyInventoryReportTask.syncPreviousMonth()',
     cron_expression = '0 0 6 1 * ?',
@@ -12,7 +11,7 @@ SET job_name = '领星-月度库存报表三接口源数据同步',
     status = '0',
     update_by = 'SYSTEM',
     update_time = NOW(),
-    remark = '每月1日06:00由Java Quartz调用Python拉取上一个完整自然月三类库存源数据（月初至月末），并重建DWD与DWS报表'
+    remark = '每月1日06:00调用Python拉取上个自然月：FBA、海外仓、本地仓和Amazon订单利润(/basicOpen/finance/mreport/OrderProfit)四个接口按月份覆盖ODS；订单利润固定CNY并计算实际达成、目标达成率；随后重建库存DWD明细和DWS汇总。'
 WHERE invoke_target IN (
     'pythonMonthlyInventoryReportTask.syncCurrentMonth',
     'pythonMonthlyInventoryReportTask.syncCurrentMonth()',
@@ -26,13 +25,13 @@ INSERT INTO sys_job (
     create_by, create_time, remark
 )
 SELECT
-    '领星-月度库存报表三接口源数据同步',
+    '月度库存统计表数据拉取',
     'DATA_CENTER',
     'pythonMonthlyInventoryReportTask.syncPreviousMonth()',
     '0 0 6 1 * ?',
     '2', '1', '0',
     'SYSTEM', NOW(),
-    '每月1日06:00由Java Quartz调用Python拉取上一个完整自然月三类库存源数据（月初至月末），并重建DWD与DWS报表'
+    '每月1日06:00调用Python拉取上个自然月：FBA、海外仓、本地仓和Amazon订单利润(/basicOpen/finance/mreport/OrderProfit)四个接口按月份覆盖ODS；订单利润固定CNY并计算实际达成、目标达成率；随后重建库存DWD明细和DWS汇总。'
 WHERE NOT EXISTS (
     SELECT 1
     FROM sys_job

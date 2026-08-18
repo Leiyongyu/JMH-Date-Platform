@@ -12,10 +12,13 @@ import java.util.Map;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /** 数据中心月度库存报表，统一代理Python清洗汇总服务。 */
 @Tag(name = "数据中心-月度库存报表")
@@ -99,6 +102,47 @@ public class MonthlyInventoryReportController extends BaseController
         }
     }
 
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list')")
+    @GetMapping("/manual-inputs")
+    public AjaxResult manualInputs(
+            @RequestParam String statMonth,
+            @RequestHeader(value = "X-Request-ID", required = false)
+            String requestId)
+    {
+        try
+        {
+            return success(data(
+                    pythonClient.monthlyInventoryReportManualInputs(
+                            statMonth, requestId)));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
+    @Log(title = "月度库存报表人工在途数据", businessType = BusinessType.UPDATE)
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:edit')")
+    @PutMapping("/manual-inputs")
+    public AjaxResult saveManualInputs(
+            @RequestBody Map<String, Object> payload,
+            @RequestHeader(value = "X-Request-ID", required = false)
+            String requestId)
+    {
+        try
+        {
+            Map<String, Object> body = new LinkedHashMap<>(payload);
+            body.put("operator", getUsername());
+            return success(data(
+                    pythonClient.saveMonthlyInventoryReportManualInputs(
+                            body, requestId)));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
     @Log(title = "月度库存报表重新清洗", businessType = BusinessType.UPDATE)
     @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:edit')")
     @PostMapping("/rebuild")
@@ -111,6 +155,53 @@ public class MonthlyInventoryReportController extends BaseController
         {
             return success(data(pythonClient.rebuildMonthlyInventoryReport(
                     statMonth, requestId)));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
+    @Log(title = "月度库存Amazon订单利润拉取", businessType = BusinessType.UPDATE)
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:edit')")
+    @PostMapping("/order-profit-sync")
+    public AjaxResult syncOrderProfit(
+            @RequestParam(required = false) String statMonth,
+            @RequestHeader(value = "X-Request-ID", required = false)
+            String requestId)
+    {
+        try
+        {
+            return success(data(
+                    pythonClient.syncMonthlyInventoryOrderProfit(
+                            statMonth, requestId)));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
+    @Log(title = "月度库存eBay实际达成导入", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:edit')")
+    @PostMapping("/ebay-sales-import")
+    public AjaxResult importEbaySales(
+            @RequestParam String statMonth,
+            @RequestParam("file") MultipartFile file,
+            @RequestHeader(value = "X-Request-ID", required = false)
+            String requestId,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String idempotencyKey)
+    {
+        try
+        {
+            return success(data(
+                    pythonClient.importMonthlyInventoryEbaySales(
+                            statMonth,
+                            file,
+                            getUsername(),
+                            requestId,
+                            idempotencyKey)));
         }
         catch (Exception e)
         {

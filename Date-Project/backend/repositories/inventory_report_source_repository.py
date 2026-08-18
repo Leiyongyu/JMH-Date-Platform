@@ -25,7 +25,24 @@ TABLE_FIELDS = {
         "ods_lingxing_local_monthly_inventory_detail",
         LOCAL_SOURCE_FIELDS,
     ),
+    "order_profit": (
+        "ods_lingxing_inventory_report_amz_order_profit",
+        (),
+    ),
 }
+
+ORDER_PROFIT_FIELDS = (
+    "stat_month",
+    "sid",
+    "msku",
+    "local_sku",
+    "asin",
+    "item_name",
+    "currency_code",
+    "amount",
+    "volume",
+    "pulled_at",
+)
 
 META_FIELDS = (
     "stat_month",
@@ -88,12 +105,12 @@ def replace_source_month(
     stat_month: str,
     rows_by_source: dict[str, list[dict[str, Any]]],
 ) -> dict[str, Any]:
-    """Atomically replace the same month in all three source tables."""
+    """Atomically replace the same month in all inventory-report source tables."""
     source_stats: dict[str, dict[str, int]] = {}
     with db_connection() as connection:
         try:
             with connection.cursor() as cursor:
-                for source, (table, _fields) in TABLE_FIELDS.items():
+                for source, (table, fields) in TABLE_FIELDS.items():
                     cursor.execute(
                         f"SELECT COUNT(1) AS total FROM `{table}` "
                         "WHERE stat_month = %s",
@@ -105,7 +122,12 @@ def replace_source_month(
                         (stat_month,),
                     )
                     new_rows = rows_by_source.get(source, [])
-                    _insert_rows(cursor, table, _fields, new_rows)
+                    if source == "order_profit":
+                        _insert_explicit_rows(
+                            cursor, table, ORDER_PROFIT_FIELDS, new_rows
+                        )
+                    else:
+                        _insert_rows(cursor, table, fields, new_rows)
                     source_stats[source] = {
                         "deleted_rows": old_rows,
                         "inserted_rows": len(new_rows),
@@ -121,12 +143,53 @@ def replace_source_month(
     }
 
 
+def replace_order_profit_month(
+    stat_month: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Replace only one month's AMZ order-profit source snapshot."""
+    table = TABLE_FIELDS["order_profit"][0]
+    with db_connection() as connection:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT COUNT(1) AS total FROM `{table}` WHERE stat_month=%s",
+                    (stat_month,),
+                )
+                old_rows = int(cursor.fetchone()["total"] or 0)
+                cursor.execute(
+                    f"DELETE FROM `{table}` WHERE stat_month=%s",
+                    (stat_month,),
+                )
+                _insert_explicit_rows(cursor, table, ORDER_PROFIT_FIELDS, rows)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    return {"deleted_rows": old_rows, "inserted_rows": len(rows)}
+
+
 def _insert_rows(cursor, table: str, fields: tuple[str, ...], rows: list[dict]) -> None:
     if not rows:
         return
     columns = (*META_FIELDS, *fields, "raw_row_json", "pulled_at")
     column_sql = ",".join(f"`{column}`" for column in columns)
     value_sql = ",".join(f"%({column})s" for column in columns)
+    sql = f"INSERT INTO `{table}` ({column_sql}) VALUES ({value_sql})"
+    for batch in _chunks(rows, 300):
+        cursor.executemany(sql, batch)
+
+
+def _insert_explicit_rows(
+    cursor,
+    table: str,
+    fields: tuple[str, ...],
+    rows: list[dict],
+) -> None:
+    if not rows:
+        return
+    column_sql = ",".join(f"`{column}`" for column in fields)
+    value_sql = ",".join(f"%({column})s" for column in fields)
     sql = f"INSERT INTO `{table}` ({column_sql}) VALUES ({value_sql})"
     for batch in _chunks(rows, 300):
         cursor.executemany(sql, batch)
