@@ -20,6 +20,8 @@ export default defineConfig(({ mode }) => {
             if (internalToken) {
               proxy.on('proxyReq', (proxyReq) => {
                 proxyReq.setHeader('X-Internal-Token', internalToken)
+                proxyReq.setHeader('X-ERP-User-ID', '0')
+                proxyReq.setHeader('X-ERP-Username-B64', 'ZGV2ZWxvcGVy')
               })
             }
           },
@@ -31,6 +33,8 @@ export default defineConfig(({ mode }) => {
             if (internalToken) {
               proxy.on('proxyReq', (proxyReq) => {
                 proxyReq.setHeader('X-Internal-Token', internalToken)
+                proxyReq.setHeader('X-ERP-User-ID', '0')
+                proxyReq.setHeader('X-ERP-Username-B64', 'ZGV2ZWxvcGVy')
               })
             }
           },

@@ -21,13 +21,16 @@ class ImageSopRepository:
         source_mode = "ebay" if "ebay" in str((data.get("listing_data") or {}).get("data_source", "")).lower() else "amazon"
         store_sid = data.get("store_sid")
         payload = json.dumps(data, ensure_ascii=False)
+        owner_user_id = int(data.get("owner_user_id") or 0)
+        owner_username = str(data.get("owner_username") or "")[:64]
         with db_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
                     INSERT INTO image_sop_draft
-                        (id, sku, source_mode, status, store_sid, data_json, request_id, created_at, updated_at, expires_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        (id, owner_user_id, owner_username, sku, source_mode, status,
+                         store_sid, data_json, request_id, created_at, updated_at, expires_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
                         sku = VALUES(sku), source_mode = VALUES(source_mode),
                         status = VALUES(status), store_sid = VALUES(store_sid),
@@ -36,6 +39,8 @@ class ImageSopRepository:
                     """,
                     (
                         draft_id,
+                        owner_user_id,
+                        owner_username,
                         sku,
                         source_mode,
                         str(data.get("premium_status") or "completed"),
@@ -49,14 +54,26 @@ class ImageSopRepository:
                 )
             connection.commit()
 
-    def get_draft(self, draft_id: str, max_age: int = DRAFT_TTL_SECONDS) -> dict[str, Any] | None:
+    def get_draft(
+        self,
+        draft_id: str,
+        owner_user_id: int | None = None,
+        max_age: int = DRAFT_TTL_SECONDS,
+    ) -> dict[str, Any] | None:
         cutoff = datetime.now() - timedelta(seconds=max_age)
         with db_connection() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT data_json, updated_at, expires_at FROM image_sop_draft WHERE id = %s",
-                    (draft_id,),
-                )
+                if owner_user_id is None:
+                    cursor.execute(
+                        "SELECT data_json, updated_at, expires_at FROM image_sop_draft WHERE id = %s",
+                        (draft_id,),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT data_json, updated_at, expires_at FROM image_sop_draft "
+                        "WHERE id = %s AND owner_user_id = %s",
+                        (draft_id, owner_user_id),
+                    )
                 row = cursor.fetchone()
         if not row:
             return None
@@ -94,7 +111,8 @@ class ImageSopRepository:
         with db_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT id, sku, UNIX_TIMESTAMP(created_at) AS created_at, data_json "
+                    "SELECT id, owner_user_id, owner_username, sku, "
+                    "UNIX_TIMESTAMP(created_at) AS created_at, data_json "
                     "FROM image_sop_draft ORDER BY created_at DESC"
                 )
                 rows = cursor.fetchall()
@@ -103,7 +121,14 @@ class ImageSopRepository:
             value = row["data_json"]
             if isinstance(value, str):
                 value = json.loads(value)
-            result.append({"id": row["id"], "sku": row["sku"], "created_at": float(row["created_at"]), "data": value})
+            result.append({
+                "id": row["id"],
+                "owner_user_id": row.get("owner_user_id"),
+                "owner_username": row.get("owner_username"),
+                "sku": row["sku"],
+                "created_at": float(row["created_at"]),
+                "data": value,
+            })
         return result
 
     def delete_drafts_batch(self, draft_ids: list[str]) -> int:

@@ -286,7 +286,7 @@ def sync_monthly_inventory_order_profit(
 def sync_monthly_inventory_sales_volume(
     stat_month: str | None = None,
 ) -> dict[str, Any]:
-    """Pull the previous complete month's AMZ achievement and volume on day 11."""
+    """Pull the previous complete month's AMZ achievement and volume on day 2."""
     month, query_start, query_end = _month_scope(stat_month)
     batch_id = str(uuid4())
     pulled_at = datetime.now()
@@ -359,7 +359,7 @@ def sync_monthly_inventory_sales_volume(
         replace_stats["deleted_rows"] + dwd_result["deleted_rows"]
     )
     metrics["skipped_rows"] = skipped
-    # 报表按“库存月份+1”读取销量；11日仅更新上月实际达成和销量DWD。
+    # 报表按“库存月份+1”展示；2日仅更新上个完整自然月的实际达成和销量DWD。
     return {**metrics, "status": "completed"}
 
 

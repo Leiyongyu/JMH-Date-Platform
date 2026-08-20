@@ -178,7 +178,7 @@ def test_order_profit_uses_full_month_cny_and_keeps_minimum_fields():
     }
 
 
-def test_day_11_sales_volume_defaults_to_previous_month_and_only_rebuilds_amz_dwd(
+def test_day_2_sales_volume_defaults_to_previous_month_and_only_rebuilds_amz_dwd(
     monkeypatch,
 ):
     source_rows = [

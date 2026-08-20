@@ -119,7 +119,7 @@ DEALLOCATE PREPARE stmt_target_achievement_rate;
 
 UPDATE `scheduler_task`
 SET `task_name` = '月度库存统计表数据拉取',
-    `description` = '每月1日拉取上个完整自然月FBA、海外仓、本地仓三个库存接口并按月份覆盖ODS，作为下一个业务月报表库存基准；Amazon订单利润改由每月11日23:00任务拉取上月数据'
+    `description` = '每月1日拉取上个完整自然月FBA、海外仓、本地仓三个库存接口并按月份覆盖ODS，作为下一个业务月报表库存基准；Amazon订单利润由每月2日06:00任务拉取上月数据'
 WHERE `task_code` = 'monthly_inventory_report_source_sync';
 
 SELECT table_name, table_comment

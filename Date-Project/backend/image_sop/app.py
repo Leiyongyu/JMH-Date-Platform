@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import ipaddress
 import json as _json
@@ -16,11 +17,7 @@ from pathlib import Path
 from uuid import uuid4
 from urllib.parse import quote, unquote
 
-from backend.image_sop.security import (
-    browser_request_is_same_origin,
-    client_is_internal,
-    sanitize_health,
-)
+from backend.image_sop.security import client_is_internal, sanitize_health
 
 import httpx as _httpx_for_dl
 from bs4 import BeautifulSoup
@@ -191,54 +188,98 @@ app = FastAPI(title="跨境电商图片 SOP 生成系统", version="0.1.0")
 
 
 class GenerationGate:
-    def __init__(self, limit: int) -> None:
+    def __init__(self, limit: int, per_user_limit: int, max_queue: int) -> None:
         self.limit = max(1, limit)
+        self.per_user_limit = max(1, per_user_limit)
+        self.max_queue = max(1, max_queue)
         self._semaphore: asyncio.Semaphore | None = None
+        self._user_semaphores: dict[str, asyncio.Semaphore] = {}
         self._loop_id: int | None = None
         self.active = 0
         self.waiting = 0
+        self._active_by_user: dict[str, int] = {}
 
-    async def acquire(self) -> None:
+    async def acquire(self, user_id: str) -> None:
         loop_id = id(asyncio.get_running_loop())
         if self._semaphore is None or self._loop_id != loop_id:
             self._semaphore = asyncio.Semaphore(self.limit)
+            self._user_semaphores = {}
             self._loop_id = loop_id
             self.active = 0
             self.waiting = 0
+            self._active_by_user = {}
+        if self.waiting >= self.max_queue:
+            raise RuntimeError("QUEUE_FULL")
+        user_key = user_id or "0"
+        user_semaphore = self._user_semaphores.setdefault(
+            user_key, asyncio.Semaphore(self.per_user_limit)
+        )
         self.waiting += 1
+        user_acquired = False
         try:
+            await user_semaphore.acquire()
+            user_acquired = True
             await self._semaphore.acquire()
         except BaseException:
+            if user_acquired:
+                user_semaphore.release()
             self.waiting -= 1
             raise
         self.waiting -= 1
         self.active += 1
+        self._active_by_user[user_key] = self._active_by_user.get(user_key, 0) + 1
 
-    def release(self) -> None:
+    def release(self, user_id: str) -> None:
+        user_key = user_id or "0"
         self.active = max(0, self.active - 1)
+        active_for_user = max(0, self._active_by_user.get(user_key, 0) - 1)
+        if active_for_user:
+            self._active_by_user[user_key] = active_for_user
+        else:
+            self._active_by_user.pop(user_key, None)
+        user_semaphore = self._user_semaphores.get(user_key)
+        if user_semaphore is not None:
+            user_semaphore.release()
         if self._semaphore is not None:
             self._semaphore.release()
 
-    def snapshot(self) -> dict[str, int]:
+    def snapshot(self, user_id: str = "") -> dict[str, int]:
         return {
             "active": self.active,
             "waiting": self.waiting,
             "limit": self.limit,
+            "max_queue": self.max_queue,
+            "per_user_limit": self.per_user_limit,
+            "current_user_active": self._active_by_user.get(user_id or "0", 0),
         }
 
 
-_generation_gate = GenerationGate(settings.sop_generation_max_concurrent)
+_generation_gate = GenerationGate(
+    settings.sop_generation_max_concurrent,
+    settings.sop_generation_max_concurrent_per_user,
+    settings.sop_generation_max_queue,
+)
 
 
 class GenerationQueueMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         if not request.url.path.rstrip("/").endswith("/api/sop/generate"):
             return await call_next(request)
-        await _generation_gate.acquire()
+        user_id = str(getattr(request.state, "erp_user_id", "0"))
+        try:
+            await _generation_gate.acquire(user_id)
+        except RuntimeError as exc:
+            if str(exc) == "QUEUE_FULL":
+                return Response(
+                    content='{"detail":"图片SOP排队人数已达上限，请稍后重试"}',
+                    status_code=429,
+                    media_type="application/json",
+                )
+            raise
         try:
             return await call_next(request)
         finally:
-            _generation_gate.release()
+            _generation_gate.release(user_id)
 
 
 app.add_middleware(GenerationQueueMiddleware)
@@ -251,16 +292,11 @@ class ImageSopInternalAccessMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         configured = platform_settings.python_internal_api_token
         provided = request.headers.get("X-Internal-Token", "")
-        direct_browser = browser_request_is_same_origin(
-            request.headers.get("host", ""),
-            request.headers.get("referer", ""),
-            request.headers.get("sec-fetch-site", ""),
-        )
         if configured:
             token_valid = bool(provided) and secrets.compare_digest(
                 provided, configured
             )
-            if not token_valid and not direct_browser:
+            if not token_valid:
                 return Response(
                     content='{"code":401,"message":"内部接口令牌无效","data":null,"request_id":""}',
                     status_code=401,
@@ -270,13 +306,29 @@ class ImageSopInternalAccessMiddleware(BaseHTTPMiddleware):
             client_host = request.client.host if request.client else ""
             if (
                 client_host not in {"127.0.0.1", "::1", "localhost", "testclient"}
-                and not direct_browser
             ):
                 return Response(
                     content='{"code":403,"message":"未配置内部接口令牌时，仅允许本机访问","data":null,"request_id":""}',
                     status_code=403,
                     media_type="application/json",
                 )
+        if path not in {"/api/health", "/api"}:
+            user_id = request.headers.get("X-ERP-User-ID", "").strip()
+            if not user_id.isdigit():
+                return Response(
+                    content='{"detail":"缺少可信ERP用户身份，请从ERP脚本菜单进入"}',
+                    status_code=401,
+                    media_type="application/json",
+                )
+            request.state.erp_user_id = int(user_id)
+            encoded_username = request.headers.get("X-ERP-Username-B64", "").strip()
+            try:
+                padding = "=" * (-len(encoded_username) % 4)
+                request.state.erp_username = base64.urlsafe_b64decode(
+                    encoded_username + padding
+                ).decode("utf-8") if encoded_username else ""
+            except Exception:
+                request.state.erp_username = ""
         return await call_next(request)
 
 
@@ -391,8 +443,9 @@ async def health(request: Request):
 
 
 @app.get("/api/sop/generation-status")
-async def generation_status() -> dict[str, int]:
-    return _generation_gate.snapshot()
+@app.get("/api/sop/queue-status", include_in_schema=False)
+async def generation_status(request: Request) -> dict[str, int]:
+    return _generation_gate.snapshot(str(request.state.erp_user_id))
 
 
 @app.get("/api/lingxing/stores")
@@ -1001,6 +1054,8 @@ async def generate_sop(
 
     draft_id = uuid4().hex
     draft_data = {
+        "owner_user_id": request.state.erp_user_id,
+        "owner_username": request.state.erp_username,
         "sku": normalized_sku,
         "store_sid": store_sid,
         "upload_path": str(primary_main_path),
@@ -1062,13 +1117,15 @@ async def generate_sop(
 
 
 @app.get("/api/sop/premium-status")
-async def sop_premium_status(draft_id: str) -> dict[str, object]:
+async def sop_premium_status(request: Request, draft_id: str) -> dict[str, object]:
     """高级 A+ 后台预生成是否就绪。"""
     normalized = draft_id.strip()
     if not normalized:
         raise HTTPException(status_code=400, detail="draft_id 不能为空")
     loop = asyncio.get_running_loop()
-    draft = await loop.run_in_executor(None, get_db().get_draft, normalized)
+    draft = await loop.run_in_executor(
+        None, get_db().get_draft, normalized, request.state.erp_user_id
+    )
     if not draft:
         raise HTTPException(status_code=404, detail="草稿不存在或已过期")
     premium_reqs = draft.get("premium_image_requirements") or []
@@ -1082,9 +1139,11 @@ async def sop_premium_status(draft_id: str) -> dict[str, object]:
 
 
 @app.post("/api/sop/export")
-async def export_sop(payload: SopExportRequest) -> dict[str, str]:
+async def export_sop(request: Request, payload: SopExportRequest) -> dict[str, str]:
     loop = asyncio.get_running_loop()
-    draft = await loop.run_in_executor(None, get_db().get_draft, payload.draft_id)
+    draft = await loop.run_in_executor(
+        None, get_db().get_draft, payload.draft_id, request.state.erp_user_id
+    )
     if not draft:
         raise HTTPException(status_code=404, detail="草稿不存在或已过期，请重新生成")
 
@@ -1130,6 +1189,7 @@ async def export_sop(payload: SopExportRequest) -> dict[str, str]:
             upload_files=upload_files,
             web_ref_files=web_ref_files,
         )
+        excel_file = _scope_export_file(excel_file, request.state.erp_user_id)
         return {"excel_file": f"/api/files/{excel_file.name}"}
     except HTTPException:
         raise
@@ -1144,10 +1204,12 @@ async def export_sop(payload: SopExportRequest) -> dict[str, str]:
 
 
 @app.post("/api/sop/export-premium")
-async def export_sop_premium(payload: SopExportRequest) -> dict[str, str]:
+async def export_sop_premium(request: Request, payload: SopExportRequest) -> dict[str, str]:
     """生成并导出高级A+图 Excel（9列模板，文案顺序：车型/OE → 产品特点）。"""
     loop = asyncio.get_running_loop()
-    draft = await loop.run_in_executor(None, get_db().get_draft, payload.draft_id)
+    draft = await loop.run_in_executor(
+        None, get_db().get_draft, payload.draft_id, request.state.erp_user_id
+    )
     if not draft:
         raise HTTPException(status_code=404, detail="草稿不存在或已过期，请重新生成")
 
@@ -1296,6 +1358,7 @@ async def export_sop_premium(payload: SopExportRequest) -> dict[str, str]:
             upload_files=upload_files,
             web_ref_files=web_ref_files,
         )
+        excel_file = _scope_export_file(excel_file, request.state.erp_user_id)
         return {"excel_file": f"/api/files/{excel_file.name}"}
     except HTTPException:
         raise
@@ -1510,8 +1573,18 @@ async def nas_image_proxy(p: str = Query(default="", description="NAS image path
     finally:
         service.close()
 
+def _scope_export_file(file_path: Path, owner_user_id: int) -> Path:
+    """为导出文件增加不可跨用户复用的所有者前缀。"""
+    scoped_name = f"u{owner_user_id}_{uuid4().hex[:12]}_{file_path.name}"
+    scoped_path = file_path.with_name(scoped_name)
+    file_path.replace(scoped_path)
+    return scoped_path
+
+
 @app.get("/api/files/{filename}")
-async def download_file(filename: str) -> FileResponse:
+async def download_file(request: Request, filename: str) -> FileResponse:
+    if not filename.startswith(f"u{request.state.erp_user_id}_"):
+        raise HTTPException(status_code=404, detail="文件不存在")
     file_path = _safe_path_in_dir(settings.export_path, filename)
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")

@@ -685,9 +685,9 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
             ) VALUES (
                 'monthly_inventory_report_sales_volume_sync',
                 '月度库存实际达成及销量填充',
-                '0 0 23 11 * ?',
+                '0 0 6 2 * ?',
                 1,
-                '每月11日23:00一次拉取上个完整自然月Amazon订单利润amount和volume，覆盖ODS并重建实际达成及销量DWD；eBay销量由ebay_sales按payment_time实时汇总'
+                '每月2日06:00拉取上个完整自然月Amazon订单利润amount和volume，覆盖ODS并重建实际达成及销量DWD；eBay销量由ebay_sales按payment_time实时汇总'
             )
             ON DUPLICATE KEY UPDATE
                 task_name = VALUES(task_name),
@@ -704,7 +704,7 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
                 '月度库存统计表数据拉取',
                 '0 0 6 1 * ?',
                 1,
-                '每月1日拉取上月FBA、海外仓、本地仓数据，每月2日23:00回填次月月初库存，每月11日23:00拉取上月Amazon实际达成和销量'
+                '每月1日拉取上月FBA、海外仓、本地仓数据，每月2日06:00拉取上月Amazon实际达成和销量，每月2日23:00回填次月月初库存'
             )
             ON DUPLICATE KEY UPDATE
                 task_name = VALUES(task_name),

@@ -15,6 +15,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -32,6 +33,8 @@ public class ImageSopProxyService
 {
     private static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
     private static final String REQUEST_ID_HEADER = "X-Request-ID";
+    private static final String ERP_USER_ID_HEADER = "X-ERP-User-ID";
+    private static final String ERP_USERNAME_HEADER = "X-ERP-Username-B64";
     private static final Set<String> INTERNAL_QUERY_PARAMS = Set.of(
             "erp_session", "api_base", "embedded");
     private static final Set<String> RESPONSE_HEADERS = Set.of(
@@ -52,7 +55,8 @@ public class ImageSopProxyService
     }
 
     public void forward(String targetPath, HttpServletRequest request,
-            HttpServletResponse response) throws IOException
+            HttpServletResponse response,
+            ImageSopSessionService.SessionContext session) throws IOException
     {
         String method = request.getMethod().toUpperCase(Locale.ROOT);
         if (!method.equals("GET") && !method.equals("POST") && !method.equals("HEAD"))
@@ -74,6 +78,9 @@ public class ImageSopProxyService
 
             if (StringUtils.hasText(properties.getInternalToken()))
                 builder.header(INTERNAL_TOKEN_HEADER, properties.getInternalToken().trim());
+            builder.header(ERP_USER_ID_HEADER, String.valueOf(session.userId()));
+            builder.header(ERP_USERNAME_HEADER, Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(session.username().getBytes(StandardCharsets.UTF_8)));
             copyRequestHeader(request, builder, HttpHeaders.RANGE);
             copyRequestHeader(request, builder, HttpHeaders.IF_NONE_MATCH);
             copyRequestHeader(request, builder, HttpHeaders.IF_MODIFIED_SINCE);

@@ -27,6 +27,7 @@ public class ImageSopSessionController extends BaseController
     public AjaxResult createSession()
     {
         return success(sessionService.issue(
-                SecurityUtils.getUserId(), SecurityUtils.getUsername()).asMap());
+                SecurityUtils.getUserId(), SecurityUtils.getUsername(),
+                java.util.Set.of(ImageSopSessionService.IMAGE_SOP_PERMISSION)).asMap());
     }
 }

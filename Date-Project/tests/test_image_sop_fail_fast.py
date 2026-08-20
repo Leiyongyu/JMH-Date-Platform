@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import importlib
+from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
 
 from backend.image_sop.config import Settings
-from backend.image_sop.security import browser_request_is_same_origin
 from backend.image_sop.services.excel_service import ExcelService
 from backend.image_sop.services.lingxing_service import LingxingService
 
@@ -92,17 +94,34 @@ def test_nas_likely_main_only_in_design_dept() -> None:
     assert Nas._is_white_bg_image("白底.jpg")
 
 
-def test_direct_image_sop_page_can_call_same_origin_python_api() -> None:
-    assert browser_request_is_same_origin(
-        "192.168.1.20:8010",
-        "http://192.168.1.20:8010/image-sop/",
-        "same-origin",
+def test_image_sop_api_requires_internal_token_and_erp_identity(monkeypatch) -> None:
+    module = importlib.import_module("backend.image_sop.app")
+    monkeypatch.setattr(
+        module,
+        "platform_settings",
+        SimpleNamespace(python_internal_api_token="unit-secret"),
     )
+    client = TestClient(module.app)
 
-
-def test_direct_image_sop_api_rejects_cross_origin_page() -> None:
-    assert not browser_request_is_same_origin(
-        "192.168.1.20:8010",
-        "http://other-host/image-sop/",
-        "cross-site",
+    direct = client.get(
+        "/api/sop/generation-status",
+        headers={"Referer": "http://testserver/image-sop/"},
     )
+    assert direct.status_code == 401
+
+    no_identity = client.get(
+        "/api/sop/generation-status",
+        headers={"X-Internal-Token": "unit-secret"},
+    )
+    assert no_identity.status_code == 401
+
+    trusted = client.get(
+        "/api/sop/generation-status",
+        headers={
+            "X-Internal-Token": "unit-secret",
+            "X-ERP-User-ID": "101",
+            "X-ERP-Username-B64": "bGVpeW9uZ3l1",
+        },
+    )
+    assert trusted.status_code == 200
+    assert trusted.json()["per_user_limit"] == 1

@@ -487,6 +487,34 @@ def _ensure_after_sales_range_columns(cursor) -> None:
     )
 
 
+def _ensure_image_sop_owner_columns(cursor) -> None:
+    """为已有图片SOP草稿表补充ERP用户隔离字段与索引。"""
+    cursor.execute("SHOW TABLES LIKE 'image_sop_draft'")
+    if cursor.fetchone() is None:
+        return
+    cursor.execute("SHOW COLUMNS FROM image_sop_draft")
+    columns = {row["Field"] for row in cursor.fetchall()}
+    if "owner_user_id" not in columns:
+        cursor.execute(
+            "ALTER TABLE image_sop_draft ADD COLUMN owner_user_id BIGINT "
+            "NOT NULL DEFAULT 0 COMMENT 'ERP用户ID，草稿数据隔离依据' AFTER id"
+        )
+    if "owner_username" not in columns:
+        cursor.execute(
+            "ALTER TABLE image_sop_draft ADD COLUMN owner_username VARCHAR(64) "
+            "NOT NULL DEFAULT '' COMMENT 'ERP登录账号，便于审计' AFTER owner_user_id"
+        )
+    cursor.execute(
+        "SHOW INDEX FROM image_sop_draft "
+        "WHERE Key_name='idx_image_sop_draft_owner'"
+    )
+    if cursor.fetchone() is None:
+        cursor.execute(
+            "CREATE INDEX idx_image_sop_draft_owner "
+            "ON image_sop_draft(owner_user_id, created_at)"
+        )
+
+
 def init_database() -> None:
     database_name = settings.mysql_database.replace("`", "``")
     connection = _connect()
@@ -527,6 +555,7 @@ def init_database() -> None:
             _remove_inventory_report_chengdu_columns(cursor)
             _ensure_inventory_report_sales_volume_columns(cursor)
             _ensure_after_sales_range_columns(cursor)
+            _ensure_image_sop_owner_columns(cursor)
             _ensure_customs_declaration_columns(cursor)
             _ensure_export_detail_columns(cursor)
             _ensure_purchase_invoice_summary_indexes(cursor)

@@ -1,5 +1,5 @@
 -- 目标库：Date-Project（Python 数据库）。不要在 jmh_data_platform 执行。
--- 月度库存实际达成及销量：Amazon订单利润amount、volume落库，并注册每月11日23:00拉取上月数据的填充任务。
+-- 月度库存实际达成及销量：Amazon订单利润amount、volume落库，并注册每月2日06:00拉取上月数据的填充任务。
 
 SET @has_ods_volume := (
     SELECT COUNT(*) FROM information_schema.columns
@@ -36,9 +36,9 @@ INSERT INTO `scheduler_task` (
 ) VALUES (
     'monthly_inventory_report_sales_volume_sync',
     '月度库存实际达成及销量填充',
-    '0 0 23 11 * ?',
+    '0 0 6 2 * ?',
     1,
-    '每月11日23:00一次拉取上个完整自然月Amazon订单利润amount和volume并覆盖ODS、重建实际达成及销量DWD；eBay销量由jmh_data_platform.ebay_sales按payment_time实时汇总quantity'
+    '每月2日06:00拉取上个完整自然月Amazon订单利润amount和volume并覆盖ODS、重建实际达成及销量DWD；eBay销量由jmh_data_platform.ebay_sales按payment_time实时汇总quantity'
 )
 ON DUPLICATE KEY UPDATE
     task_name = VALUES(task_name),

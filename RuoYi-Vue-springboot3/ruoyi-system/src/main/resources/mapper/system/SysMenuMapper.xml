@@ -120,7 +120,7 @@
 	</select>
 
 	<select id="selectScriptToolPerms" resultType="String">
-		select distinct m.perms
+		select m.perms
 		from sys_menu m
 		inner join sys_menu p on p.menu_id = m.parent_id
 		where m.menu_type = 'F'
@@ -128,7 +128,8 @@
 		  and m.perms is not null
 		  and m.perms != ''
 		  and p.perms = 'sop:scriptTools:view'
-		order by m.order_num asc
+		group by m.perms
+		order by min(m.order_num) asc, m.perms asc
 	</select>
 	
 	<select id="selectMenuById" parameterType="Long" resultMap="SysMenuResult">
@@ -224,4 +225,4 @@
 	    delete from sys_menu where menu_id = #{menuId}
 	</delete>
 
-</mapper> 
+</mapper>

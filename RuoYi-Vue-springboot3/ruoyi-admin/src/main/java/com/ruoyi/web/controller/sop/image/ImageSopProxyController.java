@@ -32,7 +32,11 @@ public class ImageSopProxyController
     public void proxy(HttpServletRequest request, HttpServletResponse response)
             throws IOException
     {
-        if (!sessionService.validateAndTouch(request.getParameter("erp_session")))
+        ImageSopSessionService.SessionContext session =
+                sessionService.validateAndTouch(
+                        request.getParameter("erp_session"),
+                        ImageSopSessionService.IMAGE_SOP_PERMISSION);
+        if (session == null)
         {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setCharacterEncoding(StandardCharsets.UTF_8.name());
@@ -57,7 +61,7 @@ public class ImageSopProxyController
             response.sendError(HttpServletResponse.SC_NOT_FOUND);
             return;
         }
-        proxyService.forward(targetPath, request, response);
+        proxyService.forward(targetPath, request, response, session);
     }
 
     private boolean isAllowedPath(String path)

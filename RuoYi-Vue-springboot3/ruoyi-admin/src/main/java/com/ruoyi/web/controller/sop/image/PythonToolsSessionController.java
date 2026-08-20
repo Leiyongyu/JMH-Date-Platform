@@ -56,7 +56,7 @@ public class PythonToolsSessionController extends BaseController
         result.put("workbenchUrl", properties.getWorkbenchUrl());
         result.put("permissions", permissions);
         result.put("workbenchSession", sessionService.issue(
-                SecurityUtils.getUserId(), SecurityUtils.getUsername()).session());
+                SecurityUtils.getUserId(), SecurityUtils.getUsername(), permissions).session());
         result.put("userId", SecurityUtils.getUserId());
         result.put("username", SecurityUtils.getUsername());
         return success(result);

@@ -49,6 +49,7 @@ function buildWorkbenchUrl(data) {
   url.searchParams.set('permissions', permissions.join(','))
   url.searchParams.set('image_proxy_base', javaProxyBase())
   url.searchParams.set('erp_session', String(data?.workbenchSession || ''))
+  url.searchParams.set('erp_user_id', String(data?.userId || ''))
   url.searchParams.set('embedded', '1')
   return url.toString()
 }

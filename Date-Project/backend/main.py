@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -11,8 +12,7 @@ from backend.infrastructure.exception_handlers import register_exception_handler
 from backend.infrastructure.logging import configure_logging
 from backend.infrastructure.request_context import RequestIdMiddleware
 from backend.image_sop.app import app as image_sop_app
-from backend.image_sop.repository import get_db as get_image_sop_repository
-from backend.image_sop.config import get_settings as get_image_sop_settings
+from backend.image_sop.cleanup import cleanup_keep_recent
 
 
 def create_app() -> FastAPI:
@@ -49,8 +49,24 @@ async def redirect_script_tools() -> RedirectResponse:
 @app.on_event("startup")
 async def startup() -> None:
     init_database()
-    image_sop_repository = get_image_sop_repository()
-    image_sop_repository.clean_expired()
-    image_sop_repository.clean_ai_profiles(
-        max(1, get_image_sop_settings().ai_profile_cache_ttl_hours) * 3600
+    await asyncio.to_thread(cleanup_keep_recent)
+    app.state.image_sop_cleanup_task = asyncio.create_task(
+        _image_sop_cleanup_loop()
     )
+
+
+async def _image_sop_cleanup_loop() -> None:
+    while True:
+        await asyncio.sleep(24 * 3600)
+        await asyncio.to_thread(cleanup_keep_recent)
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    task = getattr(app.state, "image_sop_cleanup_task", None)
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass

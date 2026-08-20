@@ -202,11 +202,21 @@ def cleanup_keep_recent(keep_count: int = KEEP_COUNT) -> dict:
         return stats
 
     total_count = len(drafts)
-    kept_drafts = drafts[:keep_count]
-    deleted_drafts = drafts[keep_count:] if total_count > keep_count else []
+    # 多人环境按ERP用户分别保留最近N条，避免活跃用户挤掉其他人的草稿。
+    kept_drafts = []
+    deleted_drafts = []
+    owner_counts: dict[str, int] = {}
+    for draft in drafts:
+        owner_key = str(draft.get("owner_user_id") or 0)
+        used = owner_counts.get(owner_key, 0)
+        if used < keep_count:
+            kept_drafts.append(draft)
+            owner_counts[owner_key] = used + 1
+        else:
+            deleted_drafts.append(draft)
 
     if not deleted_drafts:
-        logger.info("当前草稿数 %d <= %d，跳过草稿删减", total_count, keep_count)
+        logger.info("各用户草稿数均未超过 %d，跳过草稿删减（总数%d）", keep_count, total_count)
 
     if deleted_drafts:
         logger.info(

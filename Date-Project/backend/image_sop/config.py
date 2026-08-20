@@ -61,7 +61,9 @@ class Settings(BaseSettings):
     ai_request_retries: int = 2
     ai_request_timeout: int = 180
     ai_profile_cache_ttl_hours: int = 72
-    sop_generation_max_concurrent: int = 1
+    sop_generation_max_concurrent: int = 2
+    sop_generation_max_concurrent_per_user: int = 1
+    sop_generation_max_queue: int = 20
     sop_image_count: int = 7
     sop_image_size: str = "1600*1600"
     sop_premium_image_count: int = 6
