@@ -109,6 +109,15 @@ public class SysMenuServiceImpl implements ISysMenuService
     }
 
     /**
+     * 查询「脚本菜单」下所有脚本按钮的权限标识。
+     */
+    @Override
+    public List<String> selectScriptToolPerms()
+    {
+        return menuMapper.selectScriptToolPerms();
+    }
+
+    /**
      * 根据角色ID查询权限
      * 
      * @param roleId 角色ID

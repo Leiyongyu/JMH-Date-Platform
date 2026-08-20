@@ -129,7 +129,16 @@
         </el-form-item>
       </el-form>
 
+      <div class="dimension-switch">
+        <el-radio-group v-model="activeDimension" @change="loadSummary">
+          <el-radio-button value="group">组别</el-radio-button>
+          <el-radio-button value="store">店铺</el-radio-button>
+          <el-radio-button value="owner">个人</el-radio-button>
+        </el-radio-group>
+      </div>
+
       <el-table
+        v-if="activeDimension === 'group'"
         v-loading="summaryLoading"
         :data="summaryRows"
         border
@@ -137,7 +146,7 @@
         :row-class-name="summaryRowClass"
         :span-method="spanLocalTransitUs3"
       >
-        <el-table-column prop="department_name" label="部门" width="145" fixed="left">
+        <el-table-column prop="department_name" label="组别" width="145" fixed="left">
           <template #default="{ row }">
             <strong>{{ row.department_name }}</strong>
           </template>
@@ -187,6 +196,14 @@
         <el-table-column label="FBA在途金额+FBA在库金额" min-width="210" align="right">
           <template #default="{ row }">{{ money(combinedWarehouseTotalAmount(row)) }}</template>
         </el-table-column>
+        <el-table-column min-width="145" align="right">
+          <template #header>
+            <el-tooltip content="库龄大于180天的去重SKU数 ÷ 海外仓/FBA期末库存数量；同一SKU只计1个" placement="top">
+              <span class="report-column-tip">库存健康度</span>
+            </el-tooltip>
+          </template>
+          <template #default="{ row }">{{ optionalPercent(row.inventory_health_rate) }}</template>
+        </el-table-column>
         <el-table-column label="销售目标" min-width="175" align="right">
           <template #default="{ row }">{{ money(salesSprintTarget(row)) }}</template>
         </el-table-column>
@@ -199,7 +216,7 @@
         <el-table-column min-width="175" align="right">
           <template #header>
             <el-tooltip :content="turnoverValueTip" placement="top">
-              <span class="report-column-tip">{{ businessMonthLabel }}周转天数（货值）</span>
+              <span class="report-column-tip">{{ nextBusinessMonthLabel }}周转天数（货值）</span>
             </el-tooltip>
           </template>
           <template #default="{ row }">{{ optionalDecimal(turnoverDaysByValue(row)) }}</template>
@@ -215,7 +232,7 @@
           <template #default="{ row }">{{ optionalQty(reportMetricValue(row, 'monthly_sales_qty')) }}</template>
         </el-table-column>
         <el-table-column
-          :label="`${openingInventoryMonthLabel}初库销比`"
+          :label="`${nextBusinessMonthLabel}初库销比`"
           min-width="165"
           align="right"
         >
@@ -236,6 +253,99 @@
           <template #default="{ row }">{{ optionalMoney(row.inventory_age_180_plus_cost) }}</template>
         </el-table-column>
       </el-table>
+
+      <el-table
+        v-else
+        v-loading="summaryLoading"
+        :data="dimensionDisplayRows"
+        height="calc(100vh - 285px)"
+        border
+        stripe
+        class="dimension-summary-table"
+        :row-class-name="dimensionSummaryRowClass"
+        empty-text="当前月份没有对应维度的汇总数据，请先点击计算"
+      >
+        <el-table-column
+          prop="dimension_value"
+          :label="activeDimension === 'store' ? '店铺' : '负责人'"
+          min-width="190"
+          fixed="left"
+        >
+          <template #default="{ row }">
+            <strong>{{ dimensionName(row) }}</strong>
+          </template>
+        </el-table-column>
+        <el-table-column prop="platform_code" label="平台" width="90" align="center" fixed="left">
+          <template #default="{ row }">{{ platformLabel(row.platform_code) }}</template>
+        </el-table-column>
+        <el-table-column prop="department_code" label="组别" width="130" fixed="left" />
+        <el-table-column label="总货值" min-width="150" align="right">
+          <template #default="{ row }">{{ money(row.total_goods_value) }}</template>
+        </el-table-column>
+
+        <el-table-column label="海外仓/FBA仓" align="center">
+          <el-table-column label="期末在途数量" min-width="125" align="right">
+            <template #default="{ row }">
+              {{ qty(combinedWarehouseValue(row, 'overseas_end_in_transit_qty', 'fba_end_in_transit_qty')) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="期末在途总成本" min-width="145" align="right">
+            <template #default="{ row }">
+              {{ money(combinedWarehouseValue(row, 'overseas_end_in_transit_total_cost', 'fba_end_in_transit_total_cost')) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="期末库存数量" min-width="125" align="right">
+            <template #default="{ row }">
+              {{ qty(combinedWarehouseValue(row, 'overseas_end_inventory_qty', 'fba_end_inventory_qty')) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="期末库存总成本" min-width="145" align="right">
+            <template #default="{ row }">
+              {{ money(combinedWarehouseValue(row, 'overseas_end_inventory_total_cost', 'fba_end_inventory_total_cost')) }}
+            </template>
+          </el-table-column>
+        </el-table-column>
+        <el-table-column
+          prop="fba_transit_inventory_amount"
+          label="FBA在途金额+FBA在库金额"
+          min-width="210"
+          align="right"
+        >
+          <template #default="{ row }">{{ money(row.fba_transit_inventory_amount) }}</template>
+        </el-table-column>
+        <el-table-column min-width="145" align="right">
+          <template #header>
+            <el-tooltip content="库龄大于180天的去重SKU数 ÷ 海外仓/FBA期末库存数量；同一SKU只计1个" placement="top">
+              <span class="report-column-tip">库存健康度</span>
+            </el-tooltip>
+          </template>
+          <template #default="{ row }">{{ optionalPercent(row.inventory_health_rate) }}</template>
+        </el-table-column>
+        <el-table-column
+          prop="sales_target_amount"
+          label="销售目标"
+          min-width="150"
+          align="right"
+        >
+          <template #default="{ row }">{{ money(row.sales_target_amount) }}</template>
+        </el-table-column>
+        <el-table-column
+          prop="actual_achievement_amount"
+          label="实际达成"
+          min-width="150"
+          align="right"
+        >
+          <template #default="{ row }">{{ money(row.actual_achievement_amount) }}</template>
+        </el-table-column>
+        <el-table-column
+          prop="target_achievement_rate"
+          label="目标达成率"
+          min-width="135"
+          align="right"
+        >
+          <template #default="{ row }">{{ percent(row.target_achievement_rate) }}</template>
+        </el-table-column>
+      </el-table>
     </el-card>
 
   </div>
@@ -246,6 +356,7 @@ import { computed, getCurrentInstance, onMounted, ref } from 'vue'
 import ebaySalesFormatGuide from '@/assets/images/monthly-inventory/ebay-sku-profit-export-format.png'
 import purchaseOrderFormatGuide from '@/assets/images/monthly-inventory/purchase-order-pending-arrival-export-fields.png'
 import {
+  getMonthlyInventoryDimensionSummary,
   getMonthlyInventorySummary,
   importMonthlyInventoryEbaySales,
   importMonthlyInventoryPurchaseOrder,
@@ -258,7 +369,9 @@ const { proxy } = getCurrentInstance()
 const availablePeriods = ref([])
 const selectedYear = ref('')
 const selectedMonth = ref('')
+const activeDimension = ref('group')
 const summaryRows = ref([])
+const dimensionRows = ref([])
 const periodsLoading = ref(false)
 const summaryLoading = ref(false)
 const calculating = ref(false)
@@ -328,8 +441,16 @@ const openingInventoryMonthLabel = computed(() => {
   return businessMonthLabel.value
 })
 
+const nextBusinessMonthLabel = computed(() => {
+  const nextMonth = nextNaturalMonth(statMonth.value)
+  if (!nextMonth) {
+    return '次月'
+  }
+  return `${Number(nextMonth.slice(5, 7))}月`
+})
+
 const turnoverValueTip = computed(
-  () => `${businessMonthLabel.value}周转天数（目标小于120天）-货值`
+  () => `${nextBusinessMonthLabel.value}周转天数（目标小于120天）-货值`
 )
 
 const turnoverSkuTip = computed(
@@ -339,6 +460,58 @@ const turnoverSkuTip = computed(
 const editableSummaryRows = computed(() =>
   summaryRows.value.filter(row => Number(row.is_total) !== 1)
 )
+
+const dimensionMetricFields = [
+  'source_rows',
+  'total_goods_value',
+  'overseas_end_in_transit_qty',
+  'overseas_end_in_transit_total_cost',
+  'overseas_end_inventory_qty',
+  'overseas_end_inventory_total_cost',
+  'fba_end_in_transit_qty',
+  'fba_end_in_transit_total_cost',
+  'fba_end_inventory_qty',
+  'fba_end_inventory_total_cost',
+  'fba_transit_inventory_amount',
+  'inventory_181_plus_sku_count',
+  'sales_target_amount',
+  'actual_achievement_amount'
+]
+
+const dimensionDisplayRows = computed(() => {
+  if (!dimensionRows.value.length) {
+    return []
+  }
+  const total = {
+    is_dimension_total: 1,
+    dimension_value: '合计',
+    platform_code: '',
+    department_code: ''
+  }
+  dimensionMetricFields.forEach(field => {
+    total[field] = dimensionRows.value.reduce(
+      (sum, row) => sum + numberValue(row?.[field]),
+      0
+    )
+  })
+  total.target_achievement_rate = total.sales_target_amount
+    ? total.actual_achievement_amount / total.sales_target_amount
+    : 0
+  const healthInventoryQty =
+    total.overseas_end_inventory_qty + total.fba_end_inventory_qty
+  const healthRows = dimensionRows.value.filter(row => (
+    numberValue(row?.overseas_end_inventory_qty)
+      + numberValue(row?.fba_end_inventory_qty)
+  ) > 0)
+  const healthDataComplete = healthRows.length > 0 && healthRows.every(row => (
+    row?.inventory_181_plus_sku_count !== null
+      && row?.inventory_181_plus_sku_count !== undefined
+  ))
+  total.inventory_health_rate = healthDataComplete && healthInventoryQty
+    ? total.inventory_181_plus_sku_count / healthInventoryQty
+    : null
+  return [total, ...dimensionRows.value]
+})
 
 function numberValue(value) {
   const result = Number(value || 0)
@@ -354,6 +527,34 @@ function money(value) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   })
+}
+
+function optionalPercent(value) {
+  if (value === null || value === undefined || value === '') {
+    return ''
+  }
+  return percent(value)
+}
+
+function platformLabel(value) {
+  const platform = String(value || '').toUpperCase()
+  if (!platform) {
+    return ''
+  }
+  return platform === 'EBAY' ? 'eBay' : 'Amazon'
+}
+
+function dimensionName(row) {
+  if (Number(row?.is_dimension_total) === 1) {
+    return activeDimension.value === 'store'
+      ? '合计（仅Amazon FBA）'
+      : '合计'
+  }
+  return row?.dimension_value || ''
+}
+
+function dimensionSummaryRowClass({ row }) {
+  return Number(row?.is_dimension_total) === 1 ? 'dimension-total-row' : ''
 }
 
 function optionalQty(value) {
@@ -570,12 +771,24 @@ async function handleYearChange() {
 async function loadSummary() {
   if (!sourceStatMonth.value) {
     summaryRows.value = []
+    dimensionRows.value = []
     return
   }
   summaryLoading.value = true
   try {
-    const response = await getMonthlyInventorySummary(sourceStatMonth.value)
-    summaryRows.value = response.data?.items || []
+    if (activeDimension.value === 'group') {
+      const response = await getMonthlyInventorySummary(sourceStatMonth.value)
+      summaryRows.value = response.data?.items || []
+      dimensionRows.value = []
+    } else {
+      const dimensionType = activeDimension.value === 'store' ? 'STORE' : 'OWNER'
+      const response = await getMonthlyInventoryDimensionSummary(
+        sourceStatMonth.value,
+        dimensionType
+      )
+      dimensionRows.value = response.data?.items || []
+      summaryRows.value = []
+    }
   } finally {
     summaryLoading.value = false
   }
@@ -690,6 +903,14 @@ onMounted(async () => {
   margin-bottom: 2px;
 }
 
+.dimension-switch {
+  margin: 4px 0 16px;
+}
+
+.dimension-summary-table {
+  min-height: 360px;
+}
+
 .monthly-inventory-report :deep(.el-table__header th) {
   background: #f5f7fa;
   color: #303133;
@@ -697,6 +918,12 @@ onMounted(async () => {
 
 .monthly-inventory-report :deep(.total-row td) {
   background: #fff7e8 !important;
+  font-weight: 700;
+}
+
+.monthly-inventory-report :deep(.dimension-total-row td) {
+  background: #eaf6ff !important;
+  color: #1f4f73;
   font-weight: 700;
 }
 

@@ -9,7 +9,10 @@ from backend.services import amz_sop_after_sales_service as service
 from backend.services.amz_sop_after_sales_service import (
     _aggregate_product_rows,
     _build_summary,
+    _call_lingxing_with_retry,
     _default_start_date,
+    _is_rate_limit_error,
+    _late_update_months,
     _merge_refund_return,
     _transform_after_sales,
     _transform_sales_period,
@@ -102,11 +105,26 @@ def test_clear_listing_mismatch_note_takes_priority_over_generic_fit_wording():
     assert result["small_category"] == "listing货描不符"
 
 
-def test_default_range_is_current_natural_year_then_one_week_inclusive():
+def test_default_range_is_current_natural_year_then_current_month():
     end_date = date(2026, 8, 9)
     assert _default_start_date(end_date, True) == date(2026, 1, 1)
-    assert _default_start_date(end_date, False) == date(2026, 8, 3)
-    assert (end_date - _default_start_date(end_date, False)).days + 1 == 7
+    assert _default_start_date(end_date, False) == date(2026, 8, 1)
+
+
+def test_late_updates_rebuild_complete_old_months_only_once():
+    assert _late_update_months(
+        {
+            date(2026, 5, 9),
+            date(2026, 5, 20),
+            date(2026, 7, 31),
+            date(2026, 8, 15),
+        },
+        date(2026, 8, 13),
+        date(2026, 8, 19),
+    ) == [
+        (date(2026, 5, 1), date(2026, 5, 31)),
+        (date(2026, 7, 1), date(2026, 7, 31)),
+    ]
 
 
 def test_sales_rows_keep_the_requested_period_as_one_snapshot():
@@ -196,14 +214,18 @@ def test_filtered_export_uses_current_filters_and_page_columns(monkeypatch):
 
     monkeypatch.setattr(repo, "summary_filtered", filtered)
     monkeypatch.setattr(repo, "summary_period_exists", lambda *_: True)
+    monkeypatch.setattr(
+        repo, "sales_date_bounds",
+        lambda: (date(2026, 1, 1), date(2026, 8, 10)),
+    )
     content = export_filtered_summary(
-        date(2026, 1, 1), date(2026, 8, 10), "不适配", "产品", "SKU-1",
+        date(2026, 7, 1), date(2026, 7, 31), "不适配", "产品", "SKU-1",
         [7, 9], ["SKU-1"]
     )
     workbook = load_workbook(BytesIO(content), data_only=True)
     sheet = workbook["售后数据"]
     assert captured["args"] == (
-        date(2026, 1, 1), date(2026, 8, 10), "不适配", "产品", "SKU-1",
+        date(2026, 7, 1), date(2026, 7, 31), "不适配", "产品", "SKU-1",
         [7, 9], ["SKU-1"]
     )
     assert sheet.max_row == 2
@@ -255,7 +277,7 @@ def test_product_summary_uses_sales_once_and_expands_category_details():
 
 
 def test_uncached_range_is_submitted_once_in_background(monkeypatch):
-    start_date = date(2026, 1, 1)
+    start_date = date(2026, 7, 1)
     end_date = date(2026, 7, 31)
     key = (start_date, end_date)
     submitted = []
@@ -277,6 +299,39 @@ def test_uncached_range_is_submitted_once_in_background(monkeypatch):
         assert len(submitted) == 1
     finally:
         service._RANGE_TASKS.pop(key, None)
+
+
+def test_amz_query_accepts_whole_month_ranges_and_latest_partial_month():
+    coverage_start = date(2026, 1, 1)
+    coverage_end = date(2026, 8, 7)
+    service._validate_month_range(
+        date(2026, 7, 1), date(2026, 7, 31), coverage_start, coverage_end
+    )
+    service._validate_month_range(
+        date(2026, 8, 1), date(2026, 8, 7), coverage_start, coverage_end
+    )
+    service._validate_month_range(
+        date(2026, 5, 1), date(2026, 7, 31), coverage_start, coverage_end
+    )
+    try:
+        service._validate_month_range(
+            date(2026, 7, 3), date(2026, 7, 20), coverage_start, coverage_end
+        )
+        assert False, "custom day range must be rejected"
+    except ValueError as exc:
+        assert "完整自然月区间" in str(exc)
+
+
+def test_amz_periods_are_calendar_months_not_cached_arbitrary_ranges(monkeypatch):
+    monkeypatch.setattr(
+        repo, "sales_date_bounds",
+        lambda: (date(2026, 6, 14), date(2026, 8, 7)),
+    )
+    assert repo.periods(3) == [
+        {"period_start": date(2026, 8, 1), "period_end": date(2026, 8, 7)},
+        {"period_start": date(2026, 7, 1), "period_end": date(2026, 7, 31)},
+        {"period_start": date(2026, 6, 14), "period_end": date(2026, 6, 30)},
+    ]
 
 
 def test_refund_other_uses_consistent_return_category_and_removes_return():
@@ -325,14 +380,14 @@ def test_summary_accumulates_orders_sources_and_sales():
         "batch",
     )
     assert len(result) == 1
-    assert result[0]["after_quantity"] == Decimal("2")
+    assert result[0]["after_quantity"] == Decimal("3")
     assert result[0]["order_count"] == 2
     assert result[0]["source_sales_volume_text"] == "AMZ-EU:119；AMZ-US1:81"
     assert result[0]["sales_volume"] == Decimal("200")
-    assert result[0]["after_sales_rate"] == Decimal("0.01")
+    assert result[0]["after_sales_rate"] == Decimal("0.015")
 
 
-def test_summary_counts_lingxing_records_by_order_and_shop_not_item_quantity():
+def test_summary_uses_lingxing_quantity_and_deduplicates_order_shop_records():
     rows = [
         _after_row("a", "退款", "产品不适配", 2),
         _after_row("b", "退款", "产品不适配", 1),
@@ -345,6 +400,44 @@ def test_summary_counts_lingxing_records_by_order_and_shop_not_item_quantity():
         date(2026, 7, 31),
         "batch",
     )
-    assert result[0]["after_quantity"] == Decimal("2")
+    assert result[0]["after_quantity"] == Decimal("3")
     assert result[0]["order_count"] == 1
-    assert result[0]["after_sales_rate"] == Decimal("0.02")
+    assert result[0]["after_sales_rate"] == Decimal("0.03")
+    assert result[0]["calculation_version"] == "QUANTITY-V3"
+
+
+def test_rate_limit_error_is_recognized():
+    assert _is_rate_limit_error(
+        RuntimeError("领星接口返回失败：code=3001008，message=new requests too frequently")
+    )
+    assert not _is_rate_limit_error(RuntimeError("领星接口返回失败：code=500，message=系统错误"))
+
+
+def test_lingxing_call_retries_then_succeeds_on_rate_limit(monkeypatch):
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise RuntimeError("code=3001008 new requests too frequently")
+        return "ok"
+
+    monkeypatch.setattr(service.time, "sleep", lambda _: None)
+    assert _call_lingxing_with_retry(flaky) == "ok"
+    assert len(calls) == 3
+
+
+def test_lingxing_call_rethrows_non_rate_limit_errors_immediately(monkeypatch):
+    calls = []
+
+    def broken():
+        calls.append(1)
+        raise RuntimeError("领星接口返回失败：code=400，message=参数错误")
+
+    monkeypatch.setattr(service.time, "sleep", lambda _: None)
+    try:
+        _call_lingxing_with_retry(broken)
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        assert "参数错误" in str(exc)
+    assert len(calls) == 1

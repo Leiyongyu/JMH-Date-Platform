@@ -382,27 +382,6 @@ def _connect(database: str | None = None) -> Connection:
     )
 
 
-def _ensure_amazon_image_upload_columns(cursor) -> None:
-    """兼容已经执行过旧版 Amazon 主图迁移的数据库。"""
-    cursor.execute("SHOW TABLES LIKE 'amazon_image_upload_task'")
-    if cursor.fetchone() is None:
-        return
-    cursor.execute("SHOW COLUMNS FROM amazon_image_upload_task")
-    columns = {row["Field"] for row in cursor.fetchall()}
-    if "executor_slot" not in columns:
-        cursor.execute(
-            "ALTER TABLE amazon_image_upload_task "
-            "ADD COLUMN executor_slot TINYINT NULL "
-            "COMMENT '本机紫鸟执行器槽位1-5' AFTER payload_json"
-        )
-    if "automation_port" not in columns:
-        cursor.execute(
-            "ALTER TABLE amazon_image_upload_task "
-            "ADD COLUMN automation_port INT NULL "
-            "COMMENT '本次任务使用的紫鸟HTTP端口' AFTER executor_slot"
-        )
-
-
 def _remove_inventory_report_chengdu_columns(cursor) -> None:
     """移除与本地仓期末在途重复的旧成都仓字段。"""
     for table_name in (
@@ -462,6 +441,52 @@ def _ensure_inventory_report_sales_volume_columns(cursor) -> None:
             )
 
 
+def _ensure_after_sales_range_columns(cursor) -> None:
+    """Add auditable calculation versions without relying on vendor-specific DDL."""
+    definitions = (
+        (
+            "dws_amz_sop_after_sales_summary",
+            "calculation_version",
+            "VARCHAR(32) NOT NULL DEFAULT 'RECORD-V2' "
+            "COMMENT '计算口径版本：QUANTITY-V3按领星售后件数计算' "
+            "AFTER `after_sales_rate`",
+        ),
+        (
+            "dws_ebay_sop_after_sales_summary",
+            "calculation_version",
+            "VARCHAR(32) NOT NULL DEFAULT 'EBAY-QUANTITY-V1' "
+            "COMMENT '计算口径版本：保持eBay有效售后数量求和口径' "
+            "AFTER `after_sales_rate`",
+        ),
+    )
+    for table_name, column_name, definition in definitions:
+        cursor.execute("SHOW TABLES LIKE %s", (table_name,))
+        if cursor.fetchone() is None:
+            continue
+        cursor.execute(
+            f"SHOW COLUMNS FROM `{table_name}` LIKE %s", (column_name,)
+        )
+        if cursor.fetchone() is None:
+            cursor.execute(
+                f"ALTER TABLE `{table_name}` "
+                f"ADD COLUMN `{column_name}` {definition}"
+            )
+    cursor.execute(
+        "UPDATE dws_amz_sop_after_sales_summary "
+        "SET calculation_version=CASE "
+        "WHEN sync_batch_id LIKE 'QUANTITY-V3-%%' THEN 'QUANTITY-V3' "
+        "ELSE 'RECORD-V2' END "
+        "WHERE calculation_version IS NULL OR calculation_version='' "
+        "OR calculation_version='LEGACY'"
+    )
+    cursor.execute(
+        "UPDATE dws_ebay_sop_after_sales_summary "
+        "SET calculation_version='EBAY-QUANTITY-V1' "
+        "WHERE calculation_version IS NULL OR calculation_version='' "
+        "OR calculation_version='LEGACY'"
+    )
+
+
 def init_database() -> None:
     database_name = settings.mysql_database.replace("`", "``")
     connection = _connect()
@@ -485,6 +510,8 @@ def init_database() -> None:
         project_root / "migrations" / "20260817_inventory_report_etl_tables.sql",
         project_root / "migrations" / "20260818_ebay_inventory_age_cost.sql",
         project_root / "migrations" / "20260818_inventory_report_purchase_order_transit.sql",
+        project_root / "migrations" / "20260819_after_sales_range_optimization.sql",
+        project_root / "migrations" / "20260820_inventory_report_dimension_views.sql",
     ]
     schema = "\n".join(
         path.read_text(encoding="utf-8")
@@ -497,9 +524,9 @@ def init_database() -> None:
             for statement in schema.split(";"):
                 if statement.strip():
                     cursor.execute(statement)
-            _ensure_amazon_image_upload_columns(cursor)
             _remove_inventory_report_chengdu_columns(cursor)
             _ensure_inventory_report_sales_volume_columns(cursor)
+            _ensure_after_sales_range_columns(cursor)
             _ensure_customs_declaration_columns(cursor)
             _ensure_export_detail_columns(cursor)
             _ensure_purchase_invoice_summary_indexes(cursor)

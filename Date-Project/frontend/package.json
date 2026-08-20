@@ -1,5 +1,5 @@
 {
-  "name": "customs-data-frontend",
+  "name": "jmh-python-script-workbench",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -15,4 +15,3 @@
   },
   "devDependencies": {}
 }
-

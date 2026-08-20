@@ -175,6 +175,31 @@ def replace_after_sales_orders(
             raise
 
 
+def after_sales_dates_for_orders(order_ids: list[str]) -> set[date]:
+    """Return existing event dates before updated orders replace their ODS snapshot."""
+    normalized = sorted({str(value).strip() for value in order_ids if str(value).strip()})
+    if not normalized:
+        return set()
+    result: set[date] = set()
+    with db_connection() as connection:
+        with connection.cursor() as cursor:
+            for index in range(0, len(normalized), 500):
+                chunk = normalized[index:index + 500]
+                placeholders = ",".join(["%s"] * len(chunk))
+                cursor.execute(
+                    f"SELECT DISTINCT DATE(after_time) AS after_date "
+                    f"FROM ods_amz_sop_after_sales "
+                    f"WHERE amazon_order_id IN ({placeholders}) "
+                    f"AND after_time IS NOT NULL",
+                    chunk,
+                )
+                result.update(
+                    row["after_date"] for row in cursor.fetchall()
+                    if row.get("after_date")
+                )
+    return result
+
+
 def after_sales_rows(start_date: date, end_date: date) -> list[dict[str, Any]]:
     with db_connection() as connection:
         with connection.cursor() as cursor:
@@ -303,6 +328,54 @@ def replace_dwd_and_summary(
             raise
 
 
+def replace_dwd_period(
+    start_date: date,
+    end_date: date,
+    dwd_rows: list[dict[str, Any]],
+) -> None:
+    """Rebuild classified details and invalidate every cached range they affect."""
+    with db_connection() as connection:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM dwd_amz_sop_after_sales "
+                    "WHERE after_time >= %s AND after_time < DATE_ADD(%s, INTERVAL 1 DAY)",
+                    (start_date, end_date),
+                )
+                if dwd_rows:
+                    cursor.executemany(
+                        """
+                        INSERT INTO dwd_amz_sop_after_sales (
+                            source_key,amazon_order_id,sid,store_name,data_source,business_sku,msku,
+                            asin,after_type,coexist_flag,after_quantity,after_reason,return_status,
+                            inventory_attributes,buyers_note,after_reason_zh,return_status_zh,
+                            inventory_attributes_zh,buyers_note_zh,after_sales_note,big_category,
+                            small_category,classify_method,confidence,merged_from_source_key,
+                            after_time,data_update_time,sync_batch_id
+                        ) VALUES (
+                            %(source_key)s,%(amazon_order_id)s,%(sid)s,%(store_name)s,%(data_source)s,
+                            %(business_sku)s,%(msku)s,%(asin)s,%(after_type)s,%(coexist_flag)s,
+                            %(after_quantity)s,%(after_reason)s,%(return_status)s,
+                            %(inventory_attributes)s,%(buyers_note)s,%(after_reason_zh)s,
+                            %(return_status_zh)s,%(inventory_attributes_zh)s,%(buyers_note_zh)s,
+                            %(after_sales_note)s,%(big_category)s,%(small_category)s,
+                            %(classify_method)s,%(confidence)s,%(merged_from_source_key)s,
+                            %(after_time)s,%(data_update_time)s,%(sync_batch_id)s
+                        )
+                        """,
+                        dwd_rows,
+                    )
+                cursor.execute(
+                    "DELETE FROM dws_amz_sop_after_sales_summary "
+                    "WHERE period_start <= %s AND period_end >= %s",
+                    (end_date, start_date),
+                )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
+
 def replace_summary_period(
     start_date: date,
     end_date: date,
@@ -333,32 +406,48 @@ def _insert_summary_rows(cursor, summary_rows: list[dict[str, Any]]) -> None:
             period_start,period_end,big_category,small_category,business_sku,
             order_count,order_numbers,source_after_quantity_text,
             source_sales_volume_text,after_quantity,sales_volume,after_sales_rate,
-            sync_batch_id,generated_at
+            calculation_version,sync_batch_id,generated_at
         ) VALUES (
             %(period_start)s,%(period_end)s,%(big_category)s,%(small_category)s,
             %(business_sku)s,%(order_count)s,%(order_numbers)s,
             %(source_after_quantity_text)s,%(source_sales_volume_text)s,
             %(after_quantity)s,%(sales_volume)s,%(after_sales_rate)s,
-            %(sync_batch_id)s,%(generated_at)s
+            %(calculation_version)s,%(sync_batch_id)s,%(generated_at)s
         )
         """,
         summary_rows,
     )
 
 
+def natural_month_starts(start_date: date, end_date: date) -> list[date]:
+    """Return the first day of each natural month covered by [start_date, end_date]."""
+    if start_date > end_date:
+        return []
+    result: list[date] = []
+    cursor = date(start_date.year, start_date.month, 1)
+    while cursor <= end_date:
+        result.append(cursor)
+        if cursor.month == 12:
+            cursor = date(cursor.year + 1, 1, 1)
+        else:
+            cursor = date(cursor.year, cursor.month + 1, 1)
+    return result
+
+
 def sales_volume_by_sku_source(
-    start_date: date, end_date: date, batch_id: str
+    start_date: date, end_date: date
 ) -> dict[tuple[str, str], Decimal]:
+    """Sum sales volume per SKU and source across all natural months in range."""
     with db_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
                 SELECT business_sku,data_source,SUM(volume) AS volume
                 FROM dwd_amz_sop_sales_daily
-                WHERE period_start=%s AND period_end=%s AND sync_batch_id=%s
+                WHERE period_start >= %s AND period_end <= %s
                 GROUP BY business_sku,data_source
                 """,
-                (start_date, end_date, batch_id),
+                (start_date, end_date),
             )
             return {
                 (row["business_sku"], row["data_source"]): Decimal(str(row["volume"] or 0))
@@ -366,23 +455,38 @@ def sales_volume_by_sku_source(
             }
 
 
-def latest_sales_batch_for_period(
-    start_date: date, end_date: date
-) -> str | None:
-    """Return an existing exact-range sales snapshot for a local summary rebuild."""
+def missing_sales_months(start_date: date, end_date: date) -> list[date]:
+    """Return natural months in range that still lack a sales snapshot."""
+    months = natural_month_starts(start_date, end_date)
+    if not months:
+        return []
     with db_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT sync_batch_id
+                SELECT DISTINCT period_start
                 FROM dwd_amz_sop_sales_daily
-                WHERE period_start=%s AND period_end=%s
-                ORDER BY update_time DESC,id DESC LIMIT 1
+                WHERE period_start >= %s AND period_end <= %s
                 """,
                 (start_date, end_date),
             )
-            row = cursor.fetchone()
-            return str(row["sync_batch_id"]) if row else None
+            existing = {row["period_start"] for row in cursor.fetchall()}
+    return [month for month in months if month not in existing]
+
+
+def sales_total_for_period(start_date: date, end_date: date) -> Decimal:
+    """Return summed sales volume across natural months within the range."""
+    with db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT COALESCE(SUM(volume),0) AS volume
+                FROM dwd_amz_sop_sales_daily
+                WHERE period_start >= %s AND period_end <= %s
+                """,
+                (start_date, end_date),
+            )
+            return Decimal(str((cursor.fetchone() or {}).get("volume") or 0))
 
 
 def processed_after_sales_rows(
@@ -405,10 +509,10 @@ def processed_after_sales_rows(
 def summary_period_exists(
     start_date: date, end_date: date, metric_version: str | None = None
 ) -> bool:
-    version_sql = " AND sync_batch_id LIKE %s" if metric_version else ""
+    version_sql = " AND calculation_version=%s" if metric_version else ""
     params: list[Any] = [start_date, end_date]
     if metric_version:
-        params.append(f"{metric_version}-%")
+        params.append(metric_version)
     with db_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -438,19 +542,30 @@ def latest_period() -> tuple[date, date] | None:
 
 
 def periods(limit: int = 24) -> list[dict[str, Any]]:
-    with db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT period_start,period_end,MAX(generated_at) AS generated_at,
-                       COUNT(*) AS row_count,SUM(after_quantity) AS after_quantity
-                FROM dws_amz_sop_after_sales_summary
-                GROUP BY period_start,period_end
-                ORDER BY period_end DESC,period_start DESC LIMIT %s
-                """,
-                (max(1, min(limit, 100)),),
-            )
-            return list(cursor.fetchall())
+    """Return selectable calendar months instead of arbitrary cached ranges."""
+    start, end = sales_date_bounds()
+    if not start or not end or start > end:
+        return []
+    result = []
+    cursor_date = date(end.year, end.month, 1)
+    minimum_month = date(start.year, start.month, 1)
+    safe_limit = max(1, min(limit, 100))
+    while cursor_date >= minimum_month and len(result) < safe_limit:
+        next_month = date(
+            cursor_date.year + (cursor_date.month == 12),
+            cursor_date.month % 12 + 1,
+            1,
+        )
+        result.append({
+            "period_start": max(start, cursor_date),
+            "period_end": min(end, date.fromordinal(next_month.toordinal() - 1)),
+        })
+        cursor_date = date(
+            cursor_date.year - (cursor_date.month == 1),
+            (cursor_date.month - 2) % 12 + 1,
+            1,
+        )
+    return result
 
 
 def summary_page(

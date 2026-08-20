@@ -30,9 +30,17 @@ $runtimeDir = Join-Path $projectRoot '.run'
 $frontendDir = Join-Path $projectRoot 'frontend'
 $pythonExe = Join-Path $projectRoot '.venv\Scripts\python.exe'
 $backendPidFile = Join-Path $runtimeDir 'backend.pid'
-$frontendPidFile = Join-Path $runtimeDir 'frontend.pid'
+$legacyFrontendPidFile = Join-Path $runtimeDir 'frontend.pid'
+$backendLog = Join-Path $runtimeDir 'backend.log'
+$backendErrorLog = Join-Path $runtimeDir 'backend-error.log'
+$frontendBuildLog = Join-Path $runtimeDir 'frontend-build.log'
+$frontendBuildErrorLog = Join-Path $runtimeDir 'frontend-build-error.log'
 $backendPort = 8010
-$frontendPort = 5174
+$listenHost = if ([string]::IsNullOrWhiteSpace($env:DATE_PROJECT_BIND_HOST)) {
+    '0.0.0.0'
+} else {
+    $env:DATE_PROJECT_BIND_HOST.Trim()
+}
 
 function Get-CommandLine {
     param([int]$ProcessId)
@@ -50,7 +58,7 @@ function Test-ProjectProcess {
     if ($commandLine.IndexOf($projectRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
         return $true
     }
-    if ($ServiceName -eq 'backend' -and $commandLine.Contains('backend.main:app')) {
+    if ($commandLine.IndexOf($pythonExe, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
         return $true
     }
     return $false
@@ -96,7 +104,7 @@ function Wait-HttpReady {
     for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
         try {
             $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2
-            if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
+            if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400) {
                 Write-Host "$ServiceName is ready: $Url" -ForegroundColor Green
                 return $true
             }
@@ -127,55 +135,63 @@ try {
     $npmCommand = Get-Command npm.cmd -ErrorAction Stop
 
     Write-Host "`n=== Restarting Date-Project ===" -ForegroundColor Cyan
-    Write-Host "Backend: http://127.0.0.1:$backendPort" -ForegroundColor DarkGray
-    Write-Host "Frontend: http://127.0.0.1:$frontendPort" -ForegroundColor DarkGray
+    Write-Host "Python listen address: $listenHost`:$backendPort" -ForegroundColor DarkGray
+    Write-Host "Script workbench: http://127.0.0.1:$backendPort/script-tools/" -ForegroundColor DarkGray
 
+    Write-Host "Building Python script workbench..." -ForegroundColor Cyan
+    Remove-Item -LiteralPath $frontendBuildLog -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $frontendBuildErrorLog -Force -ErrorAction SilentlyContinue
+    $buildProcess = Start-Process `
+        -FilePath $npmCommand.Source `
+        -ArgumentList @('run', 'build') `
+        -WorkingDirectory $frontendDir `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $frontendBuildLog `
+        -RedirectStandardError $frontendBuildErrorLog `
+        -Wait `
+        -PassThru
+    if ($buildProcess.ExitCode -ne 0) {
+        Show-LogTail -Path $frontendBuildLog -Title 'frontend-build.log'
+        Show-LogTail -Path $frontendBuildErrorLog -Title 'frontend-build-error.log'
+        throw "Frontend build failed with exit code $($buildProcess.ExitCode)."
+    }
+    Write-Host "Script workbench build completed." -ForegroundColor Green
+
+    # 兼容旧版脚本：若曾启动独立 5174 前端，首次执行新版脚本时一并停止。
+    Stop-ProcessTreeFromPidFile -PidFile $legacyFrontendPidFile -ServiceName 'frontend'
     Stop-ProcessTreeFromPidFile -PidFile $backendPidFile -ServiceName 'backend'
-    Stop-ProcessTreeFromPidFile -PidFile $frontendPidFile -ServiceName 'frontend'
     Start-Sleep -Milliseconds 600
     Stop-ProjectListener -Port $backendPort -ServiceName 'backend'
-    Stop-ProjectListener -Port $frontendPort -ServiceName 'frontend'
 
     $backendProcess = Start-Process `
         -FilePath $pythonExe `
-        -ArgumentList @('-u', '-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', "$backendPort") `
+        -ArgumentList @('-u', '-m', 'uvicorn', 'backend.main:app', '--host', $listenHost, '--port', "$backendPort") `
         -WorkingDirectory $projectRoot `
         -WindowStyle Hidden `
-        -RedirectStandardOutput (Join-Path $runtimeDir 'backend.log') `
-        -RedirectStandardError (Join-Path $runtimeDir 'backend-error.log') `
+        -RedirectStandardOutput $backendLog `
+        -RedirectStandardError $backendErrorLog `
         -PassThru
     $backendProcess.Id | Set-Content -LiteralPath $backendPidFile -Encoding ascii
 
-    $frontendProcess = Start-Process `
-        -FilePath $npmCommand.Source `
-        -ArgumentList @('run', 'dev', '--', '--host', '127.0.0.1', '--port', "$frontendPort", '--strictPort') `
-        -WorkingDirectory $frontendDir `
-        -WindowStyle Hidden `
-        -RedirectStandardOutput (Join-Path $runtimeDir 'frontend.log') `
-        -RedirectStandardError (Join-Path $runtimeDir 'frontend-error.log') `
-        -PassThru
-    $frontendProcess.Id | Set-Content -LiteralPath $frontendPidFile -Encoding ascii
-
     Write-Host "Backend process started, PID: $($backendProcess.Id)" -ForegroundColor DarkGray
-    Write-Host "Frontend process started, PID: $($frontendProcess.Id)" -ForegroundColor DarkGray
 
     $backendReady = Wait-HttpReady -Url "http://127.0.0.1:$backendPort/api/health" -ServiceName 'Backend'
-    $frontendReady = Wait-HttpReady -Url "http://127.0.0.1:$frontendPort" -ServiceName 'Frontend'
+    $workbenchReady = Wait-HttpReady -Url "http://127.0.0.1:$backendPort/script-tools/" -ServiceName 'Script workbench'
+    $imageSopReady = Wait-HttpReady -Url "http://127.0.0.1:$backendPort/image-sop/" -ServiceName 'Image SOP'
 
-    if (-not ($backendReady -and $frontendReady)) {
-        Show-LogTail -Path (Join-Path $runtimeDir 'backend-error.log') -Title 'backend-error.log'
-        Show-LogTail -Path (Join-Path $runtimeDir 'frontend-error.log') -Title 'frontend-error.log'
+    if (-not ($backendReady -and $workbenchReady -and $imageSopReady)) {
+        Show-LogTail -Path $backendLog -Title 'backend.log'
+        Show-LogTail -Path $backendErrorLog -Title 'backend-error.log'
         throw 'One or more services failed the readiness check.'
     }
 
     Write-Host "`nRestart complete." -ForegroundColor Green
-    Write-Host "Open: http://127.0.0.1:$frontendPort" -ForegroundColor Cyan
+    Write-Host "Open: http://127.0.0.1:$backendPort/script-tools/" -ForegroundColor Cyan
     Write-Host "API docs: http://127.0.0.1:$backendPort/docs" -ForegroundColor Cyan
     Write-Host "Logs: $runtimeDir" -ForegroundColor DarkGray
     exit 0
 } catch {
     Write-Host "`nRestart failed: $($_.Exception.Message)" -ForegroundColor Red
     Stop-ProcessTreeFromPidFile -PidFile $backendPidFile -ServiceName 'backend'
-    Stop-ProcessTreeFromPidFile -PidFile $frontendPidFile -ServiceName 'frontend'
     exit 1
 }

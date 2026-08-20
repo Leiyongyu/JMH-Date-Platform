@@ -30,6 +30,7 @@ from backend.services.clearance_service import import_inventory_age_cost
 from backend.services.clearance_export_service import export_inventory_age_details
 from backend.services.inventory_report_etl_service import (
     get_department_summary,
+    get_dimension_summary,
     import_inventory_report_ebay_sales,
     import_inventory_report_purchase_order,
     list_details as list_inventory_report_details,
@@ -321,6 +322,19 @@ def get_monthly_inventory_report_summary(
         get_department_summary(stat_month),
         request_id=request.state.request_id,
     )
+
+
+@router.get("/monthly-inventory-report/dimension-summary")
+def get_monthly_inventory_report_dimension_summary(
+    request: Request,
+    dimension_type: str = Query(..., pattern="^(STORE|OWNER)$"),
+    stat_month: str | None = Query(None, pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+):
+    try:
+        data = get_dimension_summary(dimension_type, stat_month)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success_response(data, request_id=request.state.request_id)
 
 
 @router.get("/monthly-inventory-report/details")

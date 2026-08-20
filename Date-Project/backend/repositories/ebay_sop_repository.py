@@ -231,23 +231,64 @@ def replace_history_data(
     after_sales_dwd_rows: list[dict[str, Any]],
     sales_dwd_rows: list[dict[str, Any]],
 ) -> tuple[int, int, int, int]:
-    """Replace only the one-off history partition and keep incremental rows."""
+    """Replace only months present in a standard history/monthly workbook."""
+    after_months = sorted({
+        row["after_time"].strftime("%Y-%m")
+        for row in after_sales_dwd_rows if row.get("after_time")
+    })
+    sales_months = sorted({
+        row["month_start"].strftime("%Y-%m")
+        for row in sales_dwd_rows if row.get("month_start")
+    })
+    affected_months = sorted(set(after_months) | set(sales_months))
     with db_connection() as connection:
         try:
             with connection.cursor() as cursor:
-                cursor.execute("DELETE FROM ods_ebay_sop_after_sales_history")
-                cursor.execute("DELETE FROM ods_ebay_sop_sales_history")
-                cursor.execute(
-                    "DELETE FROM dwd_ebay_sop_after_sales WHERE source_kind='HISTORY'"
-                )
-                cursor.execute("DELETE FROM dwd_ebay_sop_sales_monthly")
+                if after_months:
+                    placeholders = ",".join(["%s"] * len(after_months))
+                    cursor.execute(
+                        "DELETE FROM ods_ebay_sop_after_sales_history "
+                        f"WHERE DATE_FORMAT(refund_time,'%%Y-%%m') IN ({placeholders})",
+                        after_months,
+                    )
+                    cursor.execute(
+                        "DELETE FROM dwd_ebay_sop_after_sales "
+                        f"WHERE source_kind='HISTORY' AND "
+                        f"DATE_FORMAT(after_time,'%%Y-%%m') IN ({placeholders})",
+                        after_months,
+                    )
+                if sales_months:
+                    placeholders = ",".join(["%s"] * len(sales_months))
+                    cursor.execute(
+                        "DELETE FROM ods_ebay_sop_sales_history "
+                        f"WHERE sale_month IN ({placeholders})",
+                        sales_months,
+                    )
+                    cursor.execute(
+                        "DELETE FROM dwd_ebay_sop_sales_monthly "
+                        f"WHERE DATE_FORMAT(month_start,'%%Y-%%m') IN ({placeholders})",
+                        sales_months,
+                    )
+                if affected_months:
+                    first_month = min(affected_months)
+                    last_month = max(affected_months)
+                    cursor.execute(
+                        "DELETE FROM dws_ebay_sop_after_sales_summary "
+                        "WHERE period_end >= STR_TO_DATE(CONCAT(%s,'-01'),'%%Y-%%m-%%d') "
+                        "AND period_start <= LAST_DAY(STR_TO_DATE(CONCAT(%s,'-01'),'%%Y-%%m-%%d'))",
+                        (first_month, last_month),
+                    )
 
                 if after_sales_raw_rows:
                     columns = ",".join(HISTORY_COLUMNS)
                     values = ",".join(f"%({column})s" for column in HISTORY_COLUMNS)
+                    updates = ",".join(
+                        f"{column}=VALUES({column})"
+                        for column in HISTORY_COLUMNS if column != "source_key"
+                    )
                     cursor.executemany(
                         f"INSERT INTO ods_ebay_sop_after_sales_history ({columns}) "
-                        f"VALUES ({values})",
+                        f"VALUES ({values}) ON DUPLICATE KEY UPDATE {updates}",
                         after_sales_raw_rows,
                     )
                 if sales_raw_rows:
@@ -255,9 +296,13 @@ def replace_history_data(
                     values = ",".join(
                         f"%({column})s" for column in HISTORY_SALES_COLUMNS
                     )
+                    updates = ",".join(
+                        f"{column}=VALUES({column})"
+                        for column in HISTORY_SALES_COLUMNS if column != "source_key"
+                    )
                     cursor.executemany(
                         f"INSERT INTO ods_ebay_sop_sales_history ({columns}) "
-                        f"VALUES ({values})",
+                        f"VALUES ({values}) ON DUPLICATE KEY UPDATE {updates}",
                         sales_raw_rows,
                     )
                 if after_sales_dwd_rows:
@@ -492,6 +537,10 @@ def sales_by_sku_source(
             }
 
 
+def sales_total(start_date: date, end_date: date) -> Decimal:
+    return sum(sales_by_sku_source(start_date, end_date).values(), Decimal("0"))
+
+
 def has_partial_monthly_history(start_date: date, end_date: date) -> bool:
     with db_connection() as connection:
         with connection.cursor() as cursor:
@@ -547,12 +596,13 @@ def replace_summary_period(
                             period_start,period_end,big_category,small_category,business_sku,
                             order_count,order_numbers,source_after_quantity_text,
                             source_sales_volume_text,after_quantity,sales_volume,
-                            after_sales_rate,generated_at
+                            after_sales_rate,calculation_version,generated_at
                         ) VALUES (
                             %(period_start)s,%(period_end)s,%(big_category)s,%(small_category)s,
                             %(business_sku)s,%(order_count)s,%(order_numbers)s,
                             %(source_after_quantity_text)s,%(source_sales_volume_text)s,
-                            %(after_quantity)s,%(sales_volume)s,%(after_sales_rate)s,%(generated_at)s
+                            %(after_quantity)s,%(sales_volume)s,%(after_sales_rate)s,
+                            %(calculation_version)s,%(generated_at)s
                         )
                         """,
                         rows,

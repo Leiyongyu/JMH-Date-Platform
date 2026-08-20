@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [vue()],
+    base: mode === 'production' ? '/script-tools/' : '/',
     server: {
       host: '0.0.0.0',
       port: 5174,

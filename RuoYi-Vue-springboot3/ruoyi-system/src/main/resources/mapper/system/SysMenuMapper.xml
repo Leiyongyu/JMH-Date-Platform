@@ -118,6 +118,18 @@
 			 left join sys_role_menu rm on m.menu_id = rm.menu_id
 		where m.status = '0' and rm.role_id = #{roleId}
 	</select>
+
+	<select id="selectScriptToolPerms" resultType="String">
+		select distinct m.perms
+		from sys_menu m
+		inner join sys_menu p on p.menu_id = m.parent_id
+		where m.menu_type = 'F'
+		  and m.status = '0'
+		  and m.perms is not null
+		  and m.perms != ''
+		  and p.perms = 'sop:scriptTools:view'
+		order by m.order_num asc
+	</select>
 	
 	<select id="selectMenuById" parameterType="Long" resultMap="SysMenuResult">
 		<include refid="selectMenuVo"/>

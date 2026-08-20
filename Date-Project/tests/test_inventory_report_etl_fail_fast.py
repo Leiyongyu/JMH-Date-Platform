@@ -68,6 +68,28 @@ def test_overseas_rows_are_all_ebay_and_match_owner_by_sku_brand():
     assert rows[0]["principal_match_source"] == "EBAY_BRAND"
 
 
+def test_overseas_jmh_sku_uses_product_mapping_for_owner():
+    rows = service._clean_overseas(
+        "2026-07",
+        [{
+            "id": 1,
+            "sync_batch_id": "batch-1",
+            "sys_wid": "100",
+            "sku": "JMH-30032-0018",
+            "allocation_in_transit_count": "0",
+            "allocation_in_transit_cost": "0",
+            "day_end_count": "12",
+            "day_end_cost": "588",
+            "child_list": None,
+        }],
+        {"BMW": "陈丽"},
+        {"30032-0018": "BMW-30032-0018"},
+    )
+
+    assert rows[0]["principal_name"] == "陈丽"
+    assert rows[0]["principal_match_source"] == "EBAY_PRODUCT_SKU_BRAND"
+
+
 def test_amz_sales_uses_fba_assignment_and_special_store_filter():
     rules = service._amazon_rule_maps(
         [

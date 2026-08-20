@@ -28,6 +28,7 @@ _composites/
 .codex-sheet-qa/
 .codex-template-inspect/
 .codex-mismatch-report/
+.codex-test-temp-*/
 outputs/
 
 # Operating system files

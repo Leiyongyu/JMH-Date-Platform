@@ -71,7 +71,7 @@ INSERT INTO sys_menu (
 SELECT
     '使用图片SOP',@script_tools_menu_id,2,'',NULL,NULL,'',
     1,0,'F','0','0','sop:imageSop:use','#',
-    'SYSTEM',NOW(),'从脚本菜单新窗口直连Python图片SOP页面'
+    'SYSTEM',NOW(),'由Java鉴权网关加载Python图片SOP组件'
 WHERE @script_tools_menu_id IS NOT NULL
   AND @image_sop_permission_id IS NULL;
 
@@ -105,7 +105,7 @@ SET menu_name='使用图片SOP',
     icon='#',
     update_by='SYSTEM',
     update_time=NOW(),
-    remark='从脚本菜单新窗口直连Python图片SOP页面，不经过Java代理'
+    remark='由Java校验当前用户权限并通过安全代理访问Python图片SOP'
 WHERE menu_id=@image_sop_permission_id;
 
 -- 已有图片SOP权限的角色补齐SOP目录及脚本菜单权限。

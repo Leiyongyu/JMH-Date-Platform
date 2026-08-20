@@ -258,6 +258,28 @@ def test_product_summary_recalculates_selected_date_range(monkeypatch):
     assert result["items"][0]["after_sales_rate"] == Decimal("0.02")
 
 
+def test_ebay_query_accepts_whole_month_ranges_and_latest_partial_month(monkeypatch):
+    coverage_start = date(2026, 1, 1)
+    coverage_end = date(2026, 8, 10)
+    monkeypatch.setattr(service.repo, "has_partial_monthly_history", lambda *_: False)
+    service._validate_range(
+        date(2026, 7, 1), date(2026, 7, 31), coverage_start, coverage_end
+    )
+    service._validate_range(
+        date(2026, 8, 1), date(2026, 8, 10), coverage_start, coverage_end
+    )
+    service._validate_range(
+        date(2026, 5, 1), date(2026, 7, 31), coverage_start, coverage_end
+    )
+    try:
+        service._validate_range(
+            date(2026, 8, 2), date(2026, 8, 9), coverage_start, coverage_end
+        )
+        assert False, "custom day range must be rejected"
+    except ValueError as exc:
+        assert "完整自然月区间" in str(exc)
+
+
 def _mock_import_batch(monkeypatch):
     monkeypatch.setattr(
         service,

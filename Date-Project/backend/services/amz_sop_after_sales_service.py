@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -22,7 +23,11 @@ from backend.services.amz_sop_classifier import BIG_CATEGORIES, classify_rows
 
 TASK_CODE = "amz_sop_after_sales_chain"
 TASK_NAME = "AMZ-SOP售后链路"
-SUMMARY_METRIC_VERSION = "RECORD-V2"
+SUMMARY_METRIC_VERSION = "QUANTITY-V3"
+# 领星 OrderProfit / afterSaleList 令牌桶容量=1，严格限流（3001008）。
+_LINGXING_RATE_LIMIT_RETRIES = 4
+_LINGXING_RATE_LIMIT_BASE_WAIT_SEC = 10
+_LINGXING_REQUEST_INTERVAL_SEC = 2.0
 _RANGE_BUILD_LOCK = Lock()
 _RANGE_TASK_LOCK = Lock()
 _RANGE_TASKS: dict[tuple[date, date], dict[str, str]] = {}
@@ -48,6 +53,25 @@ class AmzSopEtlError(RuntimeError):
         super().__init__(message)
         self.stage = stage
         self.metrics = metrics or {}
+
+
+def _is_rate_limit_error(exc: RuntimeError) -> bool:
+    message = str(exc)
+    return "too frequently" in message or "3001008" in message
+
+
+def _call_lingxing_with_retry(fn, *args, **kwargs):
+    """调用领星接口；限流(3001008)时退避重试，其它错误直接上抛。"""
+    last: RuntimeError | None = None
+    for attempt in range(_LINGXING_RATE_LIMIT_RETRIES):
+        try:
+            return fn(*args, **kwargs)
+        except RuntimeError as exc:
+            if not _is_rate_limit_error(exc):
+                raise
+            last = exc
+            time.sleep(_LINGXING_RATE_LIMIT_BASE_WAIT_SEC * (attempt + 1))
+    raise RuntimeError(f"领星接口限流重试失败：{last}")
 
 
 def run_amz_sop_chain(
@@ -89,21 +113,25 @@ def run_amz_sop_chain(
 
         stage = "ORDER_PROFIT_EXTRACT"
         profit_domain = LingXingOrderProfitDomain()
-        remote = profit_domain.fetch_monthly_profit(
-            sids,
-            summary_start,
-            summary_end,
-            currency_code="原币种",
-        )
-        sales_remote_rows = len(remote)
-        ods_rows, dwd_sales_rows, sales_skipped = _transform_sales_period(
-            summary_start, summary_end, remote, shops, batch_id
-        )
-        repo.replace_sales_period(
-            summary_start, summary_end, ods_rows, dwd_sales_rows
-        )
-        sales_ods_rows = len(ods_rows)
-        sales_dwd_rows = len(dwd_sales_rows)
+        sales_remote_rows = 0
+        sales_ods_rows = 0
+        sales_dwd_rows = 0
+        sales_skipped = 0
+        for month_start in repo.natural_month_starts(summary_start, summary_end):
+            month_end = _month_end(month_start, summary_end)
+            remote = _call_lingxing_with_retry(
+                profit_domain.fetch_monthly_profit,
+                sids, month_start, month_end, currency_code="原币种",
+            )
+            sales_remote_rows += len(remote)
+            ods_rows, dwd_sales_rows, skipped = _transform_sales_period(
+                month_start, month_end, remote, shops, batch_id
+            )
+            repo.replace_sales_period(month_start, month_end, ods_rows, dwd_sales_rows)
+            sales_ods_rows += len(ods_rows)
+            sales_dwd_rows += len(dwd_sales_rows)
+            sales_skipped += skipped
+            time.sleep(_LINGXING_REQUEST_INTERVAL_SEC)
 
         stage = "AFTER_SALES_EXTRACT"
         after_domain = LingXingAfterSalesDomain()
@@ -124,6 +152,10 @@ def run_amz_sop_chain(
             [*new_orders, *updated_orders], shops, batch_id
         )
         deduped_after = {row["source_key"]: row for row in normalized_after}
+        updated_order_ids = [
+            _text(order.get("amazon_order_id")) for order in updated_orders
+        ]
+        previous_updated_dates = repo.after_sales_dates_for_orders(updated_order_ids)
         returned_order_ids = [
             _text(order.get("amazon_order_id"))
             for order in [*new_orders, *updated_orders]
@@ -133,15 +165,31 @@ def run_amz_sop_chain(
         )
 
         stage = "CLASSIFY_AND_MERGE"
-        period_ods = repo.after_sales_rows(summary_start, summary_end)
-        period_ods = [row for row in period_ods if not _contains_star(_business_sku(row))]
-        classifications = classify_rows(period_ods)
-        dwd_rows = _build_dwd_rows(period_ods, classifications, batch_id)
-        dwd_rows = _merge_refund_return(dwd_rows)
+        updated_ids = {value for value in updated_order_ids if value}
+        current_updated_dates = {
+            row["after_time"].date()
+            for row in deduped_after.values()
+            if row.get("amazon_order_id") in updated_ids
+            and isinstance(row.get("after_time"), datetime)
+        }
+        late_update_months = _late_update_months(
+            previous_updated_dates | current_updated_dates,
+            summary_start,
+            summary_end,
+        )
+        late_update_dwd_rows = 0
+        for month_start, month_end in late_update_months:
+            month_dwd_rows = _build_period_dwd(
+                month_start, month_end, batch_id
+            )
+            repo.replace_dwd_period(month_start, month_end, month_dwd_rows)
+            late_update_dwd_rows += len(month_dwd_rows)
+
+        dwd_rows = _build_period_dwd(summary_start, summary_end, batch_id)
 
         stage = "DWS_SUMMARY"
         sales_volumes = repo.sales_volume_by_sku_source(
-            summary_start, summary_end, batch_id
+            summary_start, summary_end
         )
         summary_rows = _build_summary(
             dwd_rows,
@@ -170,7 +218,7 @@ def run_amz_sop_chain(
             "load_mode": (
                 "manual_range" if manual_range
                 else "initial_current_year" if initial_load
-                else "incremental_7_days"
+                else "incremental_current_month"
             ),
             "source_table_status_before_run": source_status,
             "sid_count": len(sids),
@@ -180,6 +228,11 @@ def run_amz_sop_chain(
             "after_sales_order_rows": len(new_orders) + len(updated_orders),
             "after_sales_ods_rows": after_ods_rows,
             "after_sales_dwd_rows": len(dwd_rows),
+            "late_update_rebuild_months": [
+                month_start.strftime("%Y-%m")
+                for month_start, _ in late_update_months
+            ],
+            "late_update_dwd_rows": late_update_dwd_rows,
             "summary_rows": len(summary_rows),
             "extract_rows": metrics["extract_rows"],
             "ods_rows": metrics["ods_rows"],
@@ -195,54 +248,20 @@ def run_amz_sop_chain(
 
 
 def ensure_range_summary(start_date: date, end_date: date) -> bool:
-    """Build and cache one exact reporting range when it is queried first."""
-    if start_date > end_date:
-        raise ValueError("开始日期不能晚于结束日期")
-    if (end_date - start_date).days > 365:
-        raise ValueError("单次查询日期范围不能超过366天")
+    """Build and cache one whole-month reporting range when queried first."""
+    coverage_start, coverage_end = repo.sales_date_bounds()
+    _validate_month_range(start_date, end_date, coverage_start, coverage_end)
     if repo.summary_period_exists(start_date, end_date, SUMMARY_METRIC_VERSION):
         return False
     with _RANGE_BUILD_LOCK:
         if repo.summary_period_exists(start_date, end_date, SUMMARY_METRIC_VERSION):
             return False
         coverage_start, coverage_end = repo.sales_date_bounds()
-        if not coverage_start or not coverage_end:
-            raise ValueError("AMZ-SOP售后链路尚未生成可查询数据")
-        if start_date < coverage_start or end_date > coverage_end:
-            raise ValueError(
-                f"当前售后数据覆盖范围为{coverage_start}至{coverage_end}，"
-                "请先等待定时链路更新后再查询"
-            )
+        _validate_month_range(start_date, end_date, coverage_start, coverage_end)
 
         batch_id = f"{SUMMARY_METRIC_VERSION}-RANGE-{uuid4()}"
-        existing_sales_batch = repo.latest_sales_batch_for_period(start_date, end_date)
-        if existing_sales_batch:
-            sales_volumes = repo.sales_volume_by_sku_source(
-                start_date, end_date, existing_sales_batch
-            )
-            after_rows = repo.processed_after_sales_rows(start_date, end_date)
-            summary_rows = _build_summary(
-                after_rows, sales_volumes, start_date, end_date, batch_id
-            )
-            repo.replace_summary_period(start_date, end_date, summary_rows)
-            return True
-
-        shops = repo.shop_map()
-        sids = sorted(shops)
-        if not sids:
-            raise ValueError("shop_list 中没有可用的 Amazon 店铺 SID")
-        remote = LingXingOrderProfitDomain().fetch_monthly_profit(
-            sids, start_date, end_date, currency_code="原币种"
-        )
-        ods_rows, dwd_sales_rows, _ = _transform_sales_period(
-            start_date, end_date, remote, shops, batch_id
-        )
-        repo.replace_sales_period(
-            start_date, end_date, ods_rows, dwd_sales_rows
-        )
-        sales_volumes = repo.sales_volume_by_sku_source(
-            start_date, end_date, batch_id
-        )
+        _backfill_missing_sales_months(start_date, end_date, batch_id)
+        sales_volumes = repo.sales_volume_by_sku_source(start_date, end_date)
         after_rows = repo.processed_after_sales_rows(start_date, end_date)
         summary_rows = _build_summary(
             after_rows, sales_volumes, start_date, end_date, batch_id
@@ -251,11 +270,36 @@ def ensure_range_summary(start_date: date, end_date: date) -> bool:
         return True
 
 
+def _backfill_missing_sales_months(
+    start_date: date, end_date: date, batch_id: str
+) -> None:
+    """Fetch and store sales snapshots for any natural month lacking one."""
+    missing = repo.missing_sales_months(start_date, end_date)
+    if not missing:
+        return
+    shops = repo.shop_map()
+    sids = sorted(shops)
+    if not sids:
+        raise ValueError("shop_list 中没有可用的 Amazon 店铺 SID")
+    profit_domain = LingXingOrderProfitDomain()
+    for month_start in missing:
+        month_end = _month_end(month_start, end_date)
+        remote = _call_lingxing_with_retry(
+            profit_domain.fetch_monthly_profit,
+            sids, month_start, month_end, currency_code="原币种",
+        )
+        ods_rows, dwd_sales_rows, _ = _transform_sales_period(
+            month_start, month_end, remote, shops, batch_id
+        )
+        repo.replace_sales_period(month_start, month_end, ods_rows, dwd_sales_rows)
+        time.sleep(_LINGXING_REQUEST_INTERVAL_SEC)
+
+
 def request_range_summary(start_date: date, end_date: date) -> dict[str, str]:
-    """Return immediately and generate an uncached range in one background worker."""
-    if repo.summary_period_exists(start_date, end_date, SUMMARY_METRIC_VERSION):
-        return {"status": "ready", "message": "区间汇总已就绪"}
+    """Return immediately and generate an uncached month range in one worker."""
     _validate_range_coverage(start_date, end_date)
+    if repo.summary_period_exists(start_date, end_date, SUMMARY_METRIC_VERSION):
+        return {"status": "ready", "message": "月份区间汇总已就绪"}
     key = (start_date, end_date)
     with _RANGE_TASK_LOCK:
         state = _RANGE_TASKS.get(key)
@@ -269,7 +313,7 @@ def request_range_summary(start_date: date, end_date: date) -> dict[str, str]:
             return dict(state)
         state = {
             "status": "building",
-            "message": "首次查询该日期段，正在后台生成销量快照和售后率",
+            "message": "首次查询该月份区间，正在后台生成销量快照和售后率",
         }
         _RANGE_TASKS[key] = state
         _enqueue_range_summary(start_date, end_date)
@@ -309,17 +353,44 @@ def _run_range_summary_task(start_date: date, end_date: date) -> None:
 
 
 def _validate_range_coverage(start_date: date, end_date: date) -> None:
-    if start_date > end_date:
-        raise ValueError("开始日期不能晚于结束日期")
-    if (end_date - start_date).days > 365:
-        raise ValueError("单次查询日期范围不能超过366天")
     coverage_start, coverage_end = repo.sales_date_bounds()
+    _validate_month_range(start_date, end_date, coverage_start, coverage_end)
+
+
+def _validate_month_range(
+    start_date: date,
+    end_date: date,
+    coverage_start: date | None,
+    coverage_end: date | None,
+) -> None:
+    if start_date > end_date:
+        raise ValueError("开始月份不能晚于结束月份")
+    month_count = (
+        (end_date.year - start_date.year) * 12
+        + end_date.month - start_date.month + 1
+    )
+    if month_count > 12:
+        raise ValueError("单次最多查询连续12个自然月")
     if not coverage_start or not coverage_end:
         raise ValueError("AMZ-SOP售后链路尚未生成可查询数据")
     if start_date < coverage_start or end_date > coverage_end:
         raise ValueError(
             f"当前售后数据覆盖范围为{coverage_start}至{coverage_end}，"
             "请先等待定时链路更新后再查询"
+        )
+    month_start = date(start_date.year, start_date.month, 1)
+    next_month = date(
+        end_date.year + (end_date.month == 12),
+        end_date.month % 12 + 1,
+        1,
+    )
+    month_end = date.fromordinal(next_month.toordinal() - 1)
+    expected_start = max(coverage_start, month_start)
+    expected_end = min(coverage_end, month_end)
+    if start_date != expected_start or end_date != expected_end:
+        raise ValueError(
+            "请按完整自然月区间查询；当前选择应转换为"
+            f"{expected_start}至{expected_end}"
         )
 
 
@@ -333,8 +404,8 @@ def list_product_summary(
     page_size: int,
 ) -> dict[str, Any]:
     if not start_date or not end_date:
-        latest = repo.latest_period()
-        if not latest:
+        latest_months = repo.periods(1)
+        if not latest_months:
             return {
                 "period_start": None,
                 "period_end": None,
@@ -343,7 +414,8 @@ def list_product_summary(
                 "summary": {},
                 "range_generated": False,
             }
-        start_date, end_date = latest
+        start_date = latest_months[0]["period_start"]
+        end_date = latest_months[0]["period_end"]
     range_state = request_range_summary(start_date, end_date)
     if range_state["status"] != "ready":
         return {
@@ -361,12 +433,25 @@ def list_product_summary(
         start_date, end_date, big_category, small_category, sku
     )
     result = _aggregate_product_rows(rows, page, page_size)
+    all_rows = rows if not any((big_category, small_category, sku)) else repo.summary_filtered(
+        start_date, end_date, None, None, None
+    )
+    range_summary = _aggregate_product_rows(all_rows, 1, 1)["summary"]
+    range_sales_volume = repo.sales_total_for_period(start_date, end_date)
+    result["summary"].update({
+        "range_after_quantity": range_summary["after_quantity"],
+        "range_sales_volume": range_sales_volume,
+        "range_after_sales_rate": (
+            range_summary["after_quantity"] / range_sales_volume
+            if range_sales_volume else Decimal("0")
+        ),
+    })
     result.update({
         "period_start": start_date,
         "period_end": end_date,
         "range_generated": range_generated,
         "range_status": "ready",
-        "range_message": "区间汇总已就绪",
+        "range_message": "月份区间汇总已就绪",
     })
     return result
 
@@ -552,8 +637,20 @@ def _write_summary_sheet(sheet, rows: list[dict[str, Any]]) -> None:
 
 
 def _default_start_date(end_date: date, initial_load: bool) -> date:
-    """Initial load starts on January 1; later runs are 7 inclusive days."""
-    return date(end_date.year, 1, 1) if initial_load else end_date - timedelta(days=6)
+    """Initial load covers the whole natural year; later runs only the current month."""
+    if initial_load:
+        return date(end_date.year, 1, 1)
+    return date(end_date.year, end_date.month, 1)
+
+
+def _month_end(month_start: date, cap: date) -> date:
+    """Return the last day of month_start's month, capped at cap."""
+    if month_start.month == 12:
+        next_month = date(month_start.year + 1, 1, 1)
+    else:
+        next_month = date(month_start.year, month_start.month + 1, 1)
+    month_end = date.fromordinal(next_month.toordinal() - 1)
+    return min(month_end, cap)
 
 
 def _fetch_after_sales_chunked(
@@ -565,10 +662,53 @@ def _fetch_after_sales_chunked(
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for index in range(0, len(sids), 50):
-        rows.extend(domain.fetch(
-            sids[index:index + 50], start_date, end_date_exclusive, date_type=date_type
+        rows.extend(_call_lingxing_with_retry(
+            domain.fetch,
+            sids[index:index + 50], start_date, end_date_exclusive, date_type=date_type,
         ))
+        time.sleep(_LINGXING_REQUEST_INTERVAL_SEC)
     return rows
+
+
+def _build_period_dwd(
+    start_date: date,
+    end_date: date,
+    batch_id: str,
+) -> list[dict[str, Any]]:
+    period_ods = repo.after_sales_rows(start_date, end_date)
+    period_ods = [
+        row for row in period_ods
+        if not _contains_star(_business_sku(row))
+    ]
+    classifications = classify_rows(period_ods)
+    return _merge_refund_return(
+        _build_dwd_rows(period_ods, classifications, batch_id)
+    )
+
+
+def _late_update_months(
+    affected_dates: set[date],
+    current_start: date,
+    current_end: date,
+) -> list[tuple[date, date]]:
+    """Return complete months containing updates outside the current rebuild window."""
+    month_starts = {
+        date(value.year, value.month, 1)
+        for value in affected_dates
+        if value < current_start or value > current_end
+    }
+    result: list[tuple[date, date]] = []
+    for month_start in sorted(month_starts):
+        next_month = date(
+            month_start.year + (month_start.month == 12),
+            month_start.month % 12 + 1,
+            1,
+        )
+        result.append((
+            month_start,
+            date.fromordinal(next_month.toordinal() - 1),
+        ))
+    return result
 
 
 def _transform_sales_period(
@@ -796,25 +936,31 @@ def _build_summary(
         key = (row["big_category"], row["small_category"], row["business_sku"])
         target = grouped.setdefault(key, {
             "orders": set(),
-            "records": set(),
-            "source_records": defaultdict(set),
+            "records": {},
+            "source_records": defaultdict(dict),
         })
         order_id = _text(row.get("amazon_order_id"))
         source = _text(row.get("data_source")) or "AMZ-OTHER"
         sid = _text(row.get("sid")) or source
         record_key = (order_id, sid)
+        quantity = max(_decimal(row.get("after_quantity")), Decimal("0"))
         target["orders"].add(order_id)
-        target["records"].add(record_key)
-        target["source_records"][source].add(record_key)
+        target["records"][record_key] = max(
+            target["records"].get(record_key, Decimal("0")), quantity
+        )
+        target["source_records"][source][record_key] = max(
+            target["source_records"][source].get(record_key, Decimal("0")),
+            quantity,
+        )
     generated_at = datetime.now()
     result: list[dict[str, Any]] = []
     for (big, small, sku), values in grouped.items():
         source_sales = sales_sources_by_sku.get(sku, {})
         sales_volume = sum(source_sales.values(), Decimal("0"))
-        after_quantity = Decimal(len(values["records"]))
+        after_quantity = sum(values["records"].values(), Decimal("0"))
         source_after = {
-            source: Decimal(len(record_keys))
-            for source, record_keys in values["source_records"].items()
+            source: sum(record_quantities.values(), Decimal("0"))
+            for source, record_quantities in values["source_records"].items()
         }
         rate = after_quantity / sales_volume if sales_volume else Decimal("0")
         result.append({
@@ -830,6 +976,7 @@ def _build_summary(
             "after_quantity": after_quantity,
             "sales_volume": sales_volume,
             "after_sales_rate": rate,
+            "calculation_version": SUMMARY_METRIC_VERSION,
             "sync_batch_id": batch_id,
             "generated_at": generated_at,
         })

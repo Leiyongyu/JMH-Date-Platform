@@ -25,6 +25,15 @@ export function listAfterSalesPeriods(platform = 'amz', limit = 24) {
   })
 }
 
+export function syncAmzAfterSales(startDate, endDate) {
+  return request({
+    url: '/sop/after-sales/sync',
+    method: 'post',
+    params: { startDate, endDate },
+    timeout: 600000
+  })
+}
+
 export function exportAfterSales(platform, startDate, endDate) {
   return request({
     url: '/sop/after-sales/export',

@@ -81,6 +81,7 @@ DECIMAL_RAW_FIELDS = {
 DATETIME_RAW_FIELDS = {"payment_time", "marked_ship_time"}
 
 SALES_MIN_DATE = date(2026, 6, 14)
+SUMMARY_METRIC_VERSION = "EBAY-QUANTITY-V1"
 
 
 def import_ebay_sales(
@@ -122,6 +123,13 @@ def import_ebay_history(
             )
         metrics["raw_rows"] = after_raw_count + sales_raw_count
         metrics["dwd_rows"] = after_dwd_count + sales_dwd_count
+        replaced_months = sorted({
+            row["month_start"].strftime("%Y-%m")
+            for row in parsed["sales_dwd_rows"]
+        } | {
+            row["after_time"].strftime("%Y-%m")
+            for row in parsed["after_sales_dwd_rows"]
+        })
         _finish_batch(batch["batch_id"], metrics)
         return {
             **batch,
@@ -130,7 +138,11 @@ def import_ebay_history(
             "after_sales_dwd_rows": after_dwd_count,
             "sales_raw_rows": sales_raw_count,
             "sales_dwd_rows": sales_dwd_count,
-            "message": "eBay历史售后及销量数据导入完成",
+            "replaced_months": replaced_months,
+            "message": (
+                "eBay标准售后及销量数据按月份覆盖完成："
+                + "、".join(replaced_months)
+            ),
         }
     except Exception as exc:
         _fail_batch(batch["batch_id"], metrics, exc)
@@ -243,19 +255,39 @@ def list_product_summary(
             "summary": {}, "range_status": "ready", "range_generated": False,
         }
     if not start_date or not end_date:
-        start_date, end_date = coverage_start, coverage_end
+        latest_months = repo.periods(1)
+        if not latest_months:
+            return {
+                "period_start": None, "period_end": None, "items": [], "total": 0,
+                "summary": {}, "range_status": "ready", "range_generated": False,
+            }
+        start_date = latest_months[0]["period_start"]
+        end_date = latest_months[0]["period_end"]
     _validate_range(start_date, end_date, coverage_start, coverage_end)
     _rebuild_summary(start_date, end_date)
     rows = repo.summary_filtered(
         start_date, end_date, big_category, small_category, sku
     )
     result = _aggregate_product_rows(rows, page, page_size)
+    all_rows = rows if not any((big_category, small_category, sku)) else repo.summary_filtered(
+        start_date, end_date, None, None, None
+    )
+    range_summary = _aggregate_product_rows(all_rows, 1, 1)["summary"]
+    range_sales_volume = repo.sales_total(start_date, end_date)
+    result["summary"].update({
+        "range_after_quantity": range_summary["after_quantity"],
+        "range_sales_volume": range_sales_volume,
+        "range_after_sales_rate": (
+            range_summary["after_quantity"] / range_sales_volume
+            if range_sales_volume else Decimal("0")
+        ),
+    })
     result.update({
         "period_start": start_date,
         "period_end": end_date,
         "range_generated": True,
         "range_status": "ready",
-        "range_message": "eBay区间售后率已实时计算",
+        "range_message": "eBay月份区间售后率已实时计算",
     })
     return result
 
@@ -736,6 +768,7 @@ def _rebuild_summary(start_date: date, end_date: date) -> None:
             "after_quantity": after_quantity,
             "sales_volume": sales_volume,
             "after_sales_rate": after_quantity / sales_volume if sales_volume else Decimal("0"),
+            "calculation_version": SUMMARY_METRIC_VERSION,
             "generated_at": generated_at,
         })
     repo.replace_summary_period(start_date, end_date, summary_rows)
@@ -865,12 +898,32 @@ def _validate_range(
     coverage_end: date | None,
 ) -> None:
     if start_date > end_date:
-        raise ValueError("开始日期不能晚于结束日期")
+        raise ValueError("开始月份不能晚于结束月份")
+    month_count = (
+        (end_date.year - start_date.year) * 12
+        + end_date.month - start_date.month + 1
+    )
+    if month_count > 12:
+        raise ValueError("单次最多查询连续12个自然月")
     if not coverage_start or not coverage_end:
         raise ValueError("eBay销量或售后数据尚未上传完整")
     if start_date < coverage_start or end_date > coverage_end:
         raise ValueError(
             f"eBay销量与售后共同覆盖范围为{coverage_start}至{coverage_end}"
+        )
+    month_start = date(start_date.year, start_date.month, 1)
+    next_month = date(
+        end_date.year + (end_date.month == 12),
+        end_date.month % 12 + 1,
+        1,
+    )
+    month_end = date.fromordinal(next_month.toordinal() - 1)
+    expected_start = max(coverage_start, month_start)
+    expected_end = min(coverage_end, month_end)
+    if start_date != expected_start or end_date != expected_end:
+        raise ValueError(
+            "请按完整自然月区间查询；当前选择应转换为"
+            f"{expected_start}至{expected_end}"
         )
     if repo.has_partial_monthly_history(start_date, end_date):
         raise ValueError(

@@ -96,6 +96,30 @@ def test_ebay_sales_cleaning_matches_owner_and_updates_actual():
     assert total["actual_achievement_amount"] == service.Decimal("105")
 
 
+def test_ebay_sales_resolves_jmh_sku_and_variant_before_owner_matching():
+    rules = {"FRD": "陈丽"}
+    clean_rows, stats = service._clean_ebay_sales(
+        "2026-07",
+        [{
+            "id": 1,
+            "sku": "JMH-70590-0557-YXR",
+            "brand_code": "JMH",
+            "product_sales_amount": service.Decimal("100"),
+            "receivable_shipping_amount": service.Decimal("5"),
+            "amount": service.Decimal("105"),
+        }],
+        rules,
+        {"70590-0557": "FRD-70590-0557"},
+    )
+
+    assert stats["ebay_sales_unmatched_rows"] == 0
+    assert clean_rows[0]["brand_code"] == "FRD"
+    assert clean_rows[0]["principal_name"] == "陈丽"
+    assert clean_rows[0]["principal_match_source"] == (
+        "EBAY_PRODUCT_SKU_BRAND"
+    )
+
+
 def test_ebay_actual_upload_rebuilds_business_month_sales_only(monkeypatch):
     parsed = {
         "stat_month": "2026-08",

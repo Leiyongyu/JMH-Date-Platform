@@ -47,6 +47,14 @@ public interface ISysMenuService
     public Set<String> selectMenuPermsByRoleId(Long roleId);
 
     /**
+     * 查询「脚本菜单」下所有脚本按钮的权限标识。
+     * 供 Python 统一脚本工作台按用户权限过滤可见脚本使用。
+     *
+     * @return 脚本按钮权限标识列表
+     */
+    public List<String> selectScriptToolPerms();
+
+    /**
      * 根据用户ID查询菜单树信息
      * 
      * @param userId 用户ID

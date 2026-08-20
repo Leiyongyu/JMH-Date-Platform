@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 public class ImageSopPythonProperties
 {
     private String baseUrl = "http://127.0.0.1:8010/image-sop";
+    private String workbenchUrl = "http://127.0.0.1:8010/script-tools/";
     private int connectTimeout = 5000;
     private int readTimeout = 900000;
     private String internalToken;
@@ -21,6 +22,16 @@ public class ImageSopPythonProperties
     public void setBaseUrl(String baseUrl)
     {
         this.baseUrl = baseUrl;
+    }
+
+    public String getWorkbenchUrl()
+    {
+        return workbenchUrl;
+    }
+
+    public void setWorkbenchUrl(String workbenchUrl)
+    {
+        this.workbenchUrl = workbenchUrl;
     }
 
     public int getConnectTimeout()

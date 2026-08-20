@@ -74,21 +74,30 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
     shops = repo.amazon_shop_map()
     amazon_rules = _amazon_rule_maps(repo.owner_rules(month, "amazon"))
     ebay_rules = _ebay_rule_map(repo.owner_rules(month, "ebay"))
+    ebay_sku_map = _ebay_product_sku_map(month)
     fba_rows, fba_stats = _clean_fba(
         month, sources["fba"], shops, amazon_rules
     )
-    overseas_rows = _clean_overseas(month, sources["overseas"], ebay_rules)
+    overseas_rows = _clean_overseas(
+        month, sources["overseas"], ebay_rules, ebay_sku_map
+    )
     local_rows, local_stats = _clean_local(
-        month, sources["local"], amazon_rules, ebay_rules
+        month, sources["local"], amazon_rules, ebay_rules, ebay_sku_map
     )
     amz_sales_rows, amz_sales_stats = _clean_amz_sales(
         month, sources["order_profit"], shops, amazon_rules
     )
     ebay_sales_rows, ebay_sales_stats = _clean_ebay_sales(
-        month, sources.get("ebay_sales", []), ebay_rules
+        month, sources.get("ebay_sales", []), ebay_rules, ebay_sku_map
     )
     dimension_rows = _dimension_summaries(
-        month, fba_rows, overseas_rows, local_rows
+        month,
+        fba_rows,
+        overseas_rows,
+        local_rows,
+        sources.get("purchase_order_transit", []),
+        amazon_rules,
+        ebay_rules,
     )
     department_rows = _department_summaries(
         month,
@@ -161,7 +170,9 @@ def rebuild_monthly_inventory_ebay_sales(
     if not sources:
         raise ValueError(f"{month} 缺少eBay实际达成上传源数据")
     rules = _ebay_rule_map(repo.owner_rules(month, "ebay"))
-    rows, stats = _clean_ebay_sales(month, sources, rules)
+    rows, stats = _clean_ebay_sales(
+        month, sources, rules, _ebay_product_sku_map(month)
+    )
     persisted = repo.replace_ebay_sales_detail_month(month, rows)
     return {
         "stat_month": month,
@@ -228,6 +239,11 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
         repo.inventory_age_group_costs(age_cost_month)
         if age_cost_month
         else {}
+    )
+    health_groups, _health_stores, _health_owners, health_platforms = (
+        _inventory_health_maps(age_cost_month)
+        if age_cost_month
+        else ({}, {}, {}, set())
     )
     expected_groups = {
         code.removeprefix("AMZ-") if code.startswith("AMZ-") else code
@@ -300,6 +316,32 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
             item["inventory_age_90_180_cost"] = None
             item["inventory_age_180_plus_cost"] = None
         item["inventory_age_cost_month"] = age_cost_month
+        expected_health_platforms = (
+            {"AMZ", "EBAY"}
+            if int(item.get("is_total") or 0) == 1
+            else {"EBAY"} if department == "EBAY-1" else {"AMZ"}
+        )
+        aged_sku_count = (
+            sum(health_groups.values(), ZERO)
+            if int(item.get("is_total") or 0) == 1
+            else _num(health_groups.get(department))
+        )
+        health_inventory_qty = (
+            _num(item.get("overseas_end_inventory_qty"))
+            + _num(item.get("fba_end_inventory_qty"))
+        )
+        health_available = expected_health_platforms.issubset(
+            health_platforms
+        )
+        item["inventory_181_plus_sku_count"] = (
+            aged_sku_count if health_available else None
+        )
+        item["inventory_health_rate"] = (
+            aged_sku_count / health_inventory_qty
+            if health_available and health_inventory_qty != ZERO
+            else None
+        )
+        item["inventory_health_month"] = age_cost_month
         if int(item.get("is_total") or 0) == 1:
             department_volumes = (
                 [ebay_volume, *amz_volume_by_department.values()]
@@ -366,6 +408,124 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
         "source_stat_month": month,
         "report_month": sales_volume_month,
         "items": [_json_ready(item) for item in items],
+    }
+
+
+def get_dimension_summary(
+    dimension_type: str,
+    stat_month: str | None = None,
+) -> dict[str, Any]:
+    """读取店铺或负责人维度汇总，并统一转换为接口可序列化数据。"""
+    dimension = normalize_text(dimension_type).upper()
+    if dimension not in {"STORE", "OWNER"}:
+        raise ValueError("dimension_type必须是STORE或OWNER")
+    data = repo.dimension_summary(dimension, stat_month)
+    report_month = (
+        _next_month(data["stat_month"]) if data["stat_month"] else None
+    )
+    sales_by_owner = (
+        repo.sales_amount_by_owner(report_month)
+        if dimension == "OWNER" and report_month
+        else {}
+    )
+    sales_by_store: dict[tuple[str, str], Decimal] = defaultdict(
+        lambda: ZERO
+    )
+    if dimension == "STORE" and report_month:
+        for sales_row in repo.amz_sales_amount_by_store(report_month):
+            key = (
+                normalize_text(sales_row.get("department_code")).upper(),
+                _store_dimension_name(sales_row.get("store_name")),
+            )
+            sales_by_store[key] += _num(sales_row.get("sales_amount"))
+    health_groups, health_stores, health_owners, health_platforms = (
+        _inventory_health_maps(report_month)
+        if report_month
+        else ({}, {}, {}, set())
+    )
+    items = []
+    for source in data["items"]:
+        item = dict(source)
+        if dimension in {"STORE", "OWNER"}:
+            inventory_amount = (
+                _num(item.get("overseas_end_inventory_total_cost"))
+                + _num(item.get("fba_end_inventory_total_cost"))
+            )
+            transit_amount = (
+                _num(item.get("overseas_end_in_transit_total_cost"))
+                + _num(item.get("fba_end_in_transit_total_cost"))
+            )
+            sales_target = _sales_target(item)
+            if dimension == "STORE":
+                actual = _num(
+                    sales_by_store.get(
+                        (
+                            normalize_text(
+                                item.get("department_code")
+                            ).upper(),
+                            normalize_text(item.get("dimension_value")),
+                        )
+                    )
+                )
+            else:
+                actual = _num(
+                    sales_by_owner.get(
+                        (
+                            normalize_text(
+                                item.get("platform_code")
+                            ).upper(),
+                            normalize_text(
+                                item.get("department_code")
+                            ).upper(),
+                            normalize_text(item.get("dimension_value")),
+                        )
+                    )
+                )
+            item["fba_transit_inventory_amount"] = (
+                inventory_amount + transit_amount
+            )
+            item["sales_target_amount"] = sales_target
+            item["actual_achievement_amount"] = actual
+            item["target_achievement_rate"] = (
+                actual / sales_target if sales_target != ZERO else ZERO
+            )
+            item["actual_achievement_month"] = report_month
+            platform = normalize_text(item.get("platform_code")).upper()
+            department = normalize_text(
+                item.get("department_code")
+            ).upper()
+            dimension_value = normalize_text(item.get("dimension_value"))
+            if dimension == "STORE":
+                aged_sku_count = _num(
+                    health_stores.get((department, dimension_value))
+                )
+            else:
+                aged_sku_count = _num(
+                    health_owners.get(
+                        (platform, department, dimension_value)
+                    )
+                )
+            health_inventory_qty = (
+                _num(item.get("overseas_end_inventory_qty"))
+                + _num(item.get("fba_end_inventory_qty"))
+            )
+            health_available = platform in health_platforms
+            item["inventory_181_plus_sku_count"] = (
+                aged_sku_count if health_available else None
+            )
+            item["inventory_health_rate"] = (
+                aged_sku_count / health_inventory_qty
+                if health_available and health_inventory_qty != ZERO
+                else None
+            )
+            item["inventory_health_month"] = report_month
+        items.append(_json_ready(item))
+    return {
+        "stat_month": data["stat_month"],
+        "source_stat_month": data["stat_month"],
+        "report_month": report_month,
+        "dimension_type": dimension,
+        "items": items,
     }
 
 
@@ -515,12 +675,14 @@ def _clean_fba(month, source_rows, shops, rules):
     }
 
 
-def _clean_overseas(month, source_rows, ebay_rules):
+def _clean_overseas(month, source_rows, ebay_rules, ebay_sku_map=None):
     rows: list[dict[str, Any]] = []
     for source in source_rows:
         for child_index, item in _expanded_rows(source, "child_list"):
             sku = normalize_text(item.get("sku") or source.get("sku"))
-            principal, match_source = _ebay_assignment(sku, ebay_rules)
+            principal, match_source = _ebay_assignment(
+                sku, ebay_rules, ebay_sku_map
+            )
             rows.append(
                 _warehouse_detail(
                     month,
@@ -585,13 +747,16 @@ def _clean_amz_sales(month, source_rows, shops, rules):
     }
 
 
-def _clean_ebay_sales(month, source_rows, rules):
+def _clean_ebay_sales(month, source_rows, rules, ebay_sku_map=None):
     rows: list[dict[str, Any]] = []
     matched_rows = 0
     unmatched_rows = 0
     for source in source_rows:
         sku = normalize_text(source.get("sku"))
-        principal, match_source = _ebay_assignment(sku, rules)
+        resolved_sku = _resolve_ebay_sku(sku, ebay_sku_map)
+        principal, match_source = _ebay_assignment(
+            sku, rules, ebay_sku_map
+        )
         if principal == UNASSIGNED:
             unmatched_rows += 1
         else:
@@ -601,7 +766,7 @@ def _clean_ebay_sales(month, source_rows, rules):
                 "stat_month": month,
                 "source_id": source["id"],
                 "sku": sku,
-                "brand_code": normalize_text(source.get("brand_code")).upper(),
+                "brand_code": parse_brand_code_from_sku(resolved_sku),
                 "image_url": normalize_text(source.get("image_url")) or None,
                 "multi_variant": normalize_text(source.get("multi_variant")) or None,
                 "department_code": "EBAY-1",
@@ -622,10 +787,17 @@ def _clean_ebay_sales(month, source_rows, rules):
     }
 
 
-def _clean_local(month, source_rows, amazon_rules, ebay_rules):
+def _clean_local(
+    month,
+    source_rows,
+    amazon_rules,
+    ebay_rules,
+    ebay_sku_map=None,
+):
     rows: list[dict[str, Any]] = []
     excluded_wid_rows = 0
     unsupported_wid_rows = 0
+    zero_metric_rows = 0
     for source in source_rows:
         for child_index, item in _expanded_rows(source, "child_list"):
             sys_wid = str(item.get("sys_wid") or source.get("sys_wid") or "").strip()
@@ -643,7 +815,9 @@ def _clean_local(month, source_rows, amazon_rules, ebay_rules):
                 platform = "EBAY"
                 group_code = "EBAY-1"
                 department_code = "EBAY-1"
-                principal, match_source = _ebay_assignment(sku, ebay_rules)
+                principal, match_source = _ebay_assignment(
+                    sku, ebay_rules, ebay_sku_map
+                )
             elif sys_wid in LOCAL_AMZ_WIDS:
                 platform = "AMZ"
                 configured_group = LOCAL_AMZ_WIDS[sys_wid]
@@ -668,23 +842,28 @@ def _clean_local(month, source_rows, amazon_rules, ebay_rules):
             else:
                 unsupported_wid_rows += 1
                 continue
-            rows.append(
-                _warehouse_detail(
-                    month,
-                    source,
-                    child_index,
-                    item,
-                    platform,
-                    group_code,
-                    department_code,
-                    principal,
-                    match_source,
-                    include_api_sku=False,
-                )
+            row = _warehouse_detail(
+                month,
+                source,
+                child_index,
+                item,
+                platform,
+                group_code,
+                department_code,
+                principal,
+                match_source,
+                include_api_sku=False,
             )
+            if platform == "EBAY" and all(
+                _num(row.get(metric)) == ZERO for metric in METRIC_KEYS
+            ):
+                zero_metric_rows += 1
+                continue
+            rows.append(row)
     return rows, {
         "local_excluded_wid_rows": excluded_wid_rows,
         "local_unsupported_wid_rows": unsupported_wid_rows,
+        "local_ebay_zero_metric_rows": zero_metric_rows,
     }
 
 
@@ -735,49 +914,78 @@ def _warehouse_detail(
     return row
 
 
-def _dimension_summaries(month, fba_rows, overseas_rows, local_rows):
+def _dimension_summaries(
+    month,
+    fba_rows,
+    overseas_rows,
+    local_rows,
+    purchase_transit_rows,
+    amazon_rules,
+    ebay_rules,
+):
     aggregates: dict[tuple[str, str, str, str, str | None], dict[str, Any]] = {}
+
+    def add(
+        source_type,
+        platform,
+        dimension_type,
+        dimension_value,
+        department_code,
+        metrics,
+    ):
+        value = normalize_text(dimension_value) or (
+            "未知店铺" if dimension_type == "STORE" else UNASSIGNED
+        )
+        key = (
+            source_type,
+            platform,
+            dimension_type,
+            value,
+            department_code,
+        )
+        aggregate = aggregates.setdefault(
+            key,
+            {
+                "stat_month": month,
+                "source_type": source_type,
+                "platform_code": platform,
+                "dimension_type": dimension_type,
+                "dimension_value": value,
+                "department_code": department_code,
+                "source_rows": 0,
+                **{metric: ZERO for metric in METRIC_KEYS},
+            },
+        )
+        aggregate["source_rows"] += 1
+        for metric in METRIC_KEYS:
+            aggregate[metric] += _num(metrics.get(metric))
+
+    # 店铺和个人维度均只统计FBA/海外仓；本地仓仅保留在组别汇总。
     for source_type, rows in (
         ("FBA", fba_rows),
         ("OVERSEAS", overseas_rows),
-        ("LOCAL", local_rows),
     ):
         for row in rows:
             if source_type == "FBA":
-                platform, dimension_type = "AMZ", "GROUP"
-                dimension_value = row.get("group_code") or "未分组"
+                platform = "AMZ"
+                dimensions = (
+                    ("STORE", _store_dimension_name(row.get("store_name"))),
+                    ("OWNER", row.get("principal_name")),
+                )
             elif source_type == "OVERSEAS":
-                platform, dimension_type = row["platform_code"], "OWNER"
-                dimension_value = row.get("principal_name") or UNASSIGNED
-            elif row["platform_code"] == "AMZ":
-                platform, dimension_type = "AMZ", "WAREHOUSE"
-                dimension_value = row.get("ware_house_name") or "未知仓库"
-            else:
-                platform, dimension_type = "EBAY", "OWNER"
-                dimension_value = row.get("principal_name") or UNASSIGNED
-            key = (
-                source_type,
-                platform,
-                dimension_type,
-                dimension_value,
-                row.get("department_code"),
-            )
-            aggregate = aggregates.setdefault(
-                key,
-                {
-                    "stat_month": month,
-                    "source_type": source_type,
-                    "platform_code": platform,
-                    "dimension_type": dimension_type,
-                    "dimension_value": dimension_value,
-                    "department_code": row.get("department_code"),
-                    "source_rows": 0,
-                    **{metric: ZERO for metric in METRIC_KEYS},
-                },
-            )
-            aggregate["source_rows"] += 1
-            for metric in METRIC_KEYS:
-                aggregate[metric] += row[metric]
+                platform = row["platform_code"]
+                # 海外仓当前全部为eBay，按要求不生成店铺维度。
+                dimensions = (("OWNER", row.get("principal_name")),)
+            metrics = dict(row)
+            for dimension_type, dimension_value in dimensions:
+                add(
+                    source_type,
+                    platform,
+                    dimension_type,
+                    dimension_value,
+                    row.get("department_code"),
+                    metrics,
+                )
     return list(aggregates.values())
 
 
@@ -928,6 +1136,55 @@ def _sales_target(row: dict[str, Any]) -> Decimal:
     return (inventory_target + total_target) / Decimal("2")
 
 
+def _inventory_health_maps(pull_month: str):
+    """按组别、店铺和负责人分别统计181天以上去重SKU数。"""
+    rows = repo.inventory_age_health_rows(pull_month)
+    group_skus: dict[str, set[str]] = defaultdict(set)
+    store_skus: dict[tuple[str, str], set[str]] = defaultdict(set)
+    owner_skus: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+    platforms: set[str] = set()
+    # 库龄快照使用页面展示月，库存负责人规则使用其对应的源数据月。
+    rule_month = _previous_month(pull_month)
+    amazon_rules = _amazon_rule_maps(repo.owner_rules(rule_month, "amazon"))
+    ebay_rules = _ebay_rule_map(repo.owner_rules(rule_month, "ebay"))
+    ebay_sku_map = _ebay_product_sku_map(pull_month, include_next=False)
+    for row in rows:
+        platform = normalize_text(row.get("platform_code")).upper()
+        platforms.add(platform)
+        sku = normalize_text(row.get("sku"))
+        is_aged_sku = int(row.get("is_aged_sku") or 0) == 1
+        if platform == "EBAY":
+            department = "EBAY-1"
+            principal, _match_source = _ebay_assignment(
+                sku, ebay_rules, ebay_sku_map
+            )
+        else:
+            group = normalize_text(row.get("group_code")).upper()
+            department = _department(group)
+            store_name = normalize_text(row.get("store_name"))
+            principal, _match_source, _matched_group = _amazon_assignment(
+                store_name, sku, amazon_rules
+            )
+        if not department or not sku or not is_aged_sku:
+            continue
+        group_skus[department].add(sku)
+        if platform == "AMZ":
+            store_skus[
+                (department, _store_dimension_name(store_name))
+            ].add(sku)
+        owner_skus[(platform, department, principal)].add(sku)
+    group_totals = {
+        key: Decimal(len(values)) for key, values in group_skus.items()
+    }
+    store_totals = {
+        key: Decimal(len(values)) for key, values in store_skus.items()
+    }
+    owner_totals = {
+        key: Decimal(len(values)) for key, values in owner_skus.items()
+    }
+    return group_totals, store_totals, owner_totals, platforms
+
+
 def _amazon_rule_maps(rows):
     rules: dict[tuple[str, str, str], str] = {}
     store_rules: dict[str, tuple[str, str]] = {}
@@ -986,14 +1243,53 @@ def _amazon_assignment(store_name, sku, rule_maps):
     return UNASSIGNED, "UNMATCHED", group
 
 
-def _ebay_assignment(sku, rules):
-    brand_code = parse_brand_code_from_sku(normalize_text(sku))
+def _ebay_product_sku_map(
+    stat_month: str,
+    *,
+    include_next: bool = True,
+) -> dict[str, str]:
+    """读取产品映射；月度报表优先使用展示月（源月的次月）快照。"""
+    mapping = repo.ebay_product_sku_map(stat_month)
+    if include_next:
+        mapping.update(repo.ebay_product_sku_map(_next_month(stat_month)))
+    return mapping
+
+
+def _resolve_ebay_sku(sku, sku_map=None) -> str:
+    """将JMH仓库SKU还原成带真实品牌前缀的领星完整SKU。"""
+    original = normalize_text(sku).upper()
+    if not original.startswith("JMH-") or not sku_map:
+        return original
+    middle = original[4:]
+    candidate = middle
+    while candidate:
+        resolved = sku_map.get(candidate)
+        if resolved:
+            return normalize_text(resolved).upper()
+        parts = candidate.rsplit("-", 1)
+        if len(parts) < 2 or candidate.count("-") <= 1:
+            break
+        candidate = parts[0]
+    return original
+
+
+def _ebay_assignment(sku, rules, sku_map=None):
+    original_sku = normalize_text(sku).upper()
+    resolved_sku = _resolve_ebay_sku(original_sku, sku_map)
+    brand_code = parse_brand_code_from_sku(resolved_sku)
     if brand_code in {"FLL", "LEJ"}:
         return "方黎力", "EBAY_FIXED_BRAND"
     if brand_code == "CL":
         return "陈丽", "EBAY_FIXED_BRAND"
     principal = rules.get(brand_code, UNASSIGNED)
-    return principal, "EBAY_BRAND" if principal != UNASSIGNED else "UNMATCHED"
+    if principal == UNASSIGNED:
+        return principal, "UNMATCHED"
+    match_source = (
+        "EBAY_PRODUCT_SKU_BRAND"
+        if resolved_sku != original_sku
+        else "EBAY_BRAND"
+    )
+    return principal, match_source
 
 
 def _amazon_group(store_name: str) -> str | None:
@@ -1085,6 +1381,12 @@ def _store_segment(store_name: str) -> str:
     return parts[1] if len(parts) > 1 else store_name
 
 
+def _store_dimension_name(store_name: str | None) -> str:
+    """店铺维度忽略组别前缀和国家站点后缀，只保留中间店铺主体。"""
+    store = normalize_text(store_name)
+    return _store_segment(store) if store else ""
+
+
 def _month(value: str | None) -> str:
     month = value or datetime.now().strftime("%Y-%m")
     if not re.fullmatch(r"20\d{2}-(0[1-9]|1[0-2])", month):
@@ -1097,6 +1399,13 @@ def _next_month(stat_month: str) -> str:
     if month == 12:
         return f"{year + 1:04d}-01"
     return f"{year:04d}-{month + 1:02d}"
+
+
+def _previous_month(stat_month: str) -> str:
+    year, month = (int(part) for part in stat_month.split("-", 1))
+    if month == 1:
+        return f"{year - 1:04d}-12"
+    return f"{year:04d}-{month - 1:02d}"
 
 
 def _json_ready(row: dict[str, Any]) -> dict[str, Any]:

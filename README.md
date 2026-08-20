@@ -23,13 +23,13 @@ JMH Data Platform 是一套为跨境电商真实业务场景设计的全栈数�
 
 > 多源数据采集 → 数据清洗与分层 → 业务规则计算 → 人工审核 → 可视化分析 → Excel 交付 → 定时调度与日志追踪
 
-项目采用 **Java + Python 双后端、三个前端应用、双业务数据库** 的协作架构。Java 服务负责统一认证、权限控制、核心业务与任务编排；Python 服务专注 ETL、Excel 解析、数据分析和 AI 能力；多个前端根据使用场景分别承载综合 ERP、数据处理工作台与图片 SOP。
+项目采用 **Java + Python 双后端、两个前端应用、双业务数据库** 的协作架构。Java 服务负责统一认证、权限控制、核心业务与任务编排；Python 服务专注 ETL、Excel 解析、数据分析和 AI 能力；前端分为 ERP 综合后台与 Python 脚本工作台，图片 SOP 等自动化页面作为工作台组件统一接入。
 
 ## 项目亮点
 
 - **真实复杂业务建模**：覆盖 Amazon / eBay 商品、库存、补货、利润、售后、物流、报关与退税等核心链路。
 - **Java + Python 双后端协作**：Java 承担企业应用治理，Python 处理数据密集型与 AI 场景，通过内部令牌和请求 ID 安全通信。
-- **三类前端形态统一接入**：综合 ERP、轻量数据工作台、内嵌式 Image SOP 既可独立运行，也可在统一菜单体系下协同使用。
+- **脚本前端统一接入**：ERP 负责业务菜单，Python 脚本工作台集中承载 Image SOP 等自动化组件，避免在 ERP 中重复开发包装页面。
 - **数据仓库分层设计**：采用 ODS / DWD 等分层表保存源数据与清洗结果，结构化字段替代大段 Raw JSON，便于检索、校验和追溯。
 - **增量同步与幂等写入**：支持按月份、时间区间、订单号和业务唯一键增量更新，避免重复数据，并保留批次与执行日志。
 - **任务链路化编排**：使用 Quartz 组织多步骤任务，支持定时执行、手动触发、执行策略、失败记录和同步告警。
@@ -49,10 +49,9 @@ flowchart LR
         AI["DeepSeek API"]
     end
 
-    subgraph Frontends["三个前端应用"]
+    subgraph Frontends["两个前端应用"]
         ERP["ERP 管理后台<br/>Vue 3 + Element Plus"]
-        DATA["数据处理工作台<br/>Vue 3 + Vite"]
-        SOP["Image SOP<br/>原生 HTML / CSS / JS"]
+        DATA["Python 脚本工作台<br/>Vue 3 + Vite<br/>内含 Image SOP 组件"]
     end
 
     subgraph Services["应用服务层"]
@@ -72,7 +71,6 @@ flowchart LR
     Sources --> PY
     ERP --> JAVA
     DATA --> PY
-    SOP --> PY
     JAVA <-->|"内部 API + Token + Request ID"| PY
     JOB --> JAVA
     JOB --> PY
@@ -88,13 +86,12 @@ flowchart LR
 | 层级 | 主要职责 |
 |---|---|
 | ERP 前端 | 统一菜单、权限路由、运营管理、财务分析、SOP 页面和系统监控 |
-| 数据工作台 | 文件批量导入、报关退税、库存查询、绩效验证和独立数据服务调试 |
-| Image SOP 前端 | Listing 查询、NAS 选图、图片预览、AI 分析和 Excel 生成 |
+| Python 脚本工作台 | 统一承载 Python 自动化页面；当前包含 Image SOP，后续脚本按组件扩展 |
 | Java 服务 | 登录认证、RBAC、核心业务、第三方接口、定时任务、审计日志与 Python 代理 |
 | Python 服务 | ETL、Excel 解析、数据分层、动态指标计算、AI 分类与图片处理 |
 | MySQL / Redis | 业务数据、数据仓库、任务状态、权限配置、缓存与会话 |
 
-## 三个前端应用
+## 两个前端应用
 
 ### 1. ERP 综合管理后台
 
@@ -112,27 +109,19 @@ flowchart LR
 - 智能助手：抽屉式 AI 对话入口，由 Python 服务统一调用模型。
 - 系统管理：用户、角色、菜单、字典、参数、通知、操作日志和定时任务。
 
-### 2. 数据处理工作台
+### 2. Python 脚本工作台
 
 目录：`Date-Project/frontend`
 
-一个轻量级 Vue 3 + Vite 独立应用，直接对接 FastAPI，面向数据处理人员提供更聚焦的批量作业界面。它既是可独立部署的数据工具，也是复杂 ETL 功能进入 ERP 前的验证工作台。
+一个 Vue 3 + Vite 独立应用，由 FastAPI 统一托管生产构建，入口为 `/script-tools/`。ERP 的“脚本菜单”只保留轻量安全网关：Java 读取当前用户权限、签发 Image SOP 作用域会话后，再加载 Python 工作台，不再重复实现脚本业务页面。
 
-主要能力包括：
+当前只接入 Image SOP，后续 Python 脚本通过独立 Vue 组件和工具注册项加入侧边导航。原有外汇退税工作台页面已从该入口移除，其 Python API 保留给 ERP 正式页面使用；已下线的亚马逊主图批量上传及紫鸟相关代码不再包含在项目中。
 
-- 递归导入报关资料文件夹，并异步轮询批处理进度。
-- 导入采购发票汇总与外汇回款数据。
-- 根据报关单批量生成出口、进货明细及最终交付压缩包。
-- 按 FIFO 规则查询采购发票库存及剩余数量。
-- 查看 Amazon / eBay / 综合绩效排名并验证负责人规则。
-- 查看内部定时任务定义、运行状态和最近执行记录。
-- 通过 iframe 集成 Image SOP，也支持在独立窗口中打开。
-
-### 3. Image SOP 内嵌应用
+#### Image SOP 组件
 
 目录：`Date-Project/frontend/public/image-sop`
 
-采用原生 HTML、CSS 与 JavaScript 实现的轻量内嵌应用，无需额外构建即可由 FastAPI 静态托管，也可通过 ERP 的 Java 代理安全接入。该设计降低了独立工具嵌入企业后台的成本。
+原有 HTML、CSS 与 JavaScript 页面保持不变，由 `ImageSopTool.vue` 封装进脚本工作台，因此原查询、NAS 选图、AI 分析和 Excel 导出流程无需重写。
 
 主要流程包括：
 
@@ -350,7 +339,7 @@ npm run dev
 
 默认访问地址：`http://127.0.0.1:5173`
 
-### 4. 启动数据处理工作台
+### 4. 启动 Python 脚本工作台（开发模式）
 
 ```powershell
 Set-Location .\Date-Project\frontend
@@ -358,9 +347,11 @@ npm install
 npm run dev
 ```
 
-默认访问地址：`http://127.0.0.1:5174`
+开发访问地址：`http://127.0.0.1:5174`
 
-Image SOP 由 Python 服务托管，可通过 `http://127.0.0.1:8010/image-sop/` 独立访问，也可以从 ERP 的 SOP 菜单进入。
+执行 `Date-Project/restart-all.cmd` 时会自动构建工作台并由 Python 服务托管，生产入口为 `http://127.0.0.1:8010/script-tools/`。Image SOP 仍可通过 `http://127.0.0.1:8010/image-sop/` 独立访问。
+
+Java 通过 `PYTHON_SCRIPT_WORKBENCH_URL` 配置浏览器可访问的工作台地址；未配置且 ERP 不是在本机打开时，前端会自动把默认的 `127.0.0.1` 替换为当前 ERP 主机名。HTTPS 部署建议由 Nginx 将 `/python-tools/` 反向代理到 Python 8010，避免浏览器阻止混合内容。
 
 ## 生产部署
 

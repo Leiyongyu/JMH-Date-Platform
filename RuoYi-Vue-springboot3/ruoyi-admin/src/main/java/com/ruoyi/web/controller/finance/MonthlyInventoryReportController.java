@@ -69,6 +69,26 @@ public class MonthlyInventoryReportController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list')")
+    @GetMapping("/dimension-summary")
+    public AjaxResult dimensionSummary(
+            @RequestParam String dimensionType,
+            @RequestParam(required = false) String statMonth,
+            @RequestHeader(value = "X-Request-ID", required = false)
+            String requestId)
+    {
+        try
+        {
+            return success(data(
+                    pythonClient.monthlyInventoryReportDimensionSummary(
+                            dimensionType, statMonth, requestId)));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list')")
     @GetMapping("/list")
     public AjaxResult list(
             @RequestParam String sourceType,

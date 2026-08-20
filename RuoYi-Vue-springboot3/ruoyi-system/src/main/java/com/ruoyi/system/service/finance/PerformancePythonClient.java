@@ -115,6 +115,16 @@ public class PerformancePythonClient extends PythonHttpSupport
         return get("/monthly-inventory-report/summary", params, requestId);
     }
 
+    public Map<String, Object> monthlyInventoryReportDimensionSummary(
+            String dimensionType, String statMonth, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("dimension_type", dimensionType);
+        params.put("stat_month", statMonth);
+        return get("/monthly-inventory-report/dimension-summary",
+                params, requestId);
+    }
+
     public Map<String, Object> monthlyInventoryReportDetails(
             Map<String, ?> params, String requestId)
     {

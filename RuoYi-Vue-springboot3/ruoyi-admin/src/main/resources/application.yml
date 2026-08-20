@@ -218,16 +218,9 @@ ai-assistant:
 image-sop:
   python:
     base-url: ${IMAGE_SOP_PYTHON_BASE_URL:http://127.0.0.1:8010/image-sop}
+    workbench-url: ${PYTHON_SCRIPT_WORKBENCH_URL:http://127.0.0.1:8010/script-tools/}
     connect-timeout: 5000
     read-timeout: 900000
-    internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
-
-# SOP脚本菜单：Amazon主图批量上传，通过Java临时会话代理访问Python
-script-tools:
-  python:
-    base-url: ${AMAZON_IMAGE_UPLOAD_PYTHON_BASE_URL:http://127.0.0.1:8010/amazon-image-upload}
-    connect-timeout: 5000
-    read-timeout: 10800000
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
 
 # Python 绩效排名服务

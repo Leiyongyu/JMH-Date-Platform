@@ -181,6 +181,36 @@ def owner_rules(stat_month: str, platform: str) -> list[dict[str, Any]]:
         return list(cursor.fetchall())
 
 
+def ebay_product_sku_map(snapshot_month: str) -> dict[str, str]:
+    """按去品牌前缀后的SKU，读取唯一的领星非JMH完整SKU。"""
+    database = _source_database()
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT sku_middle,MAX(sku) AS resolved_sku
+            FROM (
+                SELECT DISTINCT sku,
+                       CASE WHEN LOCATE('-',sku)>0
+                            THEN SUBSTRING(sku,LOCATE('-',sku)+1)
+                            ELSE sku END AS sku_middle
+                FROM `{database}`.`ods_lingxing_product_procurement_monthly`
+                WHERE snapshot_month=%s AND sku IS NOT NULL
+                  AND TRIM(sku)<>'' AND UPPER(sku) NOT LIKE 'JMH-%%'
+            ) products
+            GROUP BY sku_middle
+            HAVING COUNT(DISTINCT sku)=1
+            """,
+            (snapshot_month,),
+        )
+        return {
+            str(row["sku_middle"]).strip().upper(): str(
+                row["resolved_sku"]
+            ).strip().upper()
+            for row in cursor.fetchall()
+            if row.get("sku_middle") and row.get("resolved_sku")
+        }
+
+
 def replace_ebay_sales_source_month(
     stat_month: str,
     rows: list[dict[str, Any]],
@@ -363,6 +393,96 @@ def department_summary(stat_month: str | None = None) -> dict[str, Any]:
         return {"stat_month": month, "items": list(cursor.fetchall())}
 
 
+def dimension_summary(
+    dimension_type: str,
+    stat_month: str | None = None,
+) -> dict[str, Any]:
+    """按店铺或负责人透视海外仓/FBA仓月度库存指标。"""
+    dimension = str(dimension_type or "").strip().upper()
+    if dimension not in {"STORE", "OWNER"}:
+        raise ValueError("dimension_type必须是STORE或OWNER")
+    with db_connection() as connection, connection.cursor() as cursor:
+        month = stat_month
+        if not month:
+            cursor.execute(
+                "SELECT MAX(stat_month) AS stat_month "
+                "FROM dws_inventory_report_dimension_summary "
+                "WHERE dimension_type=%s",
+                (dimension,),
+            )
+            month = cursor.fetchone()["stat_month"]
+        if not month:
+            return {"stat_month": None, "items": []}
+        dimension_filter = (
+            " AND platform_code='AMZ' AND source_type='FBA'"
+            if dimension == "STORE"
+            else " AND source_type IN ('OVERSEAS','FBA')"
+        )
+        cursor.execute(
+            f"""
+            SELECT
+                stat_month,
+                platform_code,
+                dimension_type,
+                dimension_value,
+                department_code,
+                COALESCE(SUM(source_rows),0) AS source_rows,
+                COALESCE(SUM(CASE WHEN source_type='LOCAL'
+                    THEN end_in_transit_qty ELSE 0 END),0)
+                    AS local_end_in_transit_qty,
+                COALESCE(SUM(CASE WHEN source_type='LOCAL'
+                    THEN end_in_transit_total_cost ELSE 0 END),0)
+                    AS local_end_in_transit_total_cost,
+                COALESCE(SUM(CASE WHEN source_type='LOCAL'
+                    THEN end_inventory_qty ELSE 0 END),0)
+                    AS local_end_inventory_qty,
+                COALESCE(SUM(CASE WHEN source_type='LOCAL'
+                    THEN end_inventory_total_cost ELSE 0 END),0)
+                    AS local_end_inventory_total_cost,
+                COALESCE(SUM(CASE WHEN source_type='OVERSEAS'
+                    THEN end_in_transit_qty ELSE 0 END),0)
+                    AS overseas_end_in_transit_qty,
+                COALESCE(SUM(CASE WHEN source_type='OVERSEAS'
+                    THEN end_in_transit_total_cost ELSE 0 END),0)
+                    AS overseas_end_in_transit_total_cost,
+                COALESCE(SUM(CASE WHEN source_type='OVERSEAS'
+                    THEN end_inventory_qty ELSE 0 END),0)
+                    AS overseas_end_inventory_qty,
+                COALESCE(SUM(CASE WHEN source_type='OVERSEAS'
+                    THEN end_inventory_total_cost ELSE 0 END),0)
+                    AS overseas_end_inventory_total_cost,
+                COALESCE(SUM(CASE WHEN source_type='FBA'
+                    THEN end_in_transit_qty ELSE 0 END),0)
+                    AS fba_end_in_transit_qty,
+                COALESCE(SUM(CASE WHEN source_type='FBA'
+                    THEN end_in_transit_total_cost ELSE 0 END),0)
+                    AS fba_end_in_transit_total_cost,
+                COALESCE(SUM(CASE WHEN source_type='FBA'
+                    THEN end_inventory_qty ELSE 0 END),0)
+                    AS fba_end_inventory_qty,
+                COALESCE(SUM(CASE WHEN source_type='FBA'
+                    THEN end_inventory_total_cost ELSE 0 END),0)
+                    AS fba_end_inventory_total_cost,
+                COALESCE(SUM(end_in_transit_total_cost
+                    + end_inventory_total_cost),0) AS total_goods_value
+            FROM dws_inventory_report_dimension_summary
+            WHERE stat_month=%s AND dimension_type=%s{dimension_filter}
+            GROUP BY stat_month,platform_code,dimension_type,
+                     dimension_value,department_code
+            ORDER BY
+                CASE department_code
+                    WHEN 'EBAY-1' THEN 1 WHEN 'AMZ-EU' THEN 2
+                    WHEN 'AMZ-US1' THEN 3 WHEN 'AMZ-US2' THEN 4
+                    WHEN 'AMZ-US2-MJ' THEN 5 WHEN 'AMZ-US1-ZXY' THEN 6
+                    ELSE 99
+                END,
+                platform_code,dimension_value
+            """,
+            (month, dimension),
+        )
+        return {"stat_month": month, "items": list(cursor.fetchall())}
+
+
 def opening_inventory_by_department(
     stat_month: str,
 ) -> dict[str, Decimal | None]:
@@ -470,6 +590,31 @@ def inventory_age_group_costs(pull_month: str) -> dict[str, dict[str, Any]]:
             str(row["group_code"]): row
             for row in cursor.fetchall()
         }
+
+
+def inventory_age_health_rows(pull_month: str) -> list[dict[str, Any]]:
+    """读取Amazon FBA与eBay海外仓SKU库龄明细，用于统计181天以上SKU数。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT 'AMZ' AS platform_code,group_code,store_name,
+                   COALESCE(NULLIF(sku,''),seller_sku) AS sku,
+                   CASE WHEN inventory_181_plus_qty>0 THEN 1 ELSE 0 END
+                       AS is_aged_sku
+            FROM dwd_amz_fba_inventory_monthly_snapshot
+            WHERE pull_month=%s
+            UNION ALL
+            SELECT 'EBAY' AS platform_code,'EBAY-1' AS group_code,
+                   NULL AS store_name,COALESCE(NULLIF(sku,''),sku_middle) AS sku,
+                   CASE WHEN inventory_age_bucket='181_PLUS'
+                              AND inventory_quantity>0
+                        THEN 1 ELSE 0 END AS is_aged_sku
+            FROM dwd_ebay_inventory_age_cost_snapshot
+            WHERE pull_month=%s
+            """,
+            (pull_month, pull_month),
+        )
+        return list(cursor.fetchall())
 
 
 def order_profit_rows(stat_month: str) -> list[dict[str, Any]]:
@@ -614,6 +759,57 @@ def amz_sales_amount_by_department(
             str(row["department_code"]): row.get("sales_amount") or ZERO
             for row in cursor.fetchall()
         }
+
+
+def sales_amount_by_owner(
+    stat_month: str,
+) -> dict[tuple[str, str, str], Decimal]:
+    """按平台、组别和负责人汇总月度实际达成金额。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT platform_code,department_code,principal_name,
+                   COALESCE(SUM(amount),0) AS sales_amount
+            FROM (
+                SELECT 'AMZ' AS platform_code,department_code,
+                       principal_name,amount
+                FROM dwd_inventory_report_amz_sales_detail
+                WHERE stat_month=%s
+                UNION ALL
+                SELECT 'EBAY' AS platform_code,department_code,
+                       principal_name,amount
+                FROM dwd_inventory_report_ebay_sales_detail
+                WHERE stat_month=%s
+            ) sales
+            WHERE department_code IS NOT NULL
+            GROUP BY platform_code,department_code,principal_name
+            """,
+            (stat_month, stat_month),
+        )
+        return {
+            (
+                str(row["platform_code"]),
+                str(row["department_code"]),
+                str(row["principal_name"]),
+            ): row.get("sales_amount") or ZERO
+            for row in cursor.fetchall()
+        }
+
+
+def amz_sales_amount_by_store(stat_month: str) -> list[dict[str, Any]]:
+    """读取Amazon店铺销售额；店铺主体名称由服务层统一归并站点。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT department_code,store_name,
+                   COALESCE(SUM(amount),0) AS sales_amount
+            FROM dwd_inventory_report_amz_sales_detail
+            WHERE stat_month=%s AND department_code IS NOT NULL
+            GROUP BY department_code,store_name
+            """,
+            (stat_month,),
+        )
+        return list(cursor.fetchall())
 
 
 def ebay_sales_amount(stat_month: str) -> Decimal | None:

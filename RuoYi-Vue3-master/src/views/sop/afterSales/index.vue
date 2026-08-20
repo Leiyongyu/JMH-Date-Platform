@@ -22,7 +22,7 @@
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="sales">上传月销量表</el-dropdown-item>
-              <el-dropdown-item command="history" divided>上传一次性历史售后+销量</el-dropdown-item>
+              <el-dropdown-item command="history" divided>上传标准月度售后+销量</el-dropdown-item>
               <el-dropdown-item command="afterSales">上传后续售后订单表</el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -34,10 +34,22 @@
           accept=".xlsx,.xlsm"
           @change="handleImportFile"
         />
+        <el-button
+          v-if="activePlatform === 'amz'"
+          v-hasPermi="['sop:afterSales:sync']"
+          type="warning"
+          plain
+          :loading="syncing"
+          :disabled="!selectedMonths.length || loading || rangeBuilding"
+          @click="handleAmzRefresh"
+        >
+          <el-icon><Refresh /></el-icon>
+          重新拉取区间
+        </el-button>
         <el-dropdown
           v-hasPermi="['sop:afterSales:export']"
           trigger="click"
-          :disabled="!query.startDate || !query.endDate || loading || rangeBuilding || exporting"
+          :disabled="!selectedMonths.length || !query.startDate || !query.endDate || loading || rangeBuilding || exporting"
           @command="handleExportCommand"
         >
           <el-button type="primary" plain :loading="exporting">
@@ -74,9 +86,9 @@
 
     <section class="summary-grid">
       <div class="summary-card accent-blue">
-        <span>统计周期</span>
-        <strong>{{ query.startDate || '--' }}</strong>
-        <small>至 {{ query.endDate || '--' }}</small>
+        <span>统计月份</span>
+        <strong>{{ selectedMonthLabel }}</strong>
+        <small>{{ selectedPeriodDescription }}</small>
       </div>
       <div class="summary-card accent-indigo">
         <span>SKU 数量</span>
@@ -93,23 +105,32 @@
         <strong>{{ number(summary.order_count) }}</strong>
         <small>按订单号去重</small>
       </div>
+      <div class="summary-card accent-cyan">
+        <span>区间全部销量</span>
+        <strong>{{ number(summary.range_sales_volume) }}</strong>
+        <small>包含没有售后的SKU</small>
+      </div>
+      <div class="summary-card accent-red">
+        <span>区间整体售后率</span>
+        <strong>{{ percent(summary.range_after_sales_rate) }}</strong>
+        <small>{{ number(summary.range_after_quantity) }} ÷ {{ number(summary.range_sales_volume) }}</small>
+      </div>
     </section>
 
     <el-card shadow="never" class="content-card">
       <div class="filters">
         <el-date-picker
-          v-model="dateRange"
-          type="daterange"
+          v-model="selectedMonths"
+          type="monthrange"
           class="period-picker"
           unlink-panels
           range-separator="至"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          format="YYYY-MM-DD"
-          value-format="YYYY-MM-DD"
-          :shortcuts="dateShortcuts"
-          :disabled-date="disableUnavailableDate"
-          @change="handleDateChange"
+          start-placeholder="开始月份"
+          end-placeholder="结束月份"
+          format="YYYY年MM月"
+          value-format="YYYY-MM"
+          :disabled-date="disableUnavailableMonth"
+          @change="handleMonthRangeChange"
         />
         <el-input v-model="query.sku" clearable placeholder="搜索 SKU" @keyup.enter="handleQuery" />
         <el-input v-model="query.smallCategory" clearable placeholder="搜索售后小类" @keyup.enter="handleQuery" />
@@ -120,7 +141,7 @@
       </div>
 
       <div class="range-hint">
-        可选数据范围：{{ coverageStart || '--' }} 至 {{ coverageEnd || '--' }}；{{ rangeHint }}
+        可选月份：{{ coverageMonthStart || '--' }} 至 {{ coverageMonthEnd || '--' }}；{{ rangeHint }}
       </div>
       <el-alert
         v-if="rangeBuilding"
@@ -156,7 +177,7 @@
         row-key="id"
         class="result-table"
         stripe
-        element-loading-text="正在计算所选日期段的售后率..."
+        element-loading-text="正在计算所选月份的售后率..."
         @selection-change="handleSelectionChange"
       >
         <el-table-column type="selection" width="48" align="center" reserve-selection />
@@ -251,15 +272,17 @@ import {
   getAfterSalesCategories,
   importEbayAfterSalesFile,
   listAfterSales,
-  listAfterSalesPeriods
+  listAfterSalesPeriods,
+  syncAmzAfterSales
 } from '@/api/sop/afterSales'
 
 const loading = ref(false)
 const exporting = ref(false)
 const importing = ref(false)
+const syncing = ref(false)
 const rangeBuilding = ref(false)
 const rangeMessage = ref('')
-const dateRange = ref([])
+const selectedMonths = ref([])
 const coverageStart = ref('')
 const coverageEnd = ref('')
 const tableRef = ref()
@@ -300,53 +323,63 @@ const platformDescription = computed(() => activePlatform.value === 'amz'
   : '数字酋长源文件按批次上传，原始字段保留，清洗层自动完成站点、SKU、退款类型和十类售后汇总。')
 
 const rangeHint = computed(() => activePlatform.value === 'amz'
-  ? '新日期段首次查询会在后台生成并缓存。'
-  : '售后率按当前选择日期实时重新汇总，重复上传按订单和SKU覆盖。')
+  ? '支持连续1至12个月；新月份区间首次查询会生成缓存，也可手工重新拉取。'
+  : '支持连续1至12个月；售后率按所选月份区间实时重新汇总。')
+
+const coverageMonthStart = computed(() => coverageStart.value?.slice(0, 7) || '')
+const coverageMonthEnd = computed(() => coverageEnd.value?.slice(0, 7) || '')
+
+const selectedMonthLabel = computed(() => {
+  const [start, end] = selectedMonths.value || []
+  if (!start || !end) return '--'
+  return start === end ? start : `${start} 至 ${end}`
+})
+
+const selectedPeriodDescription = computed(() => {
+  if (!query.startDate || !query.endDate) return '请选择月份'
+  const endMonth = selectedMonths.value?.[1]
+  const naturalEnd = monthEnd(endMonth)
+  return query.endDate === naturalEnd
+    ? `${query.startDate} 至 ${query.endDate}`
+    : `${query.startDate} 至 ${query.endDate}（当月已有数据）`
+})
 
 const categoryOptions = computed(() => [
   { label: '全部', value: '' },
   ...bigCategories.value.map(item => ({ label: item, value: item }))
 ])
 
-const dateShortcuts = [
-  { text: '最近7天', value: () => recentDays(7) },
-  { text: '最近30天', value: () => recentDays(30) },
-  {
-    text: '本月',
-    value: () => {
-      const end = availableEndDate()
-      return [new Date(end.getFullYear(), end.getMonth(), 1), end]
-    }
-  },
-  {
-    text: '本年度',
-    value: () => {
-      const end = availableEndDate()
-      return [new Date(end.getFullYear(), 0, 1), end]
-    }
+function monthStart(value) {
+  return /^\d{4}-\d{2}$/.test(value || '') ? `${value}-01` : ''
+}
+
+function monthEnd(value) {
+  if (!/^\d{4}-\d{2}$/.test(value || '')) return ''
+  const [year, month] = value.split('-').map(Number)
+  return `${value}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`
+}
+
+function applyMonthRange(value) {
+  const [startMonth, endMonth] = value || []
+  if (!startMonth || !endMonth) {
+    query.startDate = undefined
+    query.endDate = undefined
+    return
   }
-]
-
-function recentDays(days) {
-  const end = availableEndDate()
-  const start = new Date(end)
-  start.setDate(start.getDate() - days + 1)
-  return [start, end]
+  const naturalStart = monthStart(startMonth)
+  const naturalEnd = monthEnd(endMonth)
+  query.startDate = coverageStart.value && coverageStart.value > naturalStart
+    ? coverageStart.value : naturalStart
+  query.endDate = coverageEnd.value && coverageEnd.value < naturalEnd
+    ? coverageEnd.value : naturalEnd
 }
 
-function availableEndDate() {
-  return coverageEnd.value
-    ? new Date(`${coverageEnd.value}T00:00:00`)
-    : new Date()
-}
-
-function disableUnavailableDate(time) {
-  const value = time.getTime()
-  const min = coverageStart.value
-    ? new Date(`${coverageStart.value}T00:00:00`).getTime()
-    : undefined
-  const max = availableEndDate().getTime()
-  return (min !== undefined && value < min) || value > max
+function disableUnavailableMonth(time) {
+  const value = `${time.getFullYear()}-${String(time.getMonth() + 1).padStart(2, '0')}`
+  return Boolean(
+    (coverageMonthStart.value && value < coverageMonthStart.value) ||
+    (coverageMonthEnd.value && value > coverageMonthEnd.value)
+  )
 }
 
 function number(value) {
@@ -359,7 +392,7 @@ function percent(value) {
 
 async function loadMetadata(resetPeriod = false) {
   if (resetPeriod) {
-    dateRange.value = []
+    selectedMonths.value = []
     query.startDate = undefined
     query.endDate = undefined
   }
@@ -377,11 +410,11 @@ async function loadMetadata(resetPeriod = false) {
     (value, item) => !value || item.period_end > value ? item.period_end : value,
     ''
   )
-  if (!dateRange.value.length && periods.length) {
+  if (!selectedMonths.value.length && periods.length) {
     const latest = periods[0]
-    dateRange.value = [latest.period_start, latest.period_end]
-    query.startDate = latest.period_start
-    query.endDate = latest.period_end
+    const latestMonth = String(latest.period_end || latest.period_start).slice(0, 7)
+    selectedMonths.value = [latestMonth, latestMonth]
+    applyMonthRange(selectedMonths.value)
   }
 }
 
@@ -402,7 +435,7 @@ async function loadData(isPolling = false) {
       total.value = 0
       Object.keys(summary).forEach(key => delete summary[key])
       rangeBuilding.value = true
-      rangeMessage.value = response.rangeMessage || '正在后台生成所选日期段的售后率'
+      rangeMessage.value = response.rangeMessage || '正在后台生成所选月份区间的售后率'
       scheduleRangePoll()
       return
     }
@@ -414,7 +447,10 @@ async function loadData(isPolling = false) {
     if (!query.startDate && response.periodStart) {
       query.startDate = response.periodStart
       query.endDate = response.periodEnd
-      dateRange.value = [response.periodStart, response.periodEnd]
+      selectedMonths.value = [
+        String(response.periodStart).slice(0, 7),
+        String(response.periodEnd).slice(0, 7)
+      ]
     }
   } catch (error) {
     if (sequence === loadSequence) stopRangePoll()
@@ -450,8 +486,8 @@ async function chooseImportType(type) {
   if (type === 'history') {
     try {
       await ElMessageBox.confirm(
-        '历史文件应同时包含“售后数据”和“销量”工作表，仅用于首次导入8月之前的数据。重复上传会按业务键覆盖，并重建历史月销量，不会重复累计。是否继续？',
-        '上传一次性历史售后及销量',
+        '标准文件应同时包含“售后数据”和“销量”工作表。系统只覆盖文件中包含的月份，不会清空其他月份；同月修正后可重新上传。是否继续？',
+        '上传标准月度售后及销量',
         { type: 'warning', confirmButtonText: '继续选择文件', cancelButtonText: '取消' }
       )
     } catch {
@@ -503,14 +539,52 @@ function stopRangePoll() {
   rangeMessage.value = ''
 }
 
-function handleDateChange(value) {
-  const [startDate, endDate] = value || []
-  query.startDate = startDate || undefined
-  query.endDate = endDate || undefined
+function handleMonthRangeChange(value) {
+  const [startMonth, endMonth] = value || []
+  if (startMonth && endMonth) {
+    const [startYear, startValue] = startMonth.split('-').map(Number)
+    const [endYear, endValue] = endMonth.split('-').map(Number)
+    const monthCount = (endYear - startYear) * 12 + endValue - startValue + 1
+    if (monthCount > 12) {
+      ElMessage.warning('单次最多查询连续12个月')
+      selectedMonths.value = []
+      applyMonthRange([])
+      return
+    }
+  }
+  applyMonthRange(value)
   query.pageNum = 1
   stopRangePoll()
   clearSelection()
-  loadData()
+  if (value?.length === 2) {
+    loadData()
+    return
+  }
+  rows.value = []
+  total.value = 0
+  Object.keys(summary).forEach(key => delete summary[key])
+}
+
+async function handleAmzRefresh() {
+  if (!query.startDate || !query.endDate) return
+  try {
+    await ElMessageBox.confirm(
+      `将重新拉取${query.startDate}至${query.endDate}的领星销量和售后数据，并覆盖该区间汇总。是否继续？`,
+      '重新拉取AMZ售后区间',
+      { type: 'warning', confirmButtonText: '开始拉取', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  syncing.value = true
+  try {
+    await syncAmzAfterSales(query.startDate, query.endDate)
+    ElMessage.success('AMZ售后区间重新拉取并计算完成')
+    await loadMetadata()
+    await loadData()
+  } finally {
+    syncing.value = false
+  }
 }
 
 function selectCategory(value) {
@@ -646,7 +720,7 @@ onBeforeUnmount(stopRangePoll)
 .platform-card.active .platform-state { color: #2563eb; font-weight: 600; }
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -664,6 +738,8 @@ onBeforeUnmount(stopRangePoll)
 .accent-blue { border-top-color: #3b82f6; }
 .accent-indigo { border-top-color: #6366f1; }
 .accent-green { border-top-color: #10b981; }
+.accent-cyan { border-top-color: #06b6d4; }
+.accent-red { border-top-color: #ef4444; }
 .accent-orange { border-top-color: #f59e0b; }
 .content-card { border-radius: 12px; }
 .filters {
