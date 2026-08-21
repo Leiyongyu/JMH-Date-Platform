@@ -206,10 +206,10 @@
           <template #default="{ row }">{{ money(salesSprintTarget(row)) }}</template>
         </el-table-column>
         <el-table-column prop="actual_achievement_amount" label="实际达成" min-width="145" align="right">
-          <template #default="{ row }">{{ money(row.actual_achievement_amount) }}</template>
+          <template #default="{ row }">{{ optionalMoney(row.actual_achievement_amount) }}</template>
         </el-table-column>
         <el-table-column prop="target_achievement_rate" label="目标达成率" min-width="135" align="right">
-          <template #default="{ row }">{{ percent(row.target_achievement_rate) }}</template>
+          <template #default="{ row }">{{ optionalPercent(row.target_achievement_rate) }}</template>
         </el-table-column>
         <el-table-column min-width="175" align="right">
           <template #header>
@@ -333,7 +333,7 @@
           min-width="150"
           align="right"
         >
-          <template #default="{ row }">{{ money(row.actual_achievement_amount) }}</template>
+          <template #default="{ row }">{{ optionalMoney(row.actual_achievement_amount) }}</template>
         </el-table-column>
         <el-table-column
           prop="target_achievement_rate"
@@ -341,7 +341,7 @@
           min-width="135"
           align="right"
         >
-          <template #default="{ row }">{{ percent(row.target_achievement_rate) }}</template>
+          <template #default="{ row }">{{ optionalPercent(row.target_achievement_rate) }}</template>
         </el-table-column>
       </el-table>
     </el-card>
@@ -506,9 +506,15 @@ const dimensionDisplayRows = computed(() => {
       0
     )
   })
-  total.target_achievement_rate = total.sales_target_amount
+  const actualValues = dimensionRows.value.map(row => row?.actual_achievement_amount)
+  const actualComplete = actualValues.length > 0
+    && actualValues.every(value => hasReportMetric(value))
+  total.actual_achievement_amount = actualComplete
+    ? actualValues.reduce((sum, value) => sum + numberValue(value), 0)
+    : null
+  total.target_achievement_rate = actualComplete && total.sales_target_amount
     ? total.actual_achievement_amount / total.sales_target_amount
-    : 0
+    : null
   const healthInventoryQty =
     total.overseas_end_inventory_qty + total.fba_end_inventory_qty
   const healthRows = dimensionRows.value.filter(row => (
@@ -638,10 +644,7 @@ function overseasFbaInventoryAmount(row) {
 
 function turnoverDaysByValue(row) {
   if (Number(row?.is_total) === 1) {
-    const actualAmount = editableSummaryRows.value.reduce(
-      (sum, item) => sum + numberValue(item.actual_achievement_amount),
-      0
-    )
+    const actualAmount = reportMetricValue(row, 'actual_achievement_amount')
     if (!actualAmount) {
       return null
     }

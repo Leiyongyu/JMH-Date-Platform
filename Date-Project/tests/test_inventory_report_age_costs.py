@@ -72,7 +72,7 @@ def test_next_month_handles_year_boundary():
     assert service._next_month("2026-12") == "2027-01"
 
 
-def test_department_summary_uses_source_month_sales_volume(monkeypatch):
+def test_department_summary_uses_report_month_sales_volume(monkeypatch):
     departments = [
         ("EBAY-1", 0),
         ("AMZ-EU", 0),
@@ -114,7 +114,7 @@ def test_department_summary_uses_source_month_sales_volume(monkeypatch):
     assert rows["AMZ-EU"]["monthly_sales_qty"] == "12"
     assert rows["AMZ-US1"]["monthly_sales_qty"] == "0"
     assert rows["AUTO-PARTS-TOTAL"]["monthly_sales_qty"] == "21"
-    assert rows["AUTO-PARTS-TOTAL"]["sales_volume_month"] == "2026-07"
+    assert rows["AUTO-PARTS-TOTAL"]["sales_volume_month"] == "2026-08"
     assert rows["EBAY-1"]["actual_achievement_amount"] == "90"
     assert rows["AMZ-EU"]["actual_achievement_amount"] == "120"
     assert rows["AUTO-PARTS-TOTAL"]["actual_achievement_amount"] == "210"

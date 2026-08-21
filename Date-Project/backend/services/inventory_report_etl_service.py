@@ -235,7 +235,7 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
     month = data["stat_month"]
     report_month = _next_month(month) if month else None
     age_cost_month = _next_month(month) if month else None
-    sales_volume_month = month
+    sales_volume_month = report_month
     age_costs = (
         repo.inventory_age_group_costs(age_cost_month)
         if age_cost_month
@@ -370,21 +370,22 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
         if int(item.get("is_total") or 0) != 1:
             if department == "EBAY-1":
                 item["actual_achievement_amount"] = (
-                    _num(ebay_actual) if ebay_actual is not None else ZERO
+                    _num(ebay_actual) if ebay_actual is not None else None
                 )
             elif department.startswith("AMZ-"):
                 item["actual_achievement_amount"] = (
                     _num(amz_actual_by_department.get(department))
                     if amz_actual_by_department is not None
-                    else ZERO
+                    else None
                 )
             else:
-                item["actual_achievement_amount"] = ZERO
+                item["actual_achievement_amount"] = None
             sales_target = _sales_target(item)
+            actual_amount = item["actual_achievement_amount"]
             item["target_achievement_rate"] = (
-                item["actual_achievement_amount"] / sales_target
-                if sales_target != ZERO
-                else ZERO
+                actual_amount / sales_target
+                if actual_amount is not None and sales_target != ZERO
+                else None
             )
         items.append(item)
     detail_items = [item for item in items if int(item.get("is_total") or 0) != 1]
@@ -393,15 +394,23 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
         None,
     )
     if total_item is not None:
-        total_item["actual_achievement_amount"] = sum(
-            (_num(item.get("actual_achievement_amount")) for item in detail_items),
-            ZERO,
+        actual_values = [
+            item.get("actual_achievement_amount") for item in detail_items
+        ]
+        actual_complete = bool(actual_values) and all(
+            value is not None for value in actual_values
+        )
+        total_item["actual_achievement_amount"] = (
+            sum((_num(value) for value in actual_values), ZERO)
+            if actual_complete
+            else None
         )
         total_target = sum((_sales_target(item) for item in detail_items), ZERO)
+        total_actual = total_item["actual_achievement_amount"]
         total_item["target_achievement_rate"] = (
-            total_item["actual_achievement_amount"] / total_target
-            if total_target != ZERO
-            else ZERO
+            total_actual / total_target
+            if total_actual is not None and total_target != ZERO
+            else None
         )
         total_item["actual_achievement_month"] = sales_volume_month
     return {
@@ -424,17 +433,22 @@ def get_dimension_summary(
     report_month = (
         _next_month(data["stat_month"]) if data["stat_month"] else None
     )
-    sales_month = data["stat_month"]
+    actual_platforms: set[str] = set()
+    if report_month:
+        if repo.amz_sales_amount_by_department(report_month) is not None:
+            actual_platforms.add("AMZ")
+        if repo.ebay_sales_amount(report_month) is not None:
+            actual_platforms.add("EBAY")
     sales_by_owner = (
-        repo.sales_amount_by_owner(sales_month)
-        if dimension == "OWNER" and sales_month
+        repo.sales_amount_by_owner(report_month)
+        if dimension == "OWNER" and report_month
         else {}
     )
     sales_by_store: dict[tuple[str, str], Decimal] = defaultdict(
         lambda: ZERO
     )
-    if dimension == "STORE" and sales_month:
-        for sales_row in repo.amz_sales_amount_by_store(sales_month):
+    if dimension == "STORE" and report_month:
+        for sales_row in repo.amz_sales_amount_by_store(report_month):
             key = (
                 normalize_text(sales_row.get("department_code")).upper(),
                 _store_dimension_name(sales_row.get("store_name")),
@@ -487,12 +501,17 @@ def get_dimension_summary(
                 inventory_amount + transit_amount
             )
             item["sales_target_amount"] = sales_target
-            item["actual_achievement_amount"] = actual
-            item["target_achievement_rate"] = (
-                actual / sales_target if sales_target != ZERO else ZERO
-            )
-            item["actual_achievement_month"] = sales_month
             platform = normalize_text(item.get("platform_code")).upper()
+            actual_available = platform in actual_platforms
+            item["actual_achievement_amount"] = (
+                actual if actual_available else None
+            )
+            item["target_achievement_rate"] = (
+                actual / sales_target
+                if actual_available and sales_target != ZERO
+                else None
+            )
+            item["actual_achievement_month"] = report_month
             department = normalize_text(
                 item.get("department_code")
             ).upper()
