@@ -233,8 +233,9 @@ def list_months(limit: int = 24) -> list[dict[str, Any]]:
 def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
     data = repo.department_summary(stat_month)
     month = data["stat_month"]
+    report_month = _next_month(month) if month else None
     age_cost_month = _next_month(month) if month else None
-    sales_volume_month = _next_month(month) if month else None
+    sales_volume_month = month
     age_costs = (
         repo.inventory_age_group_costs(age_cost_month)
         if age_cost_month
@@ -406,7 +407,7 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
     return {
         "stat_month": month,
         "source_stat_month": month,
-        "report_month": sales_volume_month,
+        "report_month": report_month,
         "items": [_json_ready(item) for item in items],
     }
 
@@ -423,16 +424,17 @@ def get_dimension_summary(
     report_month = (
         _next_month(data["stat_month"]) if data["stat_month"] else None
     )
+    sales_month = data["stat_month"]
     sales_by_owner = (
-        repo.sales_amount_by_owner(report_month)
-        if dimension == "OWNER" and report_month
+        repo.sales_amount_by_owner(sales_month)
+        if dimension == "OWNER" and sales_month
         else {}
     )
     sales_by_store: dict[tuple[str, str], Decimal] = defaultdict(
         lambda: ZERO
     )
-    if dimension == "STORE" and report_month:
-        for sales_row in repo.amz_sales_amount_by_store(report_month):
+    if dimension == "STORE" and sales_month:
+        for sales_row in repo.amz_sales_amount_by_store(sales_month):
             key = (
                 normalize_text(sales_row.get("department_code")).upper(),
                 _store_dimension_name(sales_row.get("store_name")),
@@ -489,7 +491,7 @@ def get_dimension_summary(
             item["target_achievement_rate"] = (
                 actual / sales_target if sales_target != ZERO else ZERO
             )
-            item["actual_achievement_month"] = report_month
+            item["actual_achievement_month"] = sales_month
             platform = normalize_text(item.get("platform_code")).upper()
             department = normalize_text(
                 item.get("department_code")

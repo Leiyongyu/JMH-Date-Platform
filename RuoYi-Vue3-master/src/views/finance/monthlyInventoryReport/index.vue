@@ -824,7 +824,7 @@ async function handleCalculate() {
 }
 
 async function handleEbaySalesUpload(options) {
-  const uploadMonth = currentNaturalMonth()
+  const uploadMonth = previousNaturalMonth(currentNaturalMonth())
   const file = options.file
   if (!/\.(xlsx|xlsm)$/i.test(file?.name || '')) {
     proxy.$modal.msgError('只支持.xlsx或.xlsm文件')
