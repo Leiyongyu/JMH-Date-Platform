@@ -45,13 +45,12 @@
               <el-button
                 type="warning"
                 :loading="ebaySalesUploading || purchaseOrderUploading"
-                :disabled="!statMonth"
               >
                 上传数据 ▾
               </el-button>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="ebay" :disabled="!statMonth">
+                  <el-dropdown-item command="ebay">
                     <el-popover
                       placement="right-start"
                       :width="920"
@@ -75,7 +74,7 @@
                       </div>
                     </el-popover>
                   </el-dropdown-item>
-                  <el-dropdown-item command="purchaseOrder" :disabled="!sourceStatMonth">
+                  <el-dropdown-item command="purchaseOrder">
                     <el-popover
                       placement="right-start"
                       :width="920"
@@ -120,7 +119,6 @@
           <el-button
             type="primary"
             :loading="calculating"
-            :disabled="!statMonth"
             v-hasPermi="['finance:monthlyInventoryReport:edit']"
             @click="handleCalculate"
           >
@@ -387,6 +385,20 @@ function nextNaturalMonth(value) {
   const [year, month] = value.split('-').map(Number)
   const next = new Date(year, month, 1)
   return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`
+}
+
+function previousNaturalMonth(value) {
+  if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(String(value || ''))) {
+    return ''
+  }
+  const [year, month] = value.split('-').map(Number)
+  const previous = new Date(year, month - 2, 1)
+  return `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, '0')}`
+}
+
+function currentNaturalMonth() {
+  const current = new Date()
+  return `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`
 }
 
 function periodReportMonth(item) {
@@ -795,16 +807,14 @@ async function loadSummary() {
 }
 
 async function handleCalculate() {
-  if (!sourceStatMonth.value) {
-    proxy.$modal.msgWarning('请先选择年份和月份')
-    return
-  }
+  const reportMonth = currentNaturalMonth()
+  const calculationMonth = previousNaturalMonth(reportMonth)
   calculating.value = true
   try {
-    const response = await rebuildMonthlyInventoryReport(sourceStatMonth.value)
+    const response = await rebuildMonthlyInventoryReport(calculationMonth)
     const result = response.data || {}
     proxy.$modal.msgSuccess(
-      `计算完成，共生成 ${result.department_summary_rows || 0} 条最终汇总数据`
+      `${reportMonth} 报表计算完成，共生成 ${result.department_summary_rows || 0} 条最终汇总数据`
     )
     await loadPeriods()
     await loadSummary()
@@ -814,10 +824,7 @@ async function handleCalculate() {
 }
 
 async function handleEbaySalesUpload(options) {
-  if (!statMonth.value) {
-    proxy.$modal.msgWarning('请先选择上传数据所属的年份和月份')
-    return
-  }
+  const uploadMonth = currentNaturalMonth()
   const file = options.file
   if (!/\.(xlsx|xlsm)$/i.test(file?.name || '')) {
     proxy.$modal.msgError('只支持.xlsx或.xlsm文件')
@@ -825,7 +832,7 @@ async function handleEbaySalesUpload(options) {
   }
   ebaySalesUploading.value = true
   try {
-    const response = await importMonthlyInventoryEbaySales(statMonth.value, file)
+    const response = await importMonthlyInventoryEbaySales(uploadMonth, file)
     const result = response.data || {}
     proxy.$modal.msgSuccess(
       `导入完成：${result.inserted_rows || 0}条，实际达成${money(result.total_amount)}`
@@ -870,10 +877,8 @@ async function handlePurchaseOrderFileChange(event) {
 }
 
 async function handlePurchaseOrderUpload(options) {
-  if (!sourceStatMonth.value) {
-    proxy.$modal.msgWarning('请先选择年份和月份')
-    return
-  }
+  const reportMonth = currentNaturalMonth()
+  const uploadMonth = previousNaturalMonth(reportMonth)
   const file = options.file
   if (!/\.(xlsx|xlsm)$/i.test(file?.name || '')) {
     proxy.$modal.msgError('只支持.xlsx或.xlsm文件')
@@ -881,7 +886,7 @@ async function handlePurchaseOrderUpload(options) {
   }
   purchaseOrderUploading.value = true
   try {
-    const response = await importMonthlyInventoryPurchaseOrder(sourceStatMonth.value, file)
+    const response = await importMonthlyInventoryPurchaseOrder(uploadMonth, file)
     const result = response.data || {}
     proxy.$modal.msgSuccess(
       `导入完成：${result.inserted_rows || 0}条，待到货${qty(result.total_pending_arrival_qty)}，总成本${money(result.total_pending_cost)}`
@@ -942,6 +947,7 @@ onMounted(async () => {
 .monthly-inventory-upload {
   display: inline-flex;
   vertical-align: middle;
+  margin-right: 12px;
 }
 
 :global(.monthly-inventory-upload__item) {
