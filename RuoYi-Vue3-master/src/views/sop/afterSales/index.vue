@@ -21,9 +21,8 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="sales">上传月销量表</el-dropdown-item>
-              <el-dropdown-item command="history" divided>上传标准月度售后+销量</el-dropdown-item>
-              <el-dropdown-item command="afterSales">上传后续售后订单表</el-dropdown-item>
+              <el-dropdown-item command="monthly">上传指定月份售后+销量</el-dropdown-item>
+              <el-dropdown-item command="history" divided>首次上传历史售后+销量</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -288,6 +287,7 @@ const coverageEnd = ref('')
 const tableRef = ref()
 const fileInput = ref()
 const pendingImportType = ref('')
+const pendingImportMonth = ref('')
 const activePlatform = ref('amz')
 const selectedRows = ref([])
 const rows = ref([])
@@ -314,17 +314,17 @@ const platformOptions = [
   },
   {
     value: 'ebay', code: 'eBay', label: 'eBay 售后率',
-    description: '上传数字酋长销量和售后文件'
+    description: '按自然月上传标准售后及销量文件'
   }
 ]
 
 const platformDescription = computed(() => activePlatform.value === 'amz'
-  ? '订单利润与售后订单按周更新，自动完成去重、翻译、分类及售后率汇总。'
-  : '数字酋长源文件按批次上传，原始字段保留，清洗层自动完成站点、SKU、退款类型和十类售后汇总。')
+  ? '每周刷新当月；新月份首次任务强制补拉上个完整自然月，并自动完成去重、翻译、分类及售后率汇总。'
+  : '首次可导入多月历史数据，后续按自然月整月覆盖；原始层和清洗层均保留可追溯数据。')
 
 const rangeHint = computed(() => activePlatform.value === 'amz'
-  ? '支持连续1至12个月；新月份区间首次查询会生成缓存，也可手工重新拉取。'
-  : '支持连续1至12个月；售后率按所选月份区间实时重新汇总。')
+  ? '支持连续1至12个月；新月份区间首次查询会生成版本缓存，也可手工重新拉取。'
+  : '支持连续1至12个月；上传后自动失效旧缓存，首次查询按所选月份重新汇总。')
 
 const coverageMonthStart = computed(() => coverageStart.value?.slice(0, 7) || '')
 const coverageMonthEnd = computed(() => coverageEnd.value?.slice(0, 7) || '')
@@ -483,11 +483,28 @@ async function changePlatform(platform) {
 }
 
 async function chooseImportType(type) {
+  if (type === 'monthly') {
+    try {
+      const { value } = await ElMessageBox.prompt(
+        '请输入要整月覆盖的月份（YYYY-MM）。文件必须同时包含“售后数据”和“销量”工作表，且所有数据都属于该月份。',
+        '上传 eBay 月度售后及销量',
+        {
+          confirmButtonText: '继续选择文件', cancelButtonText: '取消',
+          inputValue: selectedMonths.value?.[0] || '',
+          inputPattern: /^20\d{2}-(0[1-9]|1[0-2])$/,
+          inputErrorMessage: '请输入YYYY-MM格式月份'
+        }
+      )
+      pendingImportMonth.value = value
+    } catch {
+      return
+    }
+  }
   if (type === 'history') {
     try {
       await ElMessageBox.confirm(
-        '标准文件应同时包含“售后数据”和“销量”工作表。系统只覆盖文件中包含的月份，不会清空其他月份；同月修正后可重新上传。是否继续？',
-        '上传标准月度售后及销量',
+        '仅首次初始化使用：标准文件应同时包含“售后数据”和“销量”工作表，可包含多个自然月。以后每月请使用“上传指定月份售后+销量”。是否继续？',
+        '首次上传历史售后及销量',
         { type: 'warning', confirmButtonText: '继续选择文件', cancelButtonText: '取消' }
       )
     } catch {
@@ -508,12 +525,13 @@ async function handleImportFile(event) {
   if (!/\.(xlsx|xlsm)$/i.test(file.name)) {
     ElMessage.error('只支持 .xlsx 或 .xlsm 文件')
     pendingImportType.value = ''
+    pendingImportMonth.value = ''
     if (event.target) event.target.value = ''
     return
   }
   importing.value = true
   try {
-    const response = await importEbayAfterSalesFile(type, file)
+    const response = await importEbayAfterSalesFile(type, file, pendingImportMonth.value)
     const result = response.data || {}
     ElMessage.success(
       `${result.message || '导入完成'}：原始层${number(result.raw_rows)}行，清洗层${number(result.dwd_rows)}行，跳过${number(result.skipped_rows)}行`
@@ -523,6 +541,7 @@ async function handleImportFile(event) {
   } finally {
     importing.value = false
     pendingImportType.value = ''
+    pendingImportMonth.value = ''
     if (event.target) event.target.value = ''
   }
 }

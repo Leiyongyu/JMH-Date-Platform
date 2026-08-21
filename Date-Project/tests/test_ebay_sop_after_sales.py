@@ -222,6 +222,9 @@ def test_future_after_sales_uses_classifier_and_currency_source(monkeypatch):
 
 def test_product_summary_recalculates_selected_date_range(monkeypatch):
     captured = {}
+    monkeypatch.setattr(service.state_repo, "range_ready", lambda *args: False)
+    monkeypatch.setattr(service.state_repo, "range_lock", lambda *args: nullcontext())
+    monkeypatch.setattr(service.state_repo, "mark_range_ready", lambda *args: None)
     monkeypatch.setattr(service.repo, "coverage", lambda: (date(2026, 1, 1), date(2026, 8, 31)))
     monkeypatch.setattr(service.repo, "has_partial_monthly_history", lambda *_: False)
     monkeypatch.setattr(
@@ -295,6 +298,8 @@ def _mock_import_batch(monkeypatch):
     monkeypatch.setattr(service, "_finish_batch", lambda *args, **kwargs: None)
     monkeypatch.setattr(service, "_fail_batch", lambda *args, **kwargs: None)
     monkeypatch.setattr(service.repo, "import_lock", lambda *args: nullcontext())
+    monkeypatch.setattr(service.state_repo, "month_counts", lambda *_: (0, 0))
+    monkeypatch.setattr(service.state_repo, "refresh_month", lambda *args: None)
 
 
 def test_sales_import_skips_existing_order_and_keeps_all_skus_of_new_order(monkeypatch):
@@ -406,3 +411,25 @@ def test_history_import_replaces_history_partition(monkeypatch):
     assert len(captured["after_dwd"]) == 1
     assert len(captured["sales_dwd"]) == 1
     assert result["dwd_rows"] == 2
+
+
+def test_monthly_import_validates_and_replaces_exact_month(monkeypatch):
+    _mock_import_batch(monkeypatch)
+    content = _history_workbook_bytes([], [["2026年7月", "eBay-US", "SKU-1", 10]])
+    captured = {}
+
+    def replace_history(after_raw, sales_raw, after_dwd, sales_dwd, forced_months=None):
+        captured["forced_months"] = forced_months
+        return len(after_raw), len(sales_raw), len(after_dwd), len(sales_dwd)
+
+    monkeypatch.setattr(service.repo, "replace_history_data", replace_history)
+    monkeypatch.setattr(service.state_repo, "month_counts", lambda *_: (1, 0))
+    monkeypatch.setattr(service.state_repo, "refresh_month", lambda *args: None)
+
+    result = service.import_ebay_monthly(
+        content, "monthly.xlsx", "2026-07", "tester"
+    )
+
+    assert captured["forced_months"] == ["2026-07"]
+    assert result["stat_month"] == "2026-07"
+    assert result["after_sales_dwd_rows"] == 0

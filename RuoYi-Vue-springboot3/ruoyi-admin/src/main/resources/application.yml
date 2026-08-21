@@ -194,6 +194,12 @@ goodcang:
 sync:
   alert:
     enabled: true
+    # 默认只发送失败、异常和卡死告警，正常开始/成功/恢复不推送。
+    notify-started: ${SYNC_ALERT_NOTIFY_STARTED:false}
+    notify-success: ${SYNC_ALERT_NOTIFY_SUCCESS:false}
+    notify-recovery: ${SYNC_ALERT_NOTIFY_RECOVERY:false}
+    # 任务超过该时长未结束时发送卡死告警，设为0可关闭。
+    max-runtime-minutes: ${SYNC_ALERT_MAX_RUNTIME_MINUTES:90}
     webhook-url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=da6d9357-6841-4ce7-a5f9-223bff0931de
   connect-timeout: 30000
   read-timeout: 30000

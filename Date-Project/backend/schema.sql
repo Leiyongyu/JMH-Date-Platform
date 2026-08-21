@@ -759,7 +759,7 @@ CREATE TABLE IF NOT EXISTS dwd_inventory_age_cost_monthly (
     KEY idx_inventory_age_cost_month_group (cost_month,group_code),
     KEY idx_inventory_age_cost_batch (import_batch_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT='DWD-每月上传的部门海外仓库龄成本快照';
+COMMENT='历史人工上传库龄成本表，功能已停用；滞销清货改为直接读取上一个自然月的自动库龄快照';
 
 CREATE TABLE IF NOT EXISTS ai_conversations (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

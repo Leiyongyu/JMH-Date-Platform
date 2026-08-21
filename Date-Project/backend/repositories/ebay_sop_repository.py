@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from backend.database import db_connection
+from backend.repositories import after_sales_state_repository as state_repo
 
 
 RAW_ORDER_COLUMNS = (
@@ -218,6 +219,9 @@ def replace_history_sales(rows: list[dict[str, Any]]) -> int:
                         """,
                         rows,
                     )
+                cursor.execute(
+                    "DELETE FROM etl_after_sales_range_state WHERE platform='EBAY'"
+                )
             connection.commit()
         except Exception:
             connection.rollback()
@@ -230,6 +234,7 @@ def replace_history_data(
     sales_raw_rows: list[dict[str, Any]],
     after_sales_dwd_rows: list[dict[str, Any]],
     sales_dwd_rows: list[dict[str, Any]],
+    forced_months: list[str] | None = None,
 ) -> tuple[int, int, int, int]:
     """Replace only months present in a standard history/monthly workbook."""
     after_months = sorted({
@@ -240,34 +245,38 @@ def replace_history_data(
         row["month_start"].strftime("%Y-%m")
         for row in sales_dwd_rows if row.get("month_start")
     })
-    affected_months = sorted(set(after_months) | set(sales_months))
+    affected_months = sorted(
+        set(after_months) | set(sales_months) | set(forced_months or [])
+    )
     with db_connection() as connection:
         try:
             with connection.cursor() as cursor:
-                if after_months:
-                    placeholders = ",".join(["%s"] * len(after_months))
+                delete_after_months = sorted(set(after_months) | set(forced_months or []))
+                delete_sales_months = sorted(set(sales_months) | set(forced_months or []))
+                if delete_after_months:
+                    placeholders = ",".join(["%s"] * len(delete_after_months))
                     cursor.execute(
                         "DELETE FROM ods_ebay_sop_after_sales_history "
                         f"WHERE DATE_FORMAT(refund_time,'%%Y-%%m') IN ({placeholders})",
-                        after_months,
+                        delete_after_months,
                     )
                     cursor.execute(
                         "DELETE FROM dwd_ebay_sop_after_sales "
                         f"WHERE source_kind='HISTORY' AND "
                         f"DATE_FORMAT(after_time,'%%Y-%%m') IN ({placeholders})",
-                        after_months,
+                        delete_after_months,
                     )
-                if sales_months:
-                    placeholders = ",".join(["%s"] * len(sales_months))
+                if delete_sales_months:
+                    placeholders = ",".join(["%s"] * len(delete_sales_months))
                     cursor.execute(
                         "DELETE FROM ods_ebay_sop_sales_history "
                         f"WHERE sale_month IN ({placeholders})",
-                        sales_months,
+                        delete_sales_months,
                     )
                     cursor.execute(
                         "DELETE FROM dwd_ebay_sop_sales_monthly "
                         f"WHERE DATE_FORMAT(month_start,'%%Y-%%m') IN ({placeholders})",
-                        sales_months,
+                        delete_sales_months,
                     )
                 if affected_months:
                     first_month = min(affected_months)
@@ -364,6 +373,9 @@ def replace_sales_range(
                         """,
                         rows,
                     )
+                cursor.execute(
+                    "DELETE FROM etl_after_sales_range_state WHERE platform='EBAY'"
+                )
             connection.commit()
         except Exception:
             connection.rollback()
@@ -399,6 +411,9 @@ def append_sales_orders(
                         """,
                         rows,
                     )
+                cursor.execute(
+                    "DELETE FROM etl_after_sales_range_state WHERE platform='EBAY'"
+                )
             connection.commit()
         except Exception:
             connection.rollback()
@@ -439,6 +454,9 @@ def append_after_sales_orders(
             with connection.cursor() as cursor:
                 _upsert_raw_orders(cursor, raw_rows)
                 _upsert_after_sales(cursor, rows)
+                cursor.execute(
+                    "DELETE FROM etl_after_sales_range_state WHERE platform='EBAY'"
+                )
             connection.commit()
         except Exception:
             connection.rollback()
@@ -447,6 +465,12 @@ def append_after_sales_orders(
 
 
 def coverage() -> tuple[date | None, date | None]:
+    saved_periods = state_repo.periods("EBAY", 100)
+    if saved_periods:
+        return (
+            min(row["period_start"] for row in saved_periods),
+            max(row["period_end"] for row in saved_periods),
+        )
     with db_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(

@@ -14,6 +14,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils.datetime import from_excel
 
 from backend.repositories import ebay_sop_repository as repo
+from backend.repositories import after_sales_state_repository as state_repo
 from backend.services.amz_sop_classifier import BIG_CATEGORIES, classify_rows
 
 
@@ -130,6 +131,15 @@ def import_ebay_history(
             row["after_time"].strftime("%Y-%m")
             for row in parsed["after_sales_dwd_rows"]
         })
+        for value in replaced_months:
+            month_start, month_end = _month_bounds(value)
+            sales_count, after_count = state_repo.month_counts(
+                "EBAY", month_start, month_end
+            )
+            state_repo.refresh_month(
+                "EBAY", month_start, month_end, sales_count, after_count,
+                True, batch["batch_id"],
+            )
         _finish_batch(batch["batch_id"], metrics)
         return {
             **batch,
@@ -150,7 +160,67 @@ def import_ebay_history(
 
 
 def list_periods(limit: int = 24) -> list[dict[str, Any]]:
-    return repo.periods(limit)
+    return state_repo.periods("EBAY", limit) or repo.periods(limit)
+
+
+def import_ebay_monthly(
+    content: bytes,
+    file_name: str,
+    stat_month: str,
+    operator: str | None = None,
+) -> dict[str, Any]:
+    month_bounds = _month_bounds(stat_month)
+    if not month_bounds:
+        raise ValueError("stat_month 必须为YYYY-MM格式")
+    month_start, month_end = month_bounds
+    batch = _start_batch(content, file_name, "MONTHLY", operator)
+    metrics = {"total_rows": 0, "raw_rows": 0, "dwd_rows": 0, "skipped_rows": 0}
+    try:
+        parsed = _parse_history_workbook(content, file_name, batch["batch_id"])
+        metrics["total_rows"] = parsed["total_rows"]
+        metrics["skipped_rows"] = parsed["skipped_rows"]
+        if not parsed["sales_dwd_rows"]:
+            raise ValueError("月度文件没有可导入的销量数据")
+        actual_months = {
+            row["month_start"].strftime("%Y-%m")
+            for row in parsed["sales_dwd_rows"]
+        } | {
+            row["after_time"].strftime("%Y-%m")
+            for row in parsed["after_sales_dwd_rows"]
+        }
+        if actual_months != {stat_month}:
+            raise ValueError(
+                f"文件数据月份为{('、'.join(sorted(actual_months)) or '空')}，"
+                f"与选择月份{stat_month}不一致"
+            )
+        with repo.import_lock("MONTHLY"):
+            counts = repo.replace_history_data(
+                parsed["after_sales_raw_rows"], parsed["sales_raw_rows"],
+                parsed["after_sales_dwd_rows"], parsed["sales_dwd_rows"],
+                forced_months=[stat_month],
+            )
+        after_raw_count, sales_raw_count, after_dwd_count, sales_dwd_count = counts
+        metrics["raw_rows"] = after_raw_count + sales_raw_count
+        metrics["dwd_rows"] = after_dwd_count + sales_dwd_count
+        sales_count, after_count = state_repo.month_counts(
+            "EBAY", month_start, month_end
+        )
+        state_repo.refresh_month(
+            "EBAY", month_start, month_end, sales_count, after_count,
+            True, batch["batch_id"],
+        )
+        _finish_batch(batch["batch_id"], metrics)
+        return {
+            **batch, **metrics, "stat_month": stat_month,
+            "after_sales_raw_rows": after_raw_count,
+            "after_sales_dwd_rows": after_dwd_count,
+            "sales_raw_rows": sales_raw_count,
+            "sales_dwd_rows": sales_dwd_count,
+            "message": f"eBay {stat_month} 月售后及销量整月覆盖完成",
+        }
+    except Exception as exc:
+        _fail_batch(batch["batch_id"], metrics, exc)
+        raise
 
 
 def _import_digital(
@@ -725,6 +795,15 @@ def _build_future_after_sales_rows(
 
 
 def _rebuild_summary(start_date: date, end_date: date) -> None:
+    if state_repo.range_ready("EBAY", start_date, end_date, SUMMARY_METRIC_VERSION):
+        return
+    with state_repo.range_lock("EBAY", start_date, end_date):
+        if state_repo.range_ready("EBAY", start_date, end_date, SUMMARY_METRIC_VERSION):
+            return
+        _rebuild_summary_unlocked(start_date, end_date)
+
+
+def _rebuild_summary_unlocked(start_date: date, end_date: date) -> None:
     after_rows = repo.after_sales_rows(start_date, end_date)
     sales = repo.sales_by_sku_source(start_date, end_date)
     sales_by_sku: dict[str, dict[str, Decimal]] = defaultdict(dict)
@@ -749,6 +828,12 @@ def _rebuild_summary(start_date: date, end_date: date) -> None:
         target["orders"].add(_text(row.get("order_no")))
         target["source_after"][source] += quantity
         target["after_quantity"] += quantity
+    after_sales_skus = {key[2] for key in grouped}
+    for sku in sales_by_sku.keys() - after_sales_skus:
+        grouped.setdefault(("其他", "无售后", sku), {
+            "orders": set(), "source_after": defaultdict(Decimal),
+            "after_quantity": Decimal("0"),
+        })
     generated_at = datetime.now()
     summary_rows = []
     for (big, small, sku), values in grouped.items():
@@ -772,6 +857,10 @@ def _rebuild_summary(start_date: date, end_date: date) -> None:
             "generated_at": generated_at,
         })
     repo.replace_summary_period(start_date, end_date, summary_rows)
+    state_repo.mark_range_ready(
+        "EBAY", start_date, end_date,
+        SUMMARY_METRIC_VERSION, len(summary_rows),
+    )
 
 
 def _aggregate_product_rows(

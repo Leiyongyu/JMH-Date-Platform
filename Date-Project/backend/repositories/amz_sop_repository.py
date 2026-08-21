@@ -7,6 +7,7 @@ from typing import Any
 
 from backend.database import db_connection
 from backend.repositories.performance_repository import shop_table_sql
+from backend.repositories import after_sales_state_repository as state_repo
 
 
 def shop_map() -> dict[str, str]:
@@ -509,7 +510,9 @@ def processed_after_sales_rows(
 def summary_period_exists(
     start_date: date, end_date: date, metric_version: str | None = None
 ) -> bool:
-    version_sql = " AND calculation_version=%s" if metric_version else ""
+    if metric_version:
+        return state_repo.range_ready("AMZ", start_date, end_date, metric_version)
+    version_sql = ""
     params: list[Any] = [start_date, end_date]
     if metric_version:
         params.append(metric_version)
@@ -543,6 +546,9 @@ def latest_period() -> tuple[date, date] | None:
 
 def periods(limit: int = 24) -> list[dict[str, Any]]:
     """Return selectable calendar months instead of arbitrary cached ranges."""
+    saved = state_repo.periods("AMZ", limit)
+    if saved:
+        return saved
     start, end = sales_date_bounds()
     if not start or not end or start > end:
         return []

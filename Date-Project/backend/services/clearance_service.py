@@ -8,7 +8,6 @@ from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
 from backend.integrations.lingxing.domains.inventory import LingXingInventoryDomain
-from backend.parsers.inventory_age_cost_parser import parse_inventory_age_cost_excel
 from backend.repositories import clearance_repository as repo
 
 TASK_CODE = "amz_fba_inventory_snapshot_sync"
@@ -18,30 +17,6 @@ MAX_PAGES = 10000
 PARTIAL_PAGE_RETRIES = 2
 PAGE_INTERVAL_SECONDS = 1.1
 logger = logging.getLogger(__name__)
-
-
-def import_inventory_age_cost(
-    content: bytes,
-    file_name: str,
-    operator: str | None = None,
-) -> dict:
-    parsed = parse_inventory_age_cost_excel(content, file_name)
-    with repo.connection() as conn:
-        try:
-            stats = repo.replace_inventory_age_cost_month(
-                conn, parsed["cost_month"], parsed["rows"], operator
-            )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-    return {
-        "batch_id": parsed["batch_id"],
-        "cost_month": parsed["cost_month"],
-        "total_rows": len(parsed["rows"]),
-        "amz_rows": parsed["amz_rows"],
-        **stats,
-    }
 
 
 def sync_fba_inventory(pull_month: str | None = None) -> dict:

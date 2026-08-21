@@ -8,6 +8,7 @@ from backend.repositories import amz_sop_repository as repo
 from backend.services import amz_sop_after_sales_service as service
 from backend.services.amz_sop_after_sales_service import (
     _aggregate_product_rows,
+    _automatic_start_date,
     _build_summary,
     _call_lingxing_with_retry,
     _default_start_date,
@@ -21,6 +22,24 @@ from backend.services.amz_sop_after_sales_service import (
     request_range_summary,
 )
 from backend.services.amz_sop_classifier import _fallback
+
+
+def test_weekly_start_refreshes_current_month_when_previous_is_finalized(monkeypatch):
+    monkeypatch.setattr(
+        service.state_repo, "previous_month_finalized", lambda *_: True
+    )
+    assert _automatic_start_date(date(2026, 9, 6), False) == (
+        date(2026, 9, 1), False
+    )
+
+
+def test_first_weekly_run_in_new_month_forces_previous_full_month(monkeypatch):
+    monkeypatch.setattr(
+        service.state_repo, "previous_month_finalized", lambda *_: False
+    )
+    assert _automatic_start_date(date(2026, 9, 6), False) == (
+        date(2026, 8, 1), True
+    )
 
 
 def _after_row(source_key, after_type, small_category, quantity=1):
@@ -55,6 +74,17 @@ def test_shop_name_maps_to_required_sources():
     assert data_source_for_shop("美国-恒游千") == "AMZ-US1"
     assert data_source_for_shop("US3-新志楠") == "AMZ-US2"
     assert data_source_for_shop("未配置店铺") == "AMZ-OTHER"
+
+
+def test_summary_keeps_sales_sku_with_zero_after_sales():
+    rows = _build_summary(
+        [], {("SKU-ZERO", "AMZ-EU"): Decimal("12")},
+        date(2026, 8, 1), date(2026, 8, 31), "batch",
+    )
+    assert len(rows) == 1
+    assert rows[0]["business_sku"] == "SKU-ZERO"
+    assert rows[0]["small_category"] == "无售后"
+    assert rows[0]["after_sales_rate"] == Decimal("0")
 
 
 def test_not_compatible_reason_is_deterministically_classified_as_product_mismatch():
@@ -323,6 +353,7 @@ def test_amz_query_accepts_whole_month_ranges_and_latest_partial_month():
 
 
 def test_amz_periods_are_calendar_months_not_cached_arbitrary_ranges(monkeypatch):
+    monkeypatch.setattr(repo.state_repo, "periods", lambda *_: [])
     monkeypatch.setattr(
         repo, "sales_date_bounds",
         lambda: (date(2026, 6, 14), date(2026, 8, 7)),

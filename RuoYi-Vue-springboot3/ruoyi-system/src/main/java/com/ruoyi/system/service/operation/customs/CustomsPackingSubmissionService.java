@@ -6,6 +6,7 @@ import com.ruoyi.system.domain.operation.customs.CustomsPackingSavedPayload;
 import com.ruoyi.system.domain.operation.customs.CustomsPackingSubmission;
 import com.ruoyi.system.mapper.operation.customs.CustomsPackingSubmissionMapper;
 import com.ruoyi.system.service.operation.external.lingxing.LingxingGatewayService;
+import com.ruoyi.system.service.operation.sync.SyncAlertService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -42,6 +43,7 @@ public class CustomsPackingSubmissionService
     private final LingxingGatewayService gateway;
     private final ObjectMapper objectMapper;
     private final Executor taskExecutor;
+    private final SyncAlertService alertService;
     private final Object requestLock = new Object();
     private long lastRequestAt;
 
@@ -49,12 +51,14 @@ public class CustomsPackingSubmissionService
             CustomsPackingSubmissionMapper mapper,
             LingxingGatewayService gateway,
             ObjectMapper objectMapper,
-            @Qualifier("syncTaskExecutor") Executor taskExecutor)
+            @Qualifier("syncTaskExecutor") Executor taskExecutor,
+            SyncAlertService alertService)
     {
         this.mapper = mapper;
         this.gateway = gateway;
         this.objectMapper = objectMapper;
         this.taskExecutor = taskExecutor;
+        this.alertService = alertService;
     }
 
     public List<CustomsPackingSubmission> list(
@@ -334,10 +338,14 @@ public class CustomsPackingSubmissionService
         {
             for (CustomsPackingSubmission submission : mapper.selectPending(20))
                 queryAndUpdateStatus(submission);
+            alertService.notifyBackgroundRecovery(
+                    "sta_packing_recovery", "STA装箱提交补偿轮询");
         }
         catch (Exception e)
         {
             LOG.warn("STA装箱提交补偿查询失败：{}", safeMessage(e), e);
+            alertService.notifyBackgroundFailure(
+                    "sta_packing_recovery", "STA装箱提交补偿轮询", safeMessage(e));
         }
     }
 

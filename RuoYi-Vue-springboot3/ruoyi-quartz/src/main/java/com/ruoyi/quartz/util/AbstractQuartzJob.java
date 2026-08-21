@@ -59,6 +59,7 @@ public abstract class AbstractQuartzJob implements Job
     protected void before(JobExecutionContext context, SysJob sysJob)
     {
         threadLocal.set(new Date());
+        notifyQuartzStarted(sysJob);
     }
 
     /**
@@ -114,9 +115,48 @@ public abstract class AbstractQuartzJob implements Job
             sysJobLog.setStatus(Constants.SUCCESS);
         }
 
+        // 全局企微通知覆盖所有Quartz任务，不再依赖各业务任务单独接入。
+        String notifyDetail = StringUtils.isNotEmpty(sysJobLog.getExceptionInfo())
+                ? sysJobLog.getExceptionInfo() : sysJobLog.getJobMessage();
+        notifyQuartzFinished(sysJob, Constants.SUCCESS.equals(sysJobLog.getStatus()), notifyDetail, runMs);
+
         // 写入数据库当中
         SpringUtils.getBean(ISysJobLogService.class).addJobLog(sysJobLog);
         clearOperationSyncContext();
+    }
+
+    private void notifyQuartzStarted(SysJob sysJob)
+    {
+        invokeAlert("notifyQuartzJobStarted",
+                new Class<?>[] { String.class, String.class, String.class, String.class },
+                String.valueOf(sysJob.getJobId()), sysJob.getJobName(),
+                sysJob.getJobGroup(), sysJob.getInvokeTarget());
+    }
+
+    private void notifyQuartzFinished(SysJob sysJob, boolean success, String detail, long runMs)
+    {
+        invokeAlert("notifyQuartzJobFinished",
+                new Class<?>[] { String.class, String.class, String.class, String.class,
+                        boolean.class, String.class, long.class },
+                String.valueOf(sysJob.getJobId()), sysJob.getJobName(),
+                sysJob.getJobGroup(), sysJob.getInvokeTarget(), success, detail, runMs);
+    }
+
+    /** 反射调用避免ruoyi-quartz对ruoyi-system形成循环编译依赖。 */
+    private void invokeAlert(String method, Class<?>[] parameterTypes, Object... args)
+    {
+        try
+        {
+            Class<?> serviceClass = Class.forName(
+                    "com.ruoyi.system.service.operation.sync.SyncAlertService");
+            Object service = SpringUtils.getBean(serviceClass);
+            serviceClass.getMethod(method, parameterTypes).invoke(service, args);
+        }
+        catch (Exception alertError)
+        {
+            // 告警通道不得影响业务任务和Quartz日志落库。
+            log.error("企微Quartz通知调用失败: {}", alertError.getMessage());
+        }
     }
 
     /**

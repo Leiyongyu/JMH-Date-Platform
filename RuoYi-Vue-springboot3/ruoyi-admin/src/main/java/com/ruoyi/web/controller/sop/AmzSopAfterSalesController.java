@@ -257,6 +257,27 @@ public class AmzSopAfterSalesController extends BaseController
         }
     }
 
+    @Log(title = "eBay-SOP月度售后及销量导入", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('sop:afterSales:import')")
+    @PostMapping("/ebay-monthly-import")
+    public AjaxResult importEbayMonthly(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("statMonth") String statMonth,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey)
+    {
+        try
+        {
+            return success(pythonClient.importEbaySopMonthly(
+                    file, statMonth, SecurityUtils.getUsername(),
+                    requestId, idempotencyKey).get("data"));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
     @Log(title = "eBay-SOP售后文件导入", businessType = BusinessType.IMPORT)
     @PreAuthorize("@ss.hasPermi('sop:afterSales:import')")
     @PostMapping("/ebay-after-sales-import")

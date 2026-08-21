@@ -26,7 +26,6 @@ from backend.services.performance_service import (
 from backend.services.performance_source_export_service import (
     export_amz_performance_source,
 )
-from backend.services.clearance_service import import_inventory_age_cost
 from backend.services.clearance_export_service import export_inventory_age_details
 from backend.services.inventory_report_etl_service import (
     get_department_summary,
@@ -208,6 +207,27 @@ async def post_ebay_sop_history_import(
     return await _run_ebay_sop_import(
         request, file, operator, ebay_sop_service.import_ebay_history, "eBay历史售后"
     )
+
+
+@router.post("/ebay-sop-after-sales/monthly-imports", status_code=201)
+async def post_ebay_sop_monthly_import(
+    request: Request,
+    file: UploadFile = File(...),
+    stat_month: str = "",
+    operator: str | None = None,
+):
+    content, file_name = await read_excel_upload(file)
+    try:
+        result = await run_in_threadpool(
+            ebay_sop_service.import_ebay_monthly,
+            content, file_name, stat_month, operator,
+        )
+        return success_response(
+            result, request_id=request.state.request_id,
+            message="eBay monthly after-sales imported",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/ebay-sop-after-sales/after-sales-imports", status_code=201)
@@ -472,31 +492,6 @@ async def post_monthly_inventory_report_purchase_order_import(
         request_id=request.state.request_id,
         message="monthly inventory purchase order transit imported",
     )
-
-
-@router.post("/slow-moving-clearance/inventory-age-cost-imports", status_code=201)
-async def post_inventory_age_cost_import(
-    request: Request,
-    file: UploadFile = File(...),
-    operator: str | None = None,
-):
-    content, file_name = await read_excel_upload(file)
-    try:
-        result = await run_in_threadpool(
-            import_inventory_age_cost,
-            content,
-            file_name,
-            operator,
-        )
-        return success_response(
-            result,
-            request_id=request.state.request_id,
-            message="inventory age cost imported",
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"库存成本导入失败: {exc}") from exc
 
 
 @router.get("/slow-moving-clearance/inventory-age-detail-exports")

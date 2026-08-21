@@ -24,18 +24,6 @@ export function listSlowMovingClearanceMonths(limit = 24) {
   })
 }
 
-export function importInventoryAgeCost(file) {
-  const data = new FormData()
-  data.append('file', file)
-  return request({
-    url: '/finance/slow-moving-clearance/inventory-age-cost/import',
-    method: 'post',
-    headers: { 'Content-Type': 'multipart/form-data' },
-    data,
-    timeout: 120000
-  })
-}
-
 export function exportInventoryAgeDetails(pullMonth) {
   return request({
     url: '/finance/slow-moving-clearance/inventory-age-cost/export',

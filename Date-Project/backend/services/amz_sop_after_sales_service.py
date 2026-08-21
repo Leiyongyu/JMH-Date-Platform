@@ -18,6 +18,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from backend.integrations.lingxing.domains.after_sales import LingXingAfterSalesDomain
 from backend.integrations.lingxing.domains.order_profit import LingXingOrderProfitDomain
 from backend.repositories import amz_sop_repository as repo
+from backend.repositories import after_sales_state_repository as state_repo
 from backend.services.amz_sop_classifier import BIG_CATEGORIES, classify_rows
 
 
@@ -28,7 +29,6 @@ SUMMARY_METRIC_VERSION = "QUANTITY-V3"
 _LINGXING_RATE_LIMIT_RETRIES = 4
 _LINGXING_RATE_LIMIT_BASE_WAIT_SEC = 10
 _LINGXING_REQUEST_INTERVAL_SEC = 2.0
-_RANGE_BUILD_LOCK = Lock()
 _RANGE_TASK_LOCK = Lock()
 _RANGE_TASKS: dict[tuple[date, date], dict[str, str]] = {}
 _RANGE_TASK_QUEUE: Queue[tuple[date, date]] = Queue()
@@ -94,13 +94,15 @@ def run_amz_sop_chain(
             raise ValueError("手工补跑必须同时提供 start_date 和 end_date")
         summary_end = end_date or date.today()
         source_status = repo.source_table_status()
-        initial_load = not (
-            source_status["sales_ready"]
-            and source_status["after_sales_ready"]
-        )
-        summary_start = start_date or _default_start_date(
-            summary_end, initial_load
-        )
+        # 售后源表为空也可能代表该月真实没有售后，不能据此反复全量初始化。
+        initial_load = not source_status["sales_ready"] and not state_repo.has_any_month("AMZ")
+        forced_previous_month = False
+        if start_date:
+            summary_start = start_date
+        else:
+            summary_start, forced_previous_month = _automatic_start_date(
+                summary_end, initial_load
+            )
         if summary_start > summary_end:
             raise ValueError("start_date 不能晚于 end_date")
         if (summary_end - summary_start).days > 365:
@@ -183,6 +185,13 @@ def run_amz_sop_chain(
                 month_start, month_end, batch_id
             )
             repo.replace_dwd_period(month_start, month_end, month_dwd_rows)
+            sales_count, after_count = state_repo.month_counts(
+                "AMZ", month_start, month_end
+            )
+            state_repo.refresh_month(
+                "AMZ", month_start, month_end, sales_count, after_count,
+                month_end < date.today().replace(day=1), batch_id,
+            )
             late_update_dwd_rows += len(month_dwd_rows)
 
         dwd_rows = _build_period_dwd(summary_start, summary_end, batch_id)
@@ -201,6 +210,24 @@ def run_amz_sop_chain(
         repo.replace_dwd_and_summary(
             summary_start, summary_end, dwd_rows, summary_rows
         )
+        today_month = date.today().replace(day=1)
+        refreshed_months = []
+        for month_start in repo.natural_month_starts(summary_start, summary_end):
+            natural_end = _natural_month_end(month_start)
+            pulled_end = min(natural_end, summary_end)
+            sales_count, after_count = state_repo.month_counts(
+                "AMZ", month_start, pulled_end
+            )
+            finalized = pulled_end == natural_end and month_start < today_month
+            state_repo.refresh_month(
+                "AMZ", month_start, pulled_end, sales_count, after_count,
+                finalized, batch_id,
+            )
+            refreshed_months.append(month_start.strftime("%Y-%m"))
+        state_repo.mark_range_ready(
+            "AMZ", summary_start, summary_end,
+            SUMMARY_METRIC_VERSION, len(summary_rows),
+        )
 
         metrics.update({
             "extract_rows": sales_remote_rows + len(new_orders) + len(updated_orders),
@@ -218,8 +245,12 @@ def run_amz_sop_chain(
             "load_mode": (
                 "manual_range" if manual_range
                 else "initial_current_year" if initial_load
+                else "new_month_previous_full_and_current"
+                if forced_previous_month
                 else "incremental_current_month"
             ),
+            "forced_previous_month": forced_previous_month,
+            "refreshed_months": refreshed_months,
             "source_table_status_before_run": source_status,
             "sid_count": len(sids),
             "sales_extract_rows": sales_remote_rows,
@@ -253,7 +284,7 @@ def ensure_range_summary(start_date: date, end_date: date) -> bool:
     _validate_month_range(start_date, end_date, coverage_start, coverage_end)
     if repo.summary_period_exists(start_date, end_date, SUMMARY_METRIC_VERSION):
         return False
-    with _RANGE_BUILD_LOCK:
+    with state_repo.range_lock("AMZ", start_date, end_date):
         if repo.summary_period_exists(start_date, end_date, SUMMARY_METRIC_VERSION):
             return False
         coverage_start, coverage_end = repo.sales_date_bounds()
@@ -267,6 +298,10 @@ def ensure_range_summary(start_date: date, end_date: date) -> bool:
             after_rows, sales_volumes, start_date, end_date, batch_id
         )
         repo.replace_summary_period(start_date, end_date, summary_rows)
+        state_repo.mark_range_ready(
+            "AMZ", start_date, end_date,
+            SUMMARY_METRIC_VERSION, len(summary_rows),
+        )
         return True
 
 
@@ -643,6 +678,31 @@ def _default_start_date(end_date: date, initial_load: bool) -> date:
     return date(end_date.year, end_date.month, 1)
 
 
+def _automatic_start_date(end_date: date, initial_load: bool) -> tuple[date, bool]:
+    if initial_load:
+        return _default_start_date(end_date, True), False
+    current_month_start = date(end_date.year, end_date.month, 1)
+    previous_month_end = current_month_start - timedelta(days=1)
+    previous_month_start = date(
+        previous_month_end.year, previous_month_end.month, 1
+    )
+    force_previous = not state_repo.previous_month_finalized(
+        "AMZ", previous_month_start
+    )
+    return (
+        previous_month_start if force_previous else current_month_start,
+        force_previous,
+    )
+
+
+def _natural_month_end(month_start: date) -> date:
+    if month_start.month == 12:
+        next_month = date(month_start.year + 1, 1, 1)
+    else:
+        next_month = date(month_start.year, month_start.month + 1, 1)
+    return next_month - timedelta(days=1)
+
+
 def _month_end(month_start: date, cap: date) -> date:
     """Return the last day of month_start's month, capped at cap."""
     if month_start.month == 12:
@@ -952,6 +1012,12 @@ def _build_summary(
             target["source_records"][source].get(record_key, Decimal("0")),
             quantity,
         )
+    after_sales_skus = {key[2] for key in grouped}
+    for sku in sales_sources_by_sku.keys() - after_sales_skus:
+        grouped.setdefault(("其他", "无售后", sku), {
+            "orders": set(), "records": {},
+            "source_records": defaultdict(dict),
+        })
     generated_at = datetime.now()
     result: list[dict[str, Any]] = []
     for (big, small, sku), values in grouped.items():

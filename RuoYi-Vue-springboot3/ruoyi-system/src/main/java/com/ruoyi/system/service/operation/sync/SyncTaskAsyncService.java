@@ -23,10 +23,12 @@ public class SyncTaskAsyncService
 
     private final ConcurrentHashMap<String, SyncSubmission> submissions = new ConcurrentHashMap<>();
     private final SyncTaskRunner runner;
+    private final SyncAlertService alertService;
 
-    public SyncTaskAsyncService(SyncTaskRunner runner)
+    public SyncTaskAsyncService(SyncTaskRunner runner, SyncAlertService alertService)
     {
         this.runner = runner;
+        this.alertService = alertService;
     }
 
     // ---- public API for Controller ----
@@ -78,7 +80,18 @@ public class SyncTaskAsyncService
     @Scheduled(fixedRate = 600_000)
     public void scheduledEvict()
     {
-        evictCompleted(60); // keep completed submissions for 60 minutes
+        try
+        {
+            evictCompleted(60); // keep completed submissions for 60 minutes
+            alertService.notifyBackgroundRecovery(
+                    "sync_submission_cleanup", "异步同步任务缓存清理");
+        }
+        catch (Exception e)
+        {
+            alertService.notifyBackgroundFailure(
+                    "sync_submission_cleanup", "异步同步任务缓存清理", e.getMessage());
+            throw e;
+        }
     }
 
     // ---- inner class ----

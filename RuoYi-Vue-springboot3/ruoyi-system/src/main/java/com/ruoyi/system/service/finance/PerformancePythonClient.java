@@ -337,6 +337,18 @@ public class PerformancePythonClient extends PythonHttpSupport
                 file, requestId, idempotencyKey);
     }
 
+    public Map<String, Object> importEbaySopMonthly(
+            MultipartFile file, String statMonth, String operator,
+            String requestId, String idempotencyKey)
+    {
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("stat_month", statMonth == null ? "" : statMonth);
+        fields.put("operator", operator == null ? "" : operator);
+        return upload(
+                "/ebay-sop-after-sales/monthly-imports",
+                fields, file, requestId, idempotencyKey);
+    }
+
     public Map<String, Object> importEbaySopAfterSales(
             MultipartFile file, String operator, String requestId,
             String idempotencyKey)
@@ -378,22 +390,6 @@ public class PerformancePythonClient extends PythonHttpSupport
         {
             throw asRuntime(e);
         }
-    }
-
-    public Map<String, Object> importInventoryAgeCost(
-            MultipartFile file,
-            String operator,
-            String requestId,
-            String idempotencyKey)
-    {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("operator", operator);
-        return upload(
-                "/slow-moving-clearance/inventory-age-cost-imports",
-                params,
-                file,
-                requestId,
-                idempotencyKey);
     }
 
     public Map<String, Object> refresh(

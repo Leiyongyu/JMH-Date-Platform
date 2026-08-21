@@ -539,6 +539,8 @@ def init_database() -> None:
         project_root / "migrations" / "20260818_ebay_inventory_age_cost.sql",
         project_root / "migrations" / "20260818_inventory_report_purchase_order_transit.sql",
         project_root / "migrations" / "20260819_after_sales_range_optimization.sql",
+        project_root / "migrations" / "20260820_after_sales_month_state.sql",
+        project_root / "migrations" / "20260820_deprecate_inventory_age_cost_import.sql",
         project_root / "migrations" / "20260820_inventory_report_dimension_views.sql",
     ]
     schema = "\n".join(

@@ -62,14 +62,16 @@ export function exportAfterSalesData(platform, query, selectedSkus = []) {
   })
 }
 
-export function importEbayAfterSalesFile(type, file) {
+export function importEbayAfterSalesFile(type, file, statMonth = '') {
   const paths = {
     sales: '/sop/after-sales/ebay-sales-import',
     history: '/sop/after-sales/ebay-history-import',
+    monthly: '/sop/after-sales/ebay-monthly-import',
     afterSales: '/sop/after-sales/ebay-after-sales-import'
   }
   const formData = new FormData()
   formData.append('file', file)
+  if (type === 'monthly') formData.append('statMonth', statMonth)
   return request({
     url: paths[type],
     method: 'post',
@@ -77,7 +79,7 @@ export function importEbayAfterSalesFile(type, file) {
     headers: {
       'Content-Type': 'multipart/form-data',
       repeatSubmit: false,
-      'Idempotency-Key': createUploadIdempotencyKey(type, file)
+      'Idempotency-Key': createUploadIdempotencyKey(`${type}-${statMonth}`, file)
     },
     timeout: 600000
   })
