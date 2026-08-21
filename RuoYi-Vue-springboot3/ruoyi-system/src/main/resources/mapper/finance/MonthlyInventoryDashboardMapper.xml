@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.finance.MonthlyInventoryDashboardMapper">
+
+    <sql id="reportMonthExpression">
+        LEFT(DATE_ADD(CONCAT(stat_month, '-01'), INTERVAL 1 MONTH), 7)
+    </sql>
+
+    <select id="selectAvailablePeriods" resultType="java.util.LinkedHashMap">
+        SELECT stat_month,
+               <include refid="reportMonthExpression"/> AS report_month,
+               MAX(updated_at) AS updated_at
+        FROM `date-project`.dws_inventory_report_department_summary
+        WHERE is_total = 0
+        GROUP BY stat_month
+        ORDER BY stat_month DESC
+    </select>
+
+    <select id="selectCostTrend" resultType="java.util.LinkedHashMap">
+        SELECT stat_month,
+               <include refid="reportMonthExpression"/> AS report_month,
+               department_code,
+               department_name,
+               display_order,
+               COALESCE(local_end_in_transit_total_cost, 0)
+                   AS local_in_transit_cost,
+               COALESCE(local_end_inventory_total_cost, 0)
+                   AS local_inventory_cost,
+               COALESCE(overseas_end_in_transit_total_cost, 0)
+                   + COALESCE(fba_end_in_transit_total_cost, 0)
+                   AS overseas_fba_in_transit_cost,
+               COALESCE(overseas_end_inventory_total_cost, 0)
+                   + COALESCE(fba_end_inventory_total_cost, 0)
+                   AS overseas_fba_inventory_cost
+        FROM `date-project`.dws_inventory_report_department_summary
+        WHERE is_total = 0
+          AND <include refid="reportMonthExpression"/>
+              LIKE CONCAT(#{year}, '-%')
+        <if test="month != null and month != ''">
+          AND <include refid="reportMonthExpression"/>
+              = CONCAT(#{year}, '-', #{month})
+        </if>
+        ORDER BY report_month, display_order, id
+    </select>
+
+</mapper>

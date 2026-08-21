@@ -4,6 +4,7 @@ import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.system.service.finance.MonthlyInventoryDashboardService;
 import com.ruoyi.system.service.finance.PerformancePythonClient;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.LinkedHashMap;
@@ -18,18 +19,21 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 数据中心月度库存报表，统一代理Python清洗汇总服务。 */
+/** 数据中心月度库存报表：明细任务代理Python，首页趋势直接读取DWS汇总表。 */
 @Tag(name = "数据中心-月度库存报表")
 @RestController
 @RequestMapping("/finance/monthly-inventory-report")
 public class MonthlyInventoryReportController extends BaseController
 {
     private final PerformancePythonClient pythonClient;
+    private final MonthlyInventoryDashboardService dashboardService;
 
     public MonthlyInventoryReportController(
-            PerformancePythonClient pythonClient)
+            PerformancePythonClient pythonClient,
+            MonthlyInventoryDashboardService dashboardService)
     {
         this.pythonClient = pythonClient;
+        this.dashboardService = dashboardService;
     }
 
     @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list')")
@@ -61,6 +65,23 @@ public class MonthlyInventoryReportController extends BaseController
         {
             return success(data(pythonClient.monthlyInventoryReportSummary(
                     statMonth, requestId)));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
+    /** 首页按年或按月展示各组仓库在途、库存成本趋势。 */
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list')")
+    @GetMapping("/cost-trend")
+    public AjaxResult costTrend(
+            @RequestParam(required = false) String year,
+            @RequestParam(required = false) String month)
+    {
+        try
+        {
+            return success(dashboardService.costTrend(year, month));
         }
         catch (Exception e)
         {
