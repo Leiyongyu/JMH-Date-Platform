@@ -200,16 +200,16 @@ def _prepare_order_frame(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFram
     refunded = shipping_status.str.contains("已退款", na=False)
     returned_or_voided = shipping_status.str.contains("已退款|已作废", regex=True, na=False)
     valid["_refund_quantity"] = valid["_quantity"].where(returned_or_voided, 0)
-    valid["_refunded_quantity"] = valid["_quantity"].where(refunded, 0)
+    valid["_refunded_quantity"] = valid["_quantity"].where(returned_or_voided, 0)
     refund_quantity_total = valid.groupby(order_keys)["_refunded_quantity"].transform("sum")
-    valid["_refund_marker"] = refunded.astype(int)
+    valid["_refund_marker"] = returned_or_voided.astype(int)
     refund_row_count = valid.groupby(order_keys)["_refund_marker"].transform("sum")
     valid["_refund_weight"] = 0.0
-    quantity_mask = refunded & refund_quantity_total.gt(0)
+    quantity_mask = returned_or_voided & refund_quantity_total.gt(0)
     valid.loc[quantity_mask, "_refund_weight"] = (
         valid.loc[quantity_mask, "_refunded_quantity"] / refund_quantity_total.loc[quantity_mask]
     )
-    row_mask = refunded & ~refund_quantity_total.gt(0) & refund_row_count.gt(0)
+    row_mask = returned_or_voided & ~refund_quantity_total.gt(0) & refund_row_count.gt(0)
     valid.loc[row_mask, "_refund_weight"] = 1 / refund_row_count.loc[row_mask]
     valid["_refund_amount"] = order_refund * valid["_refund_weight"]
     valid["_refund_cny"] = valid["_refund_amount"] * order_exchange
@@ -247,16 +247,16 @@ def _persist_orders(valid: pd.DataFrame, replaceable: pd.DataFrame, batch_id: st
             )
             cursor.executemany(
                 """INSERT INTO dwd_ebay_sku_analysis_order
-                (stat_month,payment_time,platform_order_no,inventory_sku,purchase_quantity,paid_amount_cny,
+                (stat_month,payment_time,refund_time,platform_order_no,inventory_sku,purchase_quantity,paid_amount_cny,
                  shipping_amount_cny,platform_fee_cny,paid_amount_original,shipping_amount_original,
                  refund_quantity,refund_amount_original,refund_amount_cny,shipping_status,currency_code,customer_id,site_code,
-                 site_name,country_name,picture_url,product_name_cn,listing_url,import_batch_id,source_row)
-                VALUES (%(stat_month)s,%(payment_time)s,%(platform_order_no)s,%(inventory_sku)s,%(purchase_quantity)s,
+                 site_name,country_name,picture_url,product_name_cn,listing_url,order_remark,import_batch_id,source_row)
+                VALUES (%(stat_month)s,%(payment_time)s,%(refund_time)s,%(platform_order_no)s,%(inventory_sku)s,%(purchase_quantity)s,
                  %(paid_amount_cny)s,%(shipping_amount_cny)s,%(platform_fee_cny)s,%(paid_amount_original)s,
                  %(shipping_amount_original)s,%(refund_quantity)s,%(refund_amount_original)s,%(refund_amount_cny)s,
                  %(shipping_status)s,
                  %(currency_code)s,%(customer_id)s,%(site_code)s,%(site_name)s,%(country_name)s,
-                 %(picture_url)s,%(product_name_cn)s,%(listing_url)s,%(import_batch_id)s,%(source_row)s)""", rows)
+                 %(picture_url)s,%(product_name_cn)s,%(listing_url)s,%(order_remark)s,%(import_batch_id)s,%(source_row)s)""", rows)
             _rebuild_profit_daily(cursor, sorted({record["_payment_time"].date() for _, record in valid.iterrows()}))
             cursor.execute(
                 """INSERT INTO ebay_sku_analysis_import_batch
@@ -370,6 +370,177 @@ def date_bounds() -> dict:
         cursor.execute("SELECT MIN(DATE(payment_time)) min_date,MAX(DATE(payment_time)) max_date FROM dwd_ebay_sku_analysis_order")
         row = cursor.fetchone() or {}
         return {"min_date": str(row.get("min_date") or ""), "max_date": str(row.get("max_date") or "")}
+
+
+def return_categories() -> list[dict]:
+    _ensure_tables()
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT id category_id,responsible_party,big_category,small_category,
+                      classification_description,priority
+               FROM dim_amz_sop_after_sales_category
+               WHERE enabled=1
+               ORDER BY priority,id"""
+        )
+        return [_json_row(row) for row in cursor.fetchall()]
+
+
+def list_return_details(start_date: str | None, end_date: str | None,
+                        time_type: str | None, sku: str | None, site: str | None,
+                        order_no: str | None, page: int, page_size: int) -> dict:
+    _ensure_tables()
+    selected_time_type = "payment" if (time_type or "refund").lower() == "payment" else "refund"
+    date_expression = (
+        "DATE(o.payment_time)" if selected_time_type == "payment"
+        else "DATE(COALESCE(o.refund_time,o.payment_time))"
+    )
+    status_clause = "(o.shipping_status LIKE '%%已作废%%' OR o.shipping_status LIKE '%%已退款%%')"
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"""SELECT MIN({date_expression}) min_date,MAX({date_expression}) max_date
+                FROM dwd_ebay_sku_analysis_order o WHERE {status_clause}"""
+        )
+        bound_row = cursor.fetchone() or {}
+        bounds = {
+            "min_date": str(bound_row.get("min_date") or ""),
+            "max_date": str(bound_row.get("max_date") or ""),
+        }
+        if not bounds["min_date"]:
+            return {
+                "items": [], "sites": [], "date_bounds": bounds,
+                "start_date": "", "end_date": "", "time_type": selected_time_type,
+                "summary": {"refund_order_count": 0, "refund_count": "0",
+                            "refund_amount": "0", "site_count": 0},
+                "pagination": {"page": 1, "page_size": page_size, "total": 0},
+            }
+        start = start_date or bounds["min_date"]
+        end = end_date or bounds["max_date"]
+        try:
+            start_value = datetime.strptime(start, "%Y-%m-%d").date()
+            end_value = datetime.strptime(end, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise ValueError("日期必须为YYYY-MM-DD格式") from exc
+        if start_value > end_value:
+            raise ValueError("开始日期不能晚于结束日期")
+        clauses = [status_clause, f"{date_expression} BETWEEN %s AND %s"]
+        params: list[object] = [start_value, end_value]
+        if site:
+            clauses.append("o.site_name=%s")
+            params.append(site.strip())
+        if sku:
+            clauses.append("o.inventory_sku LIKE %s")
+            params.append(f"%{sku.strip().upper()}%")
+        if order_no:
+            clauses.append("o.platform_order_no LIKE %s")
+            params.append(f"%{order_no.strip()}%")
+        where = " AND ".join(clauses)
+        grouped = f"""SELECT o.platform_order_no,o.site_name,o.inventory_sku,
+              MAX(NULLIF(o.picture_url,'')) picture_url,
+              MAX(NULLIF(o.listing_url,'')) listing_url,
+              ROUND(SUM(o.refund_quantity),0) refund_count,
+              ROUND(SUM(o.refund_amount_cny),2) refund_amount,
+              MAX(NULLIF(o.order_remark,'')) refund_reason,
+              MAX(o.refund_time) refund_time,MAX(o.payment_time) payment_time,
+              MAX(COALESCE(o.refund_time,o.payment_time)) effective_return_time,
+              assignment.category_id,assignment.responsible_party,
+              assignment.big_category,assignment.small_category,
+              assignment.classification_description,assignment.classified_by,
+              assignment.update_time classification_time
+            FROM dwd_ebay_sku_analysis_order o
+            LEFT JOIN ebay_sku_analysis_return_classification assignment
+              ON assignment.platform_order_no=o.platform_order_no
+            WHERE {where}
+            GROUP BY o.platform_order_no,o.site_name,o.inventory_sku,
+              assignment.category_id,assignment.responsible_party,
+              assignment.big_category,assignment.small_category,
+              assignment.classification_description,assignment.classified_by,
+              assignment.update_time"""
+        page = max(page, 1)
+        page_size = min(max(page_size, 1), 200)
+        cursor.execute(f"SELECT COUNT(*) total FROM ({grouped}) grouped_rows", params)
+        total = int((cursor.fetchone() or {}).get("total") or 0)
+        cursor.execute(
+            f"""SELECT COUNT(DISTINCT platform_order_no) refund_order_count,
+                       COALESCE(SUM(refund_count),0) refund_count,
+                       COALESCE(SUM(refund_amount),0) refund_amount,
+                       COUNT(DISTINCT site_name) site_count
+                FROM ({grouped}) grouped_rows""",
+            params,
+        )
+        summary = _json_row(cursor.fetchone())
+        cursor.execute(
+            grouped + " ORDER BY effective_return_time DESC,platform_order_no,inventory_sku LIMIT %s OFFSET %s",
+            params + [page_size, (page - 1) * page_size],
+        )
+        items = [_json_row(row) for row in cursor.fetchall()]
+        cursor.execute(
+            f"""SELECT DISTINCT o.site_name FROM dwd_ebay_sku_analysis_order o
+                WHERE {status_clause} ORDER BY o.site_name"""
+        )
+        sites = [row["site_name"] for row in cursor.fetchall()]
+    return {
+        "items": items, "sites": sites, "date_bounds": bounds,
+        "start_date": start, "end_date": end, "time_type": selected_time_type,
+        "summary": summary,
+        "pagination": {"page": page, "page_size": page_size, "total": total},
+    }
+
+
+def save_return_classification(platform_order_no: str, category_id: int,
+                               operator: str | None = None) -> dict:
+    _ensure_tables()
+    order_no = _identifier(platform_order_no)
+    if not order_no:
+        raise ValueError("订单号不能为空")
+    try:
+        selected_category_id = int(category_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("请选择有效的售后分类") from exc
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT 1 FROM dwd_ebay_sku_analysis_order
+               WHERE platform_order_no=%s
+                 AND (shipping_status LIKE '%%已作废%%' OR shipping_status LIKE '%%已退款%%')
+               LIMIT 1""",
+            (order_no,),
+        )
+        if not cursor.fetchone():
+            raise ValueError("未找到对应的退款或作废订单")
+        cursor.execute(
+            """SELECT id,responsible_party,big_category,small_category,
+                      classification_description
+               FROM dim_amz_sop_after_sales_category
+               WHERE id=%s AND enabled=1 LIMIT 1""",
+            (selected_category_id,),
+        )
+        category = cursor.fetchone()
+        if not category:
+            raise ValueError("所选售后分类不存在或已停用")
+        cursor.execute(
+            """INSERT INTO ebay_sku_analysis_return_classification
+               (platform_order_no,category_id,responsible_party,big_category,small_category,
+                classification_description,classified_by)
+               VALUES (%s,%s,%s,%s,%s,%s,%s)
+               ON DUPLICATE KEY UPDATE
+                 category_id=VALUES(category_id),responsible_party=VALUES(responsible_party),
+                 big_category=VALUES(big_category),small_category=VALUES(small_category),
+                 classification_description=VALUES(classification_description),
+                 classified_by=VALUES(classified_by),update_time=NOW()""",
+            (
+                order_no, category["id"], category.get("responsible_party"),
+                category["big_category"], category["small_category"],
+                category.get("classification_description"), operator,
+            ),
+        )
+        connection.commit()
+    return {
+        "platform_order_no": order_no, "category_id": category["id"],
+        "responsible_party": category.get("responsible_party"),
+        "big_category": category["big_category"],
+        "small_category": category["small_category"],
+        "classification_description": category.get("classification_description"),
+        "classified_by": operator,
+    }
 
 
 def list_summary(start_date: str | None, end_date: str | None, sku: str | None,
@@ -644,6 +815,7 @@ def _initialize_tables():
             "source_refund_amount_cny": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '退款金额（人民币）' AFTER source_refund_amount",
         },
         "dwd_ebay_sku_analysis_order": {
+            "refund_time": "DATETIME DEFAULT NULL COMMENT '退款时间' AFTER payment_time",
             "paid_amount_original": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '已支付金额原币' AFTER platform_fee_cny",
             "shipping_amount_original": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '应收运费原币' AFTER paid_amount_original",
             "refund_quantity": "DECIMAL(18,4) NOT NULL DEFAULT 0 COMMENT '退货数量，状态包含已退款或已作废' AFTER shipping_amount_original",
@@ -655,6 +827,7 @@ def _initialize_tables():
             "picture_url": "TEXT DEFAULT NULL COMMENT '图片链接，取上传源数据' AFTER country_name",
             "product_name_cn": "VARCHAR(500) DEFAULT NULL COMMENT '产品名称（中文），取上传源数据' AFTER picture_url",
             "listing_url": "TEXT DEFAULT NULL COMMENT 'Listing链接，取上传源数据' AFTER product_name_cn",
+            "order_remark": "TEXT DEFAULT NULL COMMENT '原始订单备注，作为退款原因展示' AFTER listing_url",
         },
         "dwd_ebay_sku_analysis_profit": {
             "product_sales_amount_cny": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '商品销售额人民币' AFTER profit_cny",
@@ -666,6 +839,7 @@ def _initialize_tables():
     missing_indexes = {
         "dwd_ebay_sku_analysis_order": {
             "idx_esa_dwd_site_sku_time": "(site_name,inventory_sku,payment_time)",
+            "idx_esa_dwd_return_time": "(refund_time,site_name,inventory_sku)",
         },
     }
     with db_connection() as connection, connection.cursor() as cursor:
@@ -683,6 +857,21 @@ def _initialize_tables():
             for index_name, definition in indexes.items():
                 if index_name not in existing_indexes:
                     cursor.execute(f"ALTER TABLE `{table_name}` ADD INDEX `{index_name}` {definition}")
+        cursor.execute(
+            """UPDATE dwd_ebay_sku_analysis_order detail
+               INNER JOIN ods_ebay_sku_analysis_order_raw source
+                 ON source.import_batch_id=detail.import_batch_id
+                AND source.source_row=detail.source_row
+               SET detail.refund_time=COALESCE(detail.refund_time,source.refund_time),
+                   detail.order_remark=CASE
+                     WHEN detail.order_remark IS NULL OR detail.order_remark=''
+                     THEN source.order_remark
+                     ELSE detail.order_remark
+                   END
+               WHERE (detail.refund_time IS NULL AND source.refund_time IS NOT NULL)
+                  OR ((detail.order_remark IS NULL OR detail.order_remark='')
+                      AND source.order_remark IS NOT NULL AND source.order_remark<>'')"""
+        )
         connection.commit()
 
 

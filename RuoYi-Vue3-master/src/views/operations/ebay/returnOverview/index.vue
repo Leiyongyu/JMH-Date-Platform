@@ -2,10 +2,8 @@
   <div class="app-container return-overview-page">
     <el-card shadow="never" class="filter-card">
       <el-form :model="filters" inline>
-        <el-form-item><el-select v-model="filters.account" placeholder="所有账号" clearable style="width:130px"><el-option label="所有账号" value="all" /><el-option label="Aplus-Shop" value="Aplus-Shop" /><el-option label="moses-motorsports" value="moses-motorsports" /></el-select></el-form-item>
         <el-form-item><el-select v-model="filters.site" placeholder="所有站点" clearable style="width:120px"><el-option v-for="site in sites" :key="site" :label="site" :value="site" /></el-select></el-form-item>
         <el-form-item><el-input v-model="filters.sku" placeholder="SKU" clearable style="width:150px" /></el-form-item>
-        <el-form-item><el-input v-model="filters.listingId" placeholder="Listing ID" clearable style="width:150px" /></el-form-item>
         <el-form-item><el-button type="primary" icon="Search" @click="search">搜索</el-button><el-button icon="Refresh" @click="reset">重置</el-button></el-form-item>
         <el-form-item class="date-filter"><el-select v-model="filters.timeType" style="width:120px"><el-option label="按付款时间" value="payment" /><el-option label="按退款时间" value="refund" /></el-select><el-date-picker v-model="filters.dateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false" style="width:250px" /></el-form-item>
       </el-form>
@@ -63,7 +61,7 @@ import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 
 const sites = ['德国', '美国', '英国', '瑞典', '意大利']
-const filters = reactive({ account: 'all', site: undefined, sku: '', listingId: '', timeType: 'payment', dateRange: ['2026-08-20', '2026-08-26'] })
+const filters = reactive({ site: undefined, sku: '', timeType: 'payment', dateRange: ['2026-08-20', '2026-08-26'] })
 const metrics = [
   { label: '同期退货数', value: '324', trend: -12.6, color: '#409eff', tip: '所选区间内发生退款的商品数量' },
   { label: '同期退款金额', value: '¥287,904.38', trend: -8.7, color: '#22c55e', tip: '所选区间内退款订单金额合计' },
@@ -95,7 +93,7 @@ const trendChartRef = ref(); const regionChartRef = ref(); const reasonChartRef 
 let trendChart; let regionChart; let reasonChart
 const money = value => `¥${Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 function search() { ElMessage.success('演示页面：筛选条件已应用') }
-function reset() { Object.assign(filters, { account: 'all', site: undefined, sku: '', listingId: '', timeType: 'payment', dateRange: ['2026-08-20', '2026-08-26'] }); ElMessage.success('已重置') }
+function reset() { Object.assign(filters, { site: undefined, sku: '', timeType: 'payment', dateRange: ['2026-08-20', '2026-08-26'] }); ElMessage.success('已重置') }
 function renderCharts() {
   trendChart ||= echarts.init(trendChartRef.value)
   const days = ['08-20','08-21','08-22','08-23','08-24','08-25','08-26']

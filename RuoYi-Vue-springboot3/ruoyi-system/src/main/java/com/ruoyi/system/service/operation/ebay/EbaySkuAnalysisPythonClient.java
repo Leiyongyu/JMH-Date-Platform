@@ -35,6 +35,34 @@ public class EbaySkuAnalysisPythonClient extends PythonHttpSupport
         return get(PREFIX + "/summary", params, requestId);
     }
 
+    public Map<String, Object> returnDetails(Map<String, ?> params, String requestId)
+    {
+        return get(PREFIX + "/return-details", params, requestId);
+    }
+
+    public Map<String, Object> returnCategories(String requestId)
+    {
+        return get(PREFIX + "/return-categories", Map.of(), requestId);
+    }
+
+    public Map<String, Object> saveReturnClassification(
+            Map<String, Object> payload, String operator, String requestId)
+    {
+        try
+        {
+            String body = objectMapper.writeValueAsString(payload);
+            Map<String, Object> query = new LinkedHashMap<>();
+            query.put("operator", operator);
+            HttpRequest request = baseRequest(
+                    PREFIX + "/return-classifications" + queryString(query), requestId)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                    .build();
+            return send(request);
+        }
+        catch (Exception e) { throw asRuntime(e); }
+    }
+
     public Map<String, Object> importOrders(MultipartFile file, String operator, String requestId)
     {
         return importFile(PREFIX + "/imports", file, operator, requestId);

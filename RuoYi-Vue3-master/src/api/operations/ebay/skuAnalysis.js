@@ -33,3 +33,15 @@ export function importEbaySkuAnalysisProfit(file) {
     timeout: 180000
   })
 }
+
+export function getEbayReturnDetails(params) {
+  return request({ url: `${base}/return-details`, method: 'get', params })
+}
+
+export function getEbayReturnCategories() {
+  return request({ url: `${base}/return-categories`, method: 'get' })
+}
+
+export function saveEbayReturnClassification(data) {
+  return request({ url: `${base}/return-classification`, method: 'post', data })
+}

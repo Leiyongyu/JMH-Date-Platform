@@ -10,6 +10,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -47,6 +48,43 @@ public class EbaySkuAnalysisController extends BaseController
         params.put("site", site); params.put("chart_metric", chartMetric); params.put("chart_order", chartOrder);
         params.put("page", pageNum); params.put("page_size", pageSize);
         return success(data(client.summary(params, requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReturnDetail:list')")
+    @GetMapping("/return-details")
+    public AjaxResult returnDetails(@RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(defaultValue = "refund") String timeType,
+            @RequestParam(required = false) String sku,
+            @RequestParam(required = false) String site,
+            @RequestParam(required = false) String orderNo,
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "50") int pageSize,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("start_date", startDate); params.put("end_date", endDate);
+        params.put("time_type", timeType); params.put("sku", sku);
+        params.put("site", site); params.put("order_no", orderNo);
+        params.put("page", pageNum); params.put("page_size", pageSize);
+        return success(data(client.returnDetails(params, requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReturnDetail:list')")
+    @GetMapping("/return-categories")
+    public AjaxResult returnCategories(
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        return success(data(client.returnCategories(requestId)));
+    }
+
+    @Log(title = "eBay退货明细售后分类", businessType = BusinessType.UPDATE)
+    @PreAuthorize("@ss.hasPermi('operations:ebayReturnDetail:list')")
+    @PostMapping("/return-classification")
+    public AjaxResult saveReturnClassification(@RequestBody Map<String, Object> payload,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        return success(data(client.saveReturnClassification(payload, getUsername(), requestId)));
     }
 
     @Log(title = "eBay SKU分析订单导入", businessType = BusinessType.IMPORT)
