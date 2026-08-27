@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS ods_ebay_sku_analysis_order_raw (
   source_file_name VARCHAR(255) NOT NULL COMMENT '来源文件名',
   source_sheet VARCHAR(128) NOT NULL COMMENT '来源工作表',
   source_row INT NOT NULL COMMENT '来源Excel行号',
-  country_name VARCHAR(128) DEFAULT NULL COMMENT '国家中文',
+  source_site_name VARCHAR(100) DEFAULT NULL COMMENT 'Excel第一列原始站点',
   platform_order_no VARCHAR(128) NOT NULL COMMENT '平台订单号',
   shipping_status VARCHAR(64) DEFAULT NULL COMMENT '发货状态',
   order_time DATETIME DEFAULT NULL COMMENT '下单时间',
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS dwd_ebay_sku_analysis_order (
   listing_url TEXT DEFAULT NULL COMMENT 'Listing链接，取上传源数据',
   import_batch_id VARCHAR(64) NOT NULL COMMENT '导入批次ID',
   source_row INT NOT NULL COMMENT '来源Excel行号', create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', PRIMARY KEY (id),
-  UNIQUE KEY uk_esa_dwd_month_row (stat_month, import_batch_id, source_row), KEY idx_esa_dwd_order_date (platform_order_no,payment_time), KEY idx_esa_dwd_time (payment_time), KEY idx_esa_dwd_sku (inventory_sku), KEY idx_esa_dwd_site (site_code)
+  UNIQUE KEY uk_esa_dwd_month_row (stat_month, import_batch_id, source_row), KEY idx_esa_dwd_order_date (platform_order_no,payment_time), KEY idx_esa_dwd_time (payment_time), KEY idx_esa_dwd_sku (inventory_sku), KEY idx_esa_dwd_site (site_code), KEY idx_esa_dwd_site_sku_time (site_name,inventory_sku,payment_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DWD-eBay SKU分析订单清洗明细';
 
 CREATE TABLE IF NOT EXISTS ebay_sku_analysis_profit_import_batch (

@@ -13,7 +13,7 @@ import pandas as pd
 from backend.database import db_connection
 
 SOURCE_COLUMN_MAP = {
-    "国家中文": "country_name",
+    "站点": "source_site_name",
     "平台订单号": "platform_order_no",
     "发货状态": "shipping_status",
     "下单时间": "order_time",
@@ -105,7 +105,7 @@ PROFIT_DECIMAL_SOURCE_FIELDS = {
     "other_platform_fee_cny", "refund_amount_by_order_time_cny", "manual_purchase_cost_cny",
     "first_mile_cost_cny",
 }
-REQUIRED_COLUMNS = set(SOURCE_COLUMN_MAP)
+ORDER_TEMPLATE_COLUMNS = tuple(SOURCE_COLUMN_MAP)
 DATETIME_SOURCE_FIELDS = {"order_time", "payment_time", "refund_time"}
 DECIMAL_SOURCE_FIELDS = {
     "goods_receivable_original", "shipping_receivable_original", "tax_usd",
@@ -125,12 +125,42 @@ def import_orders(content: bytes, file_name: str, operator: str | None = None) -
     workbook = pd.ExcelFile(BytesIO(content))
     sheet = "Worksheet" if "Worksheet" in workbook.sheet_names else workbook.sheet_names[0]
     frame = pd.read_excel(workbook, sheet_name=sheet, dtype=object)
-    missing = REQUIRED_COLUMNS - {str(value).strip() for value in frame.columns}
-    if missing:
-        raise ValueError(f"数字酋长订单文件缺少列: {', '.join(sorted(missing))}")
+    _validate_order_template_columns(frame.columns, file_name)
+    valid, replaceable = _prepare_order_frame(frame)
+    return _persist_orders(
+        valid, replaceable, batch_id, file_name, sheet, operator, len(frame)
+    )
+
+
+def _validate_order_template_columns(columns, file_name: str | None = None) -> None:
+    actual_columns = [str(value) for value in columns]
+    expected_columns = list(ORDER_TEMPLATE_COLUMNS)
+    if actual_columns != expected_columns:
+        mismatch_index = next(
+            (
+                index for index in range(min(len(actual_columns), len(expected_columns)))
+                if actual_columns[index] != expected_columns[index]
+            ),
+            min(len(actual_columns), len(expected_columns)),
+        )
+        expected_value = expected_columns[mismatch_index] if mismatch_index < len(expected_columns) else "<无更多列>"
+        actual_value = actual_columns[mismatch_index] if mismatch_index < len(actual_columns) else "<缺少列>"
+        raise ValueError(
+            f"订单文件“{file_name or '未知文件'}”格式不正确，只允许上传最新数字酋长订单模板；"
+            f"模板应为{len(expected_columns)}列，当前为{len(actual_columns)}列，"
+            f"第{mismatch_index + 1}列应为“{expected_value}”，实际为“{actual_value}”"
+        )
+
+
+def _prepare_order_frame(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     frame = frame.copy()
     frame["_source_row"] = range(2, len(frame) + 2)
     frame["_payment_time"] = pd.to_datetime(frame["付款时间"], errors="coerce")
+    frame["_source_site"] = frame["站点"].map(_identifier)
+    frame["_site_name"] = frame.apply(
+        lambda record: _site_name(record["_source_site"], record.get("币种")), axis=1
+    )
+    frame["_site_code"] = frame["_site_name"].map(_site)
     inventory_sku = frame["库存SKU"].map(_text).str.upper()
     platform_sku = frame["平台SKU"].map(_text).str.upper()
     frame["_sku"] = inventory_sku.where(inventory_sku.ne(""), platform_sku)
@@ -151,7 +181,7 @@ def import_orders(content: bytes, file_name: str, operator: str | None = None) -
         raise ValueError("文件中没有有效的eBay付款订单数据")
     valid["_stat_month"] = valid["_payment_time"].dt.strftime("%Y-%m")
     valid["_payment_date"] = valid["_payment_time"].dt.date
-    order_keys = ["_order_no", "_payment_date"]
+    order_keys = ["_order_no", "_payment_date", "_site_name"]
     quantity_total = valid.groupby(order_keys)["_quantity"].transform("sum")
     row_count = valid.groupby(order_keys)["_order_no"].transform("count")
     valid["_weight"] = valid["_quantity"].where(quantity_total > 0, 1) / quantity_total.where(quantity_total > 0, row_count)
@@ -183,6 +213,12 @@ def import_orders(content: bytes, file_name: str, operator: str | None = None) -
     valid.loc[row_mask, "_refund_weight"] = 1 / refund_row_count.loc[row_mask]
     valid["_refund_amount"] = order_refund * valid["_refund_weight"]
     valid["_refund_cny"] = valid["_refund_amount"] * order_exchange
+    return valid, replaceable
+
+
+def _persist_orders(valid: pd.DataFrame, replaceable: pd.DataFrame, batch_id: str,
+                    file_name: str, sheet: str, operator: str | None,
+                    total_rows: int) -> dict:
     months = sorted(valid["_stat_month"].unique().tolist())
     rows = [_row(record, batch_id, file_name, sheet) for _, record in valid.iterrows()]
     replacement_keys = sorted({
@@ -226,10 +262,10 @@ def import_orders(content: bytes, file_name: str, operator: str | None = None) -
                 """INSERT INTO ebay_sku_analysis_import_batch
                 (import_batch_id,source_file_name,imported_months,total_rows,valid_rows,skipped_rows,operator_name,status,complete_time)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,'COMPLETED',NOW())""",
-                (batch_id, file_name, ",".join(months), len(frame), len(rows), len(frame)-len(rows), operator))
+                (batch_id, file_name, ",".join(months), total_rows, len(rows), total_rows-len(rows), operator))
         connection.commit()
-    return {"import_batch_id": batch_id, "months": months, "total_rows": len(frame),
-            "valid_rows": len(rows), "skipped_rows": len(frame)-len(rows),
+    return {"import_batch_id": batch_id, "months": months, "total_rows": total_rows,
+            "valid_rows": len(rows), "skipped_rows": total_rows-len(rows),
             "replaced_order_count": len(replacement_keys)}
 
 
@@ -371,18 +407,28 @@ def list_summary(start_date: str | None, end_date: str | None, sku: str | None,
         FROM (
           SELECT site_name,inventory_sku,picture_url,product_name_cn,listing_url,
             ROW_NUMBER() OVER (
-              PARTITION BY inventory_sku
+              PARTITION BY site_name,inventory_sku
               ORDER BY payment_time DESC,id DESC
             ) latest_rank
           FROM dwd_ebay_sku_analysis_order
         ) ranked_source
         WHERE latest_rank=1"""
-    listing = """SELECT site_name,UPPER(msku) inventory_sku,
+    listing_site = """CASE
+          WHEN site_name LIKE '%%汽配%%' OR site_name LIKE '%%美国%%' THEN '美国'
+          WHEN site_name LIKE '%%英国%%' THEN '英国'
+          WHEN site_name LIKE '%%德国%%' THEN '德国'
+          WHEN site_name LIKE '%%法国%%' THEN '法国'
+          WHEN site_name LIKE '%%意大利%%' THEN '意大利'
+          WHEN site_name LIKE '%%西班牙%%' THEN '西班牙'
+          WHEN site_name LIKE '%%澳大利亚%%' THEN '澳大利亚'
+          WHEN site_name LIKE '%%加拿大%%' THEN '加拿大'
+          ELSE TRIM(REPLACE(REPLACE(site_name,'eBay',''),'站','')) END"""
+    listing = f"""SELECT {listing_site} site_name,UPPER(msku) inventory_sku,
         MIN(listing_start_time) listing_start_time,MAX(listing_start_time) latest_listing_start_time
         FROM jmh_data_platform.ebay_product_listing
         WHERE listing_status_name='在售' AND msku IS NOT NULL AND msku<>''
-        GROUP BY site_name,UPPER(msku)"""
-    velocity = """SELECT inventory_sku,
+        GROUP BY {listing_site},UPPER(msku)"""
+    velocity = """SELECT site_name,inventory_sku,
         ROUND(SUM(CASE WHEN payment_time>=DATE_SUB(CURDATE(),INTERVAL 7 DAY)
           AND payment_time<CURDATE() THEN purchase_quantity ELSE 0 END)/7,4) sales_velocity_7d,
         ROUND(SUM(CASE WHEN payment_time>=DATE_SUB(CURDATE(),INTERVAL 14 DAY)
@@ -392,13 +438,13 @@ def list_summary(start_date: str | None, end_date: str | None, sku: str | None,
         FROM dwd_ebay_sku_analysis_order
         WHERE payment_time>=DATE_SUB(CURDATE(),INTERVAL 30 DAY)
           AND payment_time<CURDATE()
-        GROUP BY inventory_sku"""
-    profit_summary = f"""SELECT p.inventory_sku,SUM(p.profit_cny) profit_amount,
+        GROUP BY site_name,inventory_sku"""
+    profit_summary = f"""SELECT p.site_name,p.inventory_sku,SUM(p.profit_cny) profit_amount,
           SUM(p.net_revenue_cny) profit_base_amount
         FROM dws_ebay_sku_analysis_profit_daily p
         WHERE {profit_where}
-        GROUP BY p.inventory_sku"""
-    grouped = f"""SELECT o.inventory_sku,s.site_name,s.picture_url,s.product_name_cn,s.listing_url,
+        GROUP BY p.site_name,p.inventory_sku"""
+    grouped = f"""SELECT o.inventory_sku,o.site_name,s.picture_url,s.product_name_cn,s.listing_url,
         l.listing_start_time,l.latest_listing_start_time,
         ROUND(SUM(o.paid_amount_cny)-SUM(CASE WHEN o.shipping_status LIKE '%%已退款%%' THEN o.refund_amount_cny ELSE 0 END),2) paid_amount,ROUND(SUM(o.purchase_quantity),0) sold_quantity,
         ROUND(SUM(o.purchase_quantity)/{selected_days},4) sales_velocity_total,
@@ -415,15 +461,15 @@ def list_summary(start_date: str | None, end_date: str | None, sku: str | None,
         ROUND(COALESCE(p.profit_amount,0)/NULLIF(p.profit_base_amount,0),6) profit_rate,'CNY' currency_code
         FROM dwd_ebay_sku_analysis_order o
         LEFT JOIN ({latest_source}) s
-          ON s.inventory_sku=o.inventory_sku
+          ON s.site_name=o.site_name AND s.inventory_sku=o.inventory_sku
         LEFT JOIN ({listing}) l
-          ON l.site_name=s.site_name AND l.inventory_sku=o.inventory_sku
+          ON l.site_name=o.site_name AND l.inventory_sku=o.inventory_sku
         LEFT JOIN ({velocity}) v
-          ON v.inventory_sku=o.inventory_sku
+          ON v.site_name=o.site_name AND v.inventory_sku=o.inventory_sku
         LEFT JOIN ({profit_summary}) p
-          ON p.inventory_sku=o.inventory_sku
+          ON p.site_name=o.site_name AND p.inventory_sku=o.inventory_sku
         WHERE {where}
-        GROUP BY o.inventory_sku,s.site_name,s.picture_url,s.product_name_cn,s.listing_url,
+        GROUP BY o.site_name,o.inventory_sku,s.picture_url,s.product_name_cn,s.listing_url,
           l.listing_start_time,l.latest_listing_start_time,
           v.sales_velocity_7d,v.sales_velocity_14d,v.sales_velocity_30d,
           p.profit_amount,p.profit_base_amount"""
@@ -458,7 +504,8 @@ def list_summary(start_date: str | None, end_date: str | None, sku: str | None,
             "pagination": {"page": page, "page_size": page_size, "total": total}}
 
 def _row(record, batch_id, file_name, sheet):
-    country_cn = _text(record.get("国家中文")) or _text(record.get("收件人国家"))
+    source_site = record["_source_site"]
+    site_name = record["_site_name"]
     source = _source_fields(record)
     return {**source, "import_batch_id": batch_id, "stat_month": record["_stat_month"], "source_file_name": file_name,
             "source_sheet": sheet, "source_row": int(record["_source_row"]), "platform_order_no": record["_order_no"],
@@ -471,8 +518,8 @@ def _row(record, batch_id, file_name, sheet):
             "refund_amount_cny": _decimal(record["_refund_cny"]),
             "shipping_status": _text(record.get("发货状态")), "currency_code": _text(record.get("币种")),
             "exchange_rate": _decimal(record["_exchange"]), "customer_id": _text(record.get("客户ID")) or None,
-            "site_code": _site(country_cn), "site_name": _site_name(country_cn, record.get("币种")),
-            "country_name": country_cn or None}
+            "site_code": record["_site_code"], "site_name": site_name,
+            "country_name": site_name, "source_site_name": source_site or None}
 
 
 def _source_fields(record) -> dict:
@@ -547,6 +594,7 @@ def _rebuild_profit_daily(cursor, payment_dates) -> None:
             WHERE DATE(matched.payment_time)=p.payment_date
               AND matched.platform_order_no=p.platform_order_no
               AND matched.inventory_sku=p.inventory_sku
+              AND matched.site_name=p.site_name
           )
         GROUP BY p.payment_date,p.site_name,p.inventory_sku""",
         dates,
@@ -587,6 +635,7 @@ def _initialize_tables():
     statements = [item.strip() for item in path.read_text(encoding="utf-8").split(";") if item.strip()]
     missing_columns = {
         "ods_ebay_sku_analysis_order_raw": {
+            "source_site_name": "VARCHAR(100) DEFAULT NULL COMMENT 'Excel第一列原始站点' AFTER source_row",
             "goods_receivable_cny": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '应收货款（订单级别，人民币）' AFTER goods_receivable_original",
             "shipping_receivable_cny": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '应收运费（人民币）' AFTER shipping_receivable_original",
             "tax_usd_cny": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '税费（美元字段换算人民币）' AFTER tax_usd",
@@ -614,6 +663,11 @@ def _initialize_tables():
             "net_revenue_cny": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '利润率分母，商品销售额加应收运费减退款金额' AFTER refund_amount_cny",
         },
     }
+    missing_indexes = {
+        "dwd_ebay_sku_analysis_order": {
+            "idx_esa_dwd_site_sku_time": "(site_name,inventory_sku,payment_time)",
+        },
+    }
     with db_connection() as connection, connection.cursor() as cursor:
         for statement in statements:
             cursor.execute(statement)
@@ -623,13 +677,31 @@ def _initialize_tables():
             for column_name, definition in columns.items():
                 if column_name not in existing:
                     cursor.execute(f"ALTER TABLE `{table_name}` ADD COLUMN `{column_name}` {definition}")
+        for table_name, indexes in missing_indexes.items():
+            cursor.execute(f"SHOW INDEX FROM `{table_name}`")
+            existing_indexes = {row["Key_name"] for row in cursor.fetchall()}
+            for index_name, definition in indexes.items():
+                if index_name not in existing_indexes:
+                    cursor.execute(f"ALTER TABLE `{table_name}` ADD INDEX `{index_name}` {definition}")
         connection.commit()
 
 
-def _site_name(country: str, currency) -> str:
-    value = country.strip()
-    if value in {"美国", "英国", "德国", "法国"}: return value
-    return {"USD": "美国", "GBP": "英国", "EUR": "德国"}.get(_text(currency).upper(), value or "其他")
+def _site_name(source_site: str, currency) -> str:
+    value = _identifier(source_site)
+    if "汽配" in value:
+        return "美国"
+    normalized = re.sub(r"^ebay", "", value, flags=re.IGNORECASE).strip()
+    normalized = re.sub(r"站$", "", normalized).strip()
+    aliases = {
+        "美国": "美国", "英国": "英国", "德国": "德国", "法国": "法国",
+        "意大利": "意大利", "西班牙": "西班牙", "澳大利亚": "澳大利亚",
+        "加拿大": "加拿大", "瑞典": "瑞典",
+    }
+    if normalized in aliases:
+        return aliases[normalized]
+    return {"USD": "美国", "GBP": "英国", "EUR": "德国"}.get(
+        _text(currency).upper(), normalized or "其他"
+    )
 
 
 def _site(country: str) -> str:

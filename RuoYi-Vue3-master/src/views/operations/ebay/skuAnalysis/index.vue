@@ -113,8 +113,8 @@
       <pagination v-show="total > 0" :total="total" v-model:page="query.pageNum" v-model:limit="query.pageSize" @pagination="load" />
     </el-card>
 
-    <el-dialog v-model="importVisible" :title="importDialogTitle" width="560px" append-to-body>
-      <el-upload ref="uploadRef" drag accept=".xlsx,.xls" :auto-upload="false" :limit="1" :on-change="onFile" :on-remove="onRemove">
+    <el-dialog v-model="importVisible" :title="importDialogTitle" width="560px" append-to-body @closed="resetImportFile">
+      <el-upload :key="importMode" ref="uploadRef" drag accept=".xlsx" :auto-upload="false" :limit="1" :on-change="onFile" :on-remove="onRemove">
         <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
         <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
         <template #tip><div class="el-upload__tip">{{ importDialogTip }}</div></template>
@@ -252,7 +252,7 @@ function render() {
   if (!chartRef.value) return
   chart ||= echarts.init(chartRef.value)
   const metric = chartMetrics.find(item => item.value === query.chartMetric) || chartMetrics[0]
-  const categories = chartRows.value.map(item => item.inventory_sku)
+  const categories = chartRows.value.map(item => `${item.site_name} · ${item.inventory_sku}`)
   const values = chartRows.value.map(item => Number(item[metric.value] || 0))
   const valueLabel = value => metric.percent ? percentage(value) : `${metric.money ? '¥' : ''}${Number(value).toLocaleString('zh-CN')}`
   const common = {
@@ -280,6 +280,7 @@ function openImport() { importMode.value='orders'; file.value=undefined; uploadR
 function openProfitImport() { importMode.value='profit'; file.value=undefined; uploadRef.value?.clearFiles(); importVisible.value=true }
 function onFile(uploadFile) { file.value=uploadFile.raw }
 function onRemove() { file.value=undefined }
+function resetImportFile() { file.value=undefined; uploadRef.value?.clearFiles() }
 async function submitImport() {
   if (!file.value) return proxy.$modal.msgError('请选择Excel文件')
   importing.value=true
