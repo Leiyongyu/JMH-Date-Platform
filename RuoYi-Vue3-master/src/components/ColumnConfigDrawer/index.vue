@@ -105,11 +105,15 @@ function normalizeKeys(keys) {
   const valid = Array.isArray(keys) ? keys.filter((key) => allKeys.includes(key)) : []
   const validSet = new Set(valid)
   const next = []
+  props.fixedKeys.forEach((key) => {
+    if (
+      allKeys.includes(key)
+      && (validSet.has(key) || requiredKeys.value.includes(key))
+      && !next.includes(key)
+    ) next.push(key)
+  })
   requiredKeys.value.forEach((key) => {
     if (allKeys.includes(key) && !next.includes(key)) next.push(key)
-  })
-  props.fixedKeys.forEach((key) => {
-    if (allKeys.includes(key) && validSet.has(key) && !next.includes(key)) next.push(key)
   })
   valid.forEach((key) => {
     if (!props.fixedKeys.includes(key) && !next.includes(key)) next.push(key)

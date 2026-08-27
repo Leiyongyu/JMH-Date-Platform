@@ -13,11 +13,15 @@ export function useColumnConfig(pageKey, columns, fixedKeys = [], requiredKeys =
     const valid = Array.isArray(keys) ? keys.filter((key) => columnMap.has(key)) : []
     const validSet = new Set(valid)
     const merged = []
+    fixedKeys.forEach((key) => {
+      if (
+        columnMap.has(key)
+        && !merged.includes(key)
+        && (validSet.has(key) || requiredKeys.includes(key) || appendMissing)
+      ) merged.push(key)
+    })
     requiredKeys.forEach((key) => {
       if (columnMap.has(key) && !merged.includes(key)) merged.push(key)
-    })
-    fixedKeys.forEach((key) => {
-      if (columnMap.has(key) && !merged.includes(key) && (validSet.has(key) || appendMissing)) merged.push(key)
     })
     valid.forEach((key) => {
       if (!fixedKeys.includes(key) && !merged.includes(key)) merged.push(key)

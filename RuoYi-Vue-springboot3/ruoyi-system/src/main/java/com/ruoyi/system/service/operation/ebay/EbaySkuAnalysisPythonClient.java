@@ -37,11 +37,21 @@ public class EbaySkuAnalysisPythonClient extends PythonHttpSupport
 
     public Map<String, Object> importOrders(MultipartFile file, String operator, String requestId)
     {
+        return importFile(PREFIX + "/imports", file, operator, requestId);
+    }
+
+    public Map<String, Object> importProfits(MultipartFile file, String operator, String requestId)
+    {
+        return importFile(PREFIX + "/profit-imports", file, operator, requestId);
+    }
+
+    private Map<String, Object> importFile(String path, MultipartFile file, String operator, String requestId)
+    {
         if (file == null || file.isEmpty()) throw new IllegalArgumentException("请选择有效Excel文件");
         try
         {
             String boundary = "----JmhEbaySku" + UUID.randomUUID().toString().replace("-", "");
-            HttpRequest request = baseRequest(PREFIX + "/imports" + queryString(Map.of("operator", operator)), requestId)
+            HttpRequest request = baseRequest(path + queryString(Map.of("operator", operator)), requestId)
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                     .POST(multipartBodyPublisher(boundary, "file", new MultipartFile[] { file })).build();
             return send(request);

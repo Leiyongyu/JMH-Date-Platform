@@ -1,25 +1,73 @@
--- 在jmh_data_platform执行：运营中心 / eBay / SKU分析菜单与权限。
+-- 在 jmh_data_platform 执行：运营中心 / eBay / 店铺分析三级菜单。
+-- 可重复执行；保留原 SKU 分析菜单 ID 和功能权限，仅调整其父菜单。
+
 SET @operations_id := (SELECT menu_id FROM sys_menu WHERE menu_type='M' AND (path='operations' OR menu_name='运营中心') ORDER BY menu_id LIMIT 1);
 SET @ebay_dir_id := (SELECT menu_id FROM sys_menu WHERE parent_id=@operations_id AND menu_type='M' AND LOWER(menu_name)='ebay' ORDER BY menu_id LIMIT 1);
+
 INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,route_name,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time,remark)
 SELECT 'eBay',@operations_id,2,'ebay',NULL,'',1,0,'M','0','0','','shopping','SYSTEM',NOW(),'运营中心eBay业务目录'
 WHERE @operations_id IS NOT NULL AND @ebay_dir_id IS NULL;
+
 SET @ebay_dir_id := (SELECT menu_id FROM sys_menu WHERE parent_id=@operations_id AND menu_type='M' AND LOWER(menu_name)='ebay' ORDER BY menu_id LIMIT 1);
+SET @store_analysis_id := (SELECT menu_id FROM sys_menu WHERE parent_id=@ebay_dir_id AND menu_type='M' AND (path='store-analysis' OR menu_name='店铺分析') ORDER BY menu_id LIMIT 1);
+
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,route_name,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time,remark)
+SELECT '店铺分析',@ebay_dir_id,20,'store-analysis',NULL,'',1,0,'M','0','0','','shop','SYSTEM',NOW(),'eBay店铺分析业务目录'
+WHERE @ebay_dir_id IS NOT NULL AND @store_analysis_id IS NULL;
+
+SET @store_analysis_id := (SELECT menu_id FROM sys_menu WHERE parent_id=@ebay_dir_id AND menu_type='M' AND (path='store-analysis' OR menu_name='店铺分析') ORDER BY menu_id LIMIT 1);
+UPDATE sys_menu SET parent_id=@ebay_dir_id,menu_name='店铺分析',order_num=20,path='store-analysis',component=NULL,route_name='',menu_type='M',visible='0',status='0',perms='',icon='shop',update_by='SYSTEM',update_time=NOW(),remark='eBay店铺分析业务目录' WHERE menu_id=@store_analysis_id;
+
 SET @sku_menu_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebaySkuAnalysis:list' ORDER BY menu_id LIMIT 1);
 INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,route_name,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time,remark)
-SELECT 'SKU分析',@ebay_dir_id,20,'sku-analysis','operations/ebay/skuAnalysis/index','EbaySkuAnalysis',1,0,'C','0','0','operations:ebaySkuAnalysis:list','chart','SYSTEM',NOW(),'上传数字酋长订单并按SKU分析'
-WHERE @ebay_dir_id IS NOT NULL AND @sku_menu_id IS NULL;
+SELECT 'SKU分析',@store_analysis_id,1,'sku-analysis','operations/ebay/skuAnalysis/index','EbaySkuAnalysis',1,0,'C','0','0','operations:ebaySkuAnalysis:list','chart','SYSTEM',NOW(),'上传数字酋长订单并按SKU分析'
+WHERE @store_analysis_id IS NOT NULL AND @sku_menu_id IS NULL;
 SET @sku_menu_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebaySkuAnalysis:list' ORDER BY menu_id LIMIT 1);
-UPDATE sys_menu SET parent_id=@ebay_dir_id,menu_name='SKU分析',path='sku-analysis',component='operations/ebay/skuAnalysis/index',route_name='EbaySkuAnalysis',visible='0',status='0' WHERE menu_id=@sku_menu_id;
+UPDATE sys_menu SET parent_id=@store_analysis_id,menu_name='SKU分析',order_num=1,path='sku-analysis',component='operations/ebay/skuAnalysis/index',route_name='EbaySkuAnalysis',menu_type='C',visible='0',status='0',perms='operations:ebaySkuAnalysis:list',icon='chart',update_by='SYSTEM',update_time=NOW(),remark='上传数字酋长订单并按SKU分析' WHERE menu_id=@sku_menu_id;
+
+SET @return_overview_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebayReturnOverview:list' ORDER BY menu_id LIMIT 1);
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,route_name,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time,remark)
+SELECT '退货概览',@store_analysis_id,2,'return-overview','operations/ebay/returnOverview/index','EbayReturnOverview',1,0,'C','0','0','operations:ebayReturnOverview:list','chart','SYSTEM',NOW(),'eBay退货概览演示页面'
+WHERE @store_analysis_id IS NOT NULL AND @return_overview_id IS NULL;
+SET @return_overview_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebayReturnOverview:list' ORDER BY menu_id LIMIT 1);
+UPDATE sys_menu SET parent_id=@store_analysis_id,menu_name='退货概览',order_num=2,path='return-overview',component='operations/ebay/returnOverview/index',route_name='EbayReturnOverview',menu_type='C',visible='0',status='0',icon='chart',update_by='SYSTEM',update_time=NOW(),remark='eBay退货概览演示页面' WHERE menu_id=@return_overview_id;
+
+SET @return_detail_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebayReturnDetail:list' ORDER BY menu_id LIMIT 1);
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,route_name,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time,remark)
+SELECT '退货明细',@store_analysis_id,3,'return-detail','operations/ebay/returnDetail/index','EbayReturnDetail',1,0,'C','0','0','operations:ebayReturnDetail:list','list','SYSTEM',NOW(),'eBay退货明细演示页面'
+WHERE @store_analysis_id IS NOT NULL AND @return_detail_id IS NULL;
+SET @return_detail_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebayReturnDetail:list' ORDER BY menu_id LIMIT 1);
+UPDATE sys_menu SET parent_id=@store_analysis_id,menu_name='退货明细',order_num=3,path='return-detail',component='operations/ebay/returnDetail/index',route_name='EbayReturnDetail',menu_type='C',visible='0',status='0',icon='list',update_by='SYSTEM',update_time=NOW(),remark='eBay退货明细演示页面' WHERE menu_id=@return_detail_id;
+
 SET @import_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebaySkuAnalysis:import' ORDER BY menu_id LIMIT 1);
+
+SET @profit_import_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebaySkuAnalysis:profitImport' ORDER BY menu_id LIMIT 1);
+INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,route_name,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time,remark)
+SELECT '上传eBay订单利润',@sku_menu_id,2,'',NULL,'',1,0,'F','0','0','operations:ebaySkuAnalysis:profitImport','#','SYSTEM',NOW(),'上传eBay订单利润Excel'
+WHERE @sku_menu_id IS NOT NULL AND @profit_import_id IS NULL;
+SET @profit_import_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebaySkuAnalysis:profitImport' ORDER BY menu_id LIMIT 1);
 INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,route_name,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time,remark)
 SELECT '上传eBay订单',@sku_menu_id,1,'',NULL,'',1,0,'F','0','0','operations:ebaySkuAnalysis:import','#','SYSTEM',NOW(),'上传数字酋长订单Excel'
 WHERE @sku_menu_id IS NOT NULL AND @import_id IS NULL;
 SET @import_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebaySkuAnalysis:import' ORDER BY menu_id LIMIT 1);
+
+-- 仅为原本拥有 SKU 分析页面权限的角色补齐新的父目录，避免菜单移动后不可见。
 INSERT IGNORE INTO sys_role_menu(role_id,menu_id)
-SELECT DISTINCT ur.role_id,m.menu_id FROM sys_user u JOIN sys_user_role ur ON ur.user_id=u.user_id
-JOIN sys_menu m ON m.menu_id IN (@operations_id,@ebay_dir_id,@sku_menu_id,@import_id)
+SELECT DISTINCT role_id,@store_analysis_id FROM sys_role_menu
+WHERE menu_id=@sku_menu_id AND @store_analysis_id IS NOT NULL;
+
+-- leiyongyu 当前拥有的全部角色获得店铺分析整棵菜单权限。
+INSERT IGNORE INTO sys_role_menu(role_id,menu_id)
+SELECT DISTINCT ur.role_id,m.menu_id
+FROM sys_user u
+JOIN sys_user_role ur ON ur.user_id=u.user_id
+JOIN sys_menu m ON m.menu_id IN (
+  @operations_id,@ebay_dir_id,@store_analysis_id,@sku_menu_id,@import_id,
+  @profit_import_id,@return_overview_id,@return_detail_id
+)
 WHERE u.user_name='leiyongyu' AND m.menu_id IS NOT NULL;
 
--- 部署检查
-SELECT menu_id,parent_id,menu_name,menu_type,perms,component FROM sys_menu WHERE menu_id IN (@ebay_dir_id,@sku_menu_id,@import_id) ORDER BY menu_id;
+SELECT menu_id,parent_id,menu_name,order_num,menu_type,perms,component
+FROM sys_menu
+WHERE menu_id IN (@ebay_dir_id,@store_analysis_id,@sku_menu_id,@import_id,@profit_import_id,@return_overview_id,@return_detail_id)
+ORDER BY parent_id,order_num,menu_id;
