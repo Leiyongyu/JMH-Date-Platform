@@ -38,6 +38,10 @@ export function getEbayReturnDetails(params) {
   return request({ url: `${base}/return-details`, method: 'get', params })
 }
 
+export function getEbayReturnOverviewMetrics(params) {
+  return request({ url: `${base}/return-overview/metrics`, method: 'get', params })
+}
+
 export function getEbayReturnCategories() {
   return request({ url: `${base}/return-categories`, method: 'get' })
 }

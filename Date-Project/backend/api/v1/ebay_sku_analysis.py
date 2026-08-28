@@ -53,6 +53,22 @@ def return_details(request: Request, start_date: str | None = None,
         raise HTTPException(status_code=500, detail=f"eBay退货明细查询失败: {exc}") from exc
 
 
+@router.get("/return-overview/metrics")
+def return_overview_metrics(request: Request, start_date: str | None = None,
+                            end_date: str | None = None,
+                            time_type: str = "payment", sku: str | None = None,
+                            site: str | None = None):
+    try:
+        data = service.return_overview_metrics(
+            start_date, end_date, time_type, sku, site
+        )
+        return success_response(data, request_id=request.state.request_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"eBay退货概览指标查询失败: {exc}") from exc
+
+
 @router.get("/return-categories")
 def return_categories(request: Request):
     try:

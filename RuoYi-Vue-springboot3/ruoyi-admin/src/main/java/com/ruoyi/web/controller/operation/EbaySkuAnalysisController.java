@@ -70,6 +70,21 @@ public class EbaySkuAnalysisController extends BaseController
         return success(data(client.returnDetails(params, requestId)));
     }
 
+    @PreAuthorize("@ss.hasPermi('operations:ebayReturnOverview:list')")
+    @GetMapping("/return-overview/metrics")
+    public AjaxResult returnOverviewMetrics(@RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(defaultValue = "payment") String timeType,
+            @RequestParam(required = false) String sku,
+            @RequestParam(required = false) String site,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("start_date", startDate); params.put("end_date", endDate);
+        params.put("time_type", timeType); params.put("sku", sku); params.put("site", site);
+        return success(data(client.returnOverviewMetrics(params, requestId)));
+    }
+
     @PreAuthorize("@ss.hasPermi('operations:ebayReturnDetail:list')")
     @GetMapping("/return-categories")
     public AjaxResult returnCategories(

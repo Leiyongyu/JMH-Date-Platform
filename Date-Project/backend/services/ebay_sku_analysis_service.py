@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -385,6 +385,429 @@ def return_categories() -> list[dict]:
         return [_json_row(row) for row in cursor.fetchall()]
 
 
+def return_overview_metrics(start_date: str | None, end_date: str | None,
+                            time_type: str | None, sku: str | None,
+                            site: str | None) -> dict:
+    _ensure_tables()
+    selected_time_type = "payment" if (time_type or "payment").lower() == "payment" else "refund"
+    time_column = "payment_time" if selected_time_type == "payment" else "refund_time"
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"""SELECT MIN(DATE({time_column})) min_date,
+                       MAX(DATE({time_column})) max_date
+                FROM dwd_ebay_sku_analysis_order
+                WHERE {time_column} IS NOT NULL"""
+        )
+        bound_row = cursor.fetchone() or {}
+        month_start, today = _current_month_period()
+        actual_min = bound_row.get("min_date")
+        actual_max = bound_row.get("max_date")
+        bounds = {
+            "min_date": min(actual_min, month_start).isoformat() if actual_min else month_start.isoformat(),
+            "max_date": max(actual_max, today).isoformat() if actual_max else today.isoformat(),
+        }
+        cursor.execute(
+            """SELECT DISTINCT site_name
+               FROM dwd_ebay_sku_analysis_order
+               WHERE site_name IS NOT NULL AND site_name<>''
+               ORDER BY site_name"""
+        )
+        sites = [row["site_name"] for row in cursor.fetchall()]
+        start = start_date or month_start.isoformat()
+        end = end_date or today.isoformat()
+        try:
+            start_value = datetime.strptime(start, "%Y-%m-%d").date()
+            end_value = datetime.strptime(end, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise ValueError("日期必须为YYYY-MM-DD格式") from exc
+        if start_value > end_value:
+            raise ValueError("开始日期不能晚于结束日期")
+        selected_days = (end_value - start_value).days + 1
+        previous_end = start_value - timedelta(days=1)
+        previous_start = previous_end - timedelta(days=selected_days - 1)
+        current = _return_overview_period_values(
+            cursor, start_value, end_value, selected_time_type, sku, site
+        )
+        previous = _return_overview_period_values(
+            cursor, previous_start, previous_end, selected_time_type, sku, site
+        )
+        regions = _return_overview_regions(
+            cursor, start_value, end_value, selected_time_type, sku, site
+        )
+        reasons = _return_overview_reasons(
+            cursor, start_value, end_value, selected_time_type, sku, site
+        )
+        trend = _return_overview_trend(
+            cursor, start_value, end_value, selected_time_type, sku, site
+        )
+        listings = _return_overview_listings(
+            cursor, start_value, end_value, selected_time_type, sku, site
+        )
+        trend = _return_overview_trend(
+            cursor, start_value, end_value, selected_time_type, sku, site
+        )
+    return {
+        "metrics": {
+            key: _comparison_metric(current[key], previous[key])
+            for key in current
+        },
+        "regions": regions,
+        "reasons": reasons,
+        "trend": trend,
+        "listings": listings,
+        "trend": trend,
+        "sites": sites,
+        "date_bounds": bounds,
+        "time_type": selected_time_type,
+        "current_period": {
+            "start_date": start_value.isoformat(),
+            "end_date": end_value.isoformat(),
+            "days": selected_days,
+        },
+        "previous_period": {
+            "start_date": previous_start.isoformat(),
+            "end_date": previous_end.isoformat(),
+            "days": selected_days,
+        },
+    }
+
+
+def _return_overview_period_values(cursor, start_value, end_value,
+                                   time_type: str, sku: str | None,
+                                   site: str | None) -> dict:
+    dimension_clauses: list[str] = []
+    dimension_params: list[object] = []
+    if site:
+        dimension_clauses.append("o.site_name=%s")
+        dimension_params.append(site.strip())
+    if sku:
+        dimension_clauses.append("o.inventory_sku LIKE %s")
+        dimension_params.append(f"%{sku.strip().upper()}%")
+    dimensions = "" if not dimension_clauses else " AND " + " AND ".join(dimension_clauses)
+    end_exclusive = end_value + timedelta(days=1)
+    time_column = "o.payment_time" if time_type == "payment" else "o.refund_time"
+    cursor.execute(
+        f"""SELECT COALESCE(SUM(o.refund_quantity),0) return_count,
+                   COALESCE(SUM(o.refund_amount_cny),0) refund_amount
+            FROM dwd_ebay_sku_analysis_order o
+            WHERE {time_column}>=%s AND {time_column}<%s
+              AND (o.shipping_status LIKE '%%已退款%%'
+                   OR o.shipping_status LIKE '%%已作废%%')
+              {dimensions}""",
+        [start_value, end_exclusive, *dimension_params],
+    )
+    return_values = cursor.fetchone() or {}
+    cursor.execute(
+        f"""SELECT COALESCE(SUM(o.purchase_quantity),0) sold_quantity,
+                   COALESCE(SUM(o.paid_amount_cny),0)
+                     - COALESCE(SUM(CASE WHEN o.shipping_status LIKE '%%已退款%%'
+                                         THEN o.refund_amount_cny ELSE 0 END),0) paid_amount
+            FROM dwd_ebay_sku_analysis_order o
+            WHERE {time_column}>=%s AND {time_column}<%s
+              {dimensions}""",
+        [start_value, end_exclusive, *dimension_params],
+    )
+    sales_values = cursor.fetchone() or {}
+    return_count = Decimal(str(return_values.get("return_count") or 0))
+    refund_amount = Decimal(str(return_values.get("refund_amount") or 0))
+    sold_quantity = Decimal(str(sales_values.get("sold_quantity") or 0))
+    paid_amount = Decimal(str(sales_values.get("paid_amount") or 0))
+    return {
+        "return_count": return_count,
+        "refund_amount": refund_amount,
+        "return_rate": return_count / sold_quantity if sold_quantity else Decimal("0"),
+        "refund_amount_ratio": refund_amount / paid_amount if paid_amount else Decimal("0"),
+        "sold_quantity": sold_quantity,
+        "paid_amount": paid_amount,
+    }
+
+
+def _return_overview_regions(cursor, start_value, end_value, time_type: str,
+                             sku: str | None, site: str | None) -> list[dict]:
+    clauses: list[str] = []
+    params: list[object] = [start_value, end_value + timedelta(days=1)]
+    if site:
+        clauses.append("o.site_name=%s")
+        params.append(site.strip())
+    if sku:
+        clauses.append("o.inventory_sku LIKE %s")
+        params.append(f"%{sku.strip().upper()}%")
+    dimensions = "" if not clauses else " AND " + " AND ".join(clauses)
+    time_column = "o.payment_time" if time_type == "payment" else "o.refund_time"
+    cursor.execute(
+        f"""SELECT o.site_name,
+                   COALESCE(SUM(CASE
+                     WHEN o.shipping_status LIKE '%%已退款%%'
+                       OR o.shipping_status LIKE '%%已作废%%'
+                     THEN o.refund_quantity ELSE 0 END),0) return_count,
+                   COALESCE(SUM(CASE
+                     WHEN o.shipping_status LIKE '%%已退款%%'
+                       OR o.shipping_status LIKE '%%已作废%%'
+                     THEN o.refund_amount_cny ELSE 0 END),0) refund_amount,
+                   COALESCE(SUM(o.purchase_quantity),0) sold_quantity,
+                   COALESCE(SUM(o.paid_amount_cny),0)
+                     - COALESCE(SUM(CASE WHEN o.shipping_status LIKE '%%已退款%%'
+                                         THEN o.refund_amount_cny ELSE 0 END),0) paid_amount
+            FROM dwd_ebay_sku_analysis_order o
+            WHERE {time_column}>=%s AND {time_column}<%s
+              {dimensions}
+            GROUP BY o.site_name
+            ORDER BY refund_amount DESC,o.site_name""",
+        params,
+    )
+    result = []
+    for raw in cursor.fetchall():
+        return_count = Decimal(str(raw.get("return_count") or 0))
+        refund_amount = Decimal(str(raw.get("refund_amount") or 0))
+        sold_quantity = Decimal(str(raw.get("sold_quantity") or 0))
+        paid_amount = Decimal(str(raw.get("paid_amount") or 0))
+        result.append({
+            "site_name": raw.get("site_name") or "其他",
+            "return_count": str(return_count),
+            "return_rate": str(return_count / sold_quantity if sold_quantity else Decimal("0")),
+            "refund_amount": str(refund_amount),
+            "refund_amount_ratio": str(refund_amount / paid_amount if paid_amount else Decimal("0")),
+            "paid_amount": str(paid_amount),
+            "sold_quantity": str(sold_quantity),
+        })
+    return result
+
+
+def _return_overview_trend(cursor, start_value, end_value, time_type: str,
+                           sku: str | None, site: str | None) -> list[dict]:
+    clauses: list[str] = []
+    params: list[object] = [start_value, end_value + timedelta(days=1)]
+    if site:
+        clauses.append("o.site_name=%s")
+        params.append(site.strip())
+    if sku:
+        clauses.append("o.inventory_sku LIKE %s")
+        params.append(f"%{sku.strip().upper()}%")
+    dimensions = "" if not clauses else " AND " + " AND ".join(clauses)
+    time_column = "o.payment_time" if time_type == "payment" else "o.refund_time"
+    cursor.execute(
+        f"""SELECT DATE({time_column}) stat_date,
+                   COALESCE(SUM(CASE
+                     WHEN o.shipping_status LIKE '%%已退款%%'
+                       OR o.shipping_status LIKE '%%已作废%%'
+                     THEN o.refund_quantity ELSE 0 END),0) return_count,
+                   COALESCE(SUM(CASE
+                     WHEN o.shipping_status LIKE '%%已退款%%'
+                       OR o.shipping_status LIKE '%%已作废%%'
+                     THEN o.refund_amount_cny ELSE 0 END),0) refund_amount,
+                   COALESCE(SUM(o.purchase_quantity),0) sold_quantity,
+                   COALESCE(SUM(o.paid_amount_cny),0)
+                     - COALESCE(SUM(CASE WHEN o.shipping_status LIKE '%%已退款%%'
+                                         THEN o.refund_amount_cny ELSE 0 END),0) paid_amount
+            FROM dwd_ebay_sku_analysis_order o
+            WHERE {time_column}>=%s AND {time_column}<%s
+              {dimensions}
+            GROUP BY DATE({time_column})
+            ORDER BY stat_date""",
+        params,
+    )
+    daily = {row["stat_date"]: row for row in cursor.fetchall()}
+    result = []
+    current_date = start_value
+    while current_date <= end_value:
+        raw = daily.get(current_date, {})
+        return_count = Decimal(str(raw.get("return_count") or 0))
+        refund_amount = Decimal(str(raw.get("refund_amount") or 0))
+        sold_quantity = Decimal(str(raw.get("sold_quantity") or 0))
+        paid_amount = Decimal(str(raw.get("paid_amount") or 0))
+        result.append({
+            "stat_date": current_date.isoformat(),
+            "return_count": str(return_count),
+            "refund_amount": str(refund_amount),
+            "return_rate": str(return_count / sold_quantity if sold_quantity else Decimal("0")),
+            "refund_amount_ratio": str(refund_amount / paid_amount if paid_amount else Decimal("0")),
+            "sold_quantity": str(sold_quantity),
+            "paid_amount": str(paid_amount),
+        })
+        current_date += timedelta(days=1)
+    return result
+
+
+def _return_overview_trend(cursor, start_value, end_value, time_type: str,
+                           sku: str | None, site: str | None) -> list[dict]:
+    clauses: list[str] = []
+    params: list[object] = [start_value, end_value + timedelta(days=1)]
+    if site:
+        clauses.append("o.site_name=%s")
+        params.append(site.strip())
+    if sku:
+        clauses.append("o.inventory_sku LIKE %s")
+        params.append(f"%{sku.strip().upper()}%")
+    dimensions = "" if not clauses else " AND " + " AND ".join(clauses)
+    time_column = "o.payment_time" if time_type == "payment" else "o.refund_time"
+    cursor.execute(
+        f"""SELECT DATE({time_column}) stat_date,
+                   COALESCE(SUM(CASE
+                     WHEN o.shipping_status LIKE '%%已退款%%'
+                       OR o.shipping_status LIKE '%%已作废%%'
+                     THEN o.refund_quantity ELSE 0 END),0) return_count,
+                   COALESCE(SUM(CASE
+                     WHEN o.shipping_status LIKE '%%已退款%%'
+                       OR o.shipping_status LIKE '%%已作废%%'
+                     THEN o.refund_amount_cny ELSE 0 END),0) refund_amount,
+                   COALESCE(SUM(o.purchase_quantity),0) sold_quantity,
+                   COALESCE(SUM(o.paid_amount_cny),0)
+                     - COALESCE(SUM(CASE WHEN o.shipping_status LIKE '%%已退款%%'
+                                         THEN o.refund_amount_cny ELSE 0 END),0) paid_amount
+            FROM dwd_ebay_sku_analysis_order o
+            WHERE {time_column}>=%s AND {time_column}<%s
+              {dimensions}
+            GROUP BY DATE({time_column})
+            ORDER BY stat_date""",
+        params,
+    )
+    daily = {row["stat_date"]: row for row in cursor.fetchall()}
+    result = []
+    current_date = start_value
+    while current_date <= end_value:
+        raw = daily.get(current_date, {})
+        return_count = Decimal(str(raw.get("return_count") or 0))
+        refund_amount = Decimal(str(raw.get("refund_amount") or 0))
+        sold_quantity = Decimal(str(raw.get("sold_quantity") or 0))
+        paid_amount = Decimal(str(raw.get("paid_amount") or 0))
+        result.append({
+            "stat_date": current_date.isoformat(),
+            "return_count": str(return_count),
+            "refund_amount": str(refund_amount),
+            "return_rate": str(return_count / sold_quantity if sold_quantity else Decimal("0")),
+            "refund_amount_ratio": str(refund_amount / paid_amount if paid_amount else Decimal("0")),
+            "sold_quantity": str(sold_quantity),
+            "paid_amount": str(paid_amount),
+        })
+        current_date += timedelta(days=1)
+    return result
+
+
+def _return_overview_reasons(cursor, start_value, end_value, time_type: str,
+                             sku: str | None, site: str | None) -> list[dict]:
+    clauses = [
+        "(o.shipping_status LIKE '%%已退款%%' OR o.shipping_status LIKE '%%已作废%%')"
+    ]
+    params: list[object] = [start_value, end_value + timedelta(days=1)]
+    if site:
+        clauses.append("o.site_name=%s")
+        params.append(site.strip())
+    if sku:
+        clauses.append("o.inventory_sku LIKE %s")
+        params.append(f"%{sku.strip().upper()}%")
+    time_column = "o.payment_time" if time_type == "payment" else "o.refund_time"
+    cursor.execute(
+        f"""SELECT COALESCE(NULLIF(TRIM(assignment.small_category),''),'未分类') small_category,
+                   COUNT(DISTINCT o.platform_order_no) refund_order_count
+            FROM dwd_ebay_sku_analysis_order o
+            LEFT JOIN ebay_sku_analysis_return_classification assignment
+              ON assignment.platform_order_no=o.platform_order_no
+            WHERE {time_column}>=%s AND {time_column}<%s
+              AND {' AND '.join(clauses)}
+            GROUP BY COALESCE(NULLIF(TRIM(assignment.small_category),''),'未分类')
+            ORDER BY refund_order_count DESC,small_category""",
+        params,
+    )
+    rows = cursor.fetchall()
+    total = sum(int(row.get("refund_order_count") or 0) for row in rows)
+    return [
+        {
+            "small_category": row["small_category"],
+            "refund_order_count": int(row.get("refund_order_count") or 0),
+            "ratio": str(
+                Decimal(str(row.get("refund_order_count") or 0)) / Decimal(total)
+                if total else Decimal("0")
+            ),
+        }
+        for row in rows
+    ]
+
+
+def _return_overview_listings(cursor, start_value, end_value, time_type: str,
+                              sku: str | None, site: str | None) -> list[dict]:
+    clauses: list[str] = []
+    params: list[object] = [start_value, end_value + timedelta(days=1)]
+    if site:
+        clauses.append("o.site_name=%s")
+        params.append(site.strip())
+    if sku:
+        clauses.append("o.inventory_sku LIKE %s")
+        params.append(f"%{sku.strip().upper()}%")
+    dimensions = "" if not clauses else " AND " + " AND ".join(clauses)
+    time_column = "o.payment_time" if time_type == "payment" else "o.refund_time"
+    cursor.execute(
+        f"""SELECT o.site_name,o.inventory_sku,
+                   SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(o.picture_url,'')
+                     ORDER BY o.payment_time DESC,o.id DESC SEPARATOR '|||'),'|||',1) picture_url,
+                   SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(o.listing_url,'')
+                     ORDER BY o.payment_time DESC,o.id DESC SEPARATOR '|||'),'|||',1) listing_url,
+                   COALESCE(SUM(CASE
+                     WHEN o.shipping_status LIKE '%%已退款%%'
+                       OR o.shipping_status LIKE '%%已作废%%'
+                     THEN o.refund_quantity ELSE 0 END),0) return_count,
+                   COALESCE(SUM(CASE
+                     WHEN o.shipping_status LIKE '%%已退款%%'
+                       OR o.shipping_status LIKE '%%已作废%%'
+                     THEN o.refund_amount_cny ELSE 0 END),0) refund_amount,
+                   COALESCE(SUM(o.purchase_quantity),0) sold_quantity,
+                   COALESCE(SUM(o.paid_amount_cny),0)
+                     - COALESCE(SUM(CASE WHEN o.shipping_status LIKE '%%已退款%%'
+                                         THEN o.refund_amount_cny ELSE 0 END),0) paid_amount
+            FROM dwd_ebay_sku_analysis_order o
+            WHERE {time_column}>=%s AND {time_column}<%s
+              AND o.inventory_sku IS NOT NULL AND o.inventory_sku<>''
+              {dimensions}
+            GROUP BY o.site_name,o.inventory_sku
+            ORDER BY refund_amount DESC,paid_amount DESC,o.site_name,o.inventory_sku""",
+        params,
+    )
+    result = []
+    for raw in cursor.fetchall():
+        return_count = Decimal(str(raw.get("return_count") or 0))
+        refund_amount = Decimal(str(raw.get("refund_amount") or 0))
+        sold_quantity = Decimal(str(raw.get("sold_quantity") or 0))
+        paid_amount = Decimal(str(raw.get("paid_amount") or 0))
+        result.append({
+            "site_name": raw.get("site_name") or "其他",
+            "sku": raw.get("inventory_sku") or "",
+            "picture_url": raw.get("picture_url") or "",
+            "listing_url": raw.get("listing_url") or "",
+            "return_count": str(return_count),
+            "refund_amount": str(refund_amount),
+            "paid_amount": str(paid_amount),
+            "sold_quantity": str(sold_quantity),
+            "return_rate": str(return_count / sold_quantity if sold_quantity else Decimal("0")),
+            "refund_amount_ratio": str(refund_amount / paid_amount if paid_amount else Decimal("0")),
+        })
+    return result
+
+
+def _comparison_metric(current: Decimal, previous: Decimal) -> dict:
+    current_value = Decimal(str(current or 0))
+    previous_value = Decimal(str(previous or 0))
+    if previous_value == 0:
+        change_rate = Decimal("0") if current_value == 0 else Decimal("100")
+    else:
+        change_rate = (
+            (current_value - previous_value) / abs(previous_value) * Decimal("100")
+        ).quantize(Decimal("0.01"))
+    return {
+        "value": str(current_value),
+        "previous_value": str(previous_value),
+        "change_rate": str(change_rate),
+    }
+
+
+def _empty_return_overview_metrics() -> dict:
+    return {
+        key: {"value": "0", "previous_value": "0", "change_rate": "0"}
+        for key in (
+            "return_count", "refund_amount", "return_rate",
+            "refund_amount_ratio", "sold_quantity", "paid_amount",
+        )
+    }
+
+
 def list_return_details(start_date: str | None, end_date: str | None,
                         time_type: str | None, sku: str | None, site: str | None,
                         order_no: str | None, page: int, page_size: int) -> dict:
@@ -401,20 +824,15 @@ def list_return_details(start_date: str | None, end_date: str | None,
                 FROM dwd_ebay_sku_analysis_order o WHERE {status_clause}"""
         )
         bound_row = cursor.fetchone() or {}
+        month_start, today = _current_month_period()
+        actual_min = bound_row.get("min_date")
+        actual_max = bound_row.get("max_date")
         bounds = {
-            "min_date": str(bound_row.get("min_date") or ""),
-            "max_date": str(bound_row.get("max_date") or ""),
+            "min_date": min(actual_min, month_start).isoformat() if actual_min else month_start.isoformat(),
+            "max_date": max(actual_max, today).isoformat() if actual_max else today.isoformat(),
         }
-        if not bounds["min_date"]:
-            return {
-                "items": [], "sites": [], "date_bounds": bounds,
-                "start_date": "", "end_date": "", "time_type": selected_time_type,
-                "summary": {"refund_order_count": 0, "refund_count": "0",
-                            "refund_amount": "0", "site_count": 0},
-                "pagination": {"page": 1, "page_size": page_size, "total": 0},
-            }
-        start = start_date or bounds["min_date"]
-        end = end_date or bounds["max_date"]
+        start = start_date or month_start.isoformat()
+        end = end_date or today.isoformat()
         try:
             start_value = datetime.strptime(start, "%Y-%m-%d").date()
             end_value = datetime.strptime(end, "%Y-%m-%d").date()
@@ -802,8 +1220,6 @@ def _ensure_tables():
 
 
 def _initialize_tables():
-    path = Path(__file__).parents[2] / "migrations" / "20260825_ebay_sku_analysis_tables.sql"
-    statements = [item.strip() for item in path.read_text(encoding="utf-8").split(";") if item.strip()]
     missing_columns = {
         "ods_ebay_sku_analysis_order_raw": {
             "source_site_name": "VARCHAR(100) DEFAULT NULL COMMENT 'Excel第一列原始站点' AFTER source_row",
@@ -842,7 +1258,27 @@ def _initialize_tables():
             "idx_esa_dwd_return_time": "(refund_time,site_name,inventory_sku)",
         },
     }
+    required_tables = {
+        "ebay_sku_analysis_import_batch",
+        "ods_ebay_sku_analysis_order_raw",
+        "dwd_ebay_sku_analysis_order",
+        "ebay_sku_analysis_return_classification",
+        "ebay_sku_analysis_profit_import_batch",
+        "ods_ebay_sku_analysis_profit_raw",
+        "dwd_ebay_sku_analysis_profit",
+        "dws_ebay_sku_analysis_profit_daily",
+    }
     with db_connection() as connection, connection.cursor() as cursor:
+        if _ebay_sku_analysis_schema_is_current(
+            cursor, required_tables, missing_columns, missing_indexes
+        ):
+            return
+        path = Path(__file__).parents[2] / "migrations" / "20260825_ebay_sku_analysis_tables.sql"
+        statements = [
+            item.strip()
+            for item in path.read_text(encoding="utf-8").split(";")
+            if item.strip()
+        ]
         for statement in statements:
             cursor.execute(statement)
         for table_name, columns in missing_columns.items():
@@ -873,6 +1309,53 @@ def _initialize_tables():
                       AND source.order_remark IS NOT NULL AND source.order_remark<>'')"""
         )
         connection.commit()
+
+
+def _ebay_sku_analysis_schema_is_current(cursor, required_tables, required_columns,
+                                         required_indexes) -> bool:
+    placeholders = ",".join(["%s"] * len(required_tables))
+    table_names = sorted(required_tables)
+    cursor.execute(
+        f"""SELECT TABLE_NAME table_name
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ({placeholders})""",
+        table_names,
+    )
+    existing_tables = {row["table_name"] for row in cursor.fetchall()}
+    if not required_tables.issubset(existing_tables):
+        return False
+
+    column_tables = sorted(required_columns)
+    column_placeholders = ",".join(["%s"] * len(column_tables))
+    cursor.execute(
+        f"""SELECT TABLE_NAME table_name,COLUMN_NAME column_name
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ({column_placeholders})""",
+        column_tables,
+    )
+    existing_columns = {
+        (row["table_name"], row["column_name"]) for row in cursor.fetchall()
+    }
+    for table_name, columns in required_columns.items():
+        if any((table_name, column_name) not in existing_columns for column_name in columns):
+            return False
+
+    index_tables = sorted(required_indexes)
+    index_placeholders = ",".join(["%s"] * len(index_tables))
+    cursor.execute(
+        f"""SELECT TABLE_NAME table_name,INDEX_NAME index_name
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ({index_placeholders})""",
+        index_tables,
+    )
+    existing_indexes = {
+        (row["table_name"], row["index_name"]) for row in cursor.fetchall()
+    }
+    return all(
+        (table_name, index_name) in existing_indexes
+        for table_name, indexes in required_indexes.items()
+        for index_name in indexes
+    )
 
 
 def _site_name(source_site: str, currency) -> str:
@@ -933,6 +1416,11 @@ def _decimal(value) -> Decimal:
 def _json_row(row):
     return {key: (value.isoformat(sep=" ") if isinstance(value, datetime) else str(value) if isinstance(value, Decimal) else value)
             for key, value in (row or {}).items()}
+
+
+def _current_month_period():
+    today = datetime.now().date()
+    return today.replace(day=1), today
 
 
 def _empty_summary():

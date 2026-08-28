@@ -40,6 +40,11 @@ public class EbaySkuAnalysisPythonClient extends PythonHttpSupport
         return get(PREFIX + "/return-details", params, requestId);
     }
 
+    public Map<String, Object> returnOverviewMetrics(Map<String, ?> params, String requestId)
+    {
+        return get(PREFIX + "/return-overview/metrics", params, requestId);
+    }
+
     public Map<String, Object> returnCategories(String requestId)
     {
         return get(PREFIX + "/return-categories", Map.of(), requestId);
