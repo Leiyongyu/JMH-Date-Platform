@@ -101,15 +101,3 @@ async def imports(request: Request, file: UploadFile = File(...), operator: str 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"eBay SKU分析导入失败: {exc}") from exc
-
-
-@router.post("/profit-imports", status_code=201)
-async def profit_imports(request: Request, file: UploadFile = File(...), operator: str | None = None):
-    content, file_name = await read_excel_upload(file)
-    try:
-        data = await run_in_threadpool(service.import_profit_orders, content, file_name, operator)
-        return success_response(data, request_id=request.state.request_id, message="eBay SKU分析订单利润导入完成")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"eBay SKU分析订单利润导入失败: {exc}") from exc

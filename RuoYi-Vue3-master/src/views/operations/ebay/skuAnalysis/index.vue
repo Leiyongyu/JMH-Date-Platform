@@ -18,8 +18,28 @@
         <el-form-item>
           <el-button type="primary" icon="Search" @click="search">搜索</el-button>
           <el-button icon="Refresh" @click="reset">重置</el-button>
-          <el-button type="success" icon="Upload" v-hasPermi="['operations:ebaySkuAnalysis:import']" @click="openImport">上传订单</el-button>
-          <el-button type="warning" icon="Upload" v-hasPermi="['operations:ebaySkuAnalysis:profitImport']" @click="openProfitImport">上传订单利润</el-button>
+          <el-popover
+            placement="bottom-start"
+            :width="640"
+            trigger="hover"
+            :show-after="250"
+            popper-class="ebay-order-upload-guide-popper"
+          >
+            <template #reference>
+              <el-button type="success" icon="Upload" v-hasPermi="['operations:ebaySkuAnalysis:import']" @click="openImport">上传订单</el-button>
+            </template>
+            <div class="order-upload-guide">
+              <div class="order-upload-guide__title">订单文件下载指引</div>
+              <div class="order-upload-guide__tip">请在数字酋长订单模块按图筛选，并选择“订单信息数据导出”模板。</div>
+              <el-image
+                :src="orderUploadGuide"
+                :preview-src-list="[orderUploadGuide]"
+                preview-teleported
+                fit="contain"
+                class="order-upload-guide__image"
+              />
+            </div>
+          </el-popover>
         </el-form-item>
       </el-form>
     </el-card>
@@ -113,11 +133,11 @@
       <pagination v-show="total > 0" :total="total" v-model:page="query.pageNum" v-model:limit="query.pageSize" @pagination="load" />
     </el-card>
 
-    <el-dialog v-model="importVisible" :title="importDialogTitle" width="560px" append-to-body @closed="resetImportFile">
-      <el-upload :key="importMode" ref="uploadRef" drag accept=".xlsx" :auto-upload="false" :limit="1" :on-change="onFile" :on-remove="onRemove">
+    <el-dialog v-model="importVisible" title="上传数字酋长eBay订单文件" width="560px" append-to-body @closed="resetImportFile">
+      <el-upload ref="uploadRef" drag accept=".xlsx" :auto-upload="false" :limit="1" :on-change="onFile" :on-remove="onRemove">
         <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
         <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
-        <template #tip><div class="el-upload__tip">{{ importDialogTip }}</div></template>
+        <template #tip><div class="el-upload__tip">按平台订单号＋付款日期增量覆盖；利润取订单文件的“订单利润(￥)”字段。</div></template>
       </el-upload>
       <template #footer><el-button @click="importVisible=false">取消</el-button><el-button type="primary" :loading="importing" @click="submitImport">导入并分析</el-button></template>
     </el-dialog>
@@ -136,14 +156,15 @@
 <script setup name="EbaySkuAnalysis">
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import * as echarts from 'echarts'
-import { getEbaySkuAnalysisDates, getEbaySkuAnalysisSummary, importEbaySkuAnalysis, importEbaySkuAnalysisProfit } from '@/api/operations/ebay/skuAnalysis'
+import orderUploadGuide from '@/assets/images/ebay-order-upload-guide.png'
+import { getEbaySkuAnalysisDates, getEbaySkuAnalysisSummary, importEbaySkuAnalysis } from '@/api/operations/ebay/skuAnalysis'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
 
 const { proxy } = getCurrentInstance()
 const chartRef = ref(); const uploadRef = ref(); const loading = ref(false); const importing = ref(false); const importVisible = ref(false)
 const rows = ref([]); const chartRows = ref([]); const paymentRange = ref([]); const dateBounds = ref({}); const sites = ref([]); const total = ref(0); const file = ref()
-const summary = ref({}); const chartType = ref('horizontalBar'); const importMode = ref('orders'); let chart
+const summary = ref({}); const chartType = ref('horizontalBar'); let chart
 const query = reactive({ startDate: undefined, endDate: undefined, sku: undefined, site: undefined, chartMetric: 'paid_amount', chartOrder: 'desc', pageNum: 1, pageSize: 50 })
 const fixedColumnKeys = ['picture_url', 'site_name', 'inventory_sku']
 const requiredColumnKeys = ['inventory_sku']
@@ -156,7 +177,7 @@ const columnDefs = [
   { key: 'profit_amount', label: '利润', minWidth: 125, align: 'right', format: 'money' },
   {
     key: 'profit_rate', label: '利润率', width: 105, align: 'right', format: 'percentage',
-    tip: '利润率 = 汇总利润 ÷（汇总商品销售额 + 汇总应收运费 − 汇总退款金额）× 100%。全部字段均来自上传的订单利润表。'
+    tip: '利润率 = 当前筛选区间内“订单利润(￥)”汇总 ÷ 已支付金额 × 100%。利润和已支付金额均来自上传的订单文件。'
   },
   { key: 'sold_quantity', label: '已售出', width: 95, align: 'right' },
   {
@@ -211,10 +232,6 @@ const chartMetrics = [
   { label: '按利润', value: 'profit_amount', money: true },
   { label: '按利润率', value: 'profit_rate', percent: true }
 ]
-const importDialogTitle = computed(() => importMode.value === 'profit' ? '上传eBay订单利润表' : '上传数字酋长eBay订单文件')
-const importDialogTip = computed(() => importMode.value === 'profit'
-  ? '支持“订单利润表-*.xlsx”。排除Walmart和含AMZ的SKU，按付款日期＋订单号＋库存SKU增量覆盖。'
-  : '支持“数字酋长-Order-YYYY-MM.xlsx”。按平台订单号＋付款日期增量覆盖，可安全重复上传。')
 const cards = computed(() => [
   { label: '已支付金额', value: money(summary.value.paid_amount) }, { label: '已售数量', value: number(summary.value.sold_quantity) },
   { label: '已支付订单', value: number(summary.value.paid_order_count) }, { label: 'SKU数', value: number(summary.value.sku_count) },
@@ -276,8 +293,7 @@ function changeChartType(type) { chartType.value = type; render() }
 function search() { query.pageNum = 1; load() }
 function handleDateChange(value) { query.startDate=value?.[0]; query.endDate=value?.[1]; search() }
 function reset() { query.sku=undefined; query.site=undefined; query.pageNum=1; paymentRange.value=[dateBounds.value.min_date,dateBounds.value.max_date]; query.startDate=paymentRange.value[0]; query.endDate=paymentRange.value[1]; load() }
-function openImport() { importMode.value='orders'; file.value=undefined; uploadRef.value?.clearFiles(); importVisible.value=true }
-function openProfitImport() { importMode.value='profit'; file.value=undefined; uploadRef.value?.clearFiles(); importVisible.value=true }
+function openImport() { file.value=undefined; uploadRef.value?.clearFiles(); importVisible.value=true }
 function onFile(uploadFile) { file.value=uploadFile.raw }
 function onRemove() { file.value=undefined }
 function resetImportFile() { file.value=undefined; uploadRef.value?.clearFiles() }
@@ -285,8 +301,7 @@ async function submitImport() {
   if (!file.value) return proxy.$modal.msgError('请选择Excel文件')
   importing.value=true
   try {
-    const importer = importMode.value === 'profit' ? importEbaySkuAnalysisProfit : importEbaySkuAnalysis
-    const response = await importer(file.value)
+    const response = await importEbaySkuAnalysis(file.value)
     proxy.$modal.msgSuccess(`导入完成：有效${response.data?.valid_rows || 0}行`)
     importVisible.value=false
     await init()
@@ -303,4 +318,5 @@ onBeforeUnmount(() => chart?.dispose())
 
 <style scoped>
 .sku-analysis{background:#f5f7fa;min-height:calc(100vh - 84px)}.filter-card,.chart-card,.table-card{border:0;border-radius:10px;margin-bottom:14px}.filter-card :deep(.el-card__body){padding-bottom:2px}.range-separator{margin:0 8px;color:#909399}.summary-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px}.summary-card{background:#fff;border-radius:10px;padding:16px 20px;border-left:4px solid #409eff}.summary-card span{display:block;color:#909399;font-size:13px}.summary-card strong{display:block;margin-top:8px;font-size:22px;color:#303133}.card-title{display:flex;align-items:center;justify-content:space-between;font-weight:600}.card-title small{font-weight:400;color:#909399}.chart-title{gap:16px}.chart-controls{display:flex;align-items:center;gap:8px}.chart-switch :deep(.el-button){width:34px;height:32px;padding:0;color:#a8abb2;background:#fff}.chart-switch :deep(.el-button svg){width:18px;height:18px;fill:currentColor}.chart-switch :deep(.el-button.active){position:relative;z-index:1;color:#ff7a00;border-color:#ffad66;background:#fff7ed}.chart-switch :deep(.el-button:hover){color:#ff7a00;border-color:#ffc58f}.chart{height:500px}.sku-image{width:52px;height:52px;border-radius:6px}.sku-link{font-weight:600}.velocity-header{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}.velocity-header .el-icon{color:#909399;cursor:help}.no-image{color:#c0c4cc;font-size:12px}@media(max-width:1000px){.summary-grid{grid-template-columns:repeat(2,1fr)}}
+.order-upload-guide__title{font-size:15px;font-weight:600;color:#303133;margin-bottom:6px}.order-upload-guide__tip{font-size:13px;line-height:1.6;color:#606266;margin-bottom:10px}.order-upload-guide__image{display:block;width:100%;max-height:72vh;background:#f5f7fa;border-radius:6px;overflow:hidden}.order-upload-guide__image :deep(img){max-height:72vh}
 </style>

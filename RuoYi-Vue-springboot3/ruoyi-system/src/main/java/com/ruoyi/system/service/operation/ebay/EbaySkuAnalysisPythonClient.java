@@ -73,11 +73,6 @@ public class EbaySkuAnalysisPythonClient extends PythonHttpSupport
         return importFile(PREFIX + "/imports", file, operator, requestId);
     }
 
-    public Map<String, Object> importProfits(MultipartFile file, String operator, String requestId)
-    {
-        return importFile(PREFIX + "/profit-imports", file, operator, requestId);
-    }
-
     private Map<String, Object> importFile(String path, MultipartFile file, String operator, String requestId)
     {
         if (file == null || file.isEmpty()) throw new IllegalArgumentException("请选择有效Excel文件");

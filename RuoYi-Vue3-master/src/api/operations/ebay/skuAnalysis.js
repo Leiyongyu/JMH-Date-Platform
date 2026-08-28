@@ -22,18 +22,6 @@ export function importEbaySkuAnalysis(file) {
   })
 }
 
-export function importEbaySkuAnalysisProfit(file) {
-  const data = new FormData()
-  data.append('file', file)
-  return request({
-    url: `${base}/profit-import`,
-    method: 'post',
-    data,
-    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false },
-    timeout: 180000
-  })
-}
-
 export function getEbayReturnDetails(params) {
   return request({ url: `${base}/return-details`, method: 'get', params })
 }

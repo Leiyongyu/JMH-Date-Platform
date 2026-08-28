@@ -41,11 +41,11 @@ UPDATE sys_menu SET parent_id=@store_analysis_id,menu_name='退货明细',order_
 
 SET @import_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebaySkuAnalysis:import' ORDER BY menu_id LIMIT 1);
 
-SET @profit_import_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebaySkuAnalysis:profitImport' ORDER BY menu_id LIMIT 1);
-INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,route_name,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time,remark)
-SELECT '上传eBay订单利润',@sku_menu_id,2,'',NULL,'',1,0,'F','0','0','operations:ebaySkuAnalysis:profitImport','#','SYSTEM',NOW(),'上传eBay订单利润Excel'
-WHERE @sku_menu_id IS NOT NULL AND @profit_import_id IS NULL;
-SET @profit_import_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebaySkuAnalysis:profitImport' ORDER BY menu_id LIMIT 1);
+DELETE role_menu
+FROM sys_role_menu role_menu
+INNER JOIN sys_menu menu ON menu.menu_id=role_menu.menu_id
+WHERE menu.perms='operations:ebaySkuAnalysis:profitImport';
+DELETE FROM sys_menu WHERE perms='operations:ebaySkuAnalysis:profitImport';
 INSERT INTO sys_menu(menu_name,parent_id,order_num,path,component,route_name,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time,remark)
 SELECT '上传eBay订单',@sku_menu_id,1,'',NULL,'',1,0,'F','0','0','operations:ebaySkuAnalysis:import','#','SYSTEM',NOW(),'上传数字酋长订单Excel'
 WHERE @sku_menu_id IS NOT NULL AND @import_id IS NULL;
@@ -63,11 +63,11 @@ FROM sys_user u
 JOIN sys_user_role ur ON ur.user_id=u.user_id
 JOIN sys_menu m ON m.menu_id IN (
   @operations_id,@ebay_dir_id,@store_analysis_id,@sku_menu_id,@import_id,
-  @profit_import_id,@return_overview_id,@return_detail_id
+  @return_overview_id,@return_detail_id
 )
 WHERE u.user_name='leiyongyu' AND m.menu_id IS NOT NULL;
 
 SELECT menu_id,parent_id,menu_name,order_num,menu_type,perms,component
 FROM sys_menu
-WHERE menu_id IN (@ebay_dir_id,@store_analysis_id,@sku_menu_id,@import_id,@profit_import_id,@return_overview_id,@return_detail_id)
+WHERE menu_id IN (@ebay_dir_id,@store_analysis_id,@sku_menu_id,@import_id,@return_overview_id,@return_detail_id)
 ORDER BY parent_id,order_num,menu_id;

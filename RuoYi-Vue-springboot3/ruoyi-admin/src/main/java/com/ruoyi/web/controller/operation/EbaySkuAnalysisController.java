@@ -109,12 +109,5 @@ public class EbaySkuAnalysisController extends BaseController
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     { return success(data(client.importOrders(file, getUsername(), requestId))); }
 
-    @Log(title = "eBay SKU分析订单利润导入", businessType = BusinessType.IMPORT)
-    @PreAuthorize("@ss.hasPermi('operations:ebaySkuAnalysis:profitImport')")
-    @PostMapping("/profit-import")
-    public AjaxResult importProfits(@RequestParam("file") MultipartFile file,
-            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
-    { return success(data(client.importProfits(file, getUsername(), requestId))); }
-
     private Object data(Map<String, Object> response) { return response.get("data"); }
 }

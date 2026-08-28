@@ -56,55 +56,6 @@ CNY_SOURCE_COLUMN_MAP = {
     "product_unit_price_cny": "产品单价",
     "source_refund_amount_cny": "退款金额",
 }
-PROFIT_SOURCE_COLUMN_MAP = {
-    "账号": "account_name",
-    "站点": "source_site_name",
-    "订单号": "platform_order_no",
-    "Listing ID": "listing_id",
-    "图片": "picture_url",
-    "SKU": "source_sku",
-    "平台SKU": "platform_sku",
-    "库存SKU": "inventory_sku",
-    "数量": "quantity",
-    "单价": "unit_price_cny",
-    "产品名称": "product_name",
-    "产品名称.1": "product_name_secondary",
-    "成本": "cost_cny",
-    "订单金额": "order_amount_cny",
-    "售出数": "sold_quantity",
-    "订单数": "order_count",
-    "税费": "tax_cny",
-    "下单时间": "order_time",
-    "付款时间": "payment_time",
-    "退款时间": "refund_time",
-    "状态": "order_status",
-    "财务状态": "financial_status",
-    "利润": "profit_cny",
-    "利润率": "source_profit_rate",
-    "商品销售额": "product_sales_amount_cny",
-    "应收运费": "shipping_receivable_cny",
-    "平台费用": "platform_fee_cny",
-    "采购成本": "purchase_cost_cny",
-    "头程运费": "first_mile_shipping_cny",
-    "海关税费": "customs_tax_cny",
-    "尾程运费": "last_mile_shipping_cny",
-    "退款金额": "refund_amount_cny",
-    "广告费": "advertising_fee_cny",
-    "平台其他费": "other_platform_fee_cny",
-    "退款金额(下单时间)": "refund_amount_by_order_time_cny",
-    "采购成本(手动)": "manual_purchase_cost_cny",
-    "头程成本": "first_mile_cost_cny",
-}
-PROFIT_REQUIRED_COLUMNS = set(PROFIT_SOURCE_COLUMN_MAP)
-PROFIT_DATETIME_SOURCE_FIELDS = {"order_time", "payment_time", "refund_time"}
-PROFIT_DECIMAL_SOURCE_FIELDS = {
-    "quantity", "unit_price_cny", "cost_cny", "order_amount_cny", "sold_quantity",
-    "order_count", "tax_cny", "profit_cny", "source_profit_rate", "product_sales_amount_cny",
-    "shipping_receivable_cny", "platform_fee_cny", "purchase_cost_cny", "first_mile_shipping_cny",
-    "customs_tax_cny", "last_mile_shipping_cny", "refund_amount_cny", "advertising_fee_cny",
-    "other_platform_fee_cny", "refund_amount_by_order_time_cny", "manual_purchase_cost_cny",
-    "first_mile_cost_cny",
-}
 ORDER_TEMPLATE_COLUMNS = tuple(SOURCE_COLUMN_MAP)
 DATETIME_SOURCE_FIELDS = {"order_time", "payment_time", "refund_time"}
 DECIMAL_SOURCE_FIELDS = {
@@ -248,16 +199,15 @@ def _persist_orders(valid: pd.DataFrame, replaceable: pd.DataFrame, batch_id: st
             cursor.executemany(
                 """INSERT INTO dwd_ebay_sku_analysis_order
                 (stat_month,payment_time,refund_time,platform_order_no,inventory_sku,purchase_quantity,paid_amount_cny,
-                 shipping_amount_cny,platform_fee_cny,paid_amount_original,shipping_amount_original,
+                 shipping_amount_cny,platform_fee_cny,order_profit_cny,paid_amount_original,shipping_amount_original,
                  refund_quantity,refund_amount_original,refund_amount_cny,shipping_status,currency_code,customer_id,site_code,
                  site_name,country_name,picture_url,product_name_cn,listing_url,order_remark,import_batch_id,source_row)
                 VALUES (%(stat_month)s,%(payment_time)s,%(refund_time)s,%(platform_order_no)s,%(inventory_sku)s,%(purchase_quantity)s,
-                 %(paid_amount_cny)s,%(shipping_amount_cny)s,%(platform_fee_cny)s,%(paid_amount_original)s,
+                 %(paid_amount_cny)s,%(shipping_amount_cny)s,%(platform_fee_cny)s,%(order_profit_cny)s,%(paid_amount_original)s,
                  %(shipping_amount_original)s,%(refund_quantity)s,%(refund_amount_original)s,%(refund_amount_cny)s,
                  %(shipping_status)s,
                  %(currency_code)s,%(customer_id)s,%(site_code)s,%(site_name)s,%(country_name)s,
                  %(picture_url)s,%(product_name_cn)s,%(listing_url)s,%(order_remark)s,%(import_batch_id)s,%(source_row)s)""", rows)
-            _rebuild_profit_daily(cursor, sorted({record["_payment_time"].date() for _, record in valid.iterrows()}))
             cursor.execute(
                 """INSERT INTO ebay_sku_analysis_import_batch
                 (import_batch_id,source_file_name,imported_months,total_rows,valid_rows,skipped_rows,operator_name,status,complete_time)
@@ -267,101 +217,6 @@ def _persist_orders(valid: pd.DataFrame, replaceable: pd.DataFrame, batch_id: st
     return {"import_batch_id": batch_id, "months": months, "total_rows": total_rows,
             "valid_rows": len(rows), "skipped_rows": total_rows-len(rows),
             "replaced_order_count": len(replacement_keys)}
-
-
-def import_profit_orders(content: bytes, file_name: str, operator: str | None = None) -> dict:
-    _ensure_tables()
-    batch_id = str(uuid4())
-    workbook = pd.ExcelFile(BytesIO(content))
-    sheet = workbook.sheet_names[0]
-    frame = pd.read_excel(workbook, sheet_name=sheet, dtype=object)
-    missing = PROFIT_REQUIRED_COLUMNS - {str(value).strip() for value in frame.columns}
-    if missing:
-        raise ValueError(f"订单利润表缺少列: {', '.join(sorted(missing))}")
-    frame = frame.copy()
-    frame["_source_row"] = range(2, len(frame) + 2)
-    frame["_payment_time"] = pd.to_datetime(frame["付款时间"], errors="coerce")
-    frame["_source_site"] = frame["站点"].map(_identifier)
-    frame["_site_name"] = frame["_source_site"].map(_profit_site_name)
-    inventory_sku = frame["库存SKU"].map(_identifier).str.upper()
-    platform_sku = frame["平台SKU"].map(_identifier).str.upper()
-    frame["_sku"] = inventory_sku.where(inventory_sku.ne(""), platform_sku)
-    frame["_platform_sku"] = platform_sku.where(platform_sku.ne(""), frame["_sku"])
-    frame["_order_no"] = frame["订单号"].map(_identifier)
-    ebay_rows = frame[
-        frame["_source_site"].str.startswith("eBay", na=False)
-        & ~frame["_source_site"].str.contains("Walmart", case=False, na=False)
-    ].copy()
-    valid = ebay_rows[
-        ebay_rows["_payment_time"].notna()
-        & ebay_rows["_order_no"].ne("")
-        & ebay_rows["_sku"].ne("")
-        & ~ebay_rows["_sku"].str.contains("AMZ", case=False, regex=False, na=False)
-    ].copy()
-    if valid.empty:
-        raise ValueError("订单利润表中没有可匹配的eBay付款订单数据")
-    valid["_stat_month"] = valid["_payment_time"].dt.strftime("%Y-%m")
-    rows = [_profit_row(record, batch_id, file_name, sheet) for _, record in valid.iterrows()]
-    replacement_keys = sorted({
-        (record["_payment_time"].date(), record["_order_no"], record["_sku"])
-        for _, record in valid.iterrows()
-    })
-    ods_columns = [
-        "import_batch_id", "stat_month", "source_file_name", "source_sheet", "source_row",
-        *PROFIT_SOURCE_COLUMN_MAP.values(), "site_name",
-    ]
-    with db_connection() as connection:
-        with connection.cursor() as cursor:
-            for key_group in _chunks(replacement_keys, 500):
-                placeholders = ",".join(["(%s,%s,%s)"] * len(key_group))
-                delete_params = [value for key in key_group for value in key]
-                for table in ("ods_ebay_sku_analysis_profit_raw", "dwd_ebay_sku_analysis_profit"):
-                    cursor.execute(
-                        f"DELETE FROM {table} "
-                        f"WHERE (DATE(payment_time),platform_order_no,inventory_sku) IN ({placeholders})",
-                        delete_params,
-                    )
-            cursor.executemany(
-                f"INSERT INTO ods_ebay_sku_analysis_profit_raw "
-                f"({','.join(ods_columns)}) VALUES ({','.join(f'%({column})s' for column in ods_columns)})",
-                rows,
-            )
-            cursor.executemany(
-                """INSERT INTO dwd_ebay_sku_analysis_profit
-                (stat_month,payment_date,payment_time,platform_order_no,inventory_sku,platform_sku,
-                 source_site_name,site_name,profit_cny,product_sales_amount_cny,shipping_receivable_cny,
-                 refund_amount_cny,net_revenue_cny,import_batch_id,source_row)
-                VALUES (%(stat_month)s,%(payment_date)s,%(payment_time)s,%(platform_order_no)s,
-                 %(inventory_sku)s,%(platform_sku)s,%(source_site_name)s,%(site_name)s,%(profit_cny)s,
-                 %(product_sales_amount_cny)s,%(shipping_receivable_cny)s,%(refund_amount_cny)s,
-                 %(net_revenue_cny)s,%(import_batch_id)s,%(source_row)s)""",
-                rows,
-            )
-            _rebuild_profit_daily(cursor, sorted({record["_payment_time"].date() for _, record in valid.iterrows()}))
-            cursor.execute(
-                """INSERT INTO ebay_sku_analysis_profit_import_batch
-                (import_batch_id,source_file_name,imported_months,total_rows,valid_rows,skipped_rows,
-                 excluded_walmart_rows,excluded_amz_rows,operator_name,status,complete_time)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'COMPLETED',NOW())""",
-                (
-                    batch_id, file_name, ",".join(sorted(valid["_stat_month"].unique().tolist())),
-                    len(frame), len(rows), len(frame) - len(rows),
-                    int(frame["_source_site"].str.contains("Walmart", case=False, na=False).sum()),
-                    int(ebay_rows["_sku"].str.contains("AMZ", case=False, regex=False, na=False).sum()),
-                    operator,
-                ),
-            )
-        connection.commit()
-    return {
-        "import_batch_id": batch_id,
-        "months": sorted(valid["_stat_month"].unique().tolist()),
-        "total_rows": len(frame),
-        "valid_rows": len(rows),
-        "skipped_rows": len(frame) - len(rows),
-        "excluded_walmart_rows": int(frame["_source_site"].str.contains("Walmart", case=False, na=False).sum()),
-        "excluded_amz_rows": int(ebay_rows["_sku"].str.contains("AMZ", case=False, regex=False, na=False).sum()),
-        "replaced_key_count": len(replacement_keys),
-    }
 
 
 def date_bounds() -> dict:
@@ -985,13 +840,6 @@ def list_summary(start_date: str | None, end_date: str | None, sku: str | None,
     if site:
         clauses.append("o.site_name=%s"); params.append(site)
     where = " AND ".join(clauses)
-    profit_clauses = ["p.payment_date BETWEEN %s AND %s"]
-    profit_params: list[object] = [start_value, end_value]
-    if sku:
-        profit_clauses.append("p.inventory_sku LIKE %s"); profit_params.append(f"%{sku.strip().upper()}%")
-    if site:
-        profit_clauses.append("p.site_name=%s"); profit_params.append(site)
-    profit_where = " AND ".join(profit_clauses)
     latest_source = """SELECT site_name,inventory_sku,picture_url,product_name_cn,listing_url
         FROM (
           SELECT site_name,inventory_sku,picture_url,product_name_cn,listing_url,
@@ -1028,11 +876,6 @@ def list_summary(start_date: str | None, end_date: str | None, sku: str | None,
         WHERE payment_time>=DATE_SUB(CURDATE(),INTERVAL 30 DAY)
           AND payment_time<CURDATE()
         GROUP BY site_name,inventory_sku"""
-    profit_summary = f"""SELECT p.site_name,p.inventory_sku,SUM(p.profit_cny) profit_amount,
-          SUM(p.net_revenue_cny) profit_base_amount
-        FROM dws_ebay_sku_analysis_profit_daily p
-        WHERE {profit_where}
-        GROUP BY p.site_name,p.inventory_sku"""
     grouped = f"""SELECT o.inventory_sku,o.site_name,s.picture_url,s.product_name_cn,s.listing_url,
         l.listing_start_time,l.latest_listing_start_time,
         ROUND(SUM(o.paid_amount_cny)-SUM(CASE WHEN o.shipping_status LIKE '%%已退款%%' THEN o.refund_amount_cny ELSE 0 END),2) paid_amount,ROUND(SUM(o.purchase_quantity),0) sold_quantity,
@@ -1046,8 +889,10 @@ def list_summary(start_date: str | None, end_date: str | None, sku: str | None,
         ROUND(SUM(CASE WHEN o.shipping_status LIKE '%%已退款%%' THEN o.refund_amount_cny ELSE 0 END),2) refund_amount,
         ROUND(SUM(o.refund_quantity)/NULLIF(SUM(o.purchase_quantity),0),6) return_rate,
         ROUND(SUM(o.shipping_amount_cny),2) shipping_amount,
-        ROUND(COALESCE(p.profit_amount,0),2) profit_amount,
-        ROUND(COALESCE(p.profit_amount,0)/NULLIF(p.profit_base_amount,0),6) profit_rate,'CNY' currency_code
+        ROUND(SUM(o.order_profit_cny),2) profit_amount,
+        ROUND(SUM(o.order_profit_cny)/NULLIF(
+          SUM(o.paid_amount_cny)-SUM(CASE WHEN o.shipping_status LIKE '%%已退款%%' THEN o.refund_amount_cny ELSE 0 END),0
+        ),6) profit_rate,'CNY' currency_code
         FROM dwd_ebay_sku_analysis_order o
         LEFT JOIN ({latest_source}) s
           ON s.site_name=o.site_name AND s.inventory_sku=o.inventory_sku
@@ -1055,13 +900,10 @@ def list_summary(start_date: str | None, end_date: str | None, sku: str | None,
           ON l.site_name=o.site_name AND l.inventory_sku=o.inventory_sku
         LEFT JOIN ({velocity}) v
           ON v.site_name=o.site_name AND v.inventory_sku=o.inventory_sku
-        LEFT JOIN ({profit_summary}) p
-          ON p.site_name=o.site_name AND p.inventory_sku=o.inventory_sku
         WHERE {where}
         GROUP BY o.site_name,o.inventory_sku,s.picture_url,s.product_name_cn,s.listing_url,
           l.listing_start_time,l.latest_listing_start_time,
-          v.sales_velocity_7d,v.sales_velocity_14d,v.sales_velocity_30d,
-          p.profit_amount,p.profit_base_amount"""
+          v.sales_velocity_7d,v.sales_velocity_14d,v.sales_velocity_30d"""
     chart_columns = {
         "paid_amount": "paid_amount", "sold_quantity": "sold_quantity",
         "paid_order_count": "paid_order_count", "average_order_value": "average_order_value",
@@ -1072,7 +914,7 @@ def list_summary(start_date: str | None, end_date: str | None, sku: str | None,
     chart_column = chart_columns.get(chart_metric or "paid_amount", "paid_amount")
     chart_direction = "ASC" if (chart_order or "desc").lower() == "asc" else "DESC"
     page = max(page, 1); page_size = min(max(page_size, 1), 200)
-    grouped_params = profit_params + params
+    grouped_params = params
     with db_connection() as connection, connection.cursor() as cursor:
         cursor.execute(f"SELECT COUNT(*) total FROM ({grouped}) x", grouped_params); total = int(cursor.fetchone()["total"])
         cursor.execute(grouped + " ORDER BY paid_amount DESC,inventory_sku LIMIT %s OFFSET %s", grouped_params + [page_size, (page-1)*page_size])
@@ -1133,81 +975,6 @@ def _source_fields(record) -> dict:
     return result
 
 
-def _profit_row(record, batch_id: str, file_name: str, sheet: str) -> dict:
-    source = _profit_source_fields(record)
-    product_sales = pd.to_numeric(record.get("商品销售额"), errors="coerce")
-    shipping = pd.to_numeric(record.get("应收运费"), errors="coerce")
-    refund = pd.to_numeric(record.get("退款金额"), errors="coerce")
-    product_sales = 0 if pd.isna(product_sales) else product_sales
-    shipping = 0 if pd.isna(shipping) else shipping
-    refund = 0 if pd.isna(refund) else refund
-    return {
-        **source,
-        "import_batch_id": batch_id,
-        "stat_month": record["_stat_month"],
-        "source_file_name": file_name,
-        "source_sheet": sheet,
-        "source_row": int(record["_source_row"]),
-        "payment_date": record["_payment_time"].date(),
-        "payment_time": record["_payment_time"].to_pydatetime(),
-        "platform_order_no": record["_order_no"],
-        "inventory_sku": record["_sku"],
-        "platform_sku": record["_platform_sku"] or None,
-        "source_site_name": record["_source_site"],
-        "site_name": record["_site_name"],
-        "profit_cny": _decimal(pd.to_numeric(record.get("利润"), errors="coerce")),
-        "net_revenue_cny": _decimal(product_sales + shipping - refund),
-    }
-
-
-def _rebuild_profit_daily(cursor, payment_dates) -> None:
-    dates = sorted(set(payment_dates))
-    if not dates:
-        return
-    placeholders = ",".join(["%s"] * len(dates))
-    cursor.execute(
-        f"DELETE FROM dws_ebay_sku_analysis_profit_daily WHERE payment_date IN ({placeholders})",
-        dates,
-    )
-    cursor.execute(
-        f"""INSERT INTO dws_ebay_sku_analysis_profit_daily
-        (payment_date,stat_month,site_name,inventory_sku,profit_cny,product_sales_amount_cny,
-         shipping_receivable_cny,refund_amount_cny,net_revenue_cny,source_row_count,update_time)
-        SELECT p.payment_date,DATE_FORMAT(p.payment_date,'%%Y-%%m'),p.site_name,p.inventory_sku,
-          SUM(p.profit_cny),SUM(p.product_sales_amount_cny),SUM(p.shipping_receivable_cny),
-          SUM(p.refund_amount_cny),SUM(p.net_revenue_cny),COUNT(*),NOW()
-        FROM dwd_ebay_sku_analysis_profit p
-        WHERE p.payment_date IN ({placeholders})
-          AND EXISTS (
-            SELECT 1 FROM dwd_ebay_sku_analysis_order matched
-            WHERE DATE(matched.payment_time)=p.payment_date
-              AND matched.platform_order_no=p.platform_order_no
-              AND matched.inventory_sku=p.inventory_sku
-              AND matched.site_name=p.site_name
-          )
-        GROUP BY p.payment_date,p.site_name,p.inventory_sku""",
-        dates,
-    )
-
-
-def _profit_source_fields(record) -> dict:
-    result = {}
-    for excel_column, database_column in PROFIT_SOURCE_COLUMN_MAP.items():
-        value = record.get(excel_column)
-        if database_column == "payment_time":
-            result[database_column] = record["_payment_time"].to_pydatetime()
-        elif database_column in PROFIT_DATETIME_SOURCE_FIELDS:
-            parsed = pd.to_datetime(value, errors="coerce")
-            result[database_column] = None if pd.isna(parsed) else parsed.to_pydatetime()
-        elif database_column in PROFIT_DECIMAL_SOURCE_FIELDS:
-            result[database_column] = _decimal(pd.to_numeric(value, errors="coerce"))
-        elif database_column in {"platform_order_no", "platform_sku", "inventory_sku", "source_sku"}:
-            result[database_column] = _identifier(value) or None
-        else:
-            result[database_column] = _text(value) or None
-    return result
-
-
 def _ensure_tables():
     global _TABLES_READY
     if _TABLES_READY:
@@ -1232,6 +999,7 @@ def _initialize_tables():
         },
         "dwd_ebay_sku_analysis_order": {
             "refund_time": "DATETIME DEFAULT NULL COMMENT '退款时间' AFTER payment_time",
+            "order_profit_cny": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '订单利润（人民币，来自订单上传文件）' AFTER platform_fee_cny",
             "paid_amount_original": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '已支付金额原币' AFTER platform_fee_cny",
             "shipping_amount_original": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '应收运费原币' AFTER paid_amount_original",
             "refund_quantity": "DECIMAL(18,4) NOT NULL DEFAULT 0 COMMENT '退货数量，状态包含已退款或已作废' AFTER shipping_amount_original",
@@ -1245,14 +1013,11 @@ def _initialize_tables():
             "listing_url": "TEXT DEFAULT NULL COMMENT 'Listing链接，取上传源数据' AFTER product_name_cn",
             "order_remark": "TEXT DEFAULT NULL COMMENT '原始订单备注，作为退款原因展示' AFTER listing_url",
         },
-        "dwd_ebay_sku_analysis_profit": {
-            "product_sales_amount_cny": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '商品销售额人民币' AFTER profit_cny",
-            "shipping_receivable_cny": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '应收运费人民币' AFTER product_sales_amount_cny",
-            "refund_amount_cny": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '退款金额人民币' AFTER shipping_receivable_cny",
-            "net_revenue_cny": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '利润率分母，商品销售额加应收运费减退款金额' AFTER refund_amount_cny",
-        },
     }
     missing_indexes = {
+        "ods_ebay_sku_analysis_order_raw": {
+            "idx_esa_raw_batch_row": "(import_batch_id,source_row)",
+        },
         "dwd_ebay_sku_analysis_order": {
             "idx_esa_dwd_site_sku_time": "(site_name,inventory_sku,payment_time)",
             "idx_esa_dwd_return_time": "(refund_time,site_name,inventory_sku)",
@@ -1263,10 +1028,6 @@ def _initialize_tables():
         "ods_ebay_sku_analysis_order_raw",
         "dwd_ebay_sku_analysis_order",
         "ebay_sku_analysis_return_classification",
-        "ebay_sku_analysis_profit_import_batch",
-        "ods_ebay_sku_analysis_profit_raw",
-        "dwd_ebay_sku_analysis_profit",
-        "dws_ebay_sku_analysis_profit_daily",
     }
     with db_connection() as connection, connection.cursor() as cursor:
         if _ebay_sku_analysis_schema_is_current(
@@ -1303,10 +1064,16 @@ def _initialize_tables():
                      WHEN detail.order_remark IS NULL OR detail.order_remark=''
                      THEN source.order_remark
                      ELSE detail.order_remark
+                   END,
+                   detail.order_profit_cny=CASE
+                     WHEN detail.order_profit_cny=0 AND COALESCE(source.order_profit_cny,0)<>0
+                     THEN source.order_profit_cny
+                     ELSE detail.order_profit_cny
                    END
                WHERE (detail.refund_time IS NULL AND source.refund_time IS NOT NULL)
                   OR ((detail.order_remark IS NULL OR detail.order_remark='')
-                      AND source.order_remark IS NOT NULL AND source.order_remark<>'')"""
+                      AND source.order_remark IS NOT NULL AND source.order_remark<>'')
+                  OR (detail.order_profit_cny=0 AND COALESCE(source.order_profit_cny,0)<>0)"""
         )
         connection.commit()
 
@@ -1388,16 +1155,6 @@ def _site(country: str) -> str:
         "澳大利亚": "AU", "australia": "AU",
         "加拿大": "CA", "canada": "CA",
     }.get(value, "OTHER")
-
-
-def _profit_site_name(source_site: str) -> str:
-    value = _identifier(source_site)
-    if not value.lower().startswith("ebay"):
-        return ""
-    if "汽配" in value or "美国" in value:
-        return "美国"
-    matched = re.search(r"eBay(.+?)站", value, flags=re.IGNORECASE)
-    return matched.group(1).strip() if matched else value
 
 
 def _identifier(value) -> str:
