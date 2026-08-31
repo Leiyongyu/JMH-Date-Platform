@@ -81,12 +81,38 @@
                   command="importEbayProfit"
                   divided
                   v-hasPermi="['finance:performanceRanking:edit']"
+                  class="ebay-profit-import-item"
                 >
-                  <el-icon class="data-menu-icon profit-icon"><Upload /></el-icon>
-                  <div class="data-menu-copy">
-                    <span>导入 eBay 月度利润表</span>
-                    <small>覆盖所导入月份的利润数据</small>
-                  </div>
+                  <el-popover
+                    trigger="hover"
+                    placement="right-start"
+                    :width="720"
+                    :show-after="250"
+                    popper-class="performance-ebay-profit-guide"
+                  >
+                    <template #reference>
+                      <div class="ebay-profit-import-trigger">
+                        <el-icon class="data-menu-icon profit-icon"><Upload /></el-icon>
+                        <div class="data-menu-copy">
+                          <span>导入 eBay 月度利润表</span>
+                          <small>覆盖所导入月份的利润数据</small>
+                        </div>
+                      </div>
+                    </template>
+                    <div class="ebay-profit-guide">
+                      <div class="ebay-profit-guide__title">eBay 月度利润表导出格式</div>
+                      <div class="ebay-profit-guide__hint">
+                        请按下图所示格式导出月度利润文件，再点击“导入 eBay 月度利润表”上传。
+                      </div>
+                      <el-image
+                        class="ebay-profit-guide__image"
+                        :src="ebayMonthlyProfitGuide"
+                        :preview-src-list="[ebayMonthlyProfitGuide]"
+                        fit="contain"
+                        preview-teleported
+                      />
+                    </div>
+                  </el-popover>
                 </el-dropdown-item>
                 <el-dropdown-item
                   command="importAmzOwners"
@@ -261,6 +287,7 @@
 <script setup name="PerformanceRanking">
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import * as echarts from 'echarts'
+import ebayMonthlyProfitGuide from '@/assets/images/performance-ranking-ebay-monthly-profit-guide.png'
 import {
   exportAmzPerformanceSource,
   getPerformanceMonths,
@@ -769,6 +796,40 @@ onBeforeUnmount(() => {
 }
 :global(.performance-data-menu .data-menu-copy span) { color: #1e293b; font-weight: 600; }
 :global(.performance-data-menu .data-menu-copy small) { color: #94a3b8; font-size: 11px; }
+:global(.performance-data-menu .ebay-profit-import-item) { padding: 0; }
+:global(.performance-data-menu .ebay-profit-import-trigger) {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 52px;
+  padding: 7px 11px;
+  box-sizing: border-box;
+}
+:global(.performance-ebay-profit-guide) { max-width: calc(100vw - 32px); }
+:global(.performance-ebay-profit-guide .ebay-profit-guide__title) {
+  color: #1e293b;
+  font-size: 16px;
+  font-weight: 650;
+}
+:global(.performance-ebay-profit-guide .ebay-profit-guide__hint) {
+  margin: 7px 0 12px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+:global(.performance-ebay-profit-guide .ebay-profit-guide__image) {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  cursor: zoom-in;
+}
+:global(.performance-ebay-profit-guide .ebay-profit-guide__image img) {
+  max-height: 70vh;
+}
 .summary-card { margin-bottom: 16px; }
 .card-header { display: flex; align-items: center; justify-content: space-between; }
 .title { font-size: 16px; font-weight: 600; }
