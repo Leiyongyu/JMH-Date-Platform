@@ -13,6 +13,7 @@ from backend.infrastructure.logging import configure_logging
 from backend.infrastructure.request_context import RequestIdMiddleware
 from backend.image_sop.app import app as image_sop_app
 from backend.image_sop.cleanup import cleanup_keep_recent
+from backend.ebay_price.app import app as ebay_price_app
 
 
 def create_app() -> FastAPI:
@@ -28,6 +29,7 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
     app.include_router(api_router)
     app.mount("/image-sop", image_sop_app, name="image-sop")
+    app.mount("/ebay-price", ebay_price_app, name="ebay-price")
     frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
     app.mount(
         "/script-tools",
