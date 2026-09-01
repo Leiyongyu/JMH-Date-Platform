@@ -115,23 +115,13 @@
                   </el-popover>
                 </el-dropdown-item>
                 <el-dropdown-item
-                  command="importAmzOwners"
+                  command="importOwnerRules"
                   v-hasPermi="['finance:performanceRanking:edit']"
                 >
                   <el-icon class="data-menu-icon owner-icon"><Upload /></el-icon>
                   <div class="data-menu-copy">
-                    <span>导入 AMZ 负责人配置</span>
-                    <small>更新 AMZ 店铺负责人规则</small>
-                  </div>
-                </el-dropdown-item>
-                <el-dropdown-item
-                  command="importEbayOwners"
-                  v-hasPermi="['finance:performanceRanking:edit']"
-                >
-                  <el-icon class="data-menu-icon owner-icon"><Upload /></el-icon>
-                  <div class="data-menu-copy">
-                    <span>导入 eBay 负责人配置</span>
-                    <small>更新 eBay 品牌负责人规则</small>
+                    <span>导入月度负责人配置</span>
+                    <small>一次更新 AMZ 与 eBay 负责人规则</small>
                   </div>
                 </el-dropdown-item>
               </el-dropdown-menu>
@@ -208,6 +198,19 @@
       @closed="resetProfitImportDialog"
     >
       <el-form :model="profitImportForm" label-width="92px">
+        <el-form-item label="统计月份" required>
+          <el-date-picker
+            v-model="profitImportForm.statMonth"
+            type="month"
+            value-format="YYYY-MM"
+            format="YYYY年MM月"
+            placeholder="选择利润归属月份"
+            style="width: 100%"
+          />
+          <div class="el-upload__tip">
+            统计月份以这里选择的月份为准，不再根据文件下载日期或文件名判断。
+          </div>
+        </el-form-item>
         <el-form-item label="利润表" required>
           <el-upload
             ref="profitUploadRef"
@@ -223,9 +226,9 @@
             <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
             <template #tip>
               <div class="el-upload__tip">
-                文件名必须包含年月，例如 ebay-202606-利润表.xlsx；读取 sheet1 的
+                读取 sheet1 的
                 SKU、利润、商品销售额、应收运费和退款金额；销售额 = 商品销售额 + 应收运费，
-                净销售额 = 销售额 - 退款金额。同月再次导入会整月覆盖。
+                净销售额 = 销售额 - 退款金额；AMZ 开头及空 SKU 汇总行会自动排除。同月再次导入会整月覆盖。
               </div>
             </template>
           </el-upload>
@@ -241,13 +244,26 @@
 
     <el-dialog
       v-model="ownerImportDialogVisible"
-      :title="`导入${ownerImportPlatform === 'AMZ' ? 'AMZ' : 'eBay'}月度负责人配置`"
+      title="导入月度负责人配置"
       width="560px"
       append-to-body
       :close-on-click-modal="false"
       @closed="resetOwnerImportDialog"
     >
       <el-form :model="importForm" label-width="92px">
+        <el-form-item label="统计月份" required>
+          <el-date-picker
+            v-model="importForm.statMonth"
+            type="month"
+            value-format="YYYY-MM"
+            format="YYYY年MM月"
+            placeholder="选择负责人配置归属月份"
+            style="width: 100%"
+          />
+          <div class="el-upload__tip">
+            只导入所选月份对应的“YYYYMM负责人”列，并据此重新计算当月 AMZ 与 eBay 绩效。
+          </div>
+        </el-form-item>
         <el-form-item label="Excel文件" required>
           <el-upload
             ref="uploadRef"
@@ -263,14 +279,16 @@
             <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
             <template #tip>
               <div class="el-upload__tip">
-                {{ ownerImportTip }}
+                文件必须包含 EU-品牌、EU-OTH、US1、US2、Ebay 五个 Sheet；首列依次为品牌、
+                中间码-OTH、店铺名、店铺名、品牌，并且每个 Sheet 都必须包含所选月份的
+                “YYYYMM负责人”列。
               </div>
             </template>
           </el-upload>
         </el-form-item>
         <el-form-item label="后续操作">
           <el-checkbox v-model="importForm.rebuildAfterImport">
-            导入成功后立即重新匹配并汇总当前查询月份（未选择时汇总最新利润月份）
+            导入成功后立即重新匹配并汇总所选月份
           </el-checkbox>
         </el-form-item>
       </el-form>
@@ -291,7 +309,6 @@ import ebayMonthlyProfitGuide from '@/assets/images/performance-ranking-ebay-mon
 import {
   exportAmzPerformanceSource,
   getPerformanceMonths,
-  importEbayPerformanceOwnerRules,
   importEbayPerformanceProfit,
   importPerformanceOwnerRules,
   listPerformanceRanking,
@@ -312,7 +329,6 @@ const profitDialogVisible = ref(false)
 const uploadRef = ref()
 const profitUploadRef = ref()
 const lastRefreshStats = ref()
-const ownerImportPlatform = ref('AMZ')
 const queryRef = ref()
 const grossProfitChartRef = ref()
 const netSalesChartRef = ref()
@@ -327,10 +343,12 @@ const query = reactive({
 })
 const importForm = reactive({
   file: undefined,
+  statMonth: undefined,
   rebuildAfterImport: true
 })
 const profitImportForm = reactive({
-  file: undefined
+  file: undefined,
+  statMonth: undefined
 })
 
 const displayedMonth = computed(() => actualMonth.value || query.statMonth || '')
@@ -345,9 +363,6 @@ const platformHint = computed(() => query.platform === 'combined'
 const rankingSubtitle = computed(() => query.platform === 'combined'
   ? '同一负责人在 AMZ 与 eBay 的金额合并，金额统一为 CNY'
   : `${platformTitle.value}负责人排名，金额统一为 CNY`)
-const ownerImportTip = computed(() => ownerImportPlatform.value === 'AMZ'
-  ? '自动读取 EU-品牌、EU-OTH、US1、US2 四个sheet中的全部“YYYYMM负责人”列；相同月份、组别和匹配键覆盖，其余数据保留。'
-  : '只读取 Sheet1：第一列为品牌，后续为“YYYYMM负责人”列；相同月份和品牌覆盖，其余数据保留。')
 const grossProfitRanking = computed(() => sortRanking('grossProfit'))
 const netSalesRanking = computed(() => sortRanking('netSalesAmount'))
 const dataOperationLoading = computed(() => (
@@ -601,8 +616,7 @@ function handleDataCommand(command) {
   const actions = {
     exportAmzSource: handleAmzSourceExport,
     importEbayProfit: openProfitImportDialog,
-    importAmzOwners: () => openOwnerImportDialog('AMZ'),
-    importEbayOwners: () => openOwnerImportDialog('EBAY')
+    importOwnerRules: openOwnerImportDialog
   }
   actions[command]?.()
 }
@@ -626,9 +640,9 @@ function normalizeRefresh(result = {}) {
   }
 }
 
-function openOwnerImportDialog(platform) {
-  ownerImportPlatform.value = platform
+function openOwnerImportDialog() {
   importForm.file = undefined
+  importForm.statMonth = query.statMonth || previousNaturalMonth()
   importForm.rebuildAfterImport = true
   ownerImportDialogVisible.value = true
 }
@@ -644,9 +658,14 @@ function handleFileRemove() {
 function resetOwnerImportDialog() {
   uploadRef.value?.clearFiles()
   importForm.file = undefined
+  importForm.statMonth = undefined
 }
 
 async function submitOwnerRules() {
+  if (!importForm.statMonth) {
+    proxy.$modal.msgError('请选择负责人配置归属月份')
+    return
+  }
   if (!importForm.file) {
     proxy.$modal.msgError('请选择负责人划分Excel文件')
     return
@@ -654,19 +673,15 @@ async function submitOwnerRules() {
 
   importing.value = true
   try {
-    const importApi = ownerImportPlatform.value === 'AMZ'
-      ? importPerformanceOwnerRules
-      : importEbayPerformanceOwnerRules
-    const response = await importApi(
+    const importedMonth = importForm.statMonth
+    const response = await importPerformanceOwnerRules(
       importForm.file,
       importForm.rebuildAfterImport,
-      query.statMonth
+      importedMonth
     )
     const result = response.data || {}
-    const sourceDescription = ownerImportPlatform.value === 'AMZ'
-      ? 'AMZ负责人工作簿'
-      : `Sheet1`
-    proxy.$modal.msgSuccess(`负责人配置导入完成：${sourceDescription}、${result.month_count || 0}个月份，共写入${result.imported_rows || 0}条规则`)
+    proxy.$modal.msgSuccess(`负责人配置导入完成：${importedMonth}，共写入${result.imported_rows || 0}条规则`)
+    query.statMonth = importedMonth
     query.pageNum = 1
     const rebuildAfterImport = importForm.rebuildAfterImport
     ownerImportDialogVisible.value = false
@@ -682,6 +697,7 @@ async function submitOwnerRules() {
 
 function openProfitImportDialog() {
   profitImportForm.file = undefined
+  profitImportForm.statMonth = query.statMonth || previousNaturalMonth()
   profitDialogVisible.value = true
 }
 
@@ -696,9 +712,21 @@ function handleProfitFileRemove() {
 function resetProfitImportDialog() {
   profitUploadRef.value?.clearFiles()
   profitImportForm.file = undefined
+  profitImportForm.statMonth = undefined
+}
+
+function previousNaturalMonth() {
+  const date = new Date()
+  date.setDate(1)
+  date.setMonth(date.getMonth() - 1)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 }
 
 async function submitEbayProfit() {
+  if (!profitImportForm.statMonth) {
+    proxy.$modal.msgError('请选择 eBay 利润表归属的统计月份')
+    return
+  }
   if (!profitImportForm.file) {
     proxy.$modal.msgError('请选择 eBay 月度利润表Excel文件')
     return
@@ -706,7 +734,11 @@ async function submitEbayProfit() {
 
   profitImporting.value = true
   try {
-    const response = await importEbayPerformanceProfit(profitImportForm.file, true)
+    const response = await importEbayPerformanceProfit(
+      profitImportForm.file,
+      profitImportForm.statMonth,
+      true
+    )
     const result = response.data || {}
     query.statMonth = result.stat_month
     query.pageNum = 1

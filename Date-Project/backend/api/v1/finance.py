@@ -3,8 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from datetime import date, datetime
 from io import BytesIO
+from pathlib import Path
 
 from backend.api.deps import require_internal_access
 from backend.api.upload_helpers import read_excel_upload
@@ -18,6 +20,7 @@ from backend.repositories import clearance_repository as clearance_repo
 from backend.services.performance_service import (
     import_ebay_profit,
     import_owner_rules,
+    import_unified_owner_rules,
     list_performance_rankings,
     owner_rule_summary,
     performance_months,
@@ -507,6 +510,7 @@ async def get_inventory_age_detail_export(
             file_path,
             filename=download_name,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            background=BackgroundTask(Path(file_path).unlink, missing_ok=True),
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -557,6 +561,7 @@ async def get_amz_performance_source_export(
             file_path,
             filename=download_name,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            background=BackgroundTask(Path(file_path).unlink, missing_ok=True),
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -585,6 +590,7 @@ async def post_ebay_profit_import(
     request: Request,
     file: UploadFile = File(...),
     rebuild: bool = True,
+    stat_month: str | None = None,
     operator: str | None = None,
 ):
     try:
@@ -594,6 +600,7 @@ async def post_ebay_profit_import(
             content,
             file.filename or "ebay-profit.xlsx",
             rebuild=rebuild,
+            stat_month=stat_month,
             operator=operator,
             request_id=request.state.request_id,
             idempotency_key=request.headers.get("Idempotency-Key"),
@@ -632,6 +639,40 @@ async def post_owner_rule_import(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"负责人规则导入失败: {exc}") from exc
+
+
+@router.post("/performance-owner-rule-unified-imports", status_code=201)
+async def post_unified_owner_rule_import(
+    request: Request,
+    file: UploadFile = File(...),
+    stat_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+    rebuild: bool = True,
+    operator: str | None = None,
+):
+    try:
+        content = await file.read()
+        result = await run_in_threadpool(
+            import_unified_owner_rules,
+            content,
+            file.filename or "unified-owner-rules.xlsx",
+            stat_month,
+            rebuild=rebuild,
+            operator=operator,
+            request_id=request.state.request_id,
+            idempotency_key=request.headers.get("Idempotency-Key"),
+        )
+        return success_response(
+            result,
+            request_id=request.state.request_id,
+            message="unified owner rules imported",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"统一负责人规则导入失败: {exc}",
+        ) from exc
 
 
 @router.get("/performance-owner-rule-summaries")

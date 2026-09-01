@@ -2,6 +2,7 @@ from datetime import date
 import unittest
 
 from backend.integrations.lingxing.domains.base import LingXingDomainBase
+from backend.repositories import performance_repository
 from backend.services.amazon_profit_sync_service import (
     month_range,
     previous_natural_month,
@@ -16,7 +17,43 @@ class FakePagedDomain(LingXingDomainBase):
         return next(self.responses)
 
 
+class CapturingCursor:
+    def __init__(self):
+        self.statements = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def execute(self, statement, params=None):
+        self.statements.append(statement)
+
+
+class CapturingConnection:
+    def __init__(self):
+        self.cursor_instance = CapturingCursor()
+
+    def cursor(self):
+        return self.cursor_instance
+
+
 class PerformanceSchedulerTest(unittest.TestCase):
+    def test_monthly_inventory_sales_volume_default_schedule_matches_quartz(self):
+        connection = CapturingConnection()
+
+        performance_repository._ensure_default_scheduler_task(connection)
+
+        statement = next(
+            sql
+            for sql in connection.cursor_instance.statements
+            if "monthly_inventory_report_sales_volume_sync" in sql
+        )
+        self.assertIn("0 0 12 1 * ?", statement)
+        self.assertIn("每月1日12:00", statement)
+        self.assertNotIn("每月2日06:00", statement)
+
     def test_previous_natural_month_crosses_year(self):
         self.assertEqual(
             previous_natural_month(date(2026, 1, 4)), "2025-12"

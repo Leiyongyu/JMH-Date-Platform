@@ -1256,9 +1256,9 @@ def _amazon_assignment(store_name, sku, rule_maps):
             "EU",
         )
     store_key = _store_segment(store)
-    if store_key == "重庆茁凯":
-        store_key = "邱存帅"
     matched = store_rules.get(store_key)
+    if matched is None and store_key == "重庆茁凯":
+        matched = store_rules.get("邱存帅")
     if matched:
         return matched[0], "AMAZON_STORE", group or matched[1]
     return UNASSIGNED, "UNMATCHED", group

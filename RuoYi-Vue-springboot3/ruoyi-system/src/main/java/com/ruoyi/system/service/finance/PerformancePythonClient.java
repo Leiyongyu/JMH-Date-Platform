@@ -422,12 +422,14 @@ public class PerformancePythonClient extends PythonHttpSupport
     public Map<String, Object> importEbayProfit(
             MultipartFile file,
             boolean rebuild,
+            String statMonth,
             String operator,
             String requestId,
             String idempotencyKey)
     {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("rebuild", rebuild);
+        params.put("stat_month", statMonth);
         params.put("operator", operator);
         return upload(
                 "/ebay-profit-imports", params, file,
@@ -450,6 +452,23 @@ public class PerformancePythonClient extends PythonHttpSupport
         params.put("operator", operator);
         return upload(
                 "/performance-owner-rule-imports", params, file,
+                requestId, idempotencyKey);
+    }
+
+    public Map<String, Object> importUnifiedOwnerRules(
+            MultipartFile file,
+            boolean rebuild,
+            String statMonth,
+            String operator,
+            String requestId,
+            String idempotencyKey)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("rebuild", rebuild);
+        params.put("stat_month", statMonth);
+        params.put("operator", operator);
+        return upload(
+                "/performance-owner-rule-unified-imports", params, file,
                 requestId, idempotencyKey);
     }
 

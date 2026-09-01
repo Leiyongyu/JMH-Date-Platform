@@ -9,6 +9,7 @@ import pandas as pd
 from backend.parsers.performance_common import (
     extract_month_from_filename,
     money,
+    normalize_stat_month,
     normalize_text,
     parse_brand_code_from_sku,
 )
@@ -29,8 +30,15 @@ def parse_ebay_profit_excel(
     content: bytes,
     file_name: str,
     import_batch_id: str,
+    stat_month: str | None = None,
 ) -> dict[str, Any]:
-    stat_month = extract_month_from_filename(file_name)
+    # New callers must provide the business month explicitly.  Filename
+    # extraction remains only for backward compatibility with old scripts.
+    stat_month = (
+        normalize_stat_month(stat_month)
+        if stat_month is not None
+        else extract_month_from_filename(file_name)
+    )
     workbook = pd.ExcelFile(BytesIO(content))
     sheet_name = _find_sheet(workbook.sheet_names, "sheet1")
     if not sheet_name:
@@ -51,22 +59,18 @@ def parse_ebay_profit_excel(
     for index, record in df.iterrows():
         source_row = int(index) + 2
         sku = normalize_text(record.get("SKU"))
+        # Empty-SKU rows at the end of the export are totals/notes and cannot
+        # participate in owner matching. AMZ rows belong to another pipeline.
+        if (
+            not sku
+            or sku.upper().startswith("AMZ")
+            or sku.replace(" ", "") in {"[SKU未填写]", "SKU未填写"}
+        ):
+            continue
         gross_profit = money(record.get("利润"))
         product_sales_amount = money(record.get("商品销售额"))
         receivable_shipping_amount = money(record.get("应收运费"))
         refund_amount = money(record.get("退款金额"))
-        if not sku and all(
-            value == money(0)
-            for value in [
-                gross_profit,
-                product_sales_amount,
-                receivable_shipping_amount,
-                refund_amount,
-            ]
-        ):
-            continue
-        if not sku:
-            sku = "[SKU 未填写]"
         sales_amount = product_sales_amount + receivable_shipping_amount
         net_sales_amount = sales_amount - refund_amount
         row = {

@@ -129,14 +129,14 @@ public class PerformanceRankingController extends BaseController
                 .body(file);
     }
 
-    @Log(title = "Amazon绩效负责人规则导入",
+    @Log(title = "AMZ与eBay月度绩效负责人规则导入",
             businessType = BusinessType.IMPORT)
     @PreAuthorize("@ss.hasPermi('finance:performanceRanking:edit')")
     @PostMapping("/owner-rules/import")
     public AjaxResult importOwnerRules(
             @RequestParam("file") MultipartFile file,
             @RequestParam(defaultValue = "true") boolean rebuild,
-            @RequestParam(required = false) String statMonth,
+            @RequestParam String statMonth,
             @RequestHeader(value = "X-Request-ID", required = false)
             String requestId,
             @RequestHeader(value = "Idempotency-Key", required = false)
@@ -144,8 +144,8 @@ public class PerformanceRankingController extends BaseController
     {
         try
         {
-            return success(data(pythonClient.importOwnerRules(
-                    "amazon", file, rebuild, statMonth, getUsername(),
+            return success(data(pythonClient.importUnifiedOwnerRules(
+                    file, rebuild, statMonth, getUsername(),
                     requestId, idempotencyKey)));
         }
         catch (Exception e)
@@ -225,6 +225,7 @@ public class PerformanceRankingController extends BaseController
     public AjaxResult importEbayProfit(
             @RequestParam("file") MultipartFile file,
             @RequestParam(defaultValue = "true") boolean rebuild,
+            @RequestParam String statMonth,
             @RequestHeader(value = "X-Request-ID", required = false)
             String requestId,
             @RequestHeader(value = "Idempotency-Key", required = false)
@@ -233,32 +234,7 @@ public class PerformanceRankingController extends BaseController
         try
         {
             return success(data(pythonClient.importEbayProfit(
-                    file, rebuild, getUsername(),
-                    requestId, idempotencyKey)));
-        }
-        catch (Exception e)
-        {
-            return error(e.getMessage());
-        }
-    }
-
-    @Log(title = "eBay绩效负责人规则导入",
-            businessType = BusinessType.IMPORT)
-    @PreAuthorize("@ss.hasPermi('finance:performanceRanking:edit')")
-    @PostMapping("/ebay/owner-rules/import")
-    public AjaxResult importEbayOwnerRules(
-            @RequestParam("file") MultipartFile file,
-            @RequestParam(defaultValue = "true") boolean rebuild,
-            @RequestParam(required = false) String statMonth,
-            @RequestHeader(value = "X-Request-ID", required = false)
-            String requestId,
-            @RequestHeader(value = "Idempotency-Key", required = false)
-            String idempotencyKey)
-    {
-        try
-        {
-            return success(data(pythonClient.importOwnerRules(
-                    "ebay", file, rebuild, statMonth, getUsername(),
+                    file, rebuild, statMonth, getUsername(),
                     requestId, idempotencyKey)));
         }
         catch (Exception e)

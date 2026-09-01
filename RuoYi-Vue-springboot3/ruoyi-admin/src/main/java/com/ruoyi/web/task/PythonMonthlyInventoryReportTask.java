@@ -72,7 +72,7 @@ public class PythonMonthlyInventoryReportTask
         execute(statMonth);
     }
 
-    /** 每月2日06:00拉取上个完整自然月Amazon实际达成和销量。 */
+    /** 每月1日12:00拉取上个完整自然月Amazon实际达成和销量。 */
     public void syncPreviousMonthSalesVolume()
     {
         execute(null, true);

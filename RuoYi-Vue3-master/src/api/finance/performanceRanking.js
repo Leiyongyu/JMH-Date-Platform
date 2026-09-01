@@ -55,24 +55,11 @@ export function getPerformanceOwnerRuleSummary(statMonth) {
   })
 }
 
-export function importEbayPerformanceProfit(file, rebuild = true) {
+export function importEbayPerformanceProfit(file, statMonth, rebuild = true) {
   const data = new FormData()
   data.append('file', file)
   return request({
     url: '/finance/performance-ranking/ebay/profit/import',
-    method: 'post',
-    params: { rebuild },
-    headers: { 'Content-Type': 'multipart/form-data' },
-    data,
-    timeout: 120000
-  })
-}
-
-export function importEbayPerformanceOwnerRules(file, rebuild = true, statMonth) {
-  const data = new FormData()
-  data.append('file', file)
-  return request({
-    url: '/finance/performance-ranking/ebay/owner-rules/import',
     method: 'post',
     params: { rebuild, statMonth },
     headers: { 'Content-Type': 'multipart/form-data' },

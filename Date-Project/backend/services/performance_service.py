@@ -7,7 +7,10 @@ from uuid import uuid4
 
 from backend.parsers.ebay_performance_profit_parser import parse_ebay_profit_excel
 from backend.parsers.performance_common import normalize_text
-from backend.parsers.performance_owner_rule_parser import parse_owner_rule_excel
+from backend.parsers.performance_owner_rule_parser import (
+    parse_owner_rule_excel,
+    parse_unified_owner_rule_excel,
+)
 from backend.repositories import performance_repository as repo
 
 
@@ -153,6 +156,8 @@ def calculate_performance(
         result.update(
             {
                 "source_rows": result["source_rows"] + ebay["source_rows"],
+                "matched_rows": result["matched_rows"] + ebay["matched_rows"],
+                "unmatched_rows": result["unmatched_rows"] + ebay["unmatched_rows"],
                 "ebay_ranking_rows": ebay["ranking_rows"],
             }
         )
@@ -211,12 +216,15 @@ def import_ebay_profit(
     content: bytes,
     file_name: str,
     rebuild: bool = True,
+    stat_month: str | None = None,
     operator: str | None = None,
     request_id: str = "",
     idempotency_key: str | None = None,
 ) -> dict:
     batch_id = str(uuid4())
-    parsed = parse_ebay_profit_excel(content, file_name, batch_id)
+    parsed = parse_ebay_profit_excel(
+        content, file_name, batch_id, stat_month=stat_month
+    )
     started_at = datetime.now()
     with repo.performance_connection() as connection:
         repo.replace_ebay_profit_month(connection, parsed["stat_month"], parsed["rows"], parsed["raw_rows"])
@@ -308,6 +316,85 @@ def import_owner_rules(
     }
 
 
+def import_unified_owner_rules(
+    content: bytes,
+    file_name: str,
+    stat_month: str,
+    rebuild: bool = True,
+    operator: str | None = None,
+    request_id: str = "",
+    idempotency_key: str | None = None,
+) -> dict:
+    """Replace one month's AMZ/eBay owner rules from the unified workbook."""
+    batch_id = str(uuid4())
+    parsed = parse_unified_owner_rule_excel(
+        content,
+        file_name,
+        stat_month,
+        batch_id,
+    )
+    month = parsed["stat_month"]
+    started_at = datetime.now()
+    with repo.performance_connection() as connection:
+        replace_stats = repo.replace_unified_owner_rule_month(
+            connection,
+            month,
+            parsed["rules"],
+            parsed["raw_rows"],
+        )
+        repo.insert_import_batch(
+            connection,
+            {
+                "batch_id": batch_id,
+                "import_type": "owner_rule_unified",
+                "platform": "combined",
+                "stat_month": month,
+                "source_file_name": file_name,
+                "file_hash": parsed["file_hash"],
+                "idempotency_key": idempotency_key,
+                "status": "completed",
+                "total_rows": len(parsed["rules"]),
+                "inserted_rows": len(parsed["rules"]),
+                "updated_rows": 0,
+                "skipped_rows": sum(
+                    int(item["skipped_blank_key_rows"])
+                    + int(item["skipped_blank_principal_rows"])
+                    for item in parsed["sheet_stats"]
+                ),
+                "operator": operator,
+                "request_id": request_id,
+                "error_message": None,
+                "started_at": started_at,
+                "completed_at": datetime.now(),
+            },
+        )
+        connection.commit()
+
+    refresh = (
+        refresh_performance(
+            month,
+            "combined",
+            trigger_source="unified_owner_rule_import",
+            request_id=request_id,
+        )
+        if rebuild
+        else None
+    )
+    return {
+        "batch_id": batch_id,
+        "platform": "combined",
+        "stat_month": month,
+        "months": [month],
+        "month_count": 1,
+        "imported_rows": len(parsed["rules"]),
+        "platform_stats": parsed["platform_stats"],
+        "sheet_stats": parsed["sheet_stats"],
+        **replace_stats,
+        "refresh": refresh,
+        "refreshes": [refresh] if refresh else [],
+    }
+
+
 def owner_rule_summary(platform: str, stat_month: str) -> dict:
     rows = repo.owner_rule_summary(platform, stat_month)
     return {"platform": platform, "stat_month": stat_month, "items": [_json_ready(row) for row in rows]}
@@ -350,7 +437,10 @@ def _refresh_amazon(connection, stat_month: str) -> dict:
                 "refund_amount": aggregate["refund_amount"],
                 "net_sales_amount": aggregate["net_sales_amount"],
                 "source_rows": aggregate["source_rows"],
-                "matched_rows": matched_rows if principal_name != UNASSIGNED else 0,
+                # Each DWS row describes its own owner aggregate. Persisting the
+                # global matched count on every owner makes row-level audits
+                # misleading and multiplies totals when the column is summed.
+                "matched_rows": aggregate["source_rows"] if principal_name != UNASSIGNED else 0,
                 "unmatched_rows": aggregate["source_rows"] if principal_name == UNASSIGNED else 0,
                 "missing_shop_rows": missing_shop_rows if principal_name == UNASSIGNED else 0,
             }
@@ -407,9 +497,12 @@ def _amazon_principal(
     if store_rules is None:
         store_rules = _amazon_store_rules(rules)
     store_key = _store_segment(store_name)
-    if store_key == "重庆茁凯":
-        store_key = "邱存帅"
+    # Prefer the exact store configured for the selected month. "重庆茁凯"
+    # historically shared the "邱存帅" rule, but newer owner files can
+    # configure both rows independently. Keep that alias only as a fallback.
     principal = store_rules.get(store_key)
+    if principal is None and store_key == "重庆茁凯":
+        principal = store_rules.get("邱存帅")
     if principal:
         return principal, True, False
 

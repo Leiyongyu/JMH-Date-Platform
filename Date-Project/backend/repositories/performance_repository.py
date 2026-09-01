@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -43,11 +43,22 @@ def named_lock(lock_name: str):
                     cursor.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
 
 
+def last_complete_stat_month(reference_date: date | None = None) -> str:
+    current = reference_date or date.today()
+    if current.month == 1:
+        return f"{current.year - 1}-12"
+    return f"{current.year}-{current.month - 1:02d}"
+
+
 def latest_ranking_month(platform: str) -> str | None:
     table = _ranking_table(platform)
+    completed_through = last_complete_stat_month()
     with db_connection() as connection:
         with connection.cursor() as cursor:
-            cursor.execute(f"SELECT MAX(stat_month) AS stat_month FROM {table}")
+            cursor.execute(
+                f"SELECT MAX(stat_month) AS stat_month FROM {table} WHERE stat_month <= %s",
+                (completed_through,),
+            )
             row = cursor.fetchone()
     return row["stat_month"] if row else None
 
@@ -95,19 +106,24 @@ def list_rankings(
 
 
 def months_status(limit: int = 12) -> list[dict[str, Any]]:
+    completed_through = last_complete_stat_month()
     with db_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT stat_month FROM dwd_amz_monthly_order_profit
-                UNION
-                SELECT stat_month FROM dwd_ebay_monthly_profit
-                UNION
-                SELECT stat_month FROM dws_combined_performance_ranking
+                SELECT stat_month
+                FROM (
+                    SELECT stat_month FROM dwd_amz_monthly_order_profit
+                    UNION
+                    SELECT stat_month FROM dwd_ebay_monthly_profit
+                    UNION
+                    SELECT stat_month FROM dws_combined_performance_ranking
+                ) available_months
+                WHERE stat_month <= %s
                 ORDER BY stat_month DESC
                 LIMIT %s
                 """,
-                (limit,),
+                (completed_through, limit),
             )
             months = [row["stat_month"] for row in cursor.fetchall()]
             result = []
@@ -218,17 +234,23 @@ def refresh_ebay_ranking_sql(connection: Connection, stat_month: str) -> dict[st
                     CASE
                         WHEN p.brand_code IN ('FLL', 'LEJ') THEN '方黎力'
                         WHEN p.brand_code = 'CL' THEN '陈丽'
-                        WHEN r.principal_name IS NULL OR TRIM(r.principal_name) IN ('', '待定', '待到') THEN '未分配'
+                        WHEN r.principal_name IS NULL
+                             OR LOWER(TRIM(r.principal_name)) IN ('', '待定', '待到', 'nan', 'nat', '<na>', 'none', 'null')
+                        THEN '未分配'
                         ELSE TRIM(r.principal_name)
                     END AS principal_name,
                     CASE
                         WHEN p.brand_code IN ('FLL', 'LEJ', 'CL') THEN 1
-                        WHEN r.principal_name IS NOT NULL AND TRIM(r.principal_name) NOT IN ('', '待定', '待到') THEN 1
+                        WHEN r.principal_name IS NOT NULL
+                             AND LOWER(TRIM(r.principal_name)) NOT IN ('', '待定', '待到', 'nan', 'nat', '<na>', 'none', 'null')
+                        THEN 1
                         ELSE 0
                     END AS matched_flag,
                     CASE
                         WHEN p.brand_code IN ('FLL', 'LEJ', 'CL') THEN 0
-                        WHEN r.principal_name IS NULL OR TRIM(r.principal_name) IN ('', '待定', '待到') THEN 1
+                        WHEN r.principal_name IS NULL
+                             OR LOWER(TRIM(r.principal_name)) IN ('', '待定', '待到', 'nan', 'nat', '<na>', 'none', 'null')
+                        THEN 1
                         ELSE 0
                     END AS unmatched_flag
                 FROM dwd_ebay_monthly_profit p
@@ -244,7 +266,22 @@ def refresh_ebay_ranking_sql(connection: Connection, stat_month: str) -> dict[st
             (stat_month,),
         )
         ranking_rows = cursor.rowcount
-    return {"source_rows": source_rows, "ranking_rows": ranking_rows}
+        cursor.execute(
+            """
+            SELECT COALESCE(SUM(matched_rows), 0) AS matched_rows,
+                   COALESCE(SUM(unmatched_rows), 0) AS unmatched_rows
+            FROM dws_ebay_performance_ranking
+            WHERE stat_month = %s
+            """,
+            (stat_month,),
+        )
+        match_stats = cursor.fetchone() or {}
+    return {
+        "source_rows": source_rows,
+        "matched_rows": int(match_stats.get("matched_rows") or 0),
+        "unmatched_rows": int(match_stats.get("unmatched_rows") or 0),
+        "ranking_rows": ranking_rows,
+    }
 
 
 def refresh_combined_ranking_sql(connection: Connection, stat_month: str, partial: bool) -> int:
@@ -457,6 +494,65 @@ def upsert_owner_rules(
             )
 
 
+def replace_unified_owner_rule_month(
+    connection: Connection,
+    stat_month: str,
+    rules: list[dict[str, Any]],
+    raw_rows: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Atomically replace both platform rule snapshots for exactly one month."""
+    expected_platforms = {"amazon", "ebay"}
+    rule_platforms = {str(row.get("platform") or "") for row in rules}
+    if rule_platforms != expected_platforms:
+        raise ValueError("统一负责人规则必须同时包含amazon和ebay")
+    if any(str(row.get("stat_month") or "") != stat_month for row in rules):
+        raise ValueError("统一负责人规则包含非选中月份数据")
+    if any(str(row.get("stat_month") or "") != stat_month for row in raw_rows):
+        raise ValueError("统一负责人ODS规则包含非选中月份数据")
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM ods_performance_owner_rule_raw
+            WHERE stat_month=%s AND platform IN ('amazon','ebay')
+            """,
+            (stat_month,),
+        )
+        deleted_ods_rows = int(cursor.fetchone()["total"] or 0)
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM dwd_performance_owner_rule
+            WHERE stat_month=%s AND platform IN ('amazon','ebay')
+            """,
+            (stat_month,),
+        )
+        deleted_dwd_rows = int(cursor.fetchone()["total"] or 0)
+        cursor.execute(
+            """
+            DELETE FROM ods_performance_owner_rule_raw
+            WHERE stat_month=%s AND platform IN ('amazon','ebay')
+            """,
+            (stat_month,),
+        )
+        cursor.execute(
+            """
+            DELETE FROM dwd_performance_owner_rule
+            WHERE stat_month=%s AND platform IN ('amazon','ebay')
+            """,
+            (stat_month,),
+        )
+
+    upsert_owner_rules(connection, rules, raw_rows)
+    return {
+        "deleted_ods_rows": deleted_ods_rows,
+        "deleted_dwd_rows": deleted_dwd_rows,
+        "inserted_ods_rows": len(raw_rows),
+        "inserted_dwd_rows": len(rules),
+    }
+
+
 def owner_rule_summary(platform: str, stat_month: str) -> list[dict[str, Any]]:
     with db_connection() as connection:
         with connection.cursor() as cursor:
@@ -557,7 +653,7 @@ def amazon_shop_sids() -> list[str]:
                 SELECT DISTINCT CAST(sid AS CHAR) AS sid
                 FROM {table_name}
                 WHERE sid IS NOT NULL AND sid <> ''
-                  AND (platform_code = '10001' OR platform_code IS NULL OR platform_code = '')
+                  AND platform_code = '10001'
                 """
             )
             return [str(row["sid"]) for row in cursor.fetchall() if row.get("sid")]
@@ -685,9 +781,9 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
             ) VALUES (
                 'monthly_inventory_report_sales_volume_sync',
                 '月度库存实际达成及销量填充',
-                '0 0 6 2 * ?',
+                '0 0 12 1 * ?',
                 1,
-                '每月2日06:00拉取上个完整自然月Amazon订单利润amount和volume，覆盖ODS并重建实际达成及销量DWD；eBay销量由ebay_sales按payment_time实时汇总'
+                '每月1日12:00拉取上个完整自然月Amazon订单利润amount和volume，覆盖ODS并重建实际达成及销量DWD；eBay销量由ebay_sales按payment_time实时汇总'
             )
             ON DUPLICATE KEY UPDATE
                 task_name = VALUES(task_name),
@@ -704,7 +800,7 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
                 '月度库存统计表数据拉取',
                 '0 0 6 1 * ?',
                 1,
-                '每月1日拉取上月FBA、海外仓、本地仓数据，每月2日06:00拉取上月Amazon实际达成和销量，每月2日23:00回填次月月初库存'
+                '每月1日拉取上月FBA、海外仓、本地仓数据，每月1日12:00拉取上月Amazon实际达成和销量，每月2日23:00回填次月月初库存'
             )
             ON DUPLICATE KEY UPDATE
                 task_name = VALUES(task_name),
@@ -749,8 +845,8 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
 
 
 def normalize_principal(value: Any) -> str:
-    text = str(value or "").replace("\u3000", " ").replace("\xa0", " ").strip()
-    return "未分配" if text in {"", "待定", "待到"} else text
+    text = "" if value is None else str(value).replace("\u3000", " ").replace("\xa0", " ").strip()
+    return "未分配" if text.casefold() in {"", "待定", "待到", "nan", "nat", "<na>", "none", "null"} else text
 
 
 def decimal_zero() -> Decimal:

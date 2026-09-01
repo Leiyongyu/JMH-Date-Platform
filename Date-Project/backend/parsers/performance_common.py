@@ -8,10 +8,22 @@ from typing import Any
 
 MONTH_HEADER_RE = re.compile(r"^(20\d{2})(0[1-9]|1[0-2])负责人$")
 MONTH_IN_FILENAME_RE = re.compile(r"(20\d{2})(0[1-9]|1[0-2])")
+STAT_MONTH_RE = re.compile(r"^20\d{2}-(0[1-9]|1[0-2])$")
 
 
 def normalize_text(value: Any) -> str:
-    return str(value or "").replace("\u3000", " ").replace("\xa0", " ").strip()
+    if value is None:
+        return ""
+    # pandas/numpy use NaN/NaT/NA sentinels for empty Excel cells. Converting
+    # those sentinels directly to text previously created fake people named
+    # ``nan`` in future-month owner columns.
+    try:
+        if value != value:
+            return ""
+    except (TypeError, ValueError):
+        pass
+    text = str(value).replace("\u3000", " ").replace("\xa0", " ").strip()
+    return "" if text.casefold() in {"nan", "nat", "<na>", "none", "null"} else text
 
 
 def normalize_principal(value: Any) -> str:
@@ -28,6 +40,13 @@ def extract_month_from_filename(file_name: str) -> str:
     if not match:
         raise ValueError("文件名必须包含合法年月，例如 202606")
     return f"{match.group(1)}-{match.group(2)}"
+
+
+def normalize_stat_month(value: Any) -> str:
+    stat_month = normalize_text(value)
+    if not STAT_MONTH_RE.fullmatch(stat_month):
+        raise ValueError("统计月份必须使用YYYY-MM格式")
+    return stat_month
 
 
 def parse_month_header(header: Any) -> str | None:
