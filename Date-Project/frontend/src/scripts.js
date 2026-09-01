@@ -20,4 +20,18 @@ export default [
     devBase: '/image-sop',
     needSession: true,
   },
+  {
+    code: 'ebay-price',
+    name: 'eBay 价格查询',
+    description: 'eBay SP 价格批量查询，支持类目锁定策略和 SKU-OE 映射管理。',
+    icon: 'EP',
+    category: '价格工具',
+    tags: ['eBay', '价格查询', 'OE号', 'SKU'],
+    permission: '',
+    transport: 'proxy',
+    page: '/',
+    proxyBase: '',
+    devBase: '/ebay-price',
+    needSession: false,
+  },
 ]
