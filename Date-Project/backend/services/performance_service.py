@@ -446,7 +446,12 @@ def _refresh_amazon(connection, stat_month: str) -> dict:
         aggregate["gross_profit"] += _decimal(row.get("gross_profit"))
         aggregate["amount"] += _decimal(row.get("amount"))
         aggregate["refund_amount"] += _decimal(row.get("refund_amount"))
-        aggregate["net_sales_amount"] += _decimal(row.get("amount")) - _decimal(row.get("refund_amount"))
+        aggregate["promotion_discount"] += _decimal(
+            row.get("promotion_discount")
+        )
+        aggregate["net_sales_amount"] += _decimal(
+            row.get("net_sales_amount")
+        )
         aggregate["source_rows"] += 1
     rows = []
     for principal_name, aggregate in aggregates.items():
@@ -457,6 +462,7 @@ def _refresh_amazon(connection, stat_month: str) -> dict:
                 "gross_profit": aggregate["gross_profit"],
                 "amount": aggregate["amount"],
                 "refund_amount": aggregate["refund_amount"],
+                "promotion_discount": aggregate["promotion_discount"],
                 "net_sales_amount": aggregate["net_sales_amount"],
                 "source_rows": aggregate["source_rows"],
                 # Each DWS row describes its own owner aggregate. Persisting the
@@ -553,6 +559,7 @@ def _empty_amz_aggregate() -> dict:
         "gross_profit": Decimal("0"),
         "amount": Decimal("0"),
         "refund_amount": Decimal("0"),
+        "promotion_discount": Decimal("0"),
         "net_sales_amount": Decimal("0"),
         "source_rows": 0,
     }

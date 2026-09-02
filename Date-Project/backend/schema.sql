@@ -299,6 +299,21 @@ CREATE TABLE IF NOT EXISTS lingxing_token (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='领星 OpenAPI token 持久化表';
 
+CREATE TABLE IF NOT EXISTS dim_lingxing_currency_month (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    rate_month CHAR(7) NOT NULL COMMENT '汇率月份YYYY-MM；领星date字段',
+    currency_code VARCHAR(16) NOT NULL COMMENT '币种代码；领星code字段',
+    my_rate DECIMAL(20,6) NOT NULL COMMENT '我的汇率；领星my_rate，系统优先使用',
+    rate_org DECIMAL(20,6) NULL COMMENT '官方汇率；领星rate_org，仅留档',
+    sync_batch_id VARCHAR(64) NULL COMMENT '同步批次ID',
+    synced_at DATETIME NULL COMMENT '同步时间',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '记录更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_currency_month (rate_month, currency_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='DIM-领星月度汇率';
+
 CREATE TABLE IF NOT EXISTS ods_lingxing_amz_order_profit_raw (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
     stat_month CHAR(7) NOT NULL COMMENT '统计月份YYYY-MM',
@@ -311,7 +326,8 @@ CREATE TABLE IF NOT EXISTS ods_lingxing_amz_order_profit_raw (
     gross_profit DECIMAL(20,6) NULL COMMENT '毛利润',
     amount DECIMAL(20,6) NULL COMMENT '销售额',
     refund_amount DECIMAL(20,6) NULL COMMENT '退款金额',
-    net_sales_amount DECIMAL(20,6) NULL COMMENT '净销售额',
+    promotion_discount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '促销折扣；领星OrderProfit接口promotion_discount原值，通常为负数',
+    net_sales_amount DECIMAL(20,6) NULL COMMENT '领星原始净销售额(net_amount)',
     principal_names VARCHAR(1000) NULL COMMENT '领星负责人',
     sync_batch_id VARCHAR(64) NULL COMMENT '同步批次ID',
     sync_time DATETIME NULL COMMENT '同步时间',
@@ -333,6 +349,7 @@ CREATE TABLE IF NOT EXISTS ods_ebay_monthly_profit_raw (
     brand_code VARCHAR(64) NOT NULL COMMENT '品牌码',
     image_url VARCHAR(1000) NULL COMMENT '图片',
     multi_variant VARCHAR(32) NULL COMMENT '是否多属性',
+    sold_quantity DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT 'eBay售出数；来源利润表“售出数”列，作月度库存销量',
     gross_profit DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '利润',
     product_sales_amount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '商品销售额',
     receivable_shipping_amount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '应收运费',
@@ -380,7 +397,8 @@ CREATE TABLE IF NOT EXISTS dwd_amz_monthly_order_profit (
     gross_profit DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '毛利润',
     amount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '销售额',
     refund_amount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '退款金额',
-    net_sales_amount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '净销售额',
+    promotion_discount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '促销折扣；领星原值，通常为负数',
+    net_sales_amount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '业务净销售额=销售额-促销折扣绝对值-退款金额绝对值',
     principal_names VARCHAR(1000) NULL COMMENT '领星原始Listing负责人',
     sync_batch_id VARCHAR(64) NULL COMMENT '同步批次ID',
     sync_time DATETIME NULL COMMENT '同步时间',
@@ -401,6 +419,7 @@ CREATE TABLE IF NOT EXISTS dwd_ebay_monthly_profit (
     brand_code VARCHAR(64) NOT NULL COMMENT '品牌码',
     image_url VARCHAR(1000) NULL COMMENT '图片',
     multi_variant VARCHAR(32) NULL COMMENT '是否多属性',
+    sold_quantity DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT 'eBay售出数；来源利润表“售出数”列，作月度库存销量',
     gross_profit DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '利润',
     product_sales_amount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '商品销售额',
     receivable_shipping_amount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '应收运费',
@@ -447,7 +466,8 @@ CREATE TABLE IF NOT EXISTS dws_amz_performance_ranking (
     gross_profit DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '毛利润',
     amount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '销售额',
     refund_amount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '退款金额',
-    net_sales_amount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '净销售额',
+    promotion_discount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '促销折扣合计；用于核对净销售额',
+    net_sales_amount DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '业务净销售额',
     source_rows INT NOT NULL DEFAULT 0 COMMENT '参与计算源行数',
     matched_rows INT NOT NULL DEFAULT 0 COMMENT '有明确负责人行数',
     unmatched_rows INT NOT NULL DEFAULT 0 COMMENT '未分配行数',
@@ -575,7 +595,7 @@ CREATE TABLE IF NOT EXISTS scheduler_task_run (
     source_rows INT NOT NULL DEFAULT 0 COMMENT '源行数',
     sync_batch_id VARCHAR(64) NULL COMMENT 'ODS同步批次ID',
     extract_rows INT NOT NULL DEFAULT 0 COMMENT '领星抽取行数',
-    ods_rows INT NOT NULL DEFAULT 0 COMMENT 'ODS追加行数',
+    ods_rows INT NOT NULL DEFAULT 0 COMMENT 'ODS当月快照写入行数',
     inserted_rows INT NOT NULL DEFAULT 0 COMMENT '插入行数',
     updated_rows INT NOT NULL DEFAULT 0 COMMENT '更新行数',
     deleted_rows INT NOT NULL DEFAULT 0 COMMENT '整月替换删除行数',

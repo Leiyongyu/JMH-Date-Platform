@@ -57,19 +57,6 @@ export function syncMonthlyInventoryOrderProfit(statMonth) {
   })
 }
 
-export function importMonthlyInventoryEbaySales(statMonth, file) {
-  const data = new FormData()
-  data.append('file', file)
-  return request({
-    url: '/finance/monthly-inventory-report/ebay-sales-import',
-    method: 'post',
-    params: { statMonth },
-    data,
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 600000
-  })
-}
-
 export function importMonthlyInventoryPurchaseOrder(statMonth, file) {
   const data = new FormData()
   data.append('file', file)

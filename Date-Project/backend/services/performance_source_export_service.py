@@ -25,6 +25,7 @@ AMZ_SOURCE_HEADERS = [
     ("毛利润", "gross_profit"),
     ("销售额", "amount"),
     ("退款金额", "refund_amount"),
+    ("促销折扣", "promotion_discount"),
     ("净销售额", "net_sales_amount"),
     ("领星原始Listing负责人", "principal_names"),
     ("同步批次ID", "sync_batch_id"),

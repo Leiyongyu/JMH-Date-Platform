@@ -237,7 +237,7 @@ def test_department_summary_calculates_actual_and_target_rate():
     us1 = next(row for row in rows if row["department_code"] == "AMZ-US1")
     assert us1["actual_achievement_amount"] == service.Decimal("20")
     assert us1["target_achievement_rate"] == (
-        service.Decimal("20") / service._sales_target(us1)
+        service.Decimal("20") / service._sales_target_cny(us1)
     )
     total = next(row for row in rows if row["department_code"] == "AUTO-PARTS-TOTAL")
     assert total["target_achievement_rate"] == us1["target_achievement_rate"]
@@ -251,13 +251,29 @@ def test_sales_target_uses_department_specific_factor():
         "fba_end_in_transit_total_cost": service.Decimal("50"),
     }
 
-    ebay = service._sales_target({**base, "department_code": "EBAY-1"})
-    eu = service._sales_target({**base, "department_code": "AMZ-EU"})
-    us1 = service._sales_target({**base, "department_code": "AMZ-US1"})
-    us2 = service._sales_target({**base, "department_code": "AMZ-US2"})
-    us2_mj = service._sales_target({**base, "department_code": "AMZ-US2-MJ"})
-    us1_zxy = service._sales_target({**base, "department_code": "AMZ-US1-ZXY"})
+    ebay = service._sales_target_cny({**base, "department_code": "EBAY-1"})
+    eu = service._sales_target_cny({**base, "department_code": "AMZ-EU"})
+    us1 = service._sales_target_cny({**base, "department_code": "AMZ-US1"})
+    us2 = service._sales_target_cny({**base, "department_code": "AMZ-US2"})
+    us2_mj = service._sales_target_cny({**base, "department_code": "AMZ-US2-MJ"})
+    us1_zxy = service._sales_target_cny({**base, "department_code": "AMZ-US1-ZXY"})
 
     assert eu > us1
     assert us1 == us2 == us2_mj == us1_zxy
     assert us1 > ebay
+
+
+def test_sales_target_usd_uses_rate_and_missing_rate_returns_none():
+    row = {
+        "department_code": "AMZ-US1",
+        "overseas_end_inventory_total_cost": service.Decimal("100"),
+        "fba_end_inventory_total_cost": service.Decimal("200"),
+        "overseas_end_in_transit_total_cost": service.Decimal("30"),
+        "fba_end_in_transit_total_cost": service.Decimal("70"),
+    }
+    rate = service.Decimal("7.1234")
+
+    target_usd = service._sales_target(row, rate)
+
+    assert target_usd * rate == service._sales_target_cny(row)
+    assert service._sales_target(row, None) is None

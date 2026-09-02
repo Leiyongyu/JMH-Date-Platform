@@ -175,21 +175,6 @@ public class PerformancePythonClient extends PythonHttpSupport
         }
     }
 
-    public Map<String, Object> importMonthlyInventoryEbaySales(
-            String statMonth,
-            MultipartFile file,
-            String operator,
-            String requestId,
-            String idempotencyKey)
-    {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("stat_month", statMonth);
-        params.put("operator", operator);
-        return upload(
-                "/monthly-inventory-report/ebay-sales-imports",
-                params, file, requestId, idempotencyKey);
-    }
-
     public Map<String, Object> importMonthlyInventoryPurchaseOrder(
             String statMonth,
             MultipartFile file,

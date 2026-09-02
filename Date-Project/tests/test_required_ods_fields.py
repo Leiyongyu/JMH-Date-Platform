@@ -20,7 +20,9 @@ def test_amazon_profit_transform_keeps_only_required_product_and_amount_fields()
         "currency_code": "CNY",
         "gross_profit": "12.34",
         "amount": "100.00",
-        "refund_amount": "5.50",
+        "refund_amount": "-5.50",
+        "promotion_discount": "-2.50",
+        "net_amount": "100.00",
         "price_list": [
             {
                 "sid": 12576,
@@ -44,11 +46,55 @@ def test_amazon_profit_transform_keeps_only_required_product_and_amount_fields()
     assert ods_row["asin"] == "B000000001"
     assert ods_row["gross_profit"] == Decimal("12.34")
     assert ods_row["amount"] == Decimal("100.00")
-    assert ods_row["refund_amount"] == Decimal("5.50")
-    assert ods_row["net_sales_amount"] == Decimal("94.50")
+    assert ods_row["refund_amount"] == Decimal("-5.50")
+    assert ods_row["promotion_discount"] == Decimal("-2.50")
+    assert ods_row["net_sales_amount"] == Decimal("100.00")
+    assert row["promotion_discount"] == Decimal("-2.50")
+    assert row["net_sales_amount"] == Decimal("92.00")
     assert "raw_json" not in ods_row
     assert "unused_large_field" not in ods_row
     assert "raw_json" not in row
+
+
+def test_amazon_profit_business_net_sales_accepts_positive_refund_history():
+    row, ods_row = _transform_row(
+        {
+            "amount": "100.00",
+            "refund_amount": "5.50",
+            "promotion_discount": "2.50",
+            "net_amount": "100.00",
+            "price_list": [{"sid": 12576, "seller_sku": "MSKU-2"}],
+        },
+        "2026-07",
+        "batch-2",
+        datetime(2026, 8, 6, 20, 0, 0),
+    )
+
+    assert row is not None
+    assert ods_row["net_sales_amount"] == Decimal("100.00")
+    assert row["net_sales_amount"] == Decimal("92.00")
+
+
+def test_amazon_profit_net_sales_matches_confirmed_lingxing_examples():
+    examples = (
+        ("JYKS-OTH-230395-0828", "24355.14", "-105.06", "-11321.73", "12928.35"),
+        ("RQJ-US-70106-0264", "2195.16", "0", "-8027.82", "-5832.66"),
+    )
+    for sku, amount, discount, refund, expected in examples:
+        row, _ = _transform_row(
+            {
+                "amount": amount,
+                "promotion_discount": discount,
+                "refund_amount": refund,
+                "net_amount": amount,
+                "price_list": [{"sid": 12576, "seller_sku": sku}],
+            },
+            "2026-08",
+            "batch-examples",
+            datetime(2026, 9, 2, 12, 0, 0),
+        )
+        assert row is not None
+        assert row["net_sales_amount"] == Decimal(expected)
 
 
 def test_clearance_inventory_transform_keeps_all_and_only_requested_age_fields():

@@ -51,6 +51,7 @@ def parse_ebay_profit_excel(
     rows = []
     raw_rows = []
     totals = {
+        "sold_quantity": money(0),
         "gross_profit": money(0),
         "sales_amount": money(0),
         "refund_amount": money(0),
@@ -67,6 +68,7 @@ def parse_ebay_profit_excel(
             or sku.replace(" ", "") in {"[SKU未填写]", "SKU未填写"}
         ):
             continue
+        sold_quantity = money(record.get("售出数"))
         gross_profit = money(record.get("利润"))
         product_sales_amount = money(record.get("商品销售额"))
         receivable_shipping_amount = money(record.get("应收运费"))
@@ -79,6 +81,7 @@ def parse_ebay_profit_excel(
             "brand_code": parse_brand_code_from_sku(sku),
             "image_url": normalize_text(record.get("图片")) or None,
             "multi_variant": normalize_text(record.get("是否多属性")) or None,
+            "sold_quantity": sold_quantity,
             "gross_profit": gross_profit,
             "product_sales_amount": product_sales_amount,
             "receivable_shipping_amount": receivable_shipping_amount,

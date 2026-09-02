@@ -224,11 +224,13 @@ def replace_amz_ranking(connection: Connection, stat_month: str, rows: list[dict
                 """
                 INSERT INTO dws_amz_performance_ranking (
                     stat_month, principal_name, gross_profit, amount, refund_amount,
-                    net_sales_amount, source_rows, matched_rows, unmatched_rows, missing_shop_rows
+                    promotion_discount, net_sales_amount, source_rows, matched_rows,
+                    unmatched_rows, missing_shop_rows
                 ) VALUES (
                     %(stat_month)s, %(principal_name)s, %(gross_profit)s, %(amount)s,
-                    %(refund_amount)s, %(net_sales_amount)s, %(source_rows)s,
-                    %(matched_rows)s, %(unmatched_rows)s, %(missing_shop_rows)s
+                    %(refund_amount)s, %(promotion_discount)s, %(net_sales_amount)s,
+                    %(source_rows)s, %(matched_rows)s, %(unmatched_rows)s,
+                    %(missing_shop_rows)s
                 )
                 """,
                 rows,
@@ -441,13 +443,15 @@ def replace_ebay_profit_month(
                 """
                 INSERT INTO ods_ebay_monthly_profit_raw (
                     stat_month, source_file_name, source_sheet, source_row,
-                    sku, brand_code, image_url, multi_variant, gross_profit,
+                    sku, brand_code, image_url, multi_variant, sold_quantity,
+                    gross_profit,
                     product_sales_amount, receivable_shipping_amount,
                     sales_amount, refund_amount, net_sales_amount, import_batch_id
                 ) VALUES (
                     %(stat_month)s, %(source_file_name)s, %(source_sheet)s,
                     %(source_row)s, %(sku)s, %(brand_code)s, %(image_url)s,
-                    %(multi_variant)s, %(gross_profit)s, %(product_sales_amount)s,
+                    %(multi_variant)s, %(sold_quantity)s, %(gross_profit)s,
+                    %(product_sales_amount)s,
                     %(receivable_shipping_amount)s, %(sales_amount)s,
                     %(refund_amount)s, %(net_sales_amount)s, %(import_batch_id)s
                 )
@@ -459,12 +463,14 @@ def replace_ebay_profit_month(
                 """
                 INSERT INTO dwd_ebay_monthly_profit (
                     stat_month, sku, brand_code, image_url, multi_variant,
+                    sold_quantity,
                     gross_profit, product_sales_amount, receivable_shipping_amount,
                     sales_amount, refund_amount, net_sales_amount, source_file_name,
                     source_sheet, source_row, import_batch_id
                 ) VALUES (
                     %(stat_month)s, %(sku)s, %(brand_code)s, %(image_url)s,
-                    %(multi_variant)s, %(gross_profit)s, %(product_sales_amount)s,
+                    %(multi_variant)s, %(sold_quantity)s, %(gross_profit)s,
+                    %(product_sales_amount)s,
                     %(receivable_shipping_amount)s, %(sales_amount)s,
                     %(refund_amount)s, %(net_sales_amount)s, %(source_file_name)s,
                     %(source_sheet)s, %(source_row)s, %(import_batch_id)s
@@ -542,23 +548,31 @@ def owner_rule_summary(platform: str, stat_month: str) -> list[dict[str, Any]]:
             return list(cursor.fetchall())
 
 
-def append_amz_profit_raw(
+def replace_amz_profit_raw_month(
     connection: Connection,
+    stat_month: str,
     raw_rows: list[dict[str, Any]],
 ) -> None:
+    """Keep one current source snapshot per month; scheduler runs hold audit history."""
     with connection.cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM ods_lingxing_amz_order_profit_raw WHERE stat_month = %s",
+            (stat_month,),
+        )
         if raw_rows:
             cursor.executemany(
                 """
                 INSERT INTO ods_lingxing_amz_order_profit_raw (
                     stat_month, sid, seller_sku, local_sku, asin, country,
                     currency_code, gross_profit, amount, refund_amount,
-                    net_sales_amount, principal_names, sync_batch_id, sync_time
+                    promotion_discount, net_sales_amount, principal_names,
+                    sync_batch_id, sync_time
                 ) VALUES (
                     %(stat_month)s, %(sid)s, %(seller_sku)s, %(local_sku)s,
                     %(asin)s, %(country)s, %(currency_code)s, %(gross_profit)s,
-                    %(amount)s, %(refund_amount)s, %(net_sales_amount)s,
-                    %(principal_names)s, %(sync_batch_id)s, %(sync_time)s
+                    %(amount)s, %(refund_amount)s, %(promotion_discount)s,
+                    %(net_sales_amount)s, %(principal_names)s,
+                    %(sync_batch_id)s, %(sync_time)s
                 )
                 """,
                 raw_rows,
@@ -597,13 +611,14 @@ def replace_amz_profit_month(
                 """
                 INSERT INTO dwd_amz_monthly_order_profit (
                     stat_month, sid, seller_sku, local_sku, asin, country, currency_code,
-                    gross_profit, amount, refund_amount, net_sales_amount, principal_names,
-                    sync_batch_id, sync_time
+                    gross_profit, amount, refund_amount, promotion_discount,
+                    net_sales_amount, principal_names, sync_batch_id, sync_time
                 ) VALUES (
                     %(stat_month)s, %(sid)s, %(seller_sku)s, %(local_sku)s, %(asin)s,
                     %(country)s, %(currency_code)s, %(gross_profit)s, %(amount)s,
-                    %(refund_amount)s, %(net_sales_amount)s, %(principal_names)s,
-                    %(sync_batch_id)s, %(sync_time)s
+                    %(refund_amount)s, %(promotion_discount)s,
+                    %(net_sales_amount)s, %(principal_names)s, %(sync_batch_id)s,
+                    %(sync_time)s
                 )
                 """,
                 rows,
@@ -755,7 +770,7 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
                 '月度库存实际达成及销量填充',
                 '0 0 12 1 * ?',
                 1,
-                '每月1日12:00拉取上个完整自然月Amazon订单利润amount和volume，覆盖ODS并重建实际达成及销量DWD；eBay销量由ebay_sales按payment_time实时汇总'
+                '每月1日12:00拉取上个完整自然月Amazon订单利润amount和volume，覆盖ODS并重建实际达成及销量DWD；eBay实际达成和销量读取绩效利润表sales_amount及sold_quantity'
             )
             ON DUPLICATE KEY UPDATE
                 task_name = VALUES(task_name),
@@ -772,7 +787,7 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
                 '月度库存统计表数据拉取',
                 '0 0 6 1 * ?',
                 1,
-                '每月1日拉取上月FBA、海外仓、本地仓数据，每月1日12:00拉取上月Amazon实际达成和销量，每月2日23:00回填次月月初库存'
+                '每月1日06:00先同步当月和上月领星USD汇率，再拉取上月FBA、海外仓、本地仓数据并重建月度库存报表'
             )
             ON DUPLICATE KEY UPDATE
                 task_name = VALUES(task_name),

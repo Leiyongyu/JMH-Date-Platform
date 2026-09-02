@@ -33,7 +33,6 @@ from backend.services.clearance_export_service import export_inventory_age_detai
 from backend.services.inventory_report_etl_service import (
     get_department_summary,
     get_dimension_summary,
-    import_inventory_report_ebay_sales,
     import_inventory_report_purchase_order,
     list_details as list_inventory_report_details,
     list_months as list_inventory_report_months,
@@ -428,39 +427,6 @@ def post_monthly_inventory_report_order_profit_sync(
         data,
         request_id=request.state.request_id,
         message="monthly inventory order profit synced and report rebuilt",
-    )
-
-
-@router.post(
-    "/monthly-inventory-report/ebay-sales-imports",
-    status_code=201,
-)
-async def post_monthly_inventory_report_ebay_sales_import(
-    request: Request,
-    stat_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
-    file: UploadFile = File(...),
-    operator: str | None = None,
-):
-    content, file_name = await read_excel_upload(file)
-    try:
-        data = await run_in_threadpool(
-            import_inventory_report_ebay_sales,
-            content,
-            file_name,
-            stat_month,
-            operator,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"月度库存eBay实际达成导入失败: {exc}",
-        ) from exc
-    return success_response(
-        data,
-        request_id=request.state.request_id,
-        message="monthly inventory ebay sales imported and report rebuilt",
     )
 
 

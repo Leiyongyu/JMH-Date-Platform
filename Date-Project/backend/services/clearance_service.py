@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -16,11 +17,34 @@ PAGE_SIZE = 200
 MAX_PAGES = 10000
 PARTIAL_PAGE_RETRIES = 2
 PAGE_INTERVAL_SECONDS = 1.1
+FBA_INVENTORY_MONTH_RE = re.compile(r"20\d{2}-(0[1-9]|1[0-2])")
 logger = logging.getLogger(__name__)
 
 
+def resolve_fba_inventory_pull_month(pull_month: str | None = None) -> str:
+    """Return the current snapshot month and reject unsafe month labels."""
+    current_month = datetime.now().strftime("%Y-%m")
+    if pull_month is None:
+        return current_month
+    if not isinstance(pull_month, str) or not FBA_INVENTORY_MONTH_RE.fullmatch(
+        pull_month
+    ):
+        raise ValueError(
+            "pull_month格式不正确，必须为YYYY-MM，"
+            f"例如{current_month}。"
+        )
+    if pull_month != current_month:
+        raise ValueError(
+            "领星FBA库存接口只返回实时库存快照，不支持补拉历史月份。\n"
+            f"指定 pull_month={pull_month} 会用当前({current_month})的库存覆盖该月真实快照，"
+            "且ODS与DWD均为整月覆盖、不可恢复。\n"
+            f"如需重跑当月请传 {current_month} 或不传该参数。"
+        )
+    return pull_month
+
+
 def sync_fba_inventory(pull_month: str | None = None) -> dict:
-    month = pull_month or datetime.now().strftime("%Y-%m")
+    month = resolve_fba_inventory_pull_month(pull_month)
     batch_id = str(uuid4())
     pulled_at = datetime.now()
     domain = LingXingInventoryDomain()

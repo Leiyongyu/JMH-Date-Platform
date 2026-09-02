@@ -53,6 +53,7 @@ def test_department_summary_uses_next_month_clearance_age_costs(monkeypatch):
         service.repo, "amz_sales_amount_by_department", lambda _month: None
     )
     monkeypatch.setattr(service.repo, "ebay_sales_amount", lambda _month: None)
+    monkeypatch.setattr(service.repo, "usd_rate", lambda _month: None)
 
     result = service.get_department_summary("2026-07")
     rows = {row["department_code"]: row for row in result["items"]}
@@ -106,6 +107,7 @@ def test_department_summary_uses_report_month_sales_volume(monkeypatch):
         lambda month: {"AMZ-EU": Decimal("120")},
     )
     monkeypatch.setattr(service.repo, "ebay_sales_amount", lambda month: Decimal("90"))
+    monkeypatch.setattr(service.repo, "usd_rate", lambda month: Decimal("10"))
 
     result = service.get_department_summary("2026-07")
     rows = {row["department_code"]: row for row in result["items"]}
@@ -118,7 +120,41 @@ def test_department_summary_uses_report_month_sales_volume(monkeypatch):
     assert rows["EBAY-1"]["actual_achievement_amount"] == "90"
     assert rows["AMZ-EU"]["actual_achievement_amount"] == "120"
     assert rows["AUTO-PARTS-TOTAL"]["actual_achievement_amount"] == "210"
+    assert rows["EBAY-1"]["actual_achievement_amount_usd"] == "9.00"
+    assert rows["AMZ-EU"]["actual_achievement_amount_usd"] == "12.00"
+    assert rows["AUTO-PARTS-TOTAL"]["actual_achievement_amount_usd"] == "21.00"
+    assert result["rate_month"] == "2026-08"
+    assert result["usd_rate"] == "10"
     assert result["report_month"] == "2026-08"
+
+    monkeypatch.setattr(service.repo, "usd_rate", lambda _month: None)
+    missing_rate_result = service.get_department_summary("2026-07")
+    missing_rate_rows = {
+        row["department_code"]: row
+        for row in missing_rate_result["items"]
+    }
+    assert missing_rate_rows["EBAY-1"]["actual_achievement_amount"] == "90"
+    assert missing_rate_rows["EBAY-1"]["actual_achievement_amount_usd"] is None
+    assert missing_rate_rows["EBAY-1"]["sales_target_usd"] is None
+    assert missing_rate_rows["EBAY-1"]["target_achievement_rate"] is None
+    assert missing_rate_result["usd_rate"] is None
+
+
+def test_report_json_precision_is_bounded_without_changing_internal_math():
+    row = {
+        "sales_target_usd": Decimal("506219.4952943543679395461773"),
+        "actual_achievement_amount_usd": Decimal("417383.123456789"),
+        "target_achievement_rate": Decimal("0.8245864139721966188835947492"),
+    }
+
+    result = service._report_json_ready(row)
+
+    assert result["sales_target_usd"] == "506219.50"
+    assert result["actual_achievement_amount_usd"] == "417383.12"
+    assert result["target_achievement_rate"] == "0.824586"
+    assert row["sales_target_usd"] == Decimal(
+        "506219.4952943543679395461773"
+    )
 
 
 def test_month_options_map_inventory_source_to_next_business_month(monkeypatch):

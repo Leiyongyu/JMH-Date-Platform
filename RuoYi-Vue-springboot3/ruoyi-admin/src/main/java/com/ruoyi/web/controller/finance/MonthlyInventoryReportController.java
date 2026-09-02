@@ -180,33 +180,6 @@ public class MonthlyInventoryReportController extends BaseController
         }
     }
 
-    @Log(title = "月度库存eBay实际达成导入", businessType = BusinessType.IMPORT)
-    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:edit')")
-    @PostMapping("/ebay-sales-import")
-    public AjaxResult importEbaySales(
-            @RequestParam String statMonth,
-            @RequestParam("file") MultipartFile file,
-            @RequestHeader(value = "X-Request-ID", required = false)
-            String requestId,
-            @RequestHeader(value = "Idempotency-Key", required = false)
-            String idempotencyKey)
-    {
-        try
-        {
-            return success(data(
-                    pythonClient.importMonthlyInventoryEbaySales(
-                            statMonth,
-                            file,
-                            getUsername(),
-                            requestId,
-                            idempotencyKey)));
-        }
-        catch (Exception e)
-        {
-            return error(e.getMessage());
-        }
-    }
-
     @Log(title = "月度库存采购单在途导入", businessType = BusinessType.IMPORT)
     @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:edit')")
     @PostMapping("/purchase-order-import")

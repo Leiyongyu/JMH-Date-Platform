@@ -54,12 +54,6 @@ public class PythonFbaInventoryTask
         execute(null);
     }
 
-    /** 供任务页面按月补跑，例如 syncMonth('2026-07')。 */
-    public void syncMonth(String pullMonth)
-    {
-        execute(pullMonth);
-    }
-
     @SuppressWarnings("unchecked")
     private void execute(String pullMonth)
     {

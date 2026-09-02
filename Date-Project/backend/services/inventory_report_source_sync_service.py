@@ -13,6 +13,7 @@ from backend.integrations.lingxing.domains.inventory import LingXingInventoryDom
 from backend.integrations.lingxing.domains.order_profit import LingXingOrderProfitDomain
 from backend.repositories import inventory_report_source_repository as repo
 from backend.repositories import performance_repository as performance_repo
+from backend.services.currency_sync_service import sync_inventory_currency_rates
 from backend.services.inventory_report_etl_service import (
     rebuild_monthly_inventory_amz_sales,
     rebuild_monthly_inventory_report,
@@ -74,6 +75,15 @@ def sync_monthly_inventory_report_sources(stat_month: str | None = None) -> dict
         "overseas_rows": 0,
         "local_rows": 0,
     }
+
+    try:
+        metrics["currency_rates"] = sync_inventory_currency_rates(month)
+    except Exception as exc:
+        raise InventoryReportSourceSyncError(
+            "SYNC_CURRENCY",
+            f"领星USD月度汇率同步失败，已停止月度库存任务链: {exc}",
+            metrics,
+        ) from exc
 
     try:
         seller_ids = repo.amazon_seller_ids()

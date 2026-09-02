@@ -4,16 +4,13 @@ import json
 import re
 from collections import defaultdict
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 from backend.parsers.performance_common import (
     EU_UK_FIXED_OWNER,
     normalize_text,
     parse_brand_code_from_sku,
-)
-from backend.parsers.inventory_report_ebay_sales_parser import (
-    parse_inventory_report_ebay_sales_excel,
 )
 from backend.parsers.inventory_report_purchase_order_parser import (
     parse_inventory_report_purchase_order_excel,
@@ -53,6 +50,13 @@ SPECIAL_STORE_NAMES = ("智贸云", "优贝诺")
 SPECIAL_MSKU_MARKERS = ("zmy", "dsq")
 
 ZERO = Decimal("0")
+REPORT_MONEY_QUANTUM = Decimal("0.01")
+REPORT_RATE_QUANTUM = Decimal("0.000001")
+REPORT_USD_FIELDS = {
+    "sales_target_amount",
+    "sales_target_usd",
+    "actual_achievement_amount_usd",
+}
 METRIC_KEYS = (
     "end_in_transit_qty",
     "end_in_transit_total_cost",
@@ -88,9 +92,6 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
     amz_sales_rows, amz_sales_stats = _clean_amz_sales(
         month, sources["order_profit"], shops, amazon_rules
     )
-    ebay_sales_rows, ebay_sales_stats = _clean_ebay_sales(
-        month, sources.get("ebay_sales", []), ebay_rules, ebay_sku_map
-    )
     dimension_rows = _dimension_summaries(
         month,
         fba_rows,
@@ -107,7 +108,6 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
         local_rows,
         purchase_transit_rows=sources.get("purchase_order_transit", []),
         amz_sales_rows=amz_sales_rows,
-        ebay_sales_rows=ebay_sales_rows,
         opening_inventory=opening_inventory,
     )
     persisted = repo.replace_clean_month(
@@ -116,7 +116,6 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
         overseas_rows,
         local_rows,
         amz_sales_rows,
-        ebay_sales_rows,
         dimension_rows,
         department_rows,
     )
@@ -127,14 +126,12 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
         "source_overseas_rows": len(sources["overseas"]),
         "source_local_rows": len(sources["local"]),
         "source_order_profit_rows": len(sources["order_profit"]),
-        "source_ebay_sales_rows": len(sources.get("ebay_sales", [])),
         "source_purchase_order_transit_rows": len(
             sources.get("purchase_order_transit", [])
         ),
         **fba_stats,
         **local_stats,
         **amz_sales_stats,
-        **ebay_sales_stats,
         **persisted,
         "status": "completed",
     }
@@ -152,29 +149,6 @@ def rebuild_monthly_inventory_amz_sales(
     rules = _amazon_rule_maps(repo.owner_rules(month, "amazon"))
     rows, stats = _clean_amz_sales(month, sources, shops, rules)
     persisted = repo.replace_amz_sales_detail_month(month, rows)
-    return {
-        "stat_month": month,
-        "source_rows": len(sources),
-        "dwd_rows": persisted["inserted_rows"],
-        "deleted_rows": persisted["deleted_rows"],
-        **stats,
-        "status": "completed",
-    }
-
-
-def rebuild_monthly_inventory_ebay_sales(
-    stat_month: str,
-) -> dict[str, Any]:
-    """Rebuild one business month's uploaded eBay actual-achievement DWD."""
-    month = _month(stat_month)
-    sources = repo.ebay_sales_source_rows(month)
-    if not sources:
-        raise ValueError(f"{month} 缺少eBay实际达成上传源数据")
-    rules = _ebay_rule_map(repo.owner_rules(month, "ebay"))
-    rows, stats = _clean_ebay_sales(
-        month, sources, rules, _ebay_product_sku_map(month)
-    )
-    persisted = repo.replace_ebay_sales_detail_month(month, rows)
     return {
         "stat_month": month,
         "source_rows": len(sources),
@@ -237,6 +211,8 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
     report_month = _next_month(month) if month else None
     age_cost_month = _next_month(month) if month else None
     sales_volume_month = report_month
+    rate_month = sales_volume_month
+    usd_rate = repo.usd_rate(rate_month) if rate_month else None
     age_costs = (
         repo.inventory_age_group_costs(age_cost_month)
         if age_cost_month
@@ -368,6 +344,8 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
             item["monthly_sales_qty"] = None
         item["sales_volume_month"] = sales_volume_month
         item["actual_achievement_month"] = sales_volume_month
+        item["rate_month"] = rate_month
+        item["usd_rate"] = usd_rate
         if int(item.get("is_total") or 0) != 1:
             if department == "EBAY-1":
                 item["actual_achievement_amount"] = (
@@ -381,11 +359,16 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
                 )
             else:
                 item["actual_achievement_amount"] = None
-            sales_target = _sales_target(item)
+            sales_target_usd = _sales_target(item, usd_rate)
             actual_amount = item["actual_achievement_amount"]
+            actual_amount_usd = _usd_amount(actual_amount, usd_rate)
+            item["sales_target_usd"] = sales_target_usd
+            item["actual_achievement_amount_usd"] = actual_amount_usd
             item["target_achievement_rate"] = (
-                actual_amount / sales_target
-                if actual_amount is not None and sales_target != ZERO
+                actual_amount_usd / sales_target_usd
+                if actual_amount_usd is not None
+                and sales_target_usd is not None
+                and sales_target_usd != ZERO
                 else None
             )
         items.append(item)
@@ -406,19 +389,34 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
             if actual_complete
             else None
         )
-        total_target = sum((_sales_target(item) for item in detail_items), ZERO)
-        total_actual = total_item["actual_achievement_amount"]
+        target_values = [item.get("sales_target_usd") for item in detail_items]
+        total_target_usd = (
+            sum((_num(value) for value in target_values), ZERO)
+            if target_values and all(value is not None for value in target_values)
+            else None
+        )
+        total_actual_usd = _usd_amount(
+            total_item["actual_achievement_amount"], usd_rate
+        )
+        total_item["sales_target_usd"] = total_target_usd
+        total_item["actual_achievement_amount_usd"] = total_actual_usd
         total_item["target_achievement_rate"] = (
-            total_actual / total_target
-            if total_actual is not None and total_target != ZERO
+            total_actual_usd / total_target_usd
+            if total_actual_usd is not None
+            and total_target_usd is not None
+            and total_target_usd != ZERO
             else None
         )
         total_item["actual_achievement_month"] = sales_volume_month
+        total_item["rate_month"] = rate_month
+        total_item["usd_rate"] = usd_rate
     return {
         "stat_month": month,
         "source_stat_month": month,
         "report_month": report_month,
-        "items": [_json_ready(item) for item in items],
+        "rate_month": rate_month,
+        "usd_rate": str(usd_rate) if usd_rate is not None else None,
+        "items": [_report_json_ready(item) for item in items],
     }
 
 
@@ -434,6 +432,8 @@ def get_dimension_summary(
     report_month = (
         _next_month(data["stat_month"]) if data["stat_month"] else None
     )
+    rate_month = report_month
+    usd_rate = repo.usd_rate(rate_month) if rate_month else None
     actual_platforms: set[str] = set()
     if report_month:
         if repo.amz_sales_amount_by_department(report_month) is not None:
@@ -472,7 +472,7 @@ def get_dimension_summary(
                 _num(item.get("overseas_end_in_transit_total_cost"))
                 + _num(item.get("fba_end_in_transit_total_cost"))
             )
-            sales_target = _sales_target(item)
+            sales_target_usd = _sales_target(item, usd_rate)
             if dimension == "STORE":
                 actual = _num(
                     sales_by_store.get(
@@ -501,15 +501,24 @@ def get_dimension_summary(
             item["fba_transit_inventory_amount"] = (
                 inventory_amount + transit_amount
             )
-            item["sales_target_amount"] = sales_target
+            item["sales_target_amount"] = sales_target_usd
+            item["sales_target_usd"] = sales_target_usd
             platform = normalize_text(item.get("platform_code")).upper()
             actual_available = platform in actual_platforms
             item["actual_achievement_amount"] = (
                 actual if actual_available else None
             )
+            actual_amount_usd = (
+                _usd_amount(actual, usd_rate) if actual_available else None
+            )
+            item["actual_achievement_amount_usd"] = actual_amount_usd
+            item["rate_month"] = rate_month
+            item["usd_rate"] = usd_rate
             item["target_achievement_rate"] = (
-                actual / sales_target
-                if actual_available and sales_target != ZERO
+                actual_amount_usd / sales_target_usd
+                if actual_amount_usd is not None
+                and sales_target_usd is not None
+                and sales_target_usd != ZERO
                 else None
             )
             item["actual_achievement_month"] = report_month
@@ -541,11 +550,13 @@ def get_dimension_summary(
                 else None
             )
             item["inventory_health_month"] = report_month
-        items.append(_json_ready(item))
+        items.append(_report_json_ready(item))
     return {
         "stat_month": data["stat_month"],
         "source_stat_month": data["stat_month"],
         "report_month": report_month,
+        "rate_month": rate_month,
+        "usd_rate": str(usd_rate) if usd_rate is not None else None,
         "dimension_type": dimension,
         "items": items,
     }
@@ -571,40 +582,6 @@ def list_details(
     )
     data["items"] = [_json_ready(item) for item in data["items"]]
     return data
-
-
-def import_inventory_report_ebay_sales(
-    content: bytes,
-    file_name: str,
-    stat_month: str,
-    operator: str | None = None,
-) -> dict[str, Any]:
-    parsed = parse_inventory_report_ebay_sales_excel(
-        content,
-        file_name,
-        _month(stat_month),
-        operator,
-    )
-    replace_stats = repo.replace_ebay_sales_source_month(
-        parsed["stat_month"], parsed["rows"]
-    )
-    try:
-        rebuild = rebuild_monthly_inventory_ebay_sales(parsed["stat_month"])
-    except Exception as exc:
-        raise RuntimeError(
-            "eBay实际达成源数据已更新，但eBay实际达成DWD清洗失败: "
-            f"{exc}"
-        ) from exc
-    return {
-        "stat_month": parsed["stat_month"],
-        "batch_id": parsed["batch_id"],
-        "source_rows": parsed["source_rows"],
-        "inserted_rows": replace_stats["inserted_rows"],
-        "deleted_rows": replace_stats["deleted_rows"],
-        "skipped_rows": parsed["skipped_rows"],
-        "total_amount": parsed["total_amount"],
-        "rebuild": rebuild,
-    }
 
 
 def import_inventory_report_purchase_order(
@@ -766,46 +743,6 @@ def _clean_amz_sales(month, source_rows, shops, rules):
     return rows, {
         "amz_sales_excluded_special_msku_rows": excluded_special_msku_rows,
         "amz_sales_unmatched_department_rows": unmatched_department_rows,
-    }
-
-
-def _clean_ebay_sales(month, source_rows, rules, ebay_sku_map=None):
-    rows: list[dict[str, Any]] = []
-    matched_rows = 0
-    unmatched_rows = 0
-    for source in source_rows:
-        sku = normalize_text(source.get("sku"))
-        resolved_sku = _resolve_ebay_sku(sku, ebay_sku_map)
-        principal, match_source = _ebay_assignment(
-            sku, rules, ebay_sku_map
-        )
-        if principal == UNASSIGNED:
-            unmatched_rows += 1
-        else:
-            matched_rows += 1
-        rows.append(
-            {
-                "stat_month": month,
-                "source_id": source["id"],
-                "sku": sku,
-                "brand_code": parse_brand_code_from_sku(resolved_sku),
-                "image_url": normalize_text(source.get("image_url")) or None,
-                "multi_variant": normalize_text(source.get("multi_variant")) or None,
-                "department_code": "EBAY-1",
-                "principal_name": principal,
-                "principal_match_source": match_source,
-                "product_sales_amount": _num(
-                    source.get("product_sales_amount")
-                ),
-                "receivable_shipping_amount": _num(
-                    source.get("receivable_shipping_amount")
-                ),
-                "amount": _num(source.get("amount")),
-            }
-        )
-    return rows, {
-        "ebay_sales_matched_rows": matched_rows,
-        "ebay_sales_unmatched_rows": unmatched_rows,
     }
 
 
@@ -1018,7 +955,6 @@ def _department_summaries(
     local_rows,
     purchase_transit_rows=None,
     amz_sales_rows=None,
-    ebay_sales_rows=None,
     opening_inventory=None,
 ):
     fields = (
@@ -1091,11 +1027,9 @@ def _department_summaries(
         department = row.get("department_code")
         if department in aggregates:
             aggregates[department]["actual_achievement_amount"] += row["amount"]
-    for row in ebay_sales_rows or []:
-        aggregates["EBAY-1"]["actual_achievement_amount"] += row["amount"]
     opening_inventory = opening_inventory or {}
     for department, target in aggregates.items():
-        sales_target = _sales_target(target)
+        sales_target = _sales_target_cny(target)
         target["target_achievement_rate"] = (
             target["actual_achievement_amount"] / sales_target
             if sales_target != ZERO
@@ -1125,7 +1059,7 @@ def _department_summaries(
         else None
     )
     # 汽配小计的销售目标是各组按各自系数计算后的目标之和。
-    total_sales_target = sum((_sales_target(row) for row in rows), ZERO)
+    total_sales_target = sum((_sales_target_cny(row) for row in rows), ZERO)
     total["target_achievement_rate"] = (
         total["actual_achievement_amount"] / total_sales_target
         if total_sales_target != ZERO
@@ -1135,7 +1069,7 @@ def _department_summaries(
     return rows
 
 
-def _sales_target(row: dict[str, Any]) -> Decimal:
+def _sales_target_cny(row: dict[str, Any]) -> Decimal:
     inventory_amount = (
         _num(row.get("overseas_end_inventory_total_cost"))
         + _num(row.get("fba_end_inventory_total_cost"))
@@ -1148,14 +1082,31 @@ def _sales_target(row: dict[str, Any]) -> Decimal:
         normalize_text(row.get("department_code")).upper(),
         Decimal("0.4"),
     )
-    inventory_target = inventory_amount / Decimal("3") / factor / Decimal("6.6")
+    inventory_target = inventory_amount / Decimal("3") / factor
     total_target = (
         (inventory_amount + transit_amount)
         / Decimal("5")
         / factor
-        / Decimal("6.6")
     )
     return (inventory_target + total_target) / Decimal("2")
+
+
+def _sales_target(
+    row: dict[str, Any],
+    usd_rate: Decimal | None,
+) -> Decimal | None:
+    if usd_rate is None or usd_rate <= ZERO:
+        return None
+    return _sales_target_cny(row) / usd_rate
+
+
+def _usd_amount(
+    amount: Decimal | None,
+    usd_rate: Decimal | None,
+) -> Decimal | None:
+    if amount is None or usd_rate is None or usd_rate <= ZERO:
+        return None
+    return _num(amount) / usd_rate
 
 
 def _inventory_health_maps(pull_month: str):
@@ -1435,3 +1386,22 @@ def _json_ready(row: dict[str, Any]) -> dict[str, Any]:
         key: str(value) if isinstance(value, Decimal) else value
         for key, value in row.items()
     }
+
+
+def _report_json_ready(row: dict[str, Any]) -> dict[str, Any]:
+    """只规范报表展示字段精度，不降低内部Decimal计算精度。"""
+    result = dict(row)
+    for field in REPORT_USD_FIELDS:
+        value = result.get(field)
+        if isinstance(value, Decimal):
+            result[field] = value.quantize(
+                REPORT_MONEY_QUANTUM,
+                rounding=ROUND_HALF_UP,
+            )
+    rate = result.get("target_achievement_rate")
+    if isinstance(rate, Decimal):
+        result["target_achievement_rate"] = rate.quantize(
+            REPORT_RATE_QUANTUM,
+            rounding=ROUND_HALF_UP,
+        )
+    return _json_ready(result)

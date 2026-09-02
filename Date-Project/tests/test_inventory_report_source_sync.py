@@ -66,6 +66,25 @@ def test_empty_source_extract_fails_before_replacing_ods():
     assert error.value.metrics is metrics
 
 
+def test_source_sync_stops_before_inventory_when_currency_sync_fails(monkeypatch):
+    monkeypatch.setattr(
+        service,
+        "sync_inventory_currency_rates",
+        lambda _month: (_ for _ in ()).throw(RuntimeError("汇率接口失败")),
+    )
+    monkeypatch.setattr(
+        service.repo,
+        "amazon_seller_ids",
+        lambda: pytest.fail("汇率失败后不应继续读取库存范围"),
+    )
+
+    with pytest.raises(InventoryReportSourceSyncError) as error:
+        service.sync_monthly_inventory_report_sources("2026-08")
+
+    assert error.value.stage == "SYNC_CURRENCY"
+    assert "已停止月度库存任务链" in str(error.value)
+
+
 class _FakeDomain:
     def __init__(self, response):
         self.response = response

@@ -102,6 +102,23 @@ def test_explicit_stat_month_wins_over_download_month_and_filters_non_ebay_rows(
         "OTH-20001-0001",
     }
     assert all(row["stat_month"] == "2026-08" for row in parsed["rows"])
+    assert all(row["sold_quantity"] == 0 for row in parsed["rows"])
+
+
+def test_optional_sold_quantity_is_persisted_and_excludes_amz_rows():
+    frame = _profit_frame().iloc[:2].copy()
+    frame["售出数"] = [7, 999]
+
+    parsed = parse_ebay_profit_excel(
+        _workbook(frame),
+        "ebay-profit.xlsx",
+        "batch-sold",
+        stat_month="2026-08",
+    )
+
+    assert len(parsed["rows"]) == 1
+    assert str(parsed["rows"][0]["sold_quantity"]) == "7.000000"
+    assert parsed["totals"]["sold_quantity"] == "7.000000"
 
 
 def test_old_caller_can_still_fall_back_to_filename_month():

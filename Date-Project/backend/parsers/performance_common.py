@@ -68,7 +68,10 @@ def money(value: Any) -> Decimal:
     if isinstance(value, Decimal):
         return value.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     text = normalize_text(value)
-    if text in {"", "-"}:
+    # LingXing/eBay exports use "-" or "--" as the no-data placeholder, most
+    # visibly in the eBay profit sheet's 售出数 column for SKUs with no sales
+    # that month. Treat them as zero instead of failing the whole import.
+    if text in {"", "-", "--"}:
         return Decimal("0.000000")
     negative = text.startswith("(") and text.endswith(")")
     text = (

@@ -11,6 +11,7 @@ from backend.services.amazon_profit_sync_service import (
 )
 from backend.services.clearance_service import (
     TASK_CODE as CLEARANCE_TASK_CODE,
+    resolve_fba_inventory_pull_month,
     sync_fba_inventory,
 )
 from backend.services.amz_sop_after_sales_service import (
@@ -77,6 +78,9 @@ def run_scheduler_task(
 ) -> dict:
     if task_code not in TASK_CODES:
         raise ValueError("未知任务编码")
+    # Keep this before run_id/log creation: rejected month labels must have no side effects.
+    if task_code == CLEARANCE_TASK_CODE:
+        stat_month = resolve_fba_inventory_pull_month(stat_month)
     month = stat_month or (
         previous_natural_month()
         if task_code in {
@@ -87,6 +91,7 @@ def run_scheduler_task(
         }
         else (end_date or datetime.now().date()).strftime("%Y-%m")
     )
+    amz_months = [month] if task_code == AMZ_TASK_CODE else []
     run_id = str(uuid4())
     started_at = datetime.now()
     with repo.performance_connection() as connection:
@@ -97,59 +102,52 @@ def run_scheduler_task(
         connection.commit()
     try:
         if task_code == AMZ_TASK_CODE:
-            lock_name = f"performance:amz-profit:{month}"
-        elif task_code == AMZ_SOP_TASK_CODE:
-            lock_name = "sop:amz-after-sales-chain"
-        elif task_code == INVENTORY_REPORT_TASK_CODE:
-            lock_name = f"inventory:monthly-report-source:{month}"
-        elif task_code == SALES_VOLUME_TASK_CODE:
-            lock_name = f"inventory:monthly-sales-volume:{month}"
-        elif task_code == OPENING_INVENTORY_TASK_CODE:
-            lock_name = f"inventory:next-month-opening:{month}"
+            result = _run_amazon_profit_months(
+                amz_months,
+                request_id=request_id,
+                trigger_type=trigger_type,
+            )
         else:
-            lock_name = f"warehouse:amz-ebay-inventory-age:{month}"
-        with repo.named_lock(lock_name) as acquired:
-            if not acquired:
-                task_name = (
-                    AMZ_SOP_TASK_NAME
-                    if task_code == AMZ_SOP_TASK_CODE
-                    else INVENTORY_REPORT_TASK_NAME
-                    if task_code == INVENTORY_REPORT_TASK_CODE
-                    else SALES_VOLUME_TASK_NAME
-                    if task_code == SALES_VOLUME_TASK_CODE
-                    else OPENING_INVENTORY_TASK_NAME
-                    if task_code == OPENING_INVENTORY_TASK_CODE
-                    else "AMZ FBA与eBay海外仓库存库龄同步"
-                    if task_code == CLEARANCE_TASK_CODE
-                    else month + " AMZ任务"
-                )
-                raise SchedulerTaskAlreadyRunning(
-                    f"{task_name}正在执行"
-                )
-            if task_code == AMZ_TASK_CODE:
-                result = sync_amazon_monthly_profit(
-                    stat_month=month,
-                    request_id=request_id,
-                    trigger_source=(
-                        "scheduler_manual"
-                        if trigger_type == "manual"
-                        else "scheduler"
-                    ),
-                )
-            elif task_code == CLEARANCE_TASK_CODE:
-                result = sync_fba_inventory(month)
+            if task_code == AMZ_SOP_TASK_CODE:
+                lock_name = "sop:amz-after-sales-chain"
             elif task_code == INVENTORY_REPORT_TASK_CODE:
-                result = sync_monthly_inventory_report_sources(month)
+                lock_name = f"inventory:monthly-report-source:{month}"
             elif task_code == SALES_VOLUME_TASK_CODE:
-                result = sync_monthly_inventory_sales_volume(month)
+                lock_name = f"inventory:monthly-sales-volume:{month}"
             elif task_code == OPENING_INVENTORY_TASK_CODE:
-                result = fill_next_month_opening_inventory(month)
+                lock_name = f"inventory:next-month-opening:{month}"
             else:
-                result = run_amz_sop_chain(
-                    start_date=start_date,
-                    end_date=end_date,
-                    request_id=request_id,
-                )
+                lock_name = f"warehouse:amz-ebay-inventory-age:{month}"
+            with repo.named_lock(lock_name) as acquired:
+                if not acquired:
+                    task_name = (
+                        AMZ_SOP_TASK_NAME
+                        if task_code == AMZ_SOP_TASK_CODE
+                        else INVENTORY_REPORT_TASK_NAME
+                        if task_code == INVENTORY_REPORT_TASK_CODE
+                        else SALES_VOLUME_TASK_NAME
+                        if task_code == SALES_VOLUME_TASK_CODE
+                        else OPENING_INVENTORY_TASK_NAME
+                        if task_code == OPENING_INVENTORY_TASK_CODE
+                        else "AMZ FBA与eBay海外仓库存库龄同步"
+                    )
+                    raise SchedulerTaskAlreadyRunning(
+                        f"{task_name}正在执行"
+                    )
+                if task_code == CLEARANCE_TASK_CODE:
+                    result = sync_fba_inventory(month)
+                elif task_code == INVENTORY_REPORT_TASK_CODE:
+                    result = sync_monthly_inventory_report_sources(month)
+                elif task_code == SALES_VOLUME_TASK_CODE:
+                    result = sync_monthly_inventory_sales_volume(month)
+                elif task_code == OPENING_INVENTORY_TASK_CODE:
+                    result = fill_next_month_opening_inventory(month)
+                else:
+                    result = run_amz_sop_chain(
+                        start_date=start_date,
+                        end_date=end_date,
+                        request_id=request_id,
+                    )
         with repo.performance_connection() as connection:
             repo.insert_scheduler_run(
                 connection,
@@ -229,6 +227,77 @@ def run_scheduler_task(
             )
             connection.commit()
         raise
+
+
+def _run_amazon_profit_months(
+    months: list[str],
+    request_id: str,
+    trigger_type: str,
+) -> dict:
+    """Refresh explicit months with one lock and transaction per month."""
+    month_results: list[dict] = []
+    trigger_source = (
+        "scheduler_manual" if trigger_type == "manual" else "scheduler"
+    )
+    for target_month in months:
+        lock_name = f"performance:amz-profit:{target_month}"
+        with repo.named_lock(lock_name) as acquired:
+            if not acquired:
+                raise SchedulerTaskAlreadyRunning(
+                    f"{target_month} AMZ月利润任务正在执行"
+                )
+            month_results.append(
+                sync_amazon_monthly_profit(
+                    stat_month=target_month,
+                    request_id=request_id,
+                    trigger_source=trigger_source,
+                )
+            )
+    if len(month_results) == 1:
+        return month_results[0]
+
+    latest = month_results[-1]
+    total_fields = (
+        "extract_rows",
+        "remote_rows",
+        "ods_rows",
+        "dwd_rows",
+        "inserted_rows",
+        "updated_rows",
+        "deleted_rows",
+        "skipped_rows",
+        "invalid_rows",
+        "duplicate_rows",
+    )
+    refresh = dict(latest.get("refresh", {}))
+    refresh.update(
+        {
+            "status": "completed",
+            "stat_months": months,
+            "month_count": len(months),
+            "amz_ranking_rows": sum(
+                item.get("refresh", {}).get("amz_ranking_rows", 0)
+                for item in month_results
+            ),
+            "combined_ranking_rows": sum(
+                item.get("refresh", {}).get("combined_ranking_rows", 0)
+                for item in month_results
+            ),
+        }
+    )
+    return {
+        **latest,
+        "stat_months": months,
+        "month_count": len(months),
+        "start_date": month_results[0]["start_date"],
+        "end_date": latest["end_date"],
+        "month_results": month_results,
+        **{
+            field: sum(item.get(field, 0) for item in month_results)
+            for field in total_fields
+        },
+        "refresh": refresh,
+    }
 
 
 def _run_payload(run_id, task_code, status, stat_month, trigger_type, request_id, started_at):

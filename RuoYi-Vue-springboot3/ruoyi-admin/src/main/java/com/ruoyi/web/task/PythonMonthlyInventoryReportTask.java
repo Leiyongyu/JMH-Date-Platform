@@ -54,7 +54,7 @@ public class PythonMonthlyInventoryReportTask
         this.objectMapper = objectMapper;
     }
 
-    /** 每月定时任务默认拉取上一个完整自然月。 */
+    /** 每月先同步领星USD汇率，再拉取上一个完整自然月库存数据。 */
     public void syncPreviousMonth()
     {
         execute(null);

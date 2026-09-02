@@ -187,6 +187,7 @@ RuoYi `TableDataInfo`：
 | `gross_profit` | decimal(20,6) | 毛利润 |
 | `amount` | decimal(20,6) | 销售额 |
 | `refund_amount` | decimal(20,6) | 退款金额 |
+| `promotion_discount` | decimal(20,6) | 领星促销折扣原值，通常为负数 |
 | `net_amount` | decimal(20,6) | 领星原始净销售额；当前排名未直接使用 |
 | `principal_names` | varchar(1000) | 领星原始 Listing 负责人；当前排名未使用 |
 | `sync_time` | datetime | 同步时间 |
@@ -221,7 +222,7 @@ RuoYi `TableDataInfo`：
 - `idx_amz_month_profit_asin(asin)`；
 - `idx_amz_month_profit_principal(principal_names(191))`。
 
-Python 绩效计算实际只需 `stat_month`、`sid`、`seller_sku`、`local_sku`、`gross_profit`、`amount`、`refund_amount`。为保持领星原始数据追溯能力，迁移时建议保留整表。
+Python 绩效计算实际只需 `stat_month`、`sid`、`seller_sku`、`local_sku`、`gross_profit`、`amount`、`promotion_discount`、`refund_amount`。ODS 的 `net_sales_amount` 保留领星 `net_amount` 原值；DWD 业务净销售额按 `amount - ABS(promotion_discount) - ABS(refund_amount)` 计算。
 
 ### 5.3 `amz_performance_owner_rule`
 
@@ -254,7 +255,8 @@ Python 绩效计算实际只需 `stat_month`、`sid`、`seller_sku`、`local_sku
 | `gross_profit` | decimal(20,6), default 0 | 毛利润合计 |
 | `amount` | decimal(20,6), default 0 | 销售额合计 |
 | `refund_amount` | decimal(20,6), default 0 | 退款合计 |
-| `net_sales_amount` | decimal(20,6), default 0 | `amount - refund_amount` |
+| `promotion_discount` | decimal(20,6), default 0 | 促销折扣合计 |
+| `net_sales_amount` | decimal(20,6), default 0 | `amount - ABS(promotion_discount) - ABS(refund_amount)` 的明细汇总 |
 | `create_time` / `update_time` | datetime | 审计时间 |
 
 UNIQUE `(stat_month, principal_name)`；INDEX `(stat_month, gross_profit)`。
@@ -512,11 +514,12 @@ POST basicOpen/finance/mreport/OrderProfit
 
 - 每月 4 日 22:00，同步上一个完整自然月；
 - Cron：`0 0 22 4 * ?`；
+- 手工传入 `stat_month` 时只补跑指定月份；
 - SID 来自 Amazon 平台店铺，平台编码 `10001`；
 - 每 20 个 SID 一组；
 - API 每页 5000 条；
 - SID 组之间等待 2 秒；
-- 全部远端分页成功后才删除目标月旧数据；
+- 全部远端分页成功后，ODS 与 DWD 才按目标月份整月替换；
 - 数据库每批 200 条 upsert；
 - 仅保存 SID 和 seller SKU 均非空的行；
 - 唯一键 `(stat_month, sid, seller_sku)`；

@@ -44,36 +44,12 @@
             >
               <el-button
                 type="warning"
-                :loading="ebaySalesUploading || purchaseOrderUploading"
+                :loading="purchaseOrderUploading"
               >
                 上传数据 ▾
               </el-button>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="ebay">
-                    <el-popover
-                      placement="right-start"
-                      :width="920"
-                      trigger="hover"
-                      :show-after="250"
-                    >
-                      <template #reference>
-                        <span class="monthly-inventory-upload__item">上传eBay实际达成</span>
-                      </template>
-                      <div class="inventory-import-guide">
-                        <div class="inventory-import-guide__title">
-                          下载格式：进入SKU利润表导出数据，在“利润”模块勾选商品销售额和应收运费。
-                        </div>
-                        <el-image
-                          :src="ebaySalesFormatGuide"
-                          :preview-src-list="[ebaySalesFormatGuide]"
-                          preview-teleported
-                          fit="contain"
-                          class="inventory-import-guide__image"
-                        />
-                      </div>
-                    </el-popover>
-                  </el-dropdown-item>
                   <el-dropdown-item command="purchaseOrder">
                     <el-popover
                       placement="right-start"
@@ -101,13 +77,6 @@
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <input
-              ref="ebaySalesFileInput"
-              type="file"
-              accept=".xlsx,.xlsm"
-              class="native-file-input"
-              @change="handleEbaySalesFileChange"
-            />
             <input
               ref="purchaseOrderFileInput"
               type="file"
@@ -202,11 +171,21 @@
           </template>
           <template #default="{ row }">{{ optionalPercent(row.inventory_health_rate) }}</template>
         </el-table-column>
-        <el-table-column label="销售目标" min-width="175" align="right">
-          <template #default="{ row }">{{ money(salesSprintTarget(row)) }}</template>
+        <el-table-column min-width="175" align="right">
+          <template #header>
+            <el-tooltip :content="usdRateTip" placement="top">
+              <span class="report-column-tip">销售目标（USD）</span>
+            </el-tooltip>
+          </template>
+          <template #default="{ row }">{{ optionalMoney(salesSprintTarget(row)) }}</template>
         </el-table-column>
-        <el-table-column prop="actual_achievement_amount" label="实际达成" min-width="145" align="right">
-          <template #default="{ row }">{{ optionalMoney(row.actual_achievement_amount) }}</template>
+        <el-table-column prop="actual_achievement_amount_usd" min-width="155" align="right">
+          <template #header>
+            <el-tooltip :content="usdRateTip" placement="top">
+              <span class="report-column-tip">实际达成（USD）</span>
+            </el-tooltip>
+          </template>
+          <template #default="{ row }">{{ optionalMoney(row.actual_achievement_amount_usd) }}</template>
         </el-table-column>
         <el-table-column prop="target_achievement_rate" label="目标达成率" min-width="135" align="right">
           <template #default="{ row }">{{ optionalPercent(row.target_achievement_rate) }}</template>
@@ -320,20 +299,28 @@
           <template #default="{ row }">{{ optionalPercent(row.inventory_health_rate) }}</template>
         </el-table-column>
         <el-table-column
-          prop="sales_target_amount"
-          label="销售目标"
+          prop="sales_target_usd"
           min-width="150"
           align="right"
         >
-          <template #default="{ row }">{{ money(row.sales_target_amount) }}</template>
+          <template #header>
+            <el-tooltip :content="usdRateTip" placement="top">
+              <span class="report-column-tip">销售目标（USD）</span>
+            </el-tooltip>
+          </template>
+          <template #default="{ row }">{{ optionalMoney(row.sales_target_usd) }}</template>
         </el-table-column>
         <el-table-column
-          prop="actual_achievement_amount"
-          label="实际达成"
+          prop="actual_achievement_amount_usd"
           min-width="150"
           align="right"
         >
-          <template #default="{ row }">{{ optionalMoney(row.actual_achievement_amount) }}</template>
+          <template #header>
+            <el-tooltip :content="usdRateTip" placement="top">
+              <span class="report-column-tip">实际达成（USD）</span>
+            </el-tooltip>
+          </template>
+          <template #default="{ row }">{{ optionalMoney(row.actual_achievement_amount_usd) }}</template>
         </el-table-column>
         <el-table-column
           prop="target_achievement_rate"
@@ -351,12 +338,10 @@
 
 <script setup>
 import { computed, getCurrentInstance, onMounted, ref } from 'vue'
-import ebaySalesFormatGuide from '@/assets/images/monthly-inventory/ebay-sku-profit-export-format.png'
 import purchaseOrderFormatGuide from '@/assets/images/monthly-inventory/purchase-order-pending-arrival-export-fields.png'
 import {
   getMonthlyInventoryDimensionSummary,
   getMonthlyInventorySummary,
-  importMonthlyInventoryEbaySales,
   importMonthlyInventoryPurchaseOrder,
   listMonthlyInventoryMonths,
   rebuildMonthlyInventoryReport
@@ -374,8 +359,6 @@ const periodsLoading = ref(false)
 const summaryLoading = ref(false)
 const calculating = ref(false)
 const purchaseOrderUploading = ref(false)
-const ebaySalesUploading = ref(false)
-const ebaySalesFileInput = ref(null)
 const purchaseOrderFileInput = ref(null)
 
 function nextNaturalMonth(value) {
@@ -473,6 +456,20 @@ const editableSummaryRows = computed(() =>
   summaryRows.value.filter(row => Number(row.is_total) !== 1)
 )
 
+const usdRateInfo = computed(() => {
+  const rows = summaryRows.value.length ? summaryRows.value : dimensionRows.value
+  return rows.find(row => numberValue(row?.usd_rate) > 0) || null
+})
+
+const usdRateTip = computed(() => {
+  const rateMonth = usdRateInfo.value?.rate_month || statMonth.value
+  const rate = numberValue(usdRateInfo.value?.usd_rate)
+  if (!rate) {
+    return `${rateMonth || '当前月份'}未取得领星USD汇率，金额及达成率暂不计算`
+  }
+  return `按${rateMonth}领星USD我的汇率 ${rate.toLocaleString('zh-CN', { maximumFractionDigits: 6 })} 折算`
+})
+
 const dimensionMetricFields = [
   'source_rows',
   'total_goods_value',
@@ -486,8 +483,9 @@ const dimensionMetricFields = [
   'fba_end_inventory_total_cost',
   'fba_transit_inventory_amount',
   'inventory_181_plus_sku_count',
-  'sales_target_amount',
-  'actual_achievement_amount'
+  'sales_target_usd',
+  'actual_achievement_amount',
+  'actual_achievement_amount_usd'
 ]
 
 const dimensionDisplayRows = computed(() => {
@@ -498,7 +496,9 @@ const dimensionDisplayRows = computed(() => {
     is_dimension_total: 1,
     dimension_value: '合计',
     platform_code: '',
-    department_code: ''
+    department_code: '',
+    rate_month: dimensionRows.value[0]?.rate_month || '',
+    usd_rate: dimensionRows.value[0]?.usd_rate ?? null
   }
   dimensionMetricFields.forEach(field => {
     total[field] = dimensionRows.value.reduce(
@@ -506,14 +506,23 @@ const dimensionDisplayRows = computed(() => {
       0
     )
   })
-  const actualValues = dimensionRows.value.map(row => row?.actual_achievement_amount)
+  const targetValues = dimensionRows.value.map(row => row?.sales_target_usd)
+  const targetComplete = targetValues.length > 0
+    && targetValues.every(value => hasReportMetric(value))
+  total.sales_target_usd = targetComplete
+    ? targetValues.reduce((sum, value) => sum + numberValue(value), 0)
+    : null
+  total.sales_target_amount = total.sales_target_usd
+  const actualValues = dimensionRows.value.map(
+    row => row?.actual_achievement_amount_usd
+  )
   const actualComplete = actualValues.length > 0
     && actualValues.every(value => hasReportMetric(value))
-  total.actual_achievement_amount = actualComplete
+  total.actual_achievement_amount_usd = actualComplete
     ? actualValues.reduce((sum, value) => sum + numberValue(value), 0)
     : null
-  total.target_achievement_rate = actualComplete && total.sales_target_amount
-    ? total.actual_achievement_amount / total.sales_target_amount
+  total.target_achievement_rate = actualComplete && total.sales_target_usd
+    ? total.actual_achievement_amount_usd / total.sales_target_usd
     : null
   const healthInventoryQty =
     total.overseas_end_inventory_qty + total.fba_end_inventory_qty
@@ -643,6 +652,7 @@ function overseasFbaInventoryAmount(row) {
 }
 
 function turnoverDaysByValue(row) {
+  // 货值周转天数沿用既有6.8口径；与本次USD销售目标/实际达成汇率无关。
   if (Number(row?.is_total) === 1) {
     const actualAmount = reportMetricValue(row, 'actual_achievement_amount')
     if (!actualAmount) {
@@ -726,16 +736,20 @@ function turnoverDaysBySku(row) {
 
 function salesSprintTarget(row) {
   if (Number(row?.is_total) === 1) {
-    return editableSummaryRows.value.reduce(
-      (sum, item) => sum + salesSprintTarget(item),
-      0
-    )
+    const targets = editableSummaryRows.value.map(item => salesSprintTarget(item))
+    return targets.length && targets.every(value => value !== null)
+      ? targets.reduce((sum, value) => sum + value, 0)
+      : null
+  }
+  const usdRate = numberValue(row?.usd_rate)
+  if (!usdRate) {
+    return null
   }
   const inventoryAmount = overseasFbaInventoryAmount(row)
   const totalAmount = combinedWarehouseTotalAmount(row)
   const factor = departmentFactor(row)
-  const inventoryTarget = inventoryAmount / 3 / factor / 6.6
-  const totalTarget = totalAmount / 5 / factor / 6.6
+  const inventoryTarget = inventoryAmount / 3 / factor / usdRate
+  const totalTarget = totalAmount / 5 / factor / usdRate
   return (inventoryTarget + totalTarget) / 2
 }
 
@@ -826,44 +840,9 @@ async function handleCalculate() {
   }
 }
 
-async function handleEbaySalesUpload(options) {
-  const uploadMonth = previousNaturalMonth(currentNaturalMonth())
-  const file = options.file
-  if (!/\.(xlsx|xlsm)$/i.test(file?.name || '')) {
-    proxy.$modal.msgError('只支持.xlsx或.xlsm文件')
-    return
-  }
-  ebaySalesUploading.value = true
-  try {
-    const response = await importMonthlyInventoryEbaySales(uploadMonth, file)
-    const result = response.data || {}
-    proxy.$modal.msgSuccess(
-      `导入完成：${result.inserted_rows || 0}条，实际达成${money(result.total_amount)}`
-    )
-    await loadPeriods()
-    await loadSummary()
-  } finally {
-    ebaySalesUploading.value = false
-  }
-}
-
 function handleUploadCommand(command) {
-  if (command === 'ebay') {
-    ebaySalesFileInput.value?.click()
-  } else if (command === 'purchaseOrder') {
+  if (command === 'purchaseOrder') {
     purchaseOrderFileInput.value?.click()
-  }
-}
-
-async function handleEbaySalesFileChange(event) {
-  const input = event.target
-  const file = input.files?.[0]
-  try {
-    if (file) {
-      await handleEbaySalesUpload({ file })
-    }
-  } finally {
-    input.value = ''
   }
 }
 

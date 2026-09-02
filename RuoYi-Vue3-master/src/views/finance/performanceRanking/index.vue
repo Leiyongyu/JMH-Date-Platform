@@ -178,7 +178,7 @@
           <div class="ranking-header">
             <div>
               <div class="ranking-title">净销售额排名</div>
-              <div class="ranking-description">净销售额 = 销售额 - 退款金额</div>
+              <div class="ranking-description">净销售额 = 销售额 - 促销折扣 - 退款金额（均按绝对值扣减）</div>
             </div>
             <el-tag v-if="netSalesRanking.length" type="primary" effect="light">
               {{ netSalesRanking[0].principalNames }}

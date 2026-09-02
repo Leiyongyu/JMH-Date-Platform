@@ -52,26 +52,12 @@ AMZ_SALES_FIELDS = (
     "currency_code", "amount", "volume",
 )
 
-EBAY_SALES_SOURCE_FIELDS = (
-    "stat_month", "sku", "brand_code", "image_url", "multi_variant",
-    "product_sales_amount", "receivable_shipping_amount", "amount",
-    "source_file_name", "source_sheet", "source_row", "import_batch_id",
-    "imported_by",
-)
-
 PURCHASE_ORDER_TRANSIT_FIELDS = (
     "stat_month", "purchase_order_no", "purchase_warehouse",
     "purchase_warehouse_detail", "sku", "store_name", "unit_price",
     "pending_arrival_qty", "sku_pending_total_cost", "product_dimension",
     "platform_code", "group_code", "department_code", "source_file_name",
     "source_sheet", "source_row", "import_batch_id", "imported_by",
-)
-
-EBAY_SALES_FIELDS = (
-    "stat_month", "source_id", "sku", "brand_code", "image_url",
-    "multi_variant", "department_code", "principal_name",
-    "principal_match_source", "product_sales_amount",
-    "receivable_shipping_amount", "amount",
 )
 
 DIMENSION_FIELDS = (
@@ -125,12 +111,6 @@ def source_rows(stat_month: str) -> dict[str, list[dict[str, Any]]]:
             SELECT id,stat_month,sid,msku,local_sku,asin,
                    item_name,currency_code,amount,volume
             FROM ods_lingxing_inventory_report_amz_order_profit
-            WHERE stat_month=%s ORDER BY id
-        """,
-        "ebay_sales": """
-            SELECT id,stat_month,sku,brand_code,image_url,multi_variant,
-                   product_sales_amount,receivable_shipping_amount,amount
-            FROM ods_inventory_report_ebay_sales
             WHERE stat_month=%s ORDER BY id
         """,
         "purchase_order_transit": """
@@ -211,31 +191,6 @@ def ebay_product_sku_map(snapshot_month: str) -> dict[str, str]:
         }
 
 
-def replace_ebay_sales_source_month(
-    stat_month: str,
-    rows: list[dict[str, Any]],
-) -> dict[str, int]:
-    table = "ods_inventory_report_ebay_sales"
-    with db_connection() as connection:
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    f"SELECT COUNT(*) AS total FROM `{table}` WHERE stat_month=%s",
-                    (stat_month,),
-                )
-                deleted_rows = int(cursor.fetchone()["total"] or 0)
-                cursor.execute(
-                    f"DELETE FROM `{table}` WHERE stat_month=%s",
-                    (stat_month,),
-                )
-                _insert_rows(cursor, table, EBAY_SALES_SOURCE_FIELDS, rows)
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-    return {"deleted_rows": deleted_rows, "inserted_rows": len(rows)}
-
-
 def replace_purchase_order_transit(
     stat_month: str,
     rows: list[dict[str, Any]],
@@ -311,7 +266,6 @@ def replace_clean_month(
     overseas_rows: list[dict[str, Any]],
     local_rows: list[dict[str, Any]],
     amz_sales_rows: list[dict[str, Any]],
-    ebay_sales_rows: list[dict[str, Any]],
     dimension_rows: list[dict[str, Any]],
     department_rows: list[dict[str, Any]],
 ) -> dict[str, int]:
@@ -320,7 +274,6 @@ def replace_clean_month(
         ("dwd_inventory_report_overseas_detail", OVERSEAS_FIELDS, overseas_rows),
         ("dwd_inventory_report_local_detail", WAREHOUSE_FIELDS, local_rows),
         ("dwd_inventory_report_amz_sales_detail", AMZ_SALES_FIELDS, amz_sales_rows),
-        ("dwd_inventory_report_ebay_sales_detail", EBAY_SALES_FIELDS, ebay_sales_rows),
         ("dws_inventory_report_dimension_summary", DIMENSION_FIELDS, dimension_rows),
         ("dws_inventory_report_department_summary", DEPARTMENT_FIELDS, department_rows),
     )
@@ -349,7 +302,6 @@ def replace_clean_month(
         "overseas_detail_rows": len(overseas_rows),
         "local_detail_rows": len(local_rows),
         "amz_sales_detail_rows": len(amz_sales_rows),
-        "ebay_sales_detail_rows": len(ebay_sales_rows),
         "dimension_summary_rows": len(dimension_rows),
         "department_summary_rows": len(department_rows),
         "inserted_rows": sum(len(rows) for _, _, rows in payloads),
@@ -633,22 +585,6 @@ def order_profit_rows(stat_month: str) -> list[dict[str, Any]]:
         return list(cursor.fetchall())
 
 
-def ebay_sales_source_rows(stat_month: str) -> list[dict[str, Any]]:
-    """Return one business month's uploaded eBay actual-achievement source."""
-    with db_connection() as connection, connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT id,stat_month,sku,brand_code,image_url,multi_variant,
-                   product_sales_amount,receivable_shipping_amount,amount
-            FROM ods_inventory_report_ebay_sales
-            WHERE stat_month=%s
-            ORDER BY id
-            """,
-            (stat_month,),
-        )
-        return list(cursor.fetchall())
-
-
 def replace_amz_sales_detail_month(
     stat_month: str,
     rows: list[dict[str, Any]],
@@ -668,32 +604,6 @@ def replace_amz_sales_detail_month(
                     (stat_month,),
                 )
                 _insert_rows(cursor, table, AMZ_SALES_FIELDS, rows)
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-    return {"deleted_rows": deleted_rows, "inserted_rows": len(rows)}
-
-
-def replace_ebay_sales_detail_month(
-    stat_month: str,
-    rows: list[dict[str, Any]],
-) -> dict[str, int]:
-    """Replace one business month's uploaded eBay actual-achievement DWD."""
-    table = "dwd_inventory_report_ebay_sales_detail"
-    with db_connection() as connection:
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    f"SELECT COUNT(*) AS total FROM `{table}` WHERE stat_month=%s",
-                    (stat_month,),
-                )
-                deleted_rows = int(cursor.fetchone()["total"] or 0)
-                cursor.execute(
-                    f"DELETE FROM `{table}` WHERE stat_month=%s",
-                    (stat_month,),
-                )
-                _insert_rows(cursor, table, EBAY_SALES_FIELDS, rows)
             connection.commit()
         except Exception:
             connection.rollback()
@@ -776,9 +686,9 @@ def sales_amount_by_owner(
                 FROM dwd_inventory_report_amz_sales_detail
                 WHERE stat_month=%s
                 UNION ALL
-                SELECT 'EBAY' AS platform_code,department_code,
-                       principal_name,amount
-                FROM dwd_inventory_report_ebay_sales_detail
+                SELECT 'EBAY' AS platform_code,'EBAY-1' AS department_code,
+                       principal_name,sales_amount AS amount
+                FROM dws_ebay_performance_ranking
                 WHERE stat_month=%s
             ) sales
             WHERE department_code IS NOT NULL
@@ -813,13 +723,13 @@ def amz_sales_amount_by_store(stat_month: str) -> list[dict[str, Any]]:
 
 
 def ebay_sales_amount(stat_month: str) -> Decimal | None:
-    """Return current business month's uploaded eBay actual achievement."""
+    """Return eBay achievement from the unified monthly profit import."""
     with db_connection() as connection, connection.cursor() as cursor:
         cursor.execute(
             """
             SELECT COUNT(*) AS source_rows,
-                   COALESCE(SUM(amount),0) AS sales_amount
-            FROM dwd_inventory_report_ebay_sales_detail
+                   COALESCE(SUM(sales_amount),0) AS sales_amount
+            FROM dwd_ebay_monthly_profit
             WHERE stat_month=%s
             """,
             (stat_month,),
@@ -831,9 +741,33 @@ def ebay_sales_amount(stat_month: str) -> Decimal | None:
 
 
 def ebay_sales_volume(stat_month: str) -> Decimal | None:
-    """Sum eBay quantity by payment time; no source rows is represented by None."""
+    """Use profit-file sold quantity, falling back for legacy zero months."""
     database = _source_database()
     with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS source_rows,
+                   COALESCE(SUM(sold_quantity),0) AS sales_volume
+            FROM dwd_ebay_monthly_profit
+            WHERE stat_month=%s
+            """,
+            (stat_month,),
+        )
+        performance_row = cursor.fetchone()
+        performance_volume = (
+            performance_row.get("sales_volume") or ZERO
+            if performance_row
+            else ZERO
+        )
+        if (
+            performance_row
+            and int(performance_row.get("source_rows") or 0) > 0
+            and performance_volume != ZERO
+        ):
+            return performance_volume
+
+        # Compatibility window: older profit files did not contain “售出数”.
+        # Keep the payment-time source until historical months are re-imported.
         cursor.execute(
             f"""
             SELECT COUNT(*) AS source_rows,
@@ -850,7 +784,29 @@ def ebay_sales_volume(stat_month: str) -> Decimal | None:
         row = cursor.fetchone()
         if not row or int(row.get("source_rows") or 0) == 0:
             return None
-        return row.get("sales_volume") or 0
+        return row.get("sales_volume") or ZERO
+
+
+def usd_rate(rate_month: str) -> Decimal | None:
+    """读取领星月度USD我的汇率；不存在或无效时明确返回None。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT my_rate
+            FROM dim_lingxing_currency_month
+            WHERE rate_month=%s AND currency_code='USD'
+            LIMIT 1
+            """,
+            (rate_month,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        value = row.get("my_rate")
+        if value is None:
+            return None
+        rate = Decimal(str(value))
+        return rate if rate > ZERO else None
 
 
 def detail_rows(

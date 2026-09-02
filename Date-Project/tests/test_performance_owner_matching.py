@@ -157,6 +157,8 @@ class AmazonOwnerMatchingTest(unittest.TestCase):
                 "gross_profit": Decimal("2.00"),
                 "amount": Decimal("10.00"),
                 "refund_amount": Decimal("-1.00"),
+                "promotion_discount": Decimal("-0.50"),
+                "net_sales_amount": Decimal("8.50"),
             },
             {
                 "store_name": "US1-重庆茁凯-CA",
@@ -164,6 +166,8 @@ class AmazonOwnerMatchingTest(unittest.TestCase):
                 "gross_profit": Decimal("3.00"),
                 "amount": Decimal("20.00"),
                 "refund_amount": Decimal("-2.00"),
+                "promotion_discount": Decimal("-0.25"),
+                "net_sales_amount": Decimal("17.75"),
             },
             {
                 "store_name": "US1-未配置店铺-US",
@@ -171,6 +175,8 @@ class AmazonOwnerMatchingTest(unittest.TestCase):
                 "gross_profit": Decimal("-1.00"),
                 "amount": Decimal("5.00"),
                 "refund_amount": Decimal("0.00"),
+                "promotion_discount": Decimal("0.00"),
+                "net_sales_amount": Decimal("5.00"),
             },
         ]
 
@@ -196,6 +202,14 @@ class AmazonOwnerMatchingTest(unittest.TestCase):
         self.assertEqual(
             sum((row["refund_amount"] for row in rows), Decimal("0")),
             Decimal("-3.00"),
+        )
+        self.assertEqual(
+            sum((row["promotion_discount"] for row in rows), Decimal("0")),
+            Decimal("-0.75"),
+        )
+        self.assertEqual(
+            sum((row["net_sales_amount"] for row in rows), Decimal("0")),
+            Decimal("31.25"),
         )
         self.assertEqual(result["matched_rows"], 2)
         self.assertEqual(result["unmatched_rows"], 1)

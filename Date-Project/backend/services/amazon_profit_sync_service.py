@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -29,6 +30,21 @@ def previous_natural_month(today: date | None = None) -> str:
     first_day = current.replace(day=1)
     last_prev = first_day - timedelta(days=1)
     return f"{last_prev.year:04d}-{last_prev.month:02d}"
+
+
+def previous_natural_months(
+    count: int = 3,
+    today: date | None = None,
+) -> list[str]:
+    """Return completed natural months, oldest first."""
+    if count < 1:
+        raise ValueError("回溯月份数必须大于0")
+    cursor = (today or date.today()).replace(day=1)
+    months: list[str] = []
+    for _ in range(count):
+        cursor = (cursor - timedelta(days=1)).replace(day=1)
+        months.append(f"{cursor.year:04d}-{cursor.month:02d}")
+    return list(reversed(months))
 
 
 def month_range(stat_month: str) -> tuple[date, date]:
@@ -99,7 +115,7 @@ def sync_amazon_monthly_profit(
 
         stage = "ODS"
         with repo.performance_connection() as connection:
-            repo.append_amz_profit_raw(connection, raw_rows)
+            repo.replace_amz_profit_raw_month(connection, month, raw_rows)
             connection.commit()
         metrics["ods_rows"] = len(raw_rows)
 
@@ -202,7 +218,10 @@ def _transform_row(
     ) or _string_value(item, "seller_sku", "sellerSku", "sellerSKU", "msku", "sku")
     amount = _decimal_value(item, "amount")
     refund_amount = _decimal_value(item, "refund_amount", "refundAmount")
-    structured = {
+    promotion_discount = _decimal_value(
+        item, "promotion_discount", "promotionDiscount"
+    )
+    source_fields = {
         "local_sku": _string_value(price, "local_sku", "localSku")
         or _string_value(local_info, "local_sku", "localSku"),
         "asin": _string_value(price, "asin") or _string_value(asin_info, "asin"),
@@ -212,14 +231,35 @@ def _transform_row(
         "gross_profit": _decimal_value(item, "gross_profit", "grossProfit"),
         "amount": amount,
         "refund_amount": refund_amount,
-        "net_sales_amount": amount - refund_amount,
+        "promotion_discount": promotion_discount,
         "principal_names": _string_value(item, "principal_names", "principalNames"),
+    }
+    raw_fields = {
+        **source_fields,
+        # LingXing names this native field net_amount. ODS must retain the
+        # source value instead of a value derived by our business rules.
+        "net_sales_amount": _optional_decimal_value(
+            item,
+            "net_amount",
+            "netAmount",
+            "net_sales_amount",
+            "netSalesAmount",
+        ),
+    }
+    derived_fields = {
+        **source_fields,
+        # LingXing normally returns both discounts and refunds as negative
+        # values. Deducting their magnitudes keeps the business definition
+        # stable for the small number of historical positive values as well.
+        "net_sales_amount": (
+            amount - abs(promotion_discount) - abs(refund_amount)
+        ),
     }
     raw_row = {
         "stat_month": month,
         "sid": sid,
         "seller_sku": seller_sku,
-        **structured,
+        **raw_fields,
         "sync_batch_id": sync_batch_id,
         "sync_time": sync_time,
     }
@@ -230,7 +270,7 @@ def _transform_row(
             "stat_month": month,
             "sid": sid,
             "seller_sku": seller_sku,
-            **structured,
+            **derived_fields,
             "sync_batch_id": sync_batch_id,
             "sync_time": sync_time,
         },
@@ -288,3 +328,11 @@ def _decimal_value(item: dict, *keys: str) -> Decimal:
         if value is not None and str(value).strip() != "":
             return Decimal(str(value))
     return Decimal("0")
+
+
+def _optional_decimal_value(item: dict, *keys: str) -> Decimal | None:
+    for key in keys:
+        value = item.get(key)
+        if value is not None and str(value).strip() != "":
+            return Decimal(str(value))
+    return None

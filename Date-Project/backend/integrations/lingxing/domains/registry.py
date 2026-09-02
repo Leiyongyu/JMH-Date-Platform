@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from backend.integrations.lingxing.client import LingXingClient
 from backend.integrations.lingxing.domains.base import LingXingDomainBase
+from backend.integrations.lingxing.domains.currency import LingXingCurrencyDomain
 from backend.integrations.lingxing.domains.inventory import LingXingInventoryDomain
 from backend.integrations.lingxing.domains.order_profit import LingXingOrderProfitDomain
 from backend.integrations.lingxing.domains.orders import LingXingOrdersDomain
@@ -10,6 +11,7 @@ from backend.integrations.lingxing.domains.products import LingXingProductsDomai
 
 DOMAIN_CLASSES: dict[str, type[LingXingDomainBase]] = {
     "base": LingXingDomainBase,
+    "currency": LingXingCurrencyDomain,
     "products": LingXingProductsDomain,
     "inventory": LingXingInventoryDomain,
     "orders": LingXingOrdersDomain,

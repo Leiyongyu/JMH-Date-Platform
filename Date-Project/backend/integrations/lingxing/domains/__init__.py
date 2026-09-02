@@ -3,6 +3,7 @@ from backend.integrations.lingxing.domains.base import (
     LingXingDomainBase,
     LingXingEndpointSpec,
 )
+from backend.integrations.lingxing.domains.currency import LingXingCurrencyDomain
 from backend.integrations.lingxing.domains.inventory import LingXingInventoryDomain
 from backend.integrations.lingxing.domains.order_profit import LingXingOrderProfitDomain
 from backend.integrations.lingxing.domains.after_sales import LingXingAfterSalesDomain
@@ -13,6 +14,7 @@ from backend.integrations.lingxing.domains.registry import create_domain, descri
 __all__ = [
     "LingXingDomainBase",
     "LingXingEndpointSpec",
+    "LingXingCurrencyDomain",
     "LingXingInventoryDomain",
     "LingXingOrderProfitDomain",
     "LingXingAfterSalesDomain",
