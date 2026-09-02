@@ -44,3 +44,4 @@ RuoYi-Vue-springboot3/docs/*
 !RuoYi-Vue-springboot3/docs/OperationAssistant-ERP-Nginx.conf.example
 !RuoYi-Vue-springboot3/docs/OperationAssistant-ERP对接部署说明.md
 !RuoYi-Vue-springboot3/docs/MySQL每日备份部署与恢复说明.md
+.run/

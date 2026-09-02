@@ -60,7 +60,7 @@
             v-hasPermi="['customs:shipmentFee:import']"
             @click="selectFile"
           >
-            {{ importing ? '正在逐单上传' : '选择费用明细文件' }}
+            {{ importing ? '正在提交文件' : '选择费用明细文件' }}
           </el-button>
         </div>
       </article>
@@ -558,7 +558,7 @@ async function handleFileChange(event) {
     const response = await importShipmentFee(file)
     latestResult.value = response.data || {}
     resultDialogVisible.value = true
-    proxy.$modal.msgSuccess('文件处理完成')
+    proxy.$modal.msgSuccess(`文件已提交，后台将逐个处理货件。批次号：${latestResult.value.batchNo || '-'}`)
     await Promise.all([loadBatches(), loadLogs()])
   } finally {
     importing.value = false
@@ -839,7 +839,7 @@ onMounted(() => {
   loadSubmissions()
   progressTimer = window.setInterval(() => {
     const hasRunningBatch = batchList.value.some(
-      row => row.businessType === 'PACKING_INFO' && ['QUEUED', 'RUNNING'].includes(row.status)
+      row => ['QUEUED', 'RUNNING'].includes(row.status)
     )
     if (hasRunningBatch) Promise.all([loadBatches(), loadLogs()])
     const hasPendingSubmission = submissionList.value.some(

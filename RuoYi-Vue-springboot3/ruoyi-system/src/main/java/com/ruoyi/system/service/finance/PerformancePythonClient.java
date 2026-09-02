@@ -458,14 +458,12 @@ public class PerformancePythonClient extends PythonHttpSupport
     public Map<String, Object> importUnifiedOwnerRules(
             MultipartFile file,
             boolean rebuild,
-            String statMonth,
             String operator,
             String requestId,
             String idempotencyKey)
     {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("rebuild", rebuild);
-        params.put("stat_month", statMonth);
         params.put("operator", operator);
         return upload(
                 "/performance-owner-rule-unified-imports", params, file,

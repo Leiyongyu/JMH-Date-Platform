@@ -10,6 +10,7 @@ from backend.api.v1 import internal_scheduler as v1_internal_scheduler
 from backend.api.v1 import inventory as v1_inventory
 from backend.api.v1 import lingxing as v1_lingxing
 from backend.api.v1 import ebay_sku_analysis as v1_ebay_sku_analysis
+from backend.api.v1 import ebay_replenishment_v2 as v1_ebay_replenishment_v2
 
 
 api_router = APIRouter()
@@ -25,4 +26,5 @@ api_router.include_router(v1_inventory.router)
 api_router.include_router(v1_lingxing.router)
 api_router.include_router(v1_finance.router)
 api_router.include_router(v1_ebay_sku_analysis.router)
+api_router.include_router(v1_ebay_replenishment_v2.router)
 api_router.include_router(v1_internal_scheduler.router)

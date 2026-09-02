@@ -38,21 +38,19 @@ Java 进程需要以下环境变量，token 必须与 Python `.env` 相同：
 
 ```powershell
 [Environment]::SetEnvironmentVariable(
-  "PERFORMANCE_PYTHON_BASE_URL",
-  "http://127.0.0.1:8010/api/v1/finance",
-  "Machine"
-)
-[Environment]::SetEnvironmentVariable(
-  "PYTHON_PERFORMANCE_BASE_URL",
+  "JMH_PYTHON_BASE_URL",
   "http://127.0.0.1:8010",
   "Machine"
 )
 [Environment]::SetEnvironmentVariable(
-  "PYTHON_PERFORMANCE_INTERNAL_TOKEN",
+  "PYTHON_INTERNAL_API_TOKEN",
   "替换为与Python一致的长随机值",
   "Machine"
 )
 ```
+
+各模块原有的 `PERFORMANCE_PYTHON_BASE_URL`、`PYTHON_PERFORMANCE_BASE_URL`
+等变量仍可作为单模块覆盖项，现有部署无需一次性删除；新部署只配置上面的统一地址即可。
 
 在 Java 数据库执行
 `RuoYi-Vue-springboot3/sql/20260730_deploy_python_finance.sql`，然后重新构建、

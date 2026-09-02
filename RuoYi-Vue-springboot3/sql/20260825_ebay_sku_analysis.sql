@@ -61,7 +61,7 @@ INSERT INTO sys_menu(
 SELECT 'eBay补货2.0',@store_analysis_id,4,'replenishment-v2',
        'operations/ebay/replenishmentV2/index',NULL,'EbayReplenishmentV2',
        1,0,'C','0','0','operations:ebayReplenishmentV2:list','shopping',
-       'SYSTEM',NOW(),'eBay补货2.0前端展示入口，后端逻辑待建设'
+       'SYSTEM',NOW(),'eBay补货2.0近三个月销量、毛利与退货分析'
 WHERE @store_analysis_id IS NOT NULL AND @ebay_replenishment_v2_id IS NULL;
 SET @ebay_replenishment_v2_id := (
   SELECT menu_id FROM sys_menu
@@ -84,7 +84,7 @@ SET parent_id=@store_analysis_id,menu_name='eBay补货2.0',order_num=4,
     menu_type='C',visible='0',status='0',
     perms='operations:ebayReplenishmentV2:list',icon='shopping',
     update_by='SYSTEM',update_time=NOW(),
-    remark='eBay补货2.0前端展示入口，后端逻辑待建设'
+    remark='eBay补货2.0近三个月销量、毛利与退货分析'
 WHERE menu_id=@ebay_replenishment_v2_id AND @store_analysis_id IS NOT NULL;
 
 SET @import_id := (SELECT menu_id FROM sys_menu WHERE perms='operations:ebaySkuAnalysis:import' ORDER BY menu_id LIMIT 1);

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.ebay.EbayReplenishmentV2LeadTimeMapper">
+
+    <resultMap id="LeadTimeResult" type="com.ruoyi.system.domain.operation.ebay.EbayReplenishmentV2LeadTime">
+        <id property="id" column="id"/>
+        <result property="site" column="site"/>
+        <result property="sku" column="sku"/>
+        <result property="chengduWarehouseToWarehouseDays" column="chengdu_warehouse_to_warehouse_days"/>
+        <result property="chengduQcOutboundDays" column="chengdu_qc_outbound_days"/>
+        <result property="overseasTransitToListingDays" column="overseas_transit_to_listing_days"/>
+    </resultMap>
+
+    <select id="selectByKeys" resultMap="LeadTimeResult">
+        SELECT id, site, sku,
+               chengdu_warehouse_to_warehouse_days,
+               chengdu_qc_outbound_days,
+               overseas_transit_to_listing_days
+        FROM ebay_replenishment_v2_lead_time
+        WHERE (site, sku) IN
+        <foreach collection="keys" item="key" open="(" separator="," close=")">
+            (#{key.site}, #{key.sku})
+        </foreach>
+    </select>
+
+    <insert id="upsertField">
+        INSERT INTO ebay_replenishment_v2_lead_time
+            (site, sku,
+            <choose>
+                <when test="field == 'chengduWarehouseToWarehouseDays'">chengdu_warehouse_to_warehouse_days</when>
+                <when test="field == 'chengduQcOutboundDays'">chengdu_qc_outbound_days</when>
+                <otherwise>overseas_transit_to_listing_days</otherwise>
+            </choose>,
+            create_by, create_time, update_by, update_time)
+        VALUES (#{site}, #{sku}, #{days}, #{operator}, NOW(), #{operator}, NOW())
+        ON DUPLICATE KEY UPDATE
+            <choose>
+                <when test="field == 'chengduWarehouseToWarehouseDays'">chengdu_warehouse_to_warehouse_days = VALUES(chengdu_warehouse_to_warehouse_days)</when>
+                <when test="field == 'chengduQcOutboundDays'">chengdu_qc_outbound_days = VALUES(chengdu_qc_outbound_days)</when>
+                <otherwise>overseas_transit_to_listing_days = VALUES(overseas_transit_to_listing_days)</otherwise>
+            </choose>,
+            update_by = VALUES(update_by),
+            update_time = VALUES(update_time)
+    </insert>
+</mapper>

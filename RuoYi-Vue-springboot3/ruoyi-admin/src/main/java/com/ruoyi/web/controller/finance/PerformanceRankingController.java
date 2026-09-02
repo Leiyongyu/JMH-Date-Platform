@@ -136,7 +136,6 @@ public class PerformanceRankingController extends BaseController
     public AjaxResult importOwnerRules(
             @RequestParam("file") MultipartFile file,
             @RequestParam(defaultValue = "true") boolean rebuild,
-            @RequestParam String statMonth,
             @RequestHeader(value = "X-Request-ID", required = false)
             String requestId,
             @RequestHeader(value = "Idempotency-Key", required = false)
@@ -145,7 +144,7 @@ public class PerformanceRankingController extends BaseController
         try
         {
             return success(data(pythonClient.importUnifiedOwnerRules(
-                    file, rebuild, statMonth, getUsername(),
+                    file, rebuild, getUsername(),
                     requestId, idempotencyKey)));
         }
         catch (Exception e)

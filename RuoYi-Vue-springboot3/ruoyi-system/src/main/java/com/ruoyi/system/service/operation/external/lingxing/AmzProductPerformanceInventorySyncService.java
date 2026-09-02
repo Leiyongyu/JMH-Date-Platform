@@ -7,11 +7,10 @@ import com.ruoyi.system.mapper.operation.external.ShopListMapper;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -49,8 +48,8 @@ public class AmzProductPerformanceInventorySyncService
         if (sidStrings.isEmpty())
             return OperationSyncResult.success("amz_product_inventory", "领星-Amazon产品表现库存", API, 0, 0, System.currentTimeMillis() - start);
 
-        Set<String> seen = new HashSet<>();
-        List<AmzProductPerformanceInventory> allRows = new ArrayList<>();
+        Map<String, AmzProductPerformanceInventory> uniqueRows = new LinkedHashMap<>();
+        int duplicateRows = 0;
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.minusDays(LOOKBACK_DAYS - 1L);
 
@@ -82,10 +81,10 @@ public class AmzProductPerformanceInventorySyncService
                 {
                     AmzProductPerformanceInventory entity = toEntity(row);
                     if (entity == null) continue;
-                    String key = entity.getSid() + "|" + entity.getSellerSku();
-                    if (seen.add(key))
+                    String key = inventoryKey(entity.getSid(), entity.getSellerSku());
+                    if (uniqueRows.putIfAbsent(key, entity) != null)
                     {
-                        allRows.add(entity);
+                        duplicateRows++;
                     }
                 }
 
@@ -98,6 +97,12 @@ public class AmzProductPerformanceInventorySyncService
             if (i + SID_BATCH_SIZE < sidStrings.size()) Thread.sleep(10000);
         }
 
+        List<AmzProductPerformanceInventory> allRows = new ArrayList<>(uniqueRows.values());
+        if (duplicateRows > 0)
+        {
+            LOG.warn("领星-Amazon产品表现库存返回{}条重复业务键记录，已按MySQL唯一键口径去重",
+                    duplicateRows);
+        }
         InventoryQuality quality = validateInventory(allRows);
         int inserted = replaceService.replaceAll(allRows);
         LOG.info("领星-Amazon产品表现库存同步完成: {} 条, 有库存记录={} 条, "
@@ -167,8 +172,8 @@ public class AmzProductPerformanceInventorySyncService
     {
         Map<String, Object> price = firstMap(row, "price_list");
         Integer sid = price != null ? intObj(price, "sid") : firstInt(row, "sids");
-        String sellerSku = price != null ? str(price, "seller_sku") : "";
-        String localSku = price != null ? str(price, "local_sku") : str(row, "sku");
+        String sellerSku = normalizeSellerSku(price != null ? str(price, "seller_sku") : "");
+        String localSku = normalizeText(price != null ? str(price, "local_sku") : str(row, "sku"));
         if (sid == null || sellerSku.isEmpty()) return null;
 
         Map<String, Object> available = getMap(row, "available_inventory");
@@ -196,6 +201,25 @@ public class AmzProductPerformanceInventorySyncService
         entity.setFbaInboundWorking(inboundWorking);
         entity.setFbaStock(fulfillable + transfer + receiving + reserved);
         return entity;
+    }
+
+    /**
+     * MySQL唯一键使用utf8mb4_unicode_ci：不区分大小写，VARCHAR比较也会忽略尾部空格。
+     * 拉取阶段必须用同样的业务口径判重，否则Java认为不同的两条记录会在批量写入时冲突。
+     */
+    static String inventoryKey(Integer sid, String sellerSku)
+    {
+        return String.valueOf(sid) + "|" + normalizeSellerSku(sellerSku).toLowerCase(Locale.ROOT);
+    }
+
+    static String normalizeSellerSku(String value)
+    {
+        return normalizeText(value);
+    }
+
+    private static String normalizeText(String value)
+    {
+        return value == null ? "" : value.strip();
     }
 
     private List<Integer> toIntList(List<String> values)

@@ -645,7 +645,6 @@ async def post_owner_rule_import(
 async def post_unified_owner_rule_import(
     request: Request,
     file: UploadFile = File(...),
-    stat_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
     rebuild: bool = True,
     operator: str | None = None,
 ):
@@ -655,7 +654,6 @@ async def post_unified_owner_rule_import(
             import_unified_owner_rules,
             content,
             file.filename or "unified-owner-rules.xlsx",
-            stat_month,
             rebuild=rebuild,
             operator=operator,
             request_id=request.state.request_id,

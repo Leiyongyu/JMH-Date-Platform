@@ -567,7 +567,7 @@ public class EbayReplenishmentComputeService
     }
 
     /** 月销预测公式：按产品性质和老品13场景 */
-    private Integer calcMonthlySalesForecast(EbayReplenishmentSnapshot snap) {
+    static Integer calcMonthlySalesForecast(EbayReplenishmentSnapshot snap) {
         int d7 = snap.getSales7d() != null ? snap.getSales7d() : 0;
         int d15 = snap.getSales15d() != null ? snap.getSales15d() : 0;
         int d30 = snap.getSales30d() != null ? snap.getSales30d() : 0;

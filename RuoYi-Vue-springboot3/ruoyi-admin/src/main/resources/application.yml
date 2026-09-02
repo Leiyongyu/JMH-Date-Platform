@@ -189,6 +189,11 @@ goodcang:
   endpoint: ${GOODCANG_ENDPOINT:https://oms.goodcang.net/public_open}
   app-token: ${GOODCANG_APP_TOKEN:a1bc2f4455c6ccb0e9a67b2ce984a3c5}
   app-key: ${GOODCANG_APP_KEY:b99a3ce835ef9711ad3c3d451b6f9815}
+  # 谷仓对同一密钥限流；所有接口统一串行节流，429时指数退避重试。
+  min-request-interval-ms: ${GOODCANG_MIN_REQUEST_INTERVAL_MS:1200}
+  max-rate-limit-retries: ${GOODCANG_MAX_RATE_LIMIT_RETRIES:6}
+  rate-limit-initial-backoff-ms: ${GOODCANG_RATE_LIMIT_INITIAL_BACKOFF_MS:3000}
+  rate-limit-max-backoff-ms: ${GOODCANG_RATE_LIMIT_MAX_BACKOFF_MS:30000}
 
 # 同步告警 - 企业微信机器人 Webhook
 sync:
@@ -205,9 +210,10 @@ sync:
   read-timeout: 30000
 
 # Python 外汇退税数据服务
+# 所有 Python 模块默认共用 JMH_PYTHON_BASE_URL；原模块变量继续作为兼容性覆盖项。
 tax-refund:
   data-project:
-    base-url: ${TAX_REFUND_DATA_PROJECT_BASE_URL:http://127.0.0.1:8010}
+    base-url: ${TAX_REFUND_DATA_PROJECT_BASE_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}}
     connect-timeout: 5000
     read-timeout: 600000
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
@@ -215,7 +221,7 @@ tax-refund:
 # ERP AI助手通过Java安全代理访问Python，浏览器不接触内部Token和DeepSeek密钥
 ai-assistant:
   python:
-    base-url: ${AI_ASSISTANT_PYTHON_BASE_URL:http://127.0.0.1:8010}
+    base-url: ${AI_ASSISTANT_PYTHON_BASE_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}}
     connect-timeout: 5000
     read-timeout: 200000
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
@@ -223,8 +229,8 @@ ai-assistant:
 # 图片SOP通过Java安全代理访问Python；支持多图片上传、长时间AI生成和二进制下载
 image-sop:
   python:
-    base-url: ${IMAGE_SOP_PYTHON_BASE_URL:http://127.0.0.1:8010/image-sop}
-    workbench-url: ${PYTHON_SCRIPT_WORKBENCH_URL:http://127.0.0.1:8010/script-tools/}
+    base-url: ${IMAGE_SOP_PYTHON_BASE_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}/image-sop}
+    workbench-url: ${PYTHON_SCRIPT_WORKBENCH_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}/script-tools/}
     connect-timeout: 5000
     read-timeout: 900000
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
@@ -232,14 +238,14 @@ image-sop:
 # Python 绩效排名服务
 performance:
   python:
-    base-url: ${PERFORMANCE_PYTHON_BASE_URL:http://127.0.0.1:8010/api/v1/finance}
+    base-url: ${PERFORMANCE_PYTHON_BASE_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}/api/v1/finance}
     connect-timeout: 5000
     read-timeout: 300000
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
 
 jmh:
   python-performance:
-    base-url: ${PYTHON_PERFORMANCE_BASE_URL:http://127.0.0.1:8010}
+    base-url: ${PYTHON_PERFORMANCE_BASE_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}}
     connect-timeout: 3s
     read-timeout: 3h
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}

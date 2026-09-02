@@ -120,8 +120,8 @@
                 >
                   <el-icon class="data-menu-icon owner-icon"><Upload /></el-icon>
                   <div class="data-menu-copy">
-                    <span>导入月度负责人配置</span>
-                    <small>一次更新 AMZ 与 eBay 负责人规则</small>
+                    <span>导入负责人映射表</span>
+                    <small>按文件内月份列增量更新 AMZ 与 eBay 规则</small>
                   </div>
                 </el-dropdown-item>
               </el-dropdown-menu>
@@ -244,26 +244,13 @@
 
     <el-dialog
       v-model="ownerImportDialogVisible"
-      title="导入月度负责人配置"
+      title="导入负责人映射表"
       width="560px"
       append-to-body
       :close-on-click-modal="false"
       @closed="resetOwnerImportDialog"
     >
       <el-form :model="importForm" label-width="92px">
-        <el-form-item label="统计月份" required>
-          <el-date-picker
-            v-model="importForm.statMonth"
-            type="month"
-            value-format="YYYY-MM"
-            format="YYYY年MM月"
-            placeholder="选择负责人配置归属月份"
-            style="width: 100%"
-          />
-          <div class="el-upload__tip">
-            只导入所选月份对应的“YYYYMM负责人”列，并据此重新计算当月 AMZ 与 eBay 绩效。
-          </div>
-        </el-form-item>
         <el-form-item label="Excel文件" required>
           <el-upload
             ref="uploadRef"
@@ -279,23 +266,26 @@
             <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
             <template #tip>
               <div class="el-upload__tip">
-                文件必须包含 EU-品牌、EU-OTH、US1、US2、Ebay 五个 Sheet；首列依次为品牌、
-                中间码-OTH、店铺名、店铺名、品牌，并且每个 Sheet 都必须包含所选月份的
-                “YYYYMM负责人”列。
+                请使用“sku店铺映射表”模板。必须包含 EU组-sku品牌负责人、EU-OTH负责人、
+                US1组店铺负责人、US2组店铺负责人、US3组店铺负责人、EBAYsku负责人，
+                系统会自动识别文件中的全部“YYYYMM负责人”列；相同店铺/品牌、规则类型和月份更新，
+                新记录新增，文件中未出现的历史规则保留。空值、待定和待到按未分配保存。
+                EBAYsku负责人首列直接填写品牌。
+                女鞋一部、女鞋二部、女鞋三部即使保留在文件中也会自动忽略。
               </div>
             </template>
           </el-upload>
         </el-form-item>
         <el-form-item label="后续操作">
           <el-checkbox v-model="importForm.rebuildAfterImport">
-            导入成功后立即重新匹配并汇总所选月份
+            导入成功后立即重新匹配已有利润数据的月份
           </el-checkbox>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="ownerImportDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="importing" @click="submitOwnerRules">
-          开始增量导入
+          导入并增量更新
         </el-button>
       </template>
     </el-dialog>
@@ -343,7 +333,6 @@ const query = reactive({
 })
 const importForm = reactive({
   file: undefined,
-  statMonth: undefined,
   rebuildAfterImport: true
 })
 const profitImportForm = reactive({
@@ -642,7 +631,6 @@ function normalizeRefresh(result = {}) {
 
 function openOwnerImportDialog() {
   importForm.file = undefined
-  importForm.statMonth = query.statMonth || previousNaturalMonth()
   importForm.rebuildAfterImport = true
   ownerImportDialogVisible.value = true
 }
@@ -658,14 +646,9 @@ function handleFileRemove() {
 function resetOwnerImportDialog() {
   uploadRef.value?.clearFiles()
   importForm.file = undefined
-  importForm.statMonth = undefined
 }
 
 async function submitOwnerRules() {
-  if (!importForm.statMonth) {
-    proxy.$modal.msgError('请选择负责人配置归属月份')
-    return
-  }
   if (!importForm.file) {
     proxy.$modal.msgError('请选择负责人划分Excel文件')
     return
@@ -673,20 +656,25 @@ async function submitOwnerRules() {
 
   importing.value = true
   try {
-    const importedMonth = importForm.statMonth
     const response = await importPerformanceOwnerRules(
       importForm.file,
-      importForm.rebuildAfterImport,
-      importedMonth
+      importForm.rebuildAfterImport
     )
     const result = response.data || {}
-    proxy.$modal.msgSuccess(`负责人配置导入完成：${importedMonth}，共写入${result.imported_rows || 0}条规则`)
-    query.statMonth = importedMonth
+    const importedMonths = result.months || []
+    proxy.$modal.msgSuccess(
+      `负责人映射导入完成：${result.month_count || importedMonths.length}个月，共增量写入${result.upserted_rows || result.imported_rows || 0}条规则`
+    )
     query.pageNum = 1
     const rebuildAfterImport = importForm.rebuildAfterImport
     ownerImportDialogVisible.value = false
     if (rebuildAfterImport && result.refreshes?.length) {
-      lastRefreshStats.value = normalizeRefresh(result.refreshes[0])
+      const currentRefresh = result.refreshes.find(
+        item => item.stat_month === query.statMonth
+      )
+      lastRefreshStats.value = normalizeRefresh(
+        currentRefresh || result.refreshes[result.refreshes.length - 1]
+      )
     }
     await loadMonths()
     await loadData()

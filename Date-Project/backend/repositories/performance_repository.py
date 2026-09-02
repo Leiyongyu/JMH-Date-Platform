@@ -494,65 +494,6 @@ def upsert_owner_rules(
             )
 
 
-def replace_unified_owner_rule_month(
-    connection: Connection,
-    stat_month: str,
-    rules: list[dict[str, Any]],
-    raw_rows: list[dict[str, Any]],
-) -> dict[str, int]:
-    """Atomically replace both platform rule snapshots for exactly one month."""
-    expected_platforms = {"amazon", "ebay"}
-    rule_platforms = {str(row.get("platform") or "") for row in rules}
-    if rule_platforms != expected_platforms:
-        raise ValueError("统一负责人规则必须同时包含amazon和ebay")
-    if any(str(row.get("stat_month") or "") != stat_month for row in rules):
-        raise ValueError("统一负责人规则包含非选中月份数据")
-    if any(str(row.get("stat_month") or "") != stat_month for row in raw_rows):
-        raise ValueError("统一负责人ODS规则包含非选中月份数据")
-
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT COUNT(*) AS total
-            FROM ods_performance_owner_rule_raw
-            WHERE stat_month=%s AND platform IN ('amazon','ebay')
-            """,
-            (stat_month,),
-        )
-        deleted_ods_rows = int(cursor.fetchone()["total"] or 0)
-        cursor.execute(
-            """
-            SELECT COUNT(*) AS total
-            FROM dwd_performance_owner_rule
-            WHERE stat_month=%s AND platform IN ('amazon','ebay')
-            """,
-            (stat_month,),
-        )
-        deleted_dwd_rows = int(cursor.fetchone()["total"] or 0)
-        cursor.execute(
-            """
-            DELETE FROM ods_performance_owner_rule_raw
-            WHERE stat_month=%s AND platform IN ('amazon','ebay')
-            """,
-            (stat_month,),
-        )
-        cursor.execute(
-            """
-            DELETE FROM dwd_performance_owner_rule
-            WHERE stat_month=%s AND platform IN ('amazon','ebay')
-            """,
-            (stat_month,),
-        )
-
-    upsert_owner_rules(connection, rules, raw_rows)
-    return {
-        "deleted_ods_rows": deleted_ods_rows,
-        "deleted_dwd_rows": deleted_dwd_rows,
-        "inserted_ods_rows": len(raw_rows),
-        "inserted_dwd_rows": len(rules),
-    }
-
-
 def owner_rule_summary(platform: str, stat_month: str) -> list[dict[str, Any]]:
     with db_connection() as connection:
         with connection.cursor() as cursor:

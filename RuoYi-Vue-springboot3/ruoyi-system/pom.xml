@@ -23,6 +23,13 @@
             <artifactId>ruoyi-common</artifactId>
         </dependency>
 
+        <!-- JUnit 5、AssertJ、Mockito，仅用于不启动 Spring 容器的单元测试。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
 </project>

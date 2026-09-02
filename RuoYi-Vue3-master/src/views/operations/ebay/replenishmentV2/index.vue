@@ -1,14 +1,5 @@
 <template>
   <div class="app-container ebay-replenishment-v2-page">
-    <el-alert
-      class="preview-alert"
-      title="当前为 eBay补货2.0 前端展示版"
-      description="页面字段、筛选、排序、分页和列配置已完成；当前数据仅用于验证展示效果，不会调用或写入原 eBay 补货接口。"
-      type="info"
-      :closable="false"
-      show-icon
-    />
-
     <el-form
       v-show="showSearch"
       ref="queryRef"
@@ -40,11 +31,6 @@
           @keyup.enter="handleQuery"
         />
       </el-form-item>
-      <el-form-item label="产品等级" prop="productLevel">
-        <el-select v-model="queryParams.productLevel" placeholder="全部等级" clearable style="width: 140px">
-          <el-option v-for="level in productLevels" :key="level" :label="level" :value="level" />
-        </el-select>
-      </el-form-item>
       <el-form-item>
         <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
         <el-button icon="Refresh" @click="resetQuery">重置</el-button>
@@ -53,26 +39,38 @@
 
     <el-row :gutter="10" class="mb8 table-toolbar">
       <el-col :span="1.5">
-        <el-tag type="warning" effect="plain">前端演示数据</el-tag>
+        <el-tag type="info" effect="plain">统计月份：{{ monthRangeText }}</el-tag>
       </el-col>
-      <el-col :span="1.5" class="field-count">共 22 个业务字段</el-col>
+      <el-col :span="1.5" class="field-count">销量、毛利和退货数据按最近3个完整自然月统计；利润率、退货率按3个月合计口径计算</el-col>
+      <el-col :span="1.5">
+        <el-button
+          type="primary"
+          plain
+          icon="Upload"
+          v-hasPermi="['operations:ebayReplenishmentV2:importWarehouseRent']"
+          @click="warehouseRentDialogVisible = true"
+        >
+          上传仓租
+        </el-button>
+      </el-col>
       <right-toolbar
         v-model:showSearch="showSearch"
         :show-column-config="true"
-        @queryTable="handleRefresh"
+        @queryTable="loadRows"
         @columnConfig="openColumnConfig"
       />
     </el-row>
 
     <el-table
       v-if="columnConfigLoaded"
+      v-loading="loading"
       :key="columnTableKey"
-      :data="pagedRows"
+      :data="rows"
       border
       stripe
       height="640"
       :row-key="row => `${row.site}|${row.sku}`"
-      :empty-text="emptyText"
+      empty-text="暂无符合条件的订单数据"
       @sort-change="handleSortChange"
     >
       <template v-for="col in visibleColumns" :key="col.key">
@@ -83,8 +81,15 @@
           :align="col.align"
           :width="col.width"
           :fixed="col.fixed || false"
-          sortable="custom"
         >
+          <template #header>
+            <span class="column-header">
+              <span>{{ col.label }}</span>
+              <el-tooltip v-if="col.tip" :content="col.tip" placement="top">
+                <el-icon class="column-tip"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </span>
+          </template>
           <template #default="scope">
             <el-tag v-if="scope.row.productLevel" :type="levelTagType(scope.row.productLevel)" effect="light">
               {{ scope.row.productLevel }}
@@ -106,19 +111,72 @@
           <template #header>
             <span class="column-header">
               <span>{{ col.label }}</span>
-              <el-tooltip v-if="col.tip" :content="col.tip" placement="top">
+              <el-tooltip v-if="col.tip" :content="columnTip(col)" placement="top">
                 <el-icon class="column-tip"><QuestionFilled /></el-icon>
               </el-tooltip>
             </span>
           </template>
           <template #default="scope">
-            <strong v-if="col.key === 'suggestedReplenishmentQty' && hasValue(scope.row[col.key])" class="suggested-qty">
+            <div v-if="col.manualLeadTime" class="lead-time-cell">
+              <el-input-number
+                v-if="canEditLeadTime"
+                v-model="scope.row[col.key]"
+                class="lead-time-input"
+                :min="0"
+                :max="3650"
+                :precision="0"
+                :step="1"
+                step-strictly
+                :controls="false"
+                placeholder="天数"
+                @blur="scheduleLeadTimeSave(scope.row, col)"
+                @keyup.enter="handleLeadTimeEnter($event, scope.row, col)"
+              />
+              <span v-else>{{ formatCell(scope.row[col.key], col) }}</span>
+              <span v-if="isLeadTimeSaving(scope.row, col.key)" class="lead-time-saving">保存中</span>
+              <span v-else-if="canEditLeadTime" class="lead-time-unit">天</span>
+            </div>
+            <el-popover
+              v-else-if="col.monthlyKey"
+              placement="top"
+              :width="300"
+              trigger="hover"
+              :show-after="180"
+              popper-class="replenishment-monthly-popper"
+            >
+              <template #reference>
+                <span class="monthly-metric-trigger">
+                  <strong>{{ formatCell(scope.row[col.key], col) }}</strong>
+                  <span class="monthly-metric-month">{{ formatMonth(latestCompleteMonth, false) }}</span>
+                </span>
+              </template>
+              <div class="monthly-history">
+                <div class="monthly-history__title">{{ col.label }} · 最近3个完整自然月</div>
+                <div v-for="metric in monthlyRows(scope.row)" :key="metric.month" class="monthly-history__row">
+                  <span>{{ formatMonth(metric.month, true) }}</span>
+                  <strong>{{ formatMonthlyValue(metric[col.monthlyKey], col) }}</strong>
+                </div>
+              </div>
+            </el-popover>
+            <strong v-else-if="col.key === 'suggestedReplenishmentQty' && hasValue(scope.row[col.key])" class="suggested-qty">
               {{ formatCell(scope.row[col.key], col) }}
             </strong>
             <span v-else>{{ formatCell(scope.row[col.key], col) }}</span>
           </template>
         </el-table-column>
       </template>
+      <el-table-column v-if="canSubmitPurchase" label="操作" width="92" fixed="right" align="center">
+        <template #default="{ row }">
+          <el-button
+            link
+            type="primary"
+            v-hasPermi="['procurement:pendingPurchase:add']"
+            @click="openPurchaseDialog(row)"
+          >
+            采购
+          </el-button>
+        </template>
+      </el-table-column>
     </el-table>
 
     <pagination
@@ -126,6 +184,7 @@
       :total="total"
       v-model:page="queryParams.pageNum"
       v-model:limit="queryParams.pageSize"
+      @pagination="loadRows"
     />
 
     <column-config-drawer
@@ -135,44 +194,201 @@
       :visible-keys="visibleKeys"
       @apply="handleColumnApply"
     />
+
+    <el-dialog
+      v-model="purchaseDialogVisible"
+      title="确认最终采购量"
+      width="480px"
+      append-to-body
+      destroy-on-close
+      @closed="resetPurchaseForm"
+    >
+      <el-form ref="purchaseFormRef" :model="purchaseForm" :rules="purchaseRules" label-width="112px">
+        <el-form-item label="站点">
+          <el-input :model-value="purchaseForm.site" disabled />
+        </el-form-item>
+        <el-form-item label="SKU">
+          <el-input :model-value="purchaseForm.sku" disabled />
+        </el-form-item>
+        <el-form-item label="建议补货量">
+          <el-input :model-value="formatSuggestedQuantity(purchaseForm.suggestedQuantity)" disabled />
+        </el-form-item>
+        <el-form-item label="最终采购量" prop="purchaseQuantity">
+          <el-input-number
+            v-model="purchaseForm.purchaseQuantity"
+            :min="1"
+            :max="999999999"
+            :precision="0"
+            :step="1"
+            step-strictly
+            controls-position="right"
+            placeholder="请输入最终采购量"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-alert type="info" :closable="false" show-icon
+          title="确认后进入采购中心的待采购清单；重复确认同一站点和SKU会更新最终采购量。" />
+      </el-form>
+      <template #footer>
+        <el-button @click="purchaseDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="purchaseSubmitting" @click="submitPurchase">确认采购</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="warehouseRentDialogVisible"
+      title="上传仓租明细"
+      width="560px"
+      append-to-body
+      destroy-on-close
+      @closed="resetWarehouseRentUpload"
+    >
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        title="按单号增量覆盖"
+        description="系统仅读取“仓租明细”Sheet，并按第一列“单号”增量覆盖：本次文件出现的单号会替换其旧明细，未出现的历史单号继续保留。文件会先完整校验，校验失败不会修改旧数据。"
+        class="warehouse-rent-alert"
+      />
+      <el-upload
+        ref="warehouseRentUploadRef"
+        v-model:file-list="warehouseRentFiles"
+        drag
+        :auto-upload="false"
+        :limit="1"
+        accept=".xlsx"
+        :on-change="handleWarehouseRentFileChange"
+        :on-exceed="handleWarehouseRentFileExceed"
+      >
+        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <div class="el-upload__text">将仓租明细拖到此处，或<em>点击选择文件</em></div>
+        <template #tip>
+          <div class="el-upload__tip">仅支持 .xlsx 文件，单次上传一个完整仓租明细文件。</div>
+        </template>
+      </el-upload>
+      <template #footer>
+        <el-button @click="warehouseRentDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="warehouseRentUploading" @click="submitWarehouseRentImport">
+          增量导入
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup name="EbayReplenishmentV2">
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { QuestionFilled } from '@element-plus/icons-vue'
+import { QuestionFilled, UploadFilled } from '@element-plus/icons-vue'
+import {
+  importEbayReplenishmentV2WarehouseRent,
+  listEbayReplenishmentV2,
+  saveEbayReplenishmentV2LeadTime
+} from '@/api/operations/ebay/replenishmentV2'
+import { submitPendingPurchase } from '@/api/procurement/pendingPurchase'
+import { checkPermi } from '@/utils/permission'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
 
 const showSearch = ref(true)
 const queryRef = ref(null)
-const productLevels = ['A', 'B', 'C', 'D', 'E']
+const loading = ref(false)
+const rows = ref([])
+const total = ref(0)
+const siteOptions = ref([])
+const months = ref([])
+const latestCompleteMonth = ref('')
+const canSubmitPurchase = checkPermi(['procurement:pendingPurchase:add'])
+const canEditLeadTime = checkPermi(['operations:ebayReplenishmentV2:editLeadTime'])
+const leadTimeSavedValues = new Map()
+const leadTimeSaveTimers = new Map()
+const leadTimeSaveChains = new Map()
+const leadTimeEditVersions = new Map()
+const savingLeadTimeKeys = reactive(new Set())
+const purchaseDialogVisible = ref(false)
+const purchaseSubmitting = ref(false)
+const purchaseFormRef = ref(null)
+const warehouseRentDialogVisible = ref(false)
+const warehouseRentUploading = ref(false)
+const warehouseRentUploadRef = ref(null)
+const warehouseRentFiles = ref([])
+const purchaseForm = reactive({
+  site: '',
+  sku: '',
+  suggestedQuantity: null,
+  purchaseQuantity: null
+})
+const purchaseRules = {
+  purchaseQuantity: [{
+    validator: (_rule, value, callback) => {
+      if (Number.isInteger(Number(value)) && Number(value) > 0) callback()
+      else callback(new Error('请输入大于0的整数采购量'))
+    },
+    trigger: ['blur', 'change']
+  }]
+}
 const fixedColumnKeys = ['site', 'sku']
 
 const columnDefs = [
   { key: 'site', label: '站点', align: 'center', width: 90, fixed: 'left', sortable: true },
   { key: 'sku', label: 'SKU', align: 'left', width: 170, fixed: 'left', sortable: true, tooltip: true },
   { key: 'productName', label: '产品名称', align: 'left', width: 240, sortable: true, tooltip: true },
-  { key: 'salesQty', label: '销量', align: 'right', width: 105, sortable: true, format: 'integer' },
-  { key: 'grossProfitAmount', label: '毛利', align: 'right', width: 120, sortable: true, format: 'money', tip: '金额币种和计算口径将在后端接口接入时确定' },
-  { key: 'returnQty', label: '退货量', align: 'right', width: 105, sortable: true, format: 'integer' },
-  { key: 'returnAmount', label: '退货金额', align: 'right', width: 125, sortable: true, format: 'money', tip: '金额币种和计算口径将在后端接口接入时确定' },
-  { key: 'forecastSalesQty', label: '预估销量', align: 'right', width: 115, sortable: true, format: 'integer' },
-  { key: 'forecastGrossProfitAmount', label: '预估毛利', align: 'right', width: 125, sortable: true, format: 'money' },
-  { key: 'forecastReturnQty', label: '预估退货', align: 'right', width: 115, sortable: true, format: 'integer' },
-  { key: 'forecastReturnAmount', label: '预估退货金额', align: 'right', width: 140, sortable: true, format: 'money' },
-  { key: 'sellThroughRatio', label: '动销比', align: 'right', width: 105, sortable: true, format: 'ratio', tip: '当前按比值展示，具体计算口径由后端规则确定' },
-  { key: 'productLevel', label: '产品等级', align: 'center', width: 105, sortable: true },
-  { key: 'chengduInTransitQty', label: '成都在途', align: 'right', width: 115, sortable: true, format: 'integer' },
-  { key: 'chengduSellableQty', label: '成都可售', align: 'right', width: 115, sortable: true, format: 'integer' },
-  { key: 'overseasInTransitQty', label: '海外在途', align: 'right', width: 115, sortable: true, format: 'integer' },
-  { key: 'overseasSellableQty', label: '海外可售', align: 'right', width: 115, sortable: true, format: 'integer' },
-  { key: 'chengduWarehouseToWarehouseDays', label: '成都仓到仓时间', align: 'right', width: 145, sortable: true, format: 'days', tip: '按时长展示，单位为天' },
-  { key: 'chengduQcToWarehouseDays', label: '成都质检到仓时间', align: 'right', width: 160, sortable: true, format: 'days', tip: '按时长展示，单位为天' },
-  { key: 'overseasTransitToListingDays', label: '海外在途到上架时间', align: 'right', width: 175, sortable: true, format: 'days', tip: '按时长展示，单位为天' },
-  { key: 'safetyStockQty', label: '安全库存', align: 'right', width: 115, sortable: true, format: 'integer' },
-  { key: 'suggestedReplenishmentQty', label: '建议补货量', align: 'right', width: 130, fixed: 'right', sortable: true, format: 'integer' }
+  {
+    key: 'salesQty', label: '销量', align: 'right', width: 130, sortable: true, format: 'integer', monthlyKey: 'salesQty',
+    tip: '主值为最近一个完整自然月的销量；鼠标悬停可查看最近3个完整自然月。'
+  },
+  {
+    key: 'grossProfitAmount', label: '毛利', align: 'right', width: 145, sortable: true, format: 'money', monthlyKey: 'grossProfitAmount',
+    tip: '毛利取订单数据中的“订单利润(￥)”；主值为最近完整自然月，鼠标悬停可查看近3个月。'
+  },
+  {
+    key: 'profitRate', label: '利润率', align: 'right', width: 110, sortable: true, format: 'percentage',
+    tip: '最近3个完整自然月利润率 = 3个月订单利润(￥)合计 ÷ 3个月已支付金额合计 × 100%；不按单月拆分或平均月度百分比。'
+  },
+  {
+    key: 'returnQty', label: '退货量', align: 'right', width: 130, sortable: true, format: 'integer', monthlyKey: 'returnQty',
+    tip: '主值为最近一个完整自然月的退货量；鼠标悬停可查看最近3个完整自然月。'
+  },
+  {
+    key: 'returnRate', label: '退货率', align: 'right', width: 110, sortable: true, format: 'percentage',
+    tip: '最近3个完整自然月退货率 = 3个月退货量合计 ÷ 3个月销量合计 × 100%；退货量包含发货状态为已退款或已作废的数据。'
+  },
+  {
+    key: 'returnAmount', label: '退货金额', align: 'right', width: 150, sortable: true, format: 'money', monthlyKey: 'returnAmount',
+    tip: '退货金额为人民币；主值为最近完整自然月，鼠标悬停可查看近3个月。'
+  },
+  {
+    key: 'warehouseRentAmount', label: '仓租费用', align: 'right', width: 135, format: 'money',
+    tip: '取最近一次整表导入的第22列“总金额(不含税)”（包含附加费），按仓库映射站点、商品编码去除JMH-前缀后匹配SKU，再按固定汇率换算为人民币汇总。'
+  },
+  {
+    key: 'forecastSalesQty', label: '预估销量', align: 'right', width: 115, format: 'quantity2',
+    tip: '预估销量 = 最近3个完整自然月的销量合计 ÷ 3；缺失月份按0计算。'
+  },
+  {
+    key: 'forecastGrossProfitAmount', label: '预估毛利', align: 'right', width: 125, format: 'money',
+    tip: '预估毛利 = 最近3个完整自然月的毛利合计 ÷ 3；缺失月份按0计算。'
+  },
+  {
+    key: 'forecastReturnQty', label: '预估退货', align: 'right', width: 115, format: 'quantity2',
+    tip: '预估退货 = 最近3个完整自然月的退货量合计 ÷ 3；缺失月份按0计算。'
+  },
+  {
+    key: 'forecastReturnAmount', label: '预估退货金额', align: 'right', width: 140, format: 'money',
+    tip: '预估退货金额 = 最近3个完整自然月的退货金额合计 ÷ 3；缺失月份按0计算。'
+  },
+  { key: 'sellThroughRatio', label: '动销比', align: 'right', width: 105, format: 'percentage', tip: '动销比 = 预估销量 ÷ 海外可售 × 100%；海外可售为0时不计算。' },
+  { key: 'productLevel', label: '产品等级', align: 'center', width: 125, tip: '利润率和退货率使用最近3个完整自然月的合计口径。按顺序判断：退货率>6%为D；退货率≥3%时利润率<18%为C，否则为长尾产品-B；退货率<3%时再按利润率12%/22%和动销比12%/15%划分C、B、A、S。' },
+  { key: 'chengduInTransitQty', label: '成都在途', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取成都中转仓待接收数' },
+  { key: 'chengduSellableQty', label: '成都可售', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取成都中转仓可售数' },
+  { key: 'overseasInTransitQty', label: '海外在途', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取海外仓在途数' },
+  { key: 'overseasSellableQty', label: '海外可售', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取海外仓可售数' },
+  { key: 'chengduWarehouseToWarehouseDays', label: '成都仓到仓时间', align: 'right', width: 165, format: 'days', manualLeadTime: true, tip: '人工填写整数天数；按站点和完整SKU长期保存，回车或鼠标离开后自动保存。' },
+  { key: 'chengduQcToWarehouseDays', label: '成都质检出仓时间', align: 'right', width: 175, format: 'days', manualLeadTime: true, tip: '人工填写整数天数；按站点和完整SKU长期保存，回车或鼠标离开后自动保存。' },
+  { key: 'overseasTransitToListingDays', label: '海外在途到上架时间', align: 'right', width: 185, format: 'days', manualLeadTime: true, tip: '人工填写整数天数；按站点和完整SKU长期保存，回车或鼠标离开后自动保存。' },
+  { key: 'safetyStockQty', label: '安全库存', align: 'right', width: 115, format: 'integer' },
+  { key: 'suggestedReplenishmentQty', label: '建议补货量', align: 'right', width: 130, fixed: 'right', format: 'integer' }
 ]
 
 const {
@@ -192,121 +408,300 @@ const queryParams = reactive({
   site: undefined,
   sku: undefined,
   productName: undefined,
-  productLevel: undefined
+  sortField: undefined,
+  sortOrder: undefined
 })
 
-const sortState = reactive({
-  prop: undefined,
-  order: undefined
+const sortFieldMap = {
+  site: 'site',
+  sku: 'sku',
+  productName: 'productName',
+  salesQty: 'salesQty',
+  grossProfitAmount: 'grossProfitAmount',
+  profitRate: 'profitRate',
+  returnQty: 'returnQty',
+  returnRate: 'returnRate',
+  returnAmount: 'returnAmount'
+}
+
+const leadTimeFieldMap = {
+  chengduWarehouseToWarehouseDays: 'chengduWarehouseToWarehouseDays',
+  // 保留旧前端列key，避免用户已保存的列顺序/显隐配置失效；接口语义使用“质检出仓”。
+  chengduQcToWarehouseDays: 'chengduQcOutboundDays',
+  overseasTransitToListingDays: 'overseasTransitToListingDays'
+}
+
+const monthRangeText = computed(() => {
+  if (!months.value.length) return '暂无可用月份'
+  return months.value.map(month => formatMonth(month, true)).join('、')
 })
 
-// 仅用于前端结构验收；2.0 后端接入后替换为独立查询接口。
-const sourceRows = ref([
-  {
-    site: '德国', sku: 'MCD-20150-0001', productName: '发动机冷却液节温器总成',
-    salesQty: 126, grossProfitAmount: 18342.58, returnQty: 5, returnAmount: 1456.2,
-    forecastSalesQty: 142, forecastGrossProfitAmount: 20586.45, forecastReturnQty: 6, forecastReturnAmount: 1680,
-    sellThroughRatio: 1.28, productLevel: 'A', chengduInTransitQty: 80, chengduSellableQty: 46,
-    overseasInTransitQty: 110, overseasSellableQty: 182, chengduWarehouseToWarehouseDays: 4,
-    chengduQcToWarehouseDays: 3, overseasTransitToListingDays: 42, safetyStockQty: 96,
-    suggestedReplenishmentQty: 74
-  },
-  {
-    site: '英国', sku: 'BMW-30388-0557', productName: '汽车空气悬挂压缩机维修包',
-    salesQty: 74, grossProfitAmount: 9256.32, returnQty: 2, returnAmount: 618.45,
-    forecastSalesQty: 86, forecastGrossProfitAmount: 10880.5, forecastReturnQty: 2, forecastReturnAmount: 702.3,
-    sellThroughRatio: 0.92, productLevel: 'B', chengduInTransitQty: 32, chengduSellableQty: 18,
-    overseasInTransitQty: 60, overseasSellableQty: 94, chengduWarehouseToWarehouseDays: 5,
-    chengduQcToWarehouseDays: 3, overseasTransitToListingDays: 38, safetyStockQty: 62,
-    suggestedReplenishmentQty: 40
-  },
-  {
-    site: '美国', sku: 'TYT-90050-0159', productName: '汽车换挡电机',
-    salesQty: 51, grossProfitAmount: 6420.18, returnQty: 4, returnAmount: 980.6,
-    forecastSalesQty: 58, forecastGrossProfitAmount: 7045.8, forecastReturnQty: 5, forecastReturnAmount: 1120,
-    sellThroughRatio: 0.76, productLevel: 'C', chengduInTransitQty: 0, chengduSellableQty: 27,
-    overseasInTransitQty: 36, overseasSellableQty: 45, chengduWarehouseToWarehouseDays: 4,
-    chengduQcToWarehouseDays: null, overseasTransitToListingDays: 31, safetyStockQty: 48,
-    suggestedReplenishmentQty: 25
-  },
-  {
-    site: '法国', sku: 'DAS-10028-0021', productName: '车辆进气歧管控制阀',
-    salesQty: 19, grossProfitAmount: 2145.9, returnQty: 0, returnAmount: 0,
-    forecastSalesQty: 24, forecastGrossProfitAmount: 2720, forecastReturnQty: 1, forecastReturnAmount: 125,
-    sellThroughRatio: 0.41, productLevel: 'D', chengduInTransitQty: 20, chengduSellableQty: 11,
-    overseasInTransitQty: 0, overseasSellableQty: 38, chengduWarehouseToWarehouseDays: 5,
-    chengduQcToWarehouseDays: 2, overseasTransitToListingDays: 36, safetyStockQty: 22,
-    suggestedReplenishmentQty: 0
-  },
-  {
-    site: '意大利', sku: 'FRD-70467-0557', productName: '汽车尾门锁执行器',
-    salesQty: 8, grossProfitAmount: -186.3, returnQty: 1, returnAmount: 246.8,
-    forecastSalesQty: 10, forecastGrossProfitAmount: null, forecastReturnQty: 1, forecastReturnAmount: null,
-    sellThroughRatio: null, productLevel: 'E', chengduInTransitQty: 0, chengduSellableQty: 7,
-    overseasInTransitQty: 0, overseasSellableQty: 16, chengduWarehouseToWarehouseDays: null,
-    chengduQcToWarehouseDays: null, overseasTransitToListingDays: null, safetyStockQty: 12,
-    suggestedReplenishmentQty: 0
+async function loadRows() {
+  loading.value = true
+  try {
+    const response = await listEbayReplenishmentV2(buildRequestParams())
+    const data = response.data || {}
+    months.value = Array.isArray(data.months) ? data.months : []
+    latestCompleteMonth.value = data.latest_complete_month || months.value[0] || ''
+    siteOptions.value = Array.isArray(data.sites) ? data.sites : []
+    rows.value = Array.isArray(data.items) ? data.items.map(normalizeRow) : []
+    initializeLeadTimeSavedValues(rows.value)
+    total.value = Number(data.pagination?.total || 0)
+  } finally {
+    loading.value = false
   }
-])
+}
 
-const siteOptions = computed(() => [...new Set(sourceRows.value.map(row => row.site).filter(Boolean))])
+function buildRequestParams() {
+  return {
+    pageNum: queryParams.pageNum,
+    pageSize: queryParams.pageSize,
+    site: queryParams.site || undefined,
+    sku: String(queryParams.sku || '').trim() || undefined,
+    productName: String(queryParams.productName || '').trim() || undefined,
+    sortField: queryParams.sortField || undefined,
+    sortOrder: queryParams.sortOrder === 'ascending'
+      ? 'asc'
+      : queryParams.sortOrder === 'descending' ? 'desc' : undefined
+  }
+}
 
-const filteredRows = computed(() => {
-  const skuKeyword = String(queryParams.sku || '').trim().toLowerCase()
-  const productKeyword = String(queryParams.productName || '').trim().toLowerCase()
-  const rows = sourceRows.value.filter(row => {
-    if (queryParams.site && row.site !== queryParams.site) return false
-    if (queryParams.productLevel && row.productLevel !== queryParams.productLevel) return false
-    if (skuKeyword && !String(row.sku || '').toLowerCase().includes(skuKeyword)) return false
-    if (productKeyword && !String(row.productName || '').toLowerCase().includes(productKeyword)) return false
-    return true
+function normalizeRow(item) {
+  const monthlyMetrics = (Array.isArray(item.monthly_metrics) ? item.monthly_metrics : [])
+    .map(metric => ({
+      month: metric.month || metric.stat_month || '',
+      salesQty: numberOrNull(metric.sales_qty ?? metric.sales_quantity),
+      grossProfitAmount: numberOrNull(metric.gross_profit_amount),
+      returnQty: numberOrNull(metric.return_qty ?? metric.return_quantity),
+      returnAmount: numberOrNull(metric.return_amount)
+    }))
+  const latestMetric = monthlyMetrics.find(metric => metric.month === latestCompleteMonth.value) || monthlyMetrics[0] || {}
+  return {
+    site: item.site ?? item.site_name,
+    sku: item.sku ?? item.inventory_sku,
+    productName: item.product_name ?? item.product_name_cn,
+    salesQty: numberOrNull(item.sales_qty ?? item.sales_quantity ?? latestMetric.salesQty),
+    grossProfitAmount: numberOrNull(item.gross_profit_amount ?? latestMetric.grossProfitAmount),
+    profitRate: numberOrNull(item.profit_rate),
+    returnQty: numberOrNull(item.return_qty ?? item.return_quantity ?? latestMetric.returnQty),
+    returnRate: numberOrNull(item.return_rate),
+    returnAmount: numberOrNull(item.return_amount ?? latestMetric.returnAmount),
+    warehouseRentAmount: numberOrNull(item.warehouse_rent_amount_cny),
+    monthlyMetrics,
+    forecastSalesQty: numberOrNull(item.forecast_sales_quantity),
+    forecastGrossProfitAmount: numberOrNull(item.forecast_gross_profit_amount),
+    forecastReturnQty: numberOrNull(item.forecast_return_quantity),
+    forecastReturnAmount: numberOrNull(item.forecast_return_amount),
+    sellThroughRatio: numberOrNull(item.sell_through_ratio),
+    productLevel: item.product_level || null,
+    chengduInTransitQty: numberOrNull(item.chengdu_in_transit_quantity),
+    chengduSellableQty: numberOrNull(item.chengdu_sellable_quantity),
+    overseasInTransitQty: numberOrNull(item.overseas_in_transit_quantity),
+    overseasSellableQty: numberOrNull(item.overseas_sellable_quantity),
+    chengduWarehouseToWarehouseDays: numberOrNull(item.chengdu_warehouse_to_warehouse_days),
+    chengduQcToWarehouseDays: numberOrNull(item.chengdu_qc_outbound_days),
+    overseasTransitToListingDays: numberOrNull(item.overseas_transit_to_listing_days),
+    safetyStockQty: numberOrNull(item.safety_stock_quantity),
+    suggestedReplenishmentQty: numberOrNull(item.suggested_replenishment_quantity)
+  }
+}
+
+function monthlyRows(row) {
+  const source = Array.isArray(row.monthlyMetrics) ? row.monthlyMetrics : []
+  if (!months.value.length) return source
+  return months.value.map(month => source.find(metric => metric.month === month) || {
+    month,
+    salesQty: 0,
+    grossProfitAmount: 0,
+    returnQty: 0,
+    returnAmount: 0
   })
+}
 
-  if (!sortState.prop || !sortState.order) return rows
-  const direction = sortState.order === 'ascending' ? 1 : -1
-  return [...rows].sort((leftRow, rightRow) => {
-    const left = leftRow[sortState.prop]
-    const right = rightRow[sortState.prop]
-    if (left == null && right == null) return 0
-    if (left == null) return 1
-    if (right == null) return -1
-    const leftNumber = Number(left)
-    const rightNumber = Number(right)
-    const compared = Number.isFinite(leftNumber) && Number.isFinite(rightNumber)
-      ? leftNumber - rightNumber
-      : String(left).localeCompare(String(right), 'zh-CN')
-    return compared * direction
-  })
-})
+function handleWarehouseRentFileChange(uploadFile, uploadFiles) {
+  const fileName = String(uploadFile?.name || '')
+  if (!/\.xlsx$/i.test(fileName)) {
+    ElMessage.warning('仓租明细只支持 .xlsx 文件')
+    warehouseRentUploadRef.value?.clearFiles()
+    warehouseRentFiles.value = []
+    return
+  }
+  warehouseRentFiles.value = uploadFiles.slice(-1)
+}
 
-const total = computed(() => filteredRows.value.length)
-const pagedRows = computed(() => {
-  const start = (queryParams.pageNum - 1) * queryParams.pageSize
-  return filteredRows.value.slice(start, start + queryParams.pageSize)
-})
-const emptyText = computed(() => sourceRows.value.length
-  ? '没有符合当前筛选条件的数据'
-  : '后端接口待接入，暂无补货数据')
+function handleWarehouseRentFileExceed() {
+  ElMessage.warning('单次只能选择一个仓租明细文件，请先移除已选文件')
+}
+
+async function submitWarehouseRentImport() {
+  const file = warehouseRentFiles.value[0]?.raw
+  if (!file) {
+    ElMessage.warning('请先选择仓租明细 .xlsx 文件')
+    return
+  }
+  if (!file.size) {
+    ElMessage.warning('不能上传空文件')
+    return
+  }
+  warehouseRentUploading.value = true
+  try {
+    const result = await importEbayReplenishmentV2WarehouseRent(file)
+    const summary = result?.data || {}
+    const summaryParts = []
+    if (hasValue(summary.coveredDocumentCount)) {
+      summaryParts.push(`覆盖${formatNumber(summary.coveredDocumentCount, 0)}个单号`)
+    }
+    if (hasValue(summary.sourceRowCount)) {
+      summaryParts.push(`读取${formatNumber(summary.sourceRowCount, 0)}条明细`)
+    }
+    if (hasValue(summary.aggregateRowCount)) {
+      summaryParts.push(`汇总${formatNumber(summary.aggregateRowCount, 0)}个站点SKU`)
+    }
+    const summaryText = summaryParts.length ? `：${summaryParts.join('，')}` : ''
+    ElMessage.success(`仓租明细增量导入成功${summaryText}`)
+    warehouseRentDialogVisible.value = false
+    queryParams.pageNum = 1
+    await loadRows()
+  } finally {
+    warehouseRentUploading.value = false
+  }
+}
+
+function resetWarehouseRentUpload() {
+  warehouseRentUploadRef.value?.clearFiles()
+  warehouseRentFiles.value = []
+}
 
 function handleQuery() {
   queryParams.pageNum = 1
-}
-
-function handleRefresh() {
-  queryParams.pageNum = 1
+  loadRows()
 }
 
 function resetQuery() {
   queryRef.value?.resetFields()
-  sortState.prop = undefined
-  sortState.order = undefined
+  queryParams.sortField = undefined
+  queryParams.sortOrder = undefined
   queryParams.pageNum = 1
+  loadRows()
 }
 
 function handleSortChange({ prop, order }) {
-  sortState.prop = order ? prop : undefined
-  sortState.order = order || undefined
+  queryParams.sortField = order ? sortFieldMap[prop] : undefined
+  queryParams.sortOrder = order || undefined
   queryParams.pageNum = 1
+  loadRows()
+}
+
+function openPurchaseDialog(row) {
+  const suggested = Number(row?.suggestedReplenishmentQty)
+  Object.assign(purchaseForm, {
+    site: String(row?.site || '').trim(),
+    sku: String(row?.sku || '').trim(),
+    suggestedQuantity: Number.isFinite(suggested) ? Math.max(0, Math.round(suggested)) : null,
+    purchaseQuantity: Number.isFinite(suggested) && suggested > 0 ? Math.max(1, Math.round(suggested)) : null
+  })
+  purchaseDialogVisible.value = true
+}
+
+async function submitPurchase() {
+  const valid = await purchaseFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+  purchaseSubmitting.value = true
+  try {
+    await submitPendingPurchase({
+      site: purchaseForm.site,
+      sku: purchaseForm.sku,
+      purchaseQuantity: Number(purchaseForm.purchaseQuantity)
+    })
+    ElMessage.success('已加入待采购清单')
+    purchaseDialogVisible.value = false
+  } finally {
+    purchaseSubmitting.value = false
+  }
+}
+
+function resetPurchaseForm() {
+  purchaseFormRef.value?.resetFields()
+  Object.assign(purchaseForm, { site: '', sku: '', suggestedQuantity: null, purchaseQuantity: null })
+}
+
+function leadTimeCellKey(row, columnKey) {
+  return JSON.stringify([String(row?.site || '').trim(), String(row?.sku || '').trim(), columnKey])
+}
+
+function initializeLeadTimeSavedValues(sourceRows) {
+  for (const timer of leadTimeSaveTimers.values()) clearTimeout(timer)
+  leadTimeSaveTimers.clear()
+  leadTimeSavedValues.clear()
+  leadTimeEditVersions.clear()
+  for (const row of sourceRows) {
+    for (const columnKey of Object.keys(leadTimeFieldMap)) {
+      leadTimeSavedValues.set(leadTimeCellKey(row, columnKey), row[columnKey] ?? null)
+    }
+  }
+}
+
+function isLeadTimeSaving(row, columnKey) {
+  return savingLeadTimeKeys.has(leadTimeCellKey(row, columnKey))
+}
+
+function handleLeadTimeEnter(event, row, column) {
+  scheduleLeadTimeSave(row, column)
+  event?.target?.blur?.()
+}
+
+function scheduleLeadTimeSave(row, column) {
+  if (!canEditLeadTime) return
+  const key = leadTimeCellKey(row, column.key)
+  const rawValue = row[column.key]
+  const days = rawValue === null || rawValue === undefined || rawValue === '' ? null : Number(rawValue)
+  if (days !== null && (!Number.isInteger(days) || days < 0 || days > 3650)) {
+    row[column.key] = leadTimeSavedValues.get(key) ?? null
+    ElMessage.warning('时效天数只能填写0到3650之间的整数')
+    return
+  }
+  row[column.key] = days
+  const version = (leadTimeEditVersions.get(key) || 0) + 1
+  leadTimeEditVersions.set(key, version)
+  const oldTimer = leadTimeSaveTimers.get(key)
+  if (oldTimer) clearTimeout(oldTimer)
+  leadTimeSaveTimers.set(key, setTimeout(() => {
+    leadTimeSaveTimers.delete(key)
+    enqueueLeadTimeSave(row, column, key, days, version)
+  }, 120))
+}
+
+function enqueueLeadTimeSave(row, column, key, days, version) {
+  const previous = leadTimeSaveChains.get(key) || Promise.resolve()
+  const current = previous.catch(() => undefined).then(async () => {
+    if (leadTimeSavedValues.get(key) === days) return
+    savingLeadTimeKeys.add(key)
+    try {
+      await saveEbayReplenishmentV2LeadTime({
+        site: String(row.site || '').trim(),
+        sku: String(row.sku || '').trim(),
+        field: leadTimeFieldMap[column.key],
+        days
+      })
+      leadTimeSavedValues.set(key, days)
+    } catch (error) {
+      if (leadTimeEditVersions.get(key) === version) {
+        row[column.key] = leadTimeSavedValues.get(key) ?? null
+        ElMessage.error(`${column.label}保存失败，已恢复原值`)
+      }
+      throw error
+    } finally {
+      savingLeadTimeKeys.delete(key)
+    }
+  })
+  leadTimeSaveChains.set(key, current)
+  current.finally(() => {
+    if (leadTimeSaveChains.get(key) === current) leadTimeSaveChains.delete(key)
+  }).catch(() => undefined)
+}
+
+function formatSuggestedQuantity(value) {
+  return hasValue(value) ? formatNumber(value, 0) : '暂未计算'
 }
 
 async function handleColumnApply(keys) {
@@ -318,6 +713,17 @@ async function handleColumnApply(keys) {
   }
 }
 
+function columnTip(column) {
+  if (!column.monthlyKey || !latestCompleteMonth.value) return column.tip
+  return `${column.tip} 当前主值月份：${formatMonth(latestCompleteMonth.value, true)}。`
+}
+
+function numberOrNull(value) {
+  if (value === null || value === undefined || value === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
 function hasValue(value) {
   return value !== null && value !== undefined && value !== ''
 }
@@ -325,10 +731,17 @@ function hasValue(value) {
 function formatCell(value, column) {
   if (!hasValue(value)) return '--'
   if (column.format === 'integer') return formatNumber(value, 0)
-  if (column.format === 'money') return formatNumber(value, 2)
+  if (column.format === 'quantity2') return formatNumber(value, 2)
+  if (column.format === 'money') return `¥${formatNumber(value, 2)}`
   if (column.format === 'ratio') return formatNumber(value, 2)
+  if (column.format === 'percentage') return `${formatNumber(Number(value) * 100, 2)}%`
   if (column.format === 'days') return `${formatNumber(value, 0)} 天`
   return String(value)
+}
+
+function formatMonthlyValue(value, column) {
+  if (column.format === 'percentage' && !hasValue(value)) return '--'
+  return formatCell(value ?? 0, column)
 }
 
 function formatNumber(value, digits) {
@@ -340,22 +753,33 @@ function formatNumber(value, digits) {
   })
 }
 
+function formatMonth(value, includeYear) {
+  const matched = /^(\d{4})-(\d{2})$/.exec(String(value || ''))
+  if (!matched) return '--'
+  const month = Number(matched[2])
+  return includeYear ? `${matched[1]}年${month}月` : `${month}月`
+}
+
 function levelTagType(level) {
-  const typeMap = { A: 'success', B: 'primary', C: 'warning', D: 'info', E: 'danger' }
+  const typeMap = { S: 'success', A: 'primary', B: 'warning', '长尾产品-B': 'warning', C: 'info', D: 'danger' }
   return typeMap[level] || 'info'
 }
 
-initColumnConfig()
+onMounted(async () => {
+  await initColumnConfig()
+  await loadRows()
+})
+
+onBeforeUnmount(() => {
+  for (const timer of leadTimeSaveTimers.values()) clearTimeout(timer)
+  leadTimeSaveTimers.clear()
+})
 </script>
 
 <style scoped>
 .ebay-replenishment-v2-page {
   min-height: calc(100vh - 84px);
   background: #f5f7fa;
-}
-
-.preview-alert {
-  margin-bottom: 14px;
 }
 
 .query-form {
@@ -389,8 +813,76 @@ initColumnConfig()
   cursor: help;
 }
 
+.monthly-metric-trigger {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 78px;
+  padding-bottom: 1px;
+  border-bottom: 1px dashed #a8abb2;
+  cursor: help;
+}
+
+.monthly-metric-trigger strong {
+  color: #303133;
+  font-weight: 600;
+}
+
+.monthly-metric-month {
+  color: #909399;
+  font-size: 11px;
+}
+
+.monthly-history__title {
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid #ebeef5;
+  color: #303133;
+  font-weight: 600;
+}
+
+.monthly-history__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  color: #606266;
+}
+
+.monthly-history__row strong {
+  color: #303133;
+  font-variant-numeric: tabular-nums;
+}
+
 .suggested-qty {
   color: #409eff;
+}
+
+.lead-time-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  width: 100%;
+}
+
+.lead-time-input {
+  width: 92px;
+}
+
+.lead-time-unit,
+.lead-time-saving {
+  color: #909399;
+  font-size: 12px;
+}
+
+.lead-time-saving {
+  color: #409eff;
+}
+
+:deep(.lead-time-input .el-input__inner) {
+  text-align: right;
 }
 
 :deep(.el-table .cell) {

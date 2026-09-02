@@ -1,0 +1,491 @@
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from typing import Any
+
+from backend.database import db_connection
+from backend.services import ebay_sku_analysis_service as sku_analysis_service
+
+
+_SORT_COLUMNS = {
+    "site": "site",
+    "sku": "sku",
+    "product_name": "product_name",
+    "productName": "product_name",
+    "sales_qty": "sales_qty_m1",
+    "salesQty": "sales_qty_m1",
+    "gross_profit_amount": "gross_profit_amount_m1",
+    "grossProfitAmount": "gross_profit_amount_m1",
+    "profit_rate": (
+        "(gross_profit_amount_m1+gross_profit_amount_m2+gross_profit_amount_m3)/"
+        "NULLIF((paid_amount_m1+paid_amount_m2+paid_amount_m3),0)"
+    ),
+    "profitRate": (
+        "(gross_profit_amount_m1+gross_profit_amount_m2+gross_profit_amount_m3)/"
+        "NULLIF((paid_amount_m1+paid_amount_m2+paid_amount_m3),0)"
+    ),
+    "return_qty": "return_qty_m1",
+    "returnQty": "return_qty_m1",
+    "return_rate": (
+        "(return_qty_m1+return_qty_m2+return_qty_m3)/"
+        "NULLIF((sales_qty_m1+sales_qty_m2+sales_qty_m3),0)"
+    ),
+    "returnRate": (
+        "(return_qty_m1+return_qty_m2+return_qty_m3)/"
+        "NULLIF((sales_qty_m1+sales_qty_m2+sales_qty_m3),0)"
+    ),
+    "return_amount": "return_amount_m1",
+    "returnAmount": "return_amount_m1",
+}
+
+
+# 与原 eBay 补货计算链路 application.yml 中 lingxing.inventory-wids 保持一致。
+# 匹配库存时仅对站点标签和完整 SKU 做等值匹配，不再截取 SKU 后缀。
+_INVENTORY_SITE_BY_WID = {
+    18674: "德国",  # 成都 eBay-DE 中转仓
+    18675: "英国",  # 成都 eBay-UK 中转仓
+    18676: "美国",  # 成都 eBay-US 中转仓
+    18699: "德国",  # 谷仓德国仓
+    18700: "美国",  # 谷仓美国新泽西仓
+    18701: "美国",  # 谷仓美国加州仓
+    18702: "英国",  # 谷仓英国仓
+}
+_CHENGDU_WIDS = (18674, 18675, 18676)
+_OVERSEAS_WIDS = (18699, 18700, 18701, 18702)
+_INVENTORY_WIDS_SQL = ",".join(str(wid) for wid in _INVENTORY_SITE_BY_WID)
+_CHENGDU_WIDS_SQL = ",".join(str(wid) for wid in _CHENGDU_WIDS)
+_OVERSEAS_WIDS_SQL = ",".join(str(wid) for wid in _OVERSEAS_WIDS)
+_INVENTORY_SITE_CASE_SQL = " ".join(
+    f"WHEN {wid} THEN '{site}'" for wid, site in _INVENTORY_SITE_BY_WID.items()
+)
+
+
+def list_replenishment(
+    site: str | None = None,
+    sku: str | None = None,
+    product_name: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    sort_field: str | None = None,
+    sort_order: str | None = None,
+) -> dict[str, Any]:
+    """Return the latest three complete natural months by site and SKU.
+
+    All measures deliberately keep the existing SKU-analysis payment-month
+    definitions.  The latest complete month is also exposed as each row's
+    primary value; the complete three-month series is returned in
+    ``monthly_metrics`` for the UI hover card.
+    """
+
+    sku_analysis_service._ensure_tables()
+    months = _complete_months()
+    page = max(_positive_int(page, 1), 1)
+    page_size = min(max(_positive_int(page_size, 50), 1), 200)
+    sort_column = _SORT_COLUMNS.get(sort_field or "sales_qty", "sales_qty_m1")
+    sort_direction = (
+        "ASC"
+        if str(sort_order or "desc").lower() in {"asc", "ascending"}
+        else "DESC"
+    )
+
+    range_start = months[-1]["start_date"]
+    range_end = months[0]["end_date"]
+    where_sql, filter_params = _filters(site, sku, product_name)
+    month_params = [month["month"] for month in months for _ in range(5)]
+    query = f"""
+        WITH period_rows AS (
+            SELECT id,site_name,inventory_sku,payment_time,purchase_quantity,
+                   paid_amount_cny,order_profit_cny,refund_quantity,refund_amount_cny,
+                   shipping_status
+            FROM dwd_ebay_sku_analysis_order
+            WHERE payment_time >= %s AND payment_time < %s
+        ),
+        period_keys AS (
+            SELECT DISTINCT site_name,inventory_sku FROM period_rows
+        ),
+        latest_source AS (
+            SELECT site_name,inventory_sku,product_name_cn
+            FROM (
+                SELECT source.site_name,source.inventory_sku,source.product_name_cn,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY source.site_name,source.inventory_sku
+                           ORDER BY source.payment_time DESC,source.id DESC
+                       ) latest_rank
+                FROM dwd_ebay_sku_analysis_order source
+                INNER JOIN period_keys period_key
+                    ON period_key.site_name=source.site_name
+                   AND period_key.inventory_sku=source.inventory_sku
+            ) ranked_source
+            WHERE latest_rank=1
+        ),
+        monthly AS (
+            SELECT site_name,inventory_sku,
+                   DATE_FORMAT(payment_time,'%%Y-%%m') stat_month,
+                   SUM(purchase_quantity) sales_qty,
+                   SUM(order_profit_cny) gross_profit_amount,
+                   SUM(paid_amount_cny)
+                     -SUM(CASE WHEN shipping_status LIKE '%%已退款%%'
+                               THEN refund_amount_cny ELSE 0 END) paid_amount,
+                   SUM(refund_quantity) return_qty,
+                   SUM(CASE WHEN shipping_status LIKE '%%已退款%%'
+                            THEN refund_amount_cny ELSE 0 END) return_amount
+            FROM period_rows
+            GROUP BY site_name,inventory_sku,DATE_FORMAT(payment_time,'%%Y-%%m')
+        ),
+        base AS (
+            SELECT monthly.site_name site,
+                   monthly.inventory_sku sku,
+                   latest_source.product_name_cn product_name,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.sales_qty ELSE 0 END),0) sales_qty_m1,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.gross_profit_amount ELSE 0 END),0) gross_profit_amount_m1,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.paid_amount ELSE 0 END),0) paid_amount_m1,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_qty ELSE 0 END),0) return_qty_m1,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_amount ELSE 0 END),0) return_amount_m1,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.sales_qty ELSE 0 END),0) sales_qty_m2,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.gross_profit_amount ELSE 0 END),0) gross_profit_amount_m2,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.paid_amount ELSE 0 END),0) paid_amount_m2,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_qty ELSE 0 END),0) return_qty_m2,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_amount ELSE 0 END),0) return_amount_m2,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.sales_qty ELSE 0 END),0) sales_qty_m3,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.gross_profit_amount ELSE 0 END),0) gross_profit_amount_m3,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.paid_amount ELSE 0 END),0) paid_amount_m3,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_qty ELSE 0 END),0) return_qty_m3,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_amount ELSE 0 END),0) return_amount_m3
+            FROM monthly
+            LEFT JOIN latest_source
+              ON latest_source.site_name=monthly.site_name
+             AND latest_source.inventory_sku=monthly.inventory_sku
+            GROUP BY monthly.site_name,monthly.inventory_sku,
+                     latest_source.product_name_cn
+        ),
+        inventory_source AS (
+            SELECT CASE source.wid {_INVENTORY_SITE_CASE_SQL} END site,
+                   TRIM(source.sku) sku,
+                   CASE WHEN source.wid IN ({_CHENGDU_WIDS_SQL})
+                        THEN COALESCE(source.quantity_receive,0) ELSE 0 END
+                       chengdu_in_transit_quantity,
+                   CASE WHEN source.wid IN ({_CHENGDU_WIDS_SQL})
+                        THEN COALESCE(source.product_valid_num,0) ELSE 0 END
+                       chengdu_sellable_quantity,
+                   CASE WHEN source.wid IN ({_OVERSEAS_WIDS_SQL})
+                        THEN COALESCE(source.product_onway,0) ELSE 0 END
+                       overseas_in_transit_quantity,
+                   CASE WHEN source.wid IN ({_OVERSEAS_WIDS_SQL})
+                        THEN COALESCE(source.product_valid_num,0) ELSE 0 END
+                       overseas_sellable_quantity
+            FROM jmh_data_platform.warehouse_inventory_detail source
+            WHERE source.wid IN ({_INVENTORY_WIDS_SQL})
+              AND source.sku IS NOT NULL AND TRIM(source.sku)<>''
+        ),
+        inventory_summary AS (
+            SELECT site,sku,
+                   SUM(chengdu_in_transit_quantity) chengdu_in_transit_quantity,
+                   SUM(chengdu_sellable_quantity) chengdu_sellable_quantity,
+                   SUM(overseas_in_transit_quantity) overseas_in_transit_quantity,
+                   SUM(overseas_sellable_quantity) overseas_sellable_quantity
+            FROM inventory_source
+            GROUP BY site,sku
+        )
+        SELECT base.*,
+               COALESCE(inventory_summary.chengdu_in_transit_quantity,0)
+                   chengdu_in_transit_quantity,
+               COALESCE(inventory_summary.chengdu_sellable_quantity,0)
+                   chengdu_sellable_quantity,
+               COALESCE(inventory_summary.overseas_in_transit_quantity,0)
+                   overseas_in_transit_quantity,
+               COALESCE(inventory_summary.overseas_sellable_quantity,0)
+                   overseas_sellable_quantity,
+               COUNT(*) OVER() total_count
+        FROM base
+        LEFT JOIN inventory_summary
+          ON CONVERT(inventory_summary.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
+             =CONVERT(base.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
+         AND CONVERT(inventory_summary.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
+             =CONVERT(base.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
+        {where_sql}
+        ORDER BY {sort_column} {sort_direction},site ASC,sku ASC
+        LIMIT %s OFFSET %s
+    """
+    params: list[Any] = [range_start, range_end, *month_params, *filter_params]
+    params.extend([page_size, (page - 1) * page_size])
+
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        total = int(rows[0].get("total_count") or 0) if rows else 0
+        if not rows and page > 1:
+            total = _count_filtered(
+                cursor, range_start, range_end, where_sql, filter_params
+            )
+        cursor.execute(
+            """SELECT DISTINCT site_name
+               FROM dwd_ebay_sku_analysis_order
+               WHERE payment_time >= %s AND payment_time < %s
+                 AND site_name IS NOT NULL AND site_name<>''
+               ORDER BY site_name""",
+            (range_start, range_end),
+        )
+        sites = [row["site_name"] for row in cursor.fetchall()]
+
+    return {
+        "items": _assemble_items(rows, months),
+        "months": [month["month"] for month in months],
+        "latest_complete_month": months[0]["month"],
+        "sites": sites,
+        "pagination": {"page": page, "page_size": page_size, "total": total},
+    }
+
+
+def _count_filtered(cursor, range_start, range_end, where_sql, filter_params) -> int:
+    query = f"""
+        WITH period_keys AS (
+            SELECT DISTINCT site_name,inventory_sku
+            FROM dwd_ebay_sku_analysis_order
+            WHERE payment_time >= %s AND payment_time < %s
+        ),
+        latest_source AS (
+            SELECT site_name,inventory_sku,product_name_cn
+            FROM (
+                SELECT source.site_name,source.inventory_sku,source.product_name_cn,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY source.site_name,source.inventory_sku
+                           ORDER BY source.payment_time DESC,source.id DESC
+                       ) latest_rank
+                FROM dwd_ebay_sku_analysis_order source
+                INNER JOIN period_keys period_key
+                    ON period_key.site_name=source.site_name
+                   AND period_key.inventory_sku=source.inventory_sku
+            ) ranked_source
+            WHERE latest_rank=1
+        ),
+        base AS (
+            SELECT period_key.site_name site,period_key.inventory_sku sku,
+                   latest_source.product_name_cn product_name
+            FROM period_keys period_key
+            LEFT JOIN latest_source
+              ON latest_source.site_name=period_key.site_name
+             AND latest_source.inventory_sku=period_key.inventory_sku
+        )
+        SELECT COUNT(*) total FROM base {where_sql}
+    """
+    cursor.execute(query, [range_start, range_end, *filter_params])
+    row = cursor.fetchone() or {}
+    return int(row.get("total") or 0)
+
+
+def _filters(
+    site: str | None, sku: str | None, product_name: str | None
+) -> tuple[str, list[Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    if site and site.strip():
+        clauses.append("base.site=%s")
+        params.append(site.strip())
+    if sku and sku.strip():
+        clauses.append("base.sku LIKE %s")
+        params.append(f"%{sku.strip().upper()}%")
+    if product_name and product_name.strip():
+        clauses.append("COALESCE(base.product_name,'') LIKE %s")
+        params.append(f"%{product_name.strip()}%")
+    return ("WHERE " + " AND ".join(clauses), params) if clauses else ("", params)
+
+
+def _complete_months(reference_date: date | None = None) -> list[dict[str, Any]]:
+    current = reference_date or date.today()
+    current_month_start = date(current.year, current.month, 1)
+    months: list[dict[str, Any]] = []
+    end_date = current_month_start
+    for _ in range(3):
+        start_date = _previous_month_start(end_date)
+        months.append(
+            {
+                "month": start_date.strftime("%Y-%m"),
+                "start_date": start_date,
+                "end_date": end_date,
+            }
+        )
+        end_date = start_date
+    return months
+
+
+def _previous_month_start(value: date) -> date:
+    if value.month == 1:
+        return date(value.year - 1, 12, 1)
+    return date(value.year, value.month - 1, 1)
+
+
+def _assemble_items(
+    rows: list[dict[str, Any]], months: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        monthly_metrics = []
+        for index, month in enumerate(months, start=1):
+            raw_sales_qty = row.get(f"sales_qty_m{index}")
+            raw_gross_profit_amount = row.get(f"gross_profit_amount_m{index}")
+            raw_return_qty = row.get(f"return_qty_m{index}")
+            sales_qty = _quantity_text(raw_sales_qty)
+            gross_profit_amount = _money_text(
+                raw_gross_profit_amount
+            )
+            return_qty = _quantity_text(raw_return_qty)
+            monthly_metrics.append(
+                {
+                    "month": month["month"],
+                    "sales_qty": sales_qty,
+                    "gross_profit_amount": gross_profit_amount,
+                    "return_qty": return_qty,
+                    "return_amount": _money_text(row.get(f"return_amount_m{index}")),
+                }
+            )
+        latest = monthly_metrics[0]
+        raw_forecast_sales_quantity = _average_metric_decimal(
+            monthly_metrics, "sales_qty"
+        )
+        forecast_sales_quantity = _average_metric(monthly_metrics, "sales_qty")
+        forecast_gross_profit_amount = _average_metric(
+            monthly_metrics, "gross_profit_amount"
+        )
+        forecast_return_quantity = _average_metric(monthly_metrics, "return_qty")
+        forecast_return_amount = _average_metric(monthly_metrics, "return_amount")
+        sell_through_ratio = _ratio_decimal(
+            raw_forecast_sales_quantity, row.get("overseas_sellable_quantity")
+        )
+        three_month_profit = sum(
+            (_decimal(row.get(f"gross_profit_amount_m{index}")) for index in range(1, 4)),
+            Decimal("0"),
+        )
+        three_month_paid_amount = sum(
+            (_decimal(row.get(f"paid_amount_m{index}")) for index in range(1, 4)),
+            Decimal("0"),
+        )
+        three_month_return_qty = sum(
+            (_decimal(row.get(f"return_qty_m{index}")) for index in range(1, 4)),
+            Decimal("0"),
+        )
+        three_month_sales_qty = sum(
+            (_decimal(row.get(f"sales_qty_m{index}")) for index in range(1, 4)),
+            Decimal("0"),
+        )
+        profit_rate = _ratio_decimal(three_month_profit, three_month_paid_amount)
+        return_rate = _ratio_decimal(three_month_return_qty, three_month_sales_qty)
+        result.append(
+            {
+                "site": row.get("site") or "其他",
+                "sku": row.get("sku") or "",
+                "product_name": row.get("product_name") or "",
+                "sales_qty": latest["sales_qty"],
+                "gross_profit_amount": latest["gross_profit_amount"],
+                "profit_rate": _ratio_decimal_text(profit_rate),
+                "return_qty": latest["return_qty"],
+                "return_amount": latest["return_amount"],
+                "return_rate": _ratio_decimal_text(return_rate),
+                "forecast_sales_quantity": forecast_sales_quantity,
+                "forecast_gross_profit_amount": forecast_gross_profit_amount,
+                "forecast_return_quantity": forecast_return_quantity,
+                "forecast_return_amount": forecast_return_amount,
+                "sell_through_ratio": _ratio_decimal_text(sell_through_ratio),
+                "product_level": _product_level(
+                    return_rate, profit_rate, sell_through_ratio
+                ),
+                "chengdu_in_transit_quantity": _quantity_text(
+                    row.get("chengdu_in_transit_quantity")
+                ),
+                "chengdu_sellable_quantity": _quantity_text(
+                    row.get("chengdu_sellable_quantity")
+                ),
+                "overseas_in_transit_quantity": _quantity_text(
+                    row.get("overseas_in_transit_quantity")
+                ),
+                "overseas_sellable_quantity": _quantity_text(
+                    row.get("overseas_sellable_quantity")
+                ),
+                "monthly_metrics": monthly_metrics,
+            }
+        )
+    return result
+
+
+def _ratio_decimal(numerator: Any, denominator: Any) -> Decimal | None:
+    denominator_value = _decimal(denominator)
+    if denominator_value == 0:
+        return None
+    return _decimal(numerator) / denominator_value
+
+
+def _ratio_text(numerator: Any, denominator: Any) -> str | None:
+    return _ratio_decimal_text(_ratio_decimal(numerator, denominator))
+
+
+def _ratio_decimal_text(value: Decimal | None) -> str | None:
+    if value is None:
+        return None
+    return format(
+        value.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP), "f"
+    )
+
+
+def _product_level(
+    return_rate: Decimal | None,
+    profit_rate: Decimal | None,
+    monthly_turnover_rate: Decimal | None,
+) -> str | None:
+    """按用户给定的 1→9 优先级计算产品等级，所有比率均用小数值。"""
+
+    if return_rate is None:
+        return None
+    if return_rate > Decimal("0.06"):
+        return "D"
+    if profit_rate is None:
+        return None
+    if return_rate >= Decimal("0.03"):
+        return "C" if profit_rate < Decimal("0.18") else "长尾产品-B"
+    if monthly_turnover_rate is None:
+        return None
+    if profit_rate < Decimal("0.12"):
+        return "C" if monthly_turnover_rate <= Decimal("0.12") else "B"
+    if profit_rate < Decimal("0.22"):
+        return "B" if monthly_turnover_rate < Decimal("0.12") else "A"
+    return "B" if monthly_turnover_rate < Decimal("0.15") else "S"
+
+
+def _average_metric(monthly_metrics: list[dict[str, str]], key: str) -> str:
+    average = _average_metric_decimal(monthly_metrics, key).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    return format(average, "f")
+
+
+def _average_metric_decimal(
+    monthly_metrics: list[dict[str, Any]], key: str
+) -> Decimal:
+    total = sum(
+        (_decimal(metric.get(key)) for metric in monthly_metrics), Decimal("0")
+    )
+    return total / Decimal("3")
+
+
+def _quantity_text(value: Any) -> str:
+    decimal_value = _decimal(value)
+    if decimal_value == 0:
+        return "0"
+    return format(decimal_value.normalize(), "f")
+
+
+def _money_text(value: Any) -> str:
+    return format(_decimal(value).quantize(Decimal("0.01")), "f")
+
+
+def _decimal(value: Any) -> Decimal:
+    try:
+        return Decimal(str(value or 0))
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal("0")
+
+
+def _positive_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default

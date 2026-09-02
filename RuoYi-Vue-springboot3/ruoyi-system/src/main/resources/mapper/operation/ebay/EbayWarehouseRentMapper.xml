@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.ebay.EbayWarehouseRentMapper">
+
+    <resultMap id="WarehouseRentResult" type="com.ruoyi.system.domain.operation.ebay.EbayWarehouseRentAggregate">
+        <id property="id" column="id"/>
+        <result property="site" column="site"/>
+        <result property="sku" column="sku"/>
+        <result property="warehouseCodes" column="warehouse_codes"/>
+        <result property="sourceRowCount" column="source_row_count"/>
+        <result property="warehouseRentAmountCny" column="warehouse_rent_amount_cny"/>
+        <result property="importBatchId" column="import_batch_id"/>
+        <result property="sourceFileName" column="source_file_name"/>
+        <result property="importedBy" column="imported_by"/>
+    </resultMap>
+
+    <select id="selectByKeys" resultMap="WarehouseRentResult">
+        SELECT id, site, sku, warehouse_codes, source_row_count,
+               warehouse_rent_amount_cny, import_batch_id,
+               source_file_name, imported_by
+        FROM ebay_replenishment_v2_warehouse_rent
+        WHERE (site, sku) IN
+        <foreach collection="keys" item="key" open="(" separator="," close=")">
+            (#{key.site}, #{key.sku})
+        </foreach>
+    </select>
+
+    <delete id="deleteAll">
+        DELETE FROM ebay_replenishment_v2_warehouse_rent
+    </delete>
+
+    <insert id="batchInsert">
+        INSERT INTO ebay_replenishment_v2_warehouse_rent
+            (site, sku, warehouse_codes, source_row_count,
+             warehouse_rent_amount_cny, import_batch_id,
+             source_file_name, imported_by, import_time)
+        VALUES
+        <foreach collection="items" item="item" separator=",">
+            (#{item.site}, #{item.sku}, #{item.warehouseCodes},
+             #{item.sourceRowCount}, #{item.warehouseRentAmountCny},
+             #{item.importBatchId}, #{item.sourceFileName},
+             #{item.importedBy}, NOW())
+        </foreach>
+    </insert>
+
+    <insert id="rebuildFromDetails">
+        INSERT INTO ebay_replenishment_v2_warehouse_rent
+            (site, sku, warehouse_codes, source_row_count,
+             warehouse_rent_amount_cny, import_batch_id,
+             source_file_name, imported_by, import_time)
+        SELECT site,
+               sku,
+               GROUP_CONCAT(DISTINCT warehouse_code
+                            ORDER BY warehouse_code SEPARATOR ','),
+               COUNT(*),
+               ROUND(SUM(warehouse_rent_amount_cny), 4),
+               #{importBatchId},
+               #{sourceFileName},
+               #{importedBy},
+               NOW()
+        FROM ebay_replenishment_v2_warehouse_rent_detail
+        GROUP BY site, sku
+    </insert>
+</mapper>

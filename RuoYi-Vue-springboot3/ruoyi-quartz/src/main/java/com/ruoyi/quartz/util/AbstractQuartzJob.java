@@ -96,7 +96,7 @@ public abstract class AbstractQuartzJob implements Job
         if (e != null)
         {
             sysJobLog.setStatus(Constants.FAIL);
-            String errorMsg = StringUtils.substring(ExceptionUtil.getExceptionMessage(e), 0, 2000);
+            String errorMsg = StringUtils.substring(ExceptionUtil.getRootFirstExceptionMessage(e), 0, 2000);
             sysJobLog.setExceptionInfo(errorMsg);
             createFailureNotice(sysJob.getJobName(), errorMsg, runMs);
         }

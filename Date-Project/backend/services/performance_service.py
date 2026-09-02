@@ -319,26 +319,23 @@ def import_owner_rules(
 def import_unified_owner_rules(
     content: bytes,
     file_name: str,
-    stat_month: str,
     rebuild: bool = True,
     operator: str | None = None,
     request_id: str = "",
     idempotency_key: str | None = None,
 ) -> dict:
-    """Replace one month's AMZ/eBay owner rules from the unified workbook."""
+    """Incrementally upsert every monthly rule found in the unified workbook."""
     batch_id = str(uuid4())
     parsed = parse_unified_owner_rule_excel(
         content,
         file_name,
-        stat_month,
         batch_id,
     )
-    month = parsed["stat_month"]
+    months = parsed["months"]
     started_at = datetime.now()
     with repo.performance_connection() as connection:
-        replace_stats = repo.replace_unified_owner_rule_month(
+        repo.upsert_owner_rules(
             connection,
-            month,
             parsed["rules"],
             parsed["raw_rows"],
         )
@@ -348,7 +345,7 @@ def import_unified_owner_rules(
                 "batch_id": batch_id,
                 "import_type": "owner_rule_unified",
                 "platform": "combined",
-                "stat_month": month,
+                "stat_month": None,
                 "source_file_name": file_name,
                 "file_hash": parsed["file_hash"],
                 "idempotency_key": idempotency_key,
@@ -370,28 +367,44 @@ def import_unified_owner_rules(
         )
         connection.commit()
 
-    refresh = (
+    available_months = (
+        {
+            str(item.get("stat_month") or "")
+            for item in performance_months(60)
+        }
+        if rebuild
+        else set()
+    )
+    refresh_months = [
+        month for month in months if month in available_months
+    ]
+    refreshes = [
         refresh_performance(
             month,
             "combined",
             trigger_source="unified_owner_rule_import",
             request_id=request_id,
         )
-        if rebuild
-        else None
-    )
+        for month in refresh_months
+    ]
     return {
         "batch_id": batch_id,
         "platform": "combined",
-        "stat_month": month,
-        "months": [month],
-        "month_count": 1,
+        "months": months,
+        "month_count": len(months),
         "imported_rows": len(parsed["rules"]),
+        "upserted_rows": len(parsed["rules"]),
         "platform_stats": parsed["platform_stats"],
         "sheet_stats": parsed["sheet_stats"],
-        **replace_stats,
-        "refresh": refresh,
-        "refreshes": [refresh] if refresh else [],
+        "ignored_sheets": parsed["ignored_sheets"],
+        "deleted_ods_rows": 0,
+        "deleted_dwd_rows": 0,
+        "refreshed_months": refresh_months if rebuild else [],
+        "skipped_refresh_months": [
+            month for month in months if month not in refresh_months
+        ],
+        "refresh": refreshes[-1] if refreshes else None,
+        "refreshes": refreshes,
     }
 
 

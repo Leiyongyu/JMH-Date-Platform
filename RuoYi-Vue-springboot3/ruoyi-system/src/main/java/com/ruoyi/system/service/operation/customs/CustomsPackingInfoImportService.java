@@ -90,7 +90,7 @@ public class CustomsPackingInfoImportService
             LingxingStaInboundPlanSyncService staInboundPlanSyncService,
             LingxingGatewayService gatewayService,
             ObjectMapper objectMapper,
-            @Qualifier("syncTaskExecutor") Executor taskExecutor)
+            @Qualifier("customsImportTaskExecutor") Executor taskExecutor)
     {
         this.batchMapper = batchMapper;
         this.logMapper = logMapper;
@@ -148,7 +148,17 @@ public class CustomsPackingInfoImportService
         batch.setTotalShipments(grouped.size());
         batchMapper.updateResult(batch);
 
-        taskExecutor.execute(() -> processBatch(batch, grouped, startedAt));
+        try
+        {
+            taskExecutor.execute(() -> processBatch(batch, grouped, startedAt));
+        }
+        catch (RuntimeException e)
+        {
+            finishBatchWithFatalError(batch, startedAt, "TASK_QUEUE", e);
+            throw new IllegalStateException(
+                    "后台任务提交失败，批次号 " + batch.getBatchNo()
+                            + "：" + safeMessage(e), e);
+        }
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("businessType", BUSINESS_TYPE);

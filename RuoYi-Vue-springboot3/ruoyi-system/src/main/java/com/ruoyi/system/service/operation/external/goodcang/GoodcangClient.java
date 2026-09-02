@@ -10,6 +10,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -21,9 +23,13 @@ import org.springframework.stereotype.Service;
 @Service
 public class GoodcangClient
 {
+    private static final Logger LOG = LoggerFactory.getLogger(GoodcangClient.class);
+
     private final GoodcangProperties properties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final Object requestGate = new Object();
+    private long nextRequestAt;
 
     public GoodcangClient(GoodcangProperties properties, ObjectMapper objectMapper)
     {
@@ -95,24 +101,88 @@ public class GoodcangClient
         String url = trimRight(properties.getEndpoint(), "/") + "/" + trimLeft(path, "/");
         String json = objectMapper.writeValueAsString(body);
 
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofMillis(properties.getReadTimeout()))
-                .header("Content-Type", "application/json;charset=UTF-8")
-                .header("app-token", properties.getAppToken())
-                .header("app-key", properties.getAppKey())
-                .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
-                .build();
-
-        HttpResponse<String> response = httpClient.send(request,
-                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-
-        if (response.statusCode() < 200 || response.statusCode() >= 300)
+        int maxRetries = Math.max(0, properties.getMaxRateLimitRetries());
+        for (int retry = 0; retry <= maxRetries; retry++)
         {
-            throw new IllegalStateException(
-                    "Goodcang HTTP " + response.statusCode() + ": " + response.body());
+            waitForRequestSlot();
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(Duration.ofMillis(properties.getReadTimeout()))
+                    .header("Content-Type", "application/json;charset=UTF-8")
+                    .header("app-token", properties.getAppToken())
+                    .header("app-key", properties.getAppKey())
+                    .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request,
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() >= 200 && response.statusCode() < 300)
+                return objectMapper.readValue(response.body(),
+                        new TypeReference<Map<String, Object>>() {});
+
+            if (response.statusCode() != 429 || retry >= maxRetries)
+            {
+                String suffix = response.statusCode() == 429
+                        ? "；已自动重试" + retry + "次"
+                        : "";
+                throw new IllegalStateException(
+                        "Goodcang HTTP " + response.statusCode() + ": "
+                                + response.body() + suffix);
+            }
+
+            long delayMs = retryDelayMs(response, retry);
+            LOG.warn("Goodcang HTTP 429，{}ms后进行第{}次重试: path={}",
+                    delayMs, retry + 1, path);
+            sleep(delayMs);
         }
-        return objectMapper.readValue(response.body(),
-                new TypeReference<Map<String, Object>>() {});
+        throw new IllegalStateException("Goodcang请求重试流程异常终止: " + path);
+    }
+
+    private void waitForRequestSlot() throws InterruptedException
+    {
+        long waitMs;
+        long intervalMs = Math.max(0L, properties.getMinRequestIntervalMs());
+        synchronized (requestGate)
+        {
+            long now = System.currentTimeMillis();
+            waitMs = Math.max(0L, nextRequestAt - now);
+            nextRequestAt = Math.max(now, nextRequestAt) + intervalMs;
+        }
+        sleep(waitMs);
+    }
+
+    private long retryDelayMs(HttpResponse<String> response, int retry)
+    {
+        String retryAfter = response.headers().firstValue("Retry-After").orElse(null);
+        if (retryAfter != null)
+        {
+            try
+            {
+                return Math.max(0L, Long.parseLong(retryAfter.trim()) * 1000L);
+            }
+            catch (NumberFormatException ignored)
+            {
+                // 非秒数格式时使用本地指数退避。
+            }
+        }
+        long initial = Math.max(1L, properties.getRateLimitInitialBackoffMs());
+        long maximum = Math.max(initial, properties.getRateLimitMaxBackoffMs());
+        long multiplier = 1L << Math.min(retry, 20);
+        if (initial > Long.MAX_VALUE / multiplier) return maximum;
+        return Math.min(maximum, initial * multiplier);
+    }
+
+    private void sleep(long delayMs) throws InterruptedException
+    {
+        if (delayMs <= 0L) return;
+        try
+        {
+            Thread.sleep(delayMs);
+        }
+        catch (InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+            throw e;
+        }
     }
 
     private String trimLeft(String value, String token)

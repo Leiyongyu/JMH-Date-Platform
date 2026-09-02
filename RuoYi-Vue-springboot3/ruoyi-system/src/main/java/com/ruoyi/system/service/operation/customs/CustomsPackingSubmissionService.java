@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 /** 将历史保存成功的STA装箱快照聚合、提交并跟踪领星异步结果。 */
@@ -44,6 +45,7 @@ public class CustomsPackingSubmissionService
     private final ObjectMapper objectMapper;
     private final Executor taskExecutor;
     private final SyncAlertService alertService;
+    private final TransactionTemplate transactionTemplate;
     private final Object requestLock = new Object();
     private long lastRequestAt;
 
@@ -51,14 +53,16 @@ public class CustomsPackingSubmissionService
             CustomsPackingSubmissionMapper mapper,
             LingxingGatewayService gateway,
             ObjectMapper objectMapper,
-            @Qualifier("syncTaskExecutor") Executor taskExecutor,
-            SyncAlertService alertService)
+            @Qualifier("customsImportTaskExecutor") Executor taskExecutor,
+            SyncAlertService alertService,
+            TransactionTemplate transactionTemplate)
     {
         this.mapper = mapper;
         this.gateway = gateway;
         this.objectMapper = objectMapper;
         this.taskExecutor = taskExecutor;
         this.alertService = alertService;
+        this.transactionTemplate = transactionTemplate;
     }
 
     public List<CustomsPackingSubmission> list(
@@ -82,33 +86,52 @@ public class CustomsPackingSubmissionService
         if (!StringUtils.hasText(planId))
             throw new IllegalArgumentException("STA任务编号不能为空");
 
-        PreparedPayload prepared = preparePayload(planId);
-        CustomsPackingSubmission initial = new CustomsPackingSubmission();
-        initial.setInboundPlanId(planId);
-        initial.setSid(prepared.sid);
-        initial.setPositionType(prepared.positionType);
-        mapper.insertReady(initial);
-
-        int claimed = mapper.claimForSubmit(planId, defaultOperator(operator));
-        if (claimed != 1)
+        Long submissionId = transactionTemplate.execute(status ->
         {
-            CustomsPackingSubmission current =
+            PreparedPayload prepared = preparePayload(planId);
+            CustomsPackingSubmission initial = new CustomsPackingSubmission();
+            initial.setInboundPlanId(planId);
+            initial.setSid(prepared.sid);
+            initial.setPositionType(prepared.positionType);
+            mapper.insertReady(initial);
+
+            int claimed = mapper.claimForSubmit(planId, defaultOperator(operator));
+            if (claimed != 1)
+            {
+                CustomsPackingSubmission current =
+                        mapper.selectByInboundPlanId(planId);
+                String currentStatus = current == null ? "UNKNOWN" : current.getStatus();
+                throw new IllegalStateException(statusMessage(currentStatus));
+            }
+
+            CustomsPackingSubmission claimedSubmission =
                     mapper.selectByInboundPlanId(planId);
-            String currentStatus = current == null ? "UNKNOWN" : current.getStatus();
-            throw new IllegalStateException(statusMessage(currentStatus));
+            if (claimedSubmission == null || claimedSubmission.getId() == null)
+                throw new IllegalStateException("装箱提交记录抢占成功但无法重新读取");
+            int preparedRows = mapper.updatePrepared(
+                    claimedSubmission.getId(),
+                    prepared.sid,
+                    prepared.positionType,
+                    sha256(prepared.requestJson),
+                    prepared.requestJson);
+            if (preparedRows != 1)
+                throw new IllegalStateException("装箱提交请求保存失败");
+            return claimedSubmission.getId();
+        });
+        if (submissionId == null)
+            throw new IllegalStateException("装箱提交事务未返回记录ID");
+
+        try
+        {
+            taskExecutor.execute(() -> executeSubmission(submissionId));
         }
-
-        CustomsPackingSubmission claimedSubmission =
-                mapper.selectByInboundPlanId(planId);
-        mapper.updatePrepared(
-                claimedSubmission.getId(),
-                prepared.sid,
-                prepared.positionType,
-                sha256(prepared.requestJson),
-                prepared.requestJson);
-
-        Long submissionId = claimedSubmission.getId();
-        taskExecutor.execute(() -> executeSubmission(submissionId));
+        catch (RuntimeException e)
+        {
+            String message = "后台任务提交失败，领星接口尚未调用：" + safeMessage(e);
+            mapper.updateAfterSubmit(
+                    submissionId, "FAILED", null, null, null, message);
+            throw new IllegalStateException(message, e);
+        }
         return mapper.selectById(submissionId);
     }
 

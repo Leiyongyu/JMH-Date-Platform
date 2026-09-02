@@ -25,6 +25,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.FormulaEvaluator;
@@ -34,6 +35,7 @@ import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -84,6 +86,7 @@ public class CustomsShipmentFeeImportService
     private final LingxingShipmentOrderMappingMapper shipmentOrderMappingMapper;
     private final LingxingGatewayService gatewayService;
     private final ObjectMapper objectMapper;
+    private final Executor taskExecutor;
 
     public CustomsShipmentFeeImportService(
             CustomsShipmentFeeImportBatchMapper batchMapper,
@@ -91,7 +94,8 @@ public class CustomsShipmentFeeImportService
             LingxingLogisticsChannelMapper logisticsChannelMapper,
             LingxingShipmentOrderMappingMapper shipmentOrderMappingMapper,
             LingxingGatewayService gatewayService,
-            ObjectMapper objectMapper)
+            ObjectMapper objectMapper,
+            @Qualifier("customsImportTaskExecutor") Executor taskExecutor)
     {
         this.batchMapper = batchMapper;
         this.logMapper = logMapper;
@@ -99,6 +103,7 @@ public class CustomsShipmentFeeImportService
         this.shipmentOrderMappingMapper = shipmentOrderMappingMapper;
         this.gatewayService = gatewayService;
         this.objectMapper = objectMapper;
+        this.taskExecutor = taskExecutor;
     }
 
     public List<CustomsShipmentFeeImportBatch> listBatches(
@@ -141,7 +146,7 @@ public class CustomsShipmentFeeImportService
         batch.setTotalShipments(0);
         batch.setSuccessCount(0);
         batch.setFailedCount(0);
-        batch.setStatus("RUNNING");
+        batch.setStatus("QUEUED");
         batch.setOperator(defaultOperator(operator));
         batch.setUploadTime(startedAt);
         batch.setStartTime(startedAt);
@@ -162,66 +167,95 @@ public class CustomsShipmentFeeImportService
         Map<String, List<ExcelRow>> grouped = groupRows(rows);
         batch.setTotalRows(rows.size());
         batch.setTotalShipments(grouped.size());
-
-        int successCount = 0;
-        int failedCount = 0;
-        List<Map<String, Object>> failures = new ArrayList<>();
-
-        for (Map.Entry<String, List<ExcelRow>> entry : grouped.entrySet())
-        {
-            List<ExcelRow> shipmentRows = entry.getValue();
-            ProcessResult result;
-            try
-            {
-                result = processShipment(batch, shipmentRows);
-            }
-            catch (Exception e)
-            {
-                result = recordUnexpectedFailure(batch, shipmentRows, e);
-            }
-            if (result.success)
-            {
-                successCount++;
-            }
-            else
-            {
-                failedCount++;
-                Map<String, Object> failure = new LinkedHashMap<>();
-                failure.put("shipmentId", result.shipmentId);
-                failure.put("orderSn", result.orderSn);
-                failure.put("sourceRows", rowNumbers(shipmentRows));
-                failure.put("stage", result.errorStage);
-                failure.put("code", result.errorCode);
-                failure.put("message", result.errorMessage);
-                failures.add(failure);
-            }
-            pauseBetweenRequests();
-        }
-
-        LocalDateTime finishedAt = LocalDateTime.now();
-        batch.setSuccessCount(successCount);
-        batch.setFailedCount(failedCount);
-        batch.setStatus(failedCount == 0 ? "SUCCESS"
-                : successCount == 0 ? "FAILED" : "PARTIAL_SUCCESS");
-        batch.setFinishTime(finishedAt);
-        batch.setDurationMs(Duration.between(startedAt, finishedAt).toMillis());
-        batch.setErrorMessage(failedCount == 0 ? null
-                : "共 " + failedCount + " 个货件失败，请查看上传明细日志");
         batchMapper.updateResult(batch);
 
+        try
+        {
+            taskExecutor.execute(() -> processBatch(batch, grouped, startedAt));
+        }
+        catch (RuntimeException e)
+        {
+            finishBatchWithFatalError(batch, startedAt, "TASK_QUEUE", e);
+            throw new IllegalStateException(
+                    "后台任务提交失败，批次号 " + batch.getBatchNo()
+                            + "：" + safeMessage(e), e);
+        }
+
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("businessType", BUSINESS_TYPE);
         result.put("batchId", batch.getId());
         result.put("batchNo", batch.getBatchNo());
         result.put("fileName", batch.getOriginalFileName());
         result.put("fileSha256", batch.getFileSha256());
         result.put("readRows", rows.size());
         result.put("totalShipments", grouped.size());
-        result.put("successCount", successCount);
-        result.put("failedCount", failedCount);
-        result.put("status", batch.getStatus());
-        result.put("durationMs", batch.getDurationMs());
-        result.put("failures", failures);
+        result.put("successCount", 0);
+        result.put("failedCount", 0);
+        result.put("status", "QUEUED");
+        result.put("durationMs", null);
+        result.put("message", "文件校验通过，已进入后台队列");
         return result;
+    }
+
+    private void processBatch(
+            CustomsShipmentFeeImportBatch batch,
+            Map<String, List<ExcelRow>> grouped,
+            LocalDateTime startedAt)
+    {
+        batch.setStatus("RUNNING");
+        batch.setErrorMessage(null);
+        batchMapper.updateResult(batch);
+        int successCount = 0;
+        int failedCount = 0;
+        try
+        {
+            for (List<ExcelRow> shipmentRows : grouped.values())
+            {
+                ProcessResult result;
+                try
+                {
+                    result = processShipment(batch, shipmentRows);
+                }
+                catch (Exception e)
+                {
+                    result = recordUnexpectedFailure(batch, shipmentRows, e);
+                }
+                if (result.success) successCount++;
+                else failedCount++;
+
+                batch.setSuccessCount(successCount);
+                batch.setFailedCount(failedCount);
+                batch.setErrorMessage("后台处理中：已完成 "
+                        + (successCount + failedCount) + "/" + grouped.size());
+                try
+                {
+                    batchMapper.updateResult(batch);
+                }
+                catch (Exception e)
+                {
+                    // 进度刷新失败不能阻断后续货件，最终状态会再次落库。
+                    LOG.error("更新费用明细批次进度异常，继续处理后续货件，batchNo={}",
+                            batch.getBatchNo(), e);
+                }
+                pauseBetweenRequests();
+            }
+
+            LocalDateTime finishedAt = LocalDateTime.now();
+            batch.setSuccessCount(successCount);
+            batch.setFailedCount(failedCount);
+            batch.setStatus(failedCount == 0 ? "SUCCESS"
+                    : successCount == 0 ? "FAILED" : "PARTIAL_SUCCESS");
+            batch.setFinishTime(finishedAt);
+            batch.setDurationMs(Duration.between(startedAt, finishedAt).toMillis());
+            batch.setErrorMessage(failedCount == 0 ? null
+                    : "共 " + failedCount + " 个货件失败，请查看上传明细日志");
+            batchMapper.updateResult(batch);
+        }
+        catch (Exception e)
+        {
+            LOG.error("费用明细后台批次处理失败，batchNo={}", batch.getBatchNo(), e);
+            finishBatchWithFatalError(batch, startedAt, "ASYNC_PROCESS", e);
+        }
     }
 
     private ProcessResult processShipment(

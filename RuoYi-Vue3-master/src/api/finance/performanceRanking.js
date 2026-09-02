@@ -34,16 +34,16 @@ export function exportAmzPerformanceSource(statMonth) {
   })
 }
 
-export function importPerformanceOwnerRules(file, rebuild = true, statMonth) {
+export function importPerformanceOwnerRules(file, rebuild = true) {
   const data = new FormData()
   data.append('file', file)
   return request({
     url: '/finance/performance-ranking/owner-rules/import',
     method: 'post',
-    params: { rebuild, statMonth },
+    params: { rebuild },
     headers: { 'Content-Type': 'multipart/form-data' },
     data,
-    timeout: 120000
+    timeout: 600000
   })
 }
 

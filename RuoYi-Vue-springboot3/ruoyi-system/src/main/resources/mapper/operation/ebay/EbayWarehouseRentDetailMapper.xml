@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.ebay.EbayWarehouseRentDetailMapper">
+
+    <resultMap id="WarehouseRentDetailResult" type="com.ruoyi.system.domain.operation.ebay.EbayWarehouseRentDetail">
+        <id property="id" column="id"/>
+        <result property="orderNo" column="order_no"/>
+        <result property="warehouseCode" column="warehouse_code"/>
+        <result property="productCode" column="product_code"/>
+        <result property="goodsBarcode" column="goods_barcode"/>
+        <result property="productName" column="product_name"/>
+        <result property="referenceNo" column="reference_no"/>
+        <result property="billingTimeText" column="billing_time_text"/>
+        <result property="listingTimeText" column="listing_time_text"/>
+        <result property="dimensionsText" column="dimensions_text"/>
+        <result property="quantityText" column="quantity_text"/>
+        <result property="volumeM3Text" column="volume_m3_text"/>
+        <result property="productWeightKgText" column="product_weight_kg_text"/>
+        <result property="warehouseRentExclTaxText" column="warehouse_rent_excl_tax_text"/>
+        <result property="billingCurrency" column="billing_currency"/>
+        <result property="inventoryAgeDaysText" column="inventory_age_days_text"/>
+        <result property="goodsType" column="goods_type"/>
+        <result property="billingType" column="billing_type"/>
+        <result property="storagePhysicalForm" column="storage_physical_form"/>
+        <result property="peakSeasonSurchargeExclTaxText" column="peak_season_surcharge_excl_tax_text"/>
+        <result property="overAgeSurchargeExclTaxText" column="over_age_surcharge_excl_tax_text"/>
+        <result property="oversizedSurchargeExclTaxText" column="oversized_surcharge_excl_tax_text"/>
+        <result property="totalAmountExclTaxText" column="total_amount_excl_tax_text"/>
+        <result property="site" column="site"/>
+        <result property="sku" column="sku"/>
+        <result property="exchangeRate" column="exchange_rate"/>
+        <result property="warehouseRentAmountCny" column="warehouse_rent_amount_cny"/>
+        <result property="importBatchId" column="import_batch_id"/>
+        <result property="sourceFileName" column="source_file_name"/>
+        <result property="sourceSheetName" column="source_sheet_name"/>
+        <result property="sourceRowNum" column="source_row_num"/>
+        <result property="importedBy" column="imported_by"/>
+        <result property="importTime" column="import_time"/>
+    </resultMap>
+
+    <select id="lockImport" resultType="java.lang.String">
+        SELECT lock_key
+        FROM ebay_replenishment_v2_warehouse_rent_import_lock
+        WHERE id = 1
+        FOR UPDATE
+    </select>
+
+    <delete id="deleteByOrderNos">
+        DELETE FROM ebay_replenishment_v2_warehouse_rent_detail
+        WHERE order_no IN
+        <foreach collection="orderNos" item="orderNo" open="(" separator="," close=")">
+            #{orderNo}
+        </foreach>
+    </delete>
+
+    <insert id="batchInsert">
+        INSERT INTO ebay_replenishment_v2_warehouse_rent_detail
+            (order_no, warehouse_code, product_code, goods_barcode,
+             product_name, reference_no, billing_time_text,
+             listing_time_text, dimensions_text, quantity_text,
+             volume_m3_text, product_weight_kg_text,
+             warehouse_rent_excl_tax_text, billing_currency,
+             inventory_age_days_text, goods_type, billing_type,
+             storage_physical_form, peak_season_surcharge_excl_tax_text,
+             over_age_surcharge_excl_tax_text,
+             oversized_surcharge_excl_tax_text,
+             total_amount_excl_tax_text, site, sku, exchange_rate,
+             warehouse_rent_amount_cny, import_batch_id,
+             source_file_name, source_sheet_name, source_row_num,
+             imported_by, import_time)
+        VALUES
+        <foreach collection="items" item="item" separator=",">
+            (#{item.orderNo}, #{item.warehouseCode}, #{item.productCode},
+             #{item.goodsBarcode}, #{item.productName}, #{item.referenceNo},
+             #{item.billingTimeText}, #{item.listingTimeText},
+             #{item.dimensionsText}, #{item.quantityText},
+             #{item.volumeM3Text}, #{item.productWeightKgText},
+             #{item.warehouseRentExclTaxText}, #{item.billingCurrency},
+             #{item.inventoryAgeDaysText}, #{item.goodsType},
+             #{item.billingType}, #{item.storagePhysicalForm},
+             #{item.peakSeasonSurchargeExclTaxText},
+             #{item.overAgeSurchargeExclTaxText},
+             #{item.oversizedSurchargeExclTaxText},
+             #{item.totalAmountExclTaxText}, #{item.site}, #{item.sku},
+             #{item.exchangeRate}, #{item.warehouseRentAmountCny},
+             #{item.importBatchId}, #{item.sourceFileName},
+             #{item.sourceSheetName}, #{item.sourceRowNum},
+             #{item.importedBy}, NOW())
+        </foreach>
+    </insert>
+</mapper>
