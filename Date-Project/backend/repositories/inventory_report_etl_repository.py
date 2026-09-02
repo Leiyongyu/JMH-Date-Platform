@@ -900,6 +900,29 @@ def _chunks(rows: list[dict[str, Any]], size: int) -> Iterable[list[dict[str, An
         yield rows[start : start + size]
 
 
+def overseas_included_wids() -> set[str]:
+    """允许计入eBay海外仓的仓库ID集合。
+
+    领星warehouse表中 type=3 为海外仓，sub_type=2 为第三方服务商仓（谷仓），
+    sub_type=1 为自有账号仓和虚拟收货仓，后者不属于eBay海外仓业务范围。
+    动态读取而非硬编码，新开谷仓自动纳入、新增虚拟仓自动排除。
+    """
+    database = _source_database()
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT wid
+            FROM `{database}`.`warehouse`
+            WHERE type = 3 AND sub_type = 2 AND is_delete = 0
+            """
+        )
+        return {
+            str(row["wid"]).strip()
+            for row in cursor.fetchall()
+            if row.get("wid") is not None
+        }
+
+
 def _source_database() -> str:
     return (settings.shop_source_database.strip() or "jmh_data_platform").replace(
         "`", "``"

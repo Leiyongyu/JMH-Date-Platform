@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections import defaultdict
 from datetime import datetime
@@ -17,6 +18,8 @@ from backend.parsers.inventory_report_purchase_order_parser import (
 )
 from backend.repositories import inventory_report_etl_repository as repo
 
+
+logger = logging.getLogger(__name__)
 
 UNASSIGNED = "未分配"
 DEPARTMENTS = (
@@ -83,8 +86,18 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
     fba_rows, fba_stats = _clean_fba(
         month, sources["fba"], shops, amazon_rules
     )
-    overseas_rows = _clean_overseas(
-        month, sources["overseas"], ebay_rules, ebay_sku_map
+    overseas_included_wids = repo.overseas_included_wids()
+    if not overseas_included_wids:
+        raise ValueError(
+            "未能从warehouse表读取到第三方海外仓（type=3且sub_type=2），"
+            "未执行计算以免把海外仓数据清空；请先同步领星仓库列表"
+        )
+    overseas_rows, overseas_stats = _clean_overseas(
+        month,
+        sources["overseas"],
+        ebay_rules,
+        ebay_sku_map,
+        overseas_included_wids,
     )
     local_rows, local_stats = _clean_local(
         month, sources["local"], amazon_rules, ebay_rules, ebay_sku_map
@@ -130,6 +143,7 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
             sources.get("purchase_order_transit", [])
         ),
         **fba_stats,
+        **overseas_stats,
         **local_stats,
         **amz_sales_stats,
         **persisted,
@@ -674,10 +688,36 @@ def _clean_fba(month, source_rows, shops, rules):
     }
 
 
-def _clean_overseas(month, source_rows, ebay_rules, ebay_sku_map=None):
+def _clean_overseas(
+    month,
+    source_rows,
+    ebay_rules,
+    ebay_sku_map=None,
+    included_wids: set[str] | None = None,
+):
+    """清洗eBay海外仓明细；只保留included_wids中的第三方海外仓（谷仓）。
+
+    领星海外仓接口会返回自有账号仓和虚拟收货仓，它们不属于eBay海外仓业务范围，
+    计入会虚增期末库存与在途，并连带抬高销售目标、库销比和周转天数。
+    """
     rows: list[dict[str, Any]] = []
+    excluded_wid_rows = 0
+    excluded_warehouses: dict[str, str] = {}
     for source in source_rows:
         for child_index, item in _expanded_rows(source, "child_list"):
+            sys_wid = str(
+                item.get("sys_wid") or source.get("sys_wid") or ""
+            ).strip()
+            if included_wids is not None and sys_wid not in included_wids:
+                excluded_wid_rows += 1
+                excluded_warehouses.setdefault(
+                    sys_wid,
+                    normalize_text(
+                        item.get("ware_house_name")
+                        or source.get("ware_house_name")
+                    ),
+                )
+                continue
             sku = normalize_text(item.get("sku") or source.get("sku"))
             principal, match_source = _ebay_assignment(
                 sku, ebay_rules, ebay_sku_map
@@ -696,7 +736,20 @@ def _clean_overseas(month, source_rows, ebay_rules, ebay_sku_map=None):
                     include_api_sku=True,
                 )
             )
-    return rows
+    if excluded_warehouses:
+        logger.warning(
+            "%s eBay海外仓已排除非第三方仓 %s 行；仓库=%s",
+            month,
+            excluded_wid_rows,
+            "、".join(
+                f"{wid}:{name or '未知仓库'}"
+                for wid, name in sorted(excluded_warehouses.items())
+            ),
+        )
+    return rows, {
+        "overseas_excluded_wid_rows": excluded_wid_rows,
+        "overseas_excluded_warehouses": sorted(excluded_warehouses),
+    }
 
 
 def _clean_amz_sales(month, source_rows, shops, rules):

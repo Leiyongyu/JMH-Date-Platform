@@ -40,7 +40,7 @@ def test_rebuild_inventory_does_not_require_order_profit(monkeypatch):
 
 
 def test_overseas_rows_are_all_ebay_and_match_owner_by_sku_brand():
-    rows = service._clean_overseas(
+    rows, _stats = service._clean_overseas(
         "2026-07",
         [
             {
@@ -69,7 +69,7 @@ def test_overseas_rows_are_all_ebay_and_match_owner_by_sku_brand():
 
 
 def test_overseas_jmh_sku_uses_product_mapping_for_owner():
-    rows = service._clean_overseas(
+    rows, _stats = service._clean_overseas(
         "2026-07",
         [{
             "id": 1,
@@ -277,3 +277,54 @@ def test_sales_target_usd_uses_rate_and_missing_rate_returns_none():
 
     assert target_usd * rate == service._sales_target_cny(row)
     assert service._sales_target(row, None) is None
+
+
+def _overseas_source(sys_wid, warehouse_name, qty):
+    return {
+        "id": 1,
+        "sync_batch_id": "batch-1",
+        "sys_wid": sys_wid,
+        "ware_house_name": warehouse_name,
+        "seller_name": None,
+        "sku": "BMW-30386-0557",
+        "allocation_in_transit_count": "0",
+        "allocation_in_transit_cost": "0",
+        "day_end_count": str(qty),
+        "day_end_cost": "10",
+        "child_list": None,
+    }
+
+
+def test_overseas_keeps_only_third_party_warehouses():
+    """非谷仓的自有账号仓与虚拟收货仓不计入eBay海外仓。"""
+    rows, stats = service._clean_overseas(
+        "2026-07",
+        [
+            _overseas_source("18699", "谷仓 德国区", 5),
+            _overseas_source("20135", "美国本土账号仓库", 7),
+            _overseas_source("20278", "虚拟收货仓", 3),
+        ],
+        {"BMW": "测试负责人"},
+        None,
+        {"18699"},
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["sys_wid"] == "18699"
+    assert stats["overseas_excluded_wid_rows"] == 2
+    assert stats["overseas_excluded_warehouses"] == ["20135", "20278"]
+
+
+def test_overseas_without_whitelist_keeps_every_warehouse():
+    """included_wids 为 None 时保持旧行为，便于单测与回溯比对。"""
+    rows, stats = service._clean_overseas(
+        "2026-07",
+        [
+            _overseas_source("18699", "谷仓 德国区", 5),
+            _overseas_source("20278", "虚拟收货仓", 3),
+        ],
+        {"BMW": "测试负责人"},
+    )
+
+    assert len(rows) == 2
+    assert stats["overseas_excluded_wid_rows"] == 0

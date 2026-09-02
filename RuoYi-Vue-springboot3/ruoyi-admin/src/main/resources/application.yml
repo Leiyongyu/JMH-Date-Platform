@@ -234,7 +234,6 @@ image-sop:
     connect-timeout: 5000
     read-timeout: 900000
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
-
 # Python 绩效排名服务
 performance:
   python:
@@ -242,6 +241,7 @@ performance:
     connect-timeout: 5000
     read-timeout: 300000
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+
 
 jmh:
   python-performance:

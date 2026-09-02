@@ -95,8 +95,11 @@ def test_explicit_stat_month_wins_over_download_month_and_filters_non_ebay_rows(
     )
 
     assert parsed["stat_month"] == "2026-08"
+    # AMZ 开头的 SKU 由 eBay 导出提供，销量与实际达成都要计入，因此不过滤；
+    # 只有空 SKU 和 [SKU 未填写] 这类汇总行会被跳过。
     assert {row["sku"] for row in parsed["rows"]} == {
         "BMW-10001-0001",
+        "AMZ-BMW-10001-0001",
         "JMH-20001-0001",
         "YCL-20001-0001",
         "OTH-20001-0001",
@@ -105,7 +108,8 @@ def test_explicit_stat_month_wins_over_download_month_and_filters_non_ebay_rows(
     assert all(row["sold_quantity"] == 0 for row in parsed["rows"])
 
 
-def test_optional_sold_quantity_is_persisted_and_excludes_amz_rows():
+def test_optional_sold_quantity_is_persisted_and_keeps_amz_rows():
+    """售出数按行保留，AMZ开头的SKU一并计入月度库存销量。"""
     frame = _profit_frame().iloc[:2].copy()
     frame["售出数"] = [7, 999]
 
@@ -116,9 +120,11 @@ def test_optional_sold_quantity_is_persisted_and_excludes_amz_rows():
         stat_month="2026-08",
     )
 
-    assert len(parsed["rows"]) == 1
-    assert str(parsed["rows"][0]["sold_quantity"]) == "7.000000"
-    assert parsed["totals"]["sold_quantity"] == "7.000000"
+    assert len(parsed["rows"]) == 2
+    by_sku = {row["sku"]: row["sold_quantity"] for row in parsed["rows"]}
+    assert str(by_sku["BMW-10001-0001"]) == "7.000000"
+    assert str(by_sku["AMZ-BMW-10001-0001"]) == "999.000000"
+    assert parsed["totals"]["sold_quantity"] == "1006.000000"
 
 
 def test_old_caller_can_still_fall_back_to_filename_month():

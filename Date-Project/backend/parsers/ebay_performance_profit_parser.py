@@ -60,11 +60,13 @@ def parse_ebay_profit_excel(
     for index, record in df.iterrows():
         source_row = int(index) + 2
         sku = normalize_text(record.get("SKU"))
-        # Empty-SKU rows at the end of the export are totals/notes and cannot
-        # participate in owner matching. AMZ rows belong to another pipeline.
+        # Empty-SKU and [SKU未填写] rows at the end of the export are
+        # totals/notes and cannot participate in owner matching.
+        # AMZ-prefixed SKUs are kept on purpose: the eBay export owns them and
+        # both the monthly-inventory sales volume and actual achievement count
+        # them, so filtering here would under-report those two metrics.
         if (
             not sku
-            or sku.upper().startswith("AMZ")
             or sku.replace(" ", "") in {"[SKU未填写]", "SKU未填写"}
         ):
             continue
