@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from backend.parsers.performance_common import (
+    EU_UK_FIXED_OWNER,
     normalize_text,
     parse_brand_code_from_sku,
 )
@@ -1217,7 +1218,7 @@ def _amazon_rule_maps(rows):
             key = key.upper()
         principal = _principal(row.get("principal_name"))
         rules[(group, rule_type, key)] = principal
-        if rule_type == "STORE" and key:
+        if rule_type == "STORE" and key and group != "EU":
             store_rules[key] = (principal, group)
     return rules, store_rules
 
@@ -1240,8 +1241,8 @@ def _amazon_assignment(store_name, sku, rule_maps):
     if not store:
         return UNASSIGNED, "MISSING_STORE", group
     if store.startswith("EU-") or group == "EU":
-        if store.endswith("-UK"):
-            return "吴清栩", "AMAZON_EU_UK_FIXED", "EU"
+        if store.upper().endswith("-UK"):
+            return EU_UK_FIXED_OWNER, "AMAZON_EU_UK_FIXED", "EU"
         if normalized_sku.startswith("OTH-"):
             key = _sku_segment(normalized_sku, 1)
             return (

@@ -6,7 +6,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from backend.parsers.ebay_performance_profit_parser import parse_ebay_profit_excel
-from backend.parsers.performance_common import normalize_text
+from backend.parsers.performance_common import EU_UK_FIXED_OWNER, normalize_text
 from backend.parsers.performance_owner_rule_parser import (
     parse_owner_rule_excel,
     parse_unified_owner_rule_excel,
@@ -334,6 +334,15 @@ def import_unified_owner_rules(
     months = parsed["months"]
     started_at = datetime.now()
     with repo.performance_connection() as connection:
+        # The current workbook merged the former US3 store rows into US2.
+        # Remove only legacy US3 rules for months present in this import; all
+        # other historical rules remain incremental and untouched.
+        legacy_deleted = repo.delete_owner_rules_by_group(
+            connection,
+            platform="amazon",
+            group_code="US3",
+            stat_months=months,
+        )
         repo.upsert_owner_rules(
             connection,
             parsed["rules"],
@@ -397,8 +406,8 @@ def import_unified_owner_rules(
         "platform_stats": parsed["platform_stats"],
         "sheet_stats": parsed["sheet_stats"],
         "ignored_sheets": parsed["ignored_sheets"],
-        "deleted_ods_rows": 0,
-        "deleted_dwd_rows": 0,
+        "deleted_ods_rows": legacy_deleted["ods_rows"],
+        "deleted_dwd_rows": legacy_deleted["dwd_rows"],
         "refreshed_months": refresh_months if rebuild else [],
         "skipped_refresh_months": [
             month for month in months if month not in refresh_months
@@ -473,8 +482,13 @@ def _amazon_store_rules(
 ) -> dict[str, str]:
     """Build one Amazon store-owner map without US1/US2/US3 grouping."""
     result: dict[str, str] = {}
-    for (_, rule_type, match_key), principal in rules.items():
+    for (group_code, rule_type, match_key), principal in rules.items():
         if rule_type != "STORE":
+            continue
+        # EU owner assignment is SKU-brand/OTH based (with UK fixed owner).
+        # EU-店铺 is retained as an auditable store dimension but must not leak
+        # into the group-agnostic US store map.
+        if group_code == "EU":
             continue
         store_key = normalize_text(match_key)
         if not store_key:
@@ -500,8 +514,8 @@ def _amazon_principal(
         return UNASSIGNED, False, True
 
     if store_name.startswith("EU-"):
-        if store_name.endswith("-UK"):
-            return "吴清栩", True, False
+        if store_name.upper().endswith("-UK"):
+            return EU_UK_FIXED_OWNER, True, False
         if local_sku.startswith("OTH-"):
             key = _sku_segment(local_sku, 1)
             return rules.get(("EU", "OTH_CODE", key), UNASSIGNED), True, False

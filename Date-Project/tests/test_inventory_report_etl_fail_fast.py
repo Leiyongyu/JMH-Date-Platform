@@ -173,6 +173,46 @@ def test_monthly_inventory_chongqing_store_keeps_legacy_fallback():
     ) == ("旧负责人", "AMAZON_STORE", "US1")
 
 
+def test_monthly_inventory_eu_uk_site_uses_fixed_owner():
+    rules = service._amazon_rule_maps(
+        [
+            {
+                "group_code": "EU",
+                "rule_type": "BRAND",
+                "match_key": "ABC",
+                "principal_name": "其他品牌负责人",
+            }
+        ]
+    )
+
+    assert service._amazon_assignment(
+        "EU-示例店铺-uk", "ABC-001", rules
+    ) == ("吴清栩", "AMAZON_EU_UK_FIXED", "EU")
+
+
+def test_monthly_inventory_eu_store_dimension_does_not_override_us_store():
+    rules = service._amazon_rule_maps(
+        [
+            {
+                "group_code": "EU",
+                "rule_type": "STORE",
+                "match_key": "同名店铺",
+                "principal_name": "EU店铺负责人",
+            },
+            {
+                "group_code": "US1",
+                "rule_type": "STORE",
+                "match_key": "同名店铺",
+                "principal_name": "US店铺负责人",
+            },
+        ]
+    )
+
+    assert service._amazon_assignment(
+        "US2-同名店铺-US", "ABC-001", rules
+    ) == ("US店铺负责人", "AMAZON_STORE", "US2")
+
+
 def test_department_summary_calculates_actual_and_target_rate():
     fba_row = {
         "department_code": "AMZ-US1",

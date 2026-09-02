@@ -185,6 +185,37 @@ def get_owner_rules(connection: Connection, platform: str, stat_month: str) -> d
     }
 
 
+def delete_owner_rules_by_group(
+    connection: Connection,
+    *,
+    platform: str,
+    group_code: str,
+    stat_months: list[str],
+) -> dict[str, int]:
+    """Delete an obsolete rule group only for the months being re-imported."""
+    if not stat_months:
+        return {"ods_rows": 0, "dwd_rows": 0}
+    placeholders = ",".join(["%s"] * len(stat_months))
+    params = [platform, group_code, *stat_months]
+    deleted: dict[str, int] = {}
+    with connection.cursor() as cursor:
+        for result_key, table_name in (
+            ("ods_rows", "ods_performance_owner_rule_raw"),
+            ("dwd_rows", "dwd_performance_owner_rule"),
+        ):
+            cursor.execute(
+                f"""
+                DELETE FROM {table_name}
+                WHERE platform = %s
+                  AND group_code = %s
+                  AND stat_month IN ({placeholders})
+                """,
+                params,
+            )
+            deleted[result_key] = int(cursor.rowcount or 0)
+    return deleted
+
+
 def replace_amz_ranking(connection: Connection, stat_month: str, rows: list[dict]) -> None:
     with connection.cursor() as cursor:
         cursor.execute("DELETE FROM dws_amz_performance_ranking WHERE stat_month = %s", (stat_month,))

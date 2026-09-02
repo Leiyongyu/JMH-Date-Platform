@@ -6,9 +6,14 @@ from pathlib import Path
 from typing import Any
 
 
-MONTH_HEADER_RE = re.compile(r"^(20\d{2})(0[1-9]|1[0-2])负责人$")
+# Owner workbooks historically used ``YYYYMM负责人`` while the current
+# company template uses the cleaner ``YYYYMM`` header. Keep the legacy form
+# readable for the platform-specific import endpoints.
+MONTH_HEADER_RE = re.compile(r"^(20\d{2})(0[1-9]|1[0-2])(?:负责人)?$")
 MONTH_IN_FILENAME_RE = re.compile(r"(20\d{2})(0[1-9]|1[0-2])")
 STAT_MONTH_RE = re.compile(r"^20\d{2}-(0[1-9]|1[0-2])$")
+
+EU_UK_FIXED_OWNER = "吴清栩"
 
 
 def normalize_text(value: Any) -> str:

@@ -11,18 +11,13 @@ from backend.services import performance_service
 
 
 SHEET_KEYS = {
-    "EU组-sku品牌负责人": "品牌",
-    "EU-OTH负责人": "中间码-OTH",
-    "US1组店铺负责人": "店铺名",
-    "US2组店铺负责人": "店铺名",
-    "US3组店铺负责人": "店铺名",
+    "EU-店铺": "店铺",
+    "EU-品牌": "品牌",
+    "EU-OTH": "中间码-OTH",
+    "US1": "店铺名",
+    "US2": "店铺名",
     # The production template has a blank first-column header here.
-    "EBAYsku负责人": "",
-}
-IGNORED_SHEETS = {
-    "女鞋一部": ("组别（US4/US6/多平台）", "店铺"),
-    "女鞋二部": ("店铺",),
-    "女鞋三部": ("店铺",),
+    "EBAY": "",
 }
 
 
@@ -37,27 +32,19 @@ def _unified_workbook(
     for index, (sheet_name, key_column) in enumerate(SHEET_KEYS.items(), start=1):
         key = (
             f"店铺{index}"
-            if "店铺负责人" in sheet_name
+            if key_column in {"店铺", "店铺名"}
             else f"KEY{index}"
         )
         frames[sheet_name] = pd.DataFrame(
             [
                 {
                     key_column: key,
-                    "202608负责人": august_owner,
-                    "202609负责人": september_owner,
+                    "202608": august_owner,
+                    "202609": september_owner,
+                    "备注": "此列不参与导入",
                 }
             ]
         )
-    for sheet_name, columns in IGNORED_SHEETS.items():
-        row = {column: f"忽略-{sheet_name}" for column in columns}
-        row.update(
-            {
-                "202608负责人": "女鞋负责人",
-                "202609负责人": "女鞋负责人",
-            }
-        )
-        frames[sheet_name] = pd.DataFrame([row])
     for sheet_name, rows in (overrides or {}).items():
         frames[sheet_name] = pd.DataFrame(rows)
     if extra_sheet:
@@ -92,12 +79,12 @@ def test_unified_parser_reads_all_month_columns_and_returns_sheet_stats():
         (row["source_sheet"], row["platform"], row["rule_type"])
         for row in parsed["rules"]
     } == {
-        ("EU组-sku品牌负责人", "amazon", "BRAND"),
-        ("EU-OTH负责人", "amazon", "OTH_CODE"),
-        ("US1组店铺负责人", "amazon", "STORE"),
-        ("US2组店铺负责人", "amazon", "STORE"),
-        ("US3组店铺负责人", "amazon", "STORE"),
-        ("EBAYsku负责人", "ebay", "EBAY_BRAND"),
+        ("EU-店铺", "amazon", "STORE"),
+        ("EU-品牌", "amazon", "BRAND"),
+        ("EU-OTH", "amazon", "OTH_CODE"),
+        ("US1", "amazon", "STORE"),
+        ("US2", "amazon", "STORE"),
+        ("EBAY", "ebay", "EBAY_BRAND"),
     }
     assert [item["sheet_name"] for item in parsed["sheet_stats"]] == list(
         SHEET_KEYS
@@ -106,17 +93,18 @@ def test_unified_parser_reads_all_month_columns_and_returns_sheet_stats():
     assert all(item["month_count"] == 2 for item in parsed["sheet_stats"])
 
 
-def test_unified_parser_ignores_women_sheets():
+def test_unified_parser_ignores_note_column():
     parsed = parse_unified_owner_rule_excel(
         _unified_workbook(),
-        "sku店铺映射表.xlsx",
-        "batch-ignore-women",
+        "负责人划分.xlsx",
+        "batch-ignore-notes",
     )
 
-    assert {row["source_sheet"] for row in parsed["rules"]}.isdisjoint(
-        IGNORED_SHEETS
-    )
-    assert parsed["ignored_sheets"] == sorted(IGNORED_SHEETS)
+    assert parsed["ignored_sheets"] == []
+    assert {row["principal_name"] for row in parsed["rules"]} == {
+        "八月负责人",
+        "九月负责人",
+    }
     assert parsed["platform_stats"] == {"amazon": 10, "ebay": 2}
 
 
@@ -133,11 +121,11 @@ def test_unified_parser_persists_blank_owner_as_unassigned_rule():
     parsed = parse_unified_owner_rule_excel(
         _unified_workbook(
             overrides={
-                "EBAYsku负责人": [
+                "EBAY": [
                     {
                         "": "BMW",
-                        "202608负责人": float("nan"),
-                        "202609负责人": "未来负责人",
+                        "202608": float("nan"),
+                        "202609": "未来负责人",
                     }
                 ]
             }
@@ -149,13 +137,13 @@ def test_unified_parser_persists_blank_owner_as_unassigned_rule():
     ebay_rule = next(
         row
         for row in parsed["rules"]
-        if row["source_sheet"] == "EBAYsku负责人"
+        if row["source_sheet"] == "EBAY"
         and row["stat_month"] == "2026-08"
     )
     ebay_stat = next(
         row
         for row in parsed["sheet_stats"]
-        if row["sheet_name"] == "EBAYsku负责人"
+        if row["sheet_name"] == "EBAY"
     )
     assert ebay_rule["principal_name"] == ""
     assert ebay_stat["imported_rows"] == 2
@@ -167,11 +155,11 @@ def test_unified_parser_persists_pending_owner_as_empty_string():
     parsed = parse_unified_owner_rule_excel(
         _unified_workbook(
             overrides={
-                "US1组店铺负责人": [
+                "US1": [
                     {
                         "店铺名": "暂未配置店铺",
-                        "202608负责人": "待定",
-                        "202609负责人": "未来负责人",
+                        "202608": "待定",
+                        "202609": "未来负责人",
                     }
                 ]
             }
@@ -183,13 +171,13 @@ def test_unified_parser_persists_pending_owner_as_empty_string():
     us1_rule = next(
         row
         for row in parsed["rules"]
-        if row["source_sheet"] == "US1组店铺负责人"
+        if row["source_sheet"] == "US1"
         and row["stat_month"] == "2026-08"
     )
     us1_stat = next(
         row
         for row in parsed["sheet_stats"]
-        if row["sheet_name"] == "US1组店铺负责人"
+        if row["sheet_name"] == "US1"
     )
     assert us1_rule["principal_name"] == ""
     assert us1_stat["imported_rows"] == 2
@@ -199,16 +187,16 @@ def test_unified_parser_persists_pending_owner_as_empty_string():
 def test_unified_parser_rejects_required_sheet_without_match_keys():
     with pytest.raises(
         ValueError,
-        match="US1组店铺负责人.*没有有效匹配键记录",
+        match="US1.*没有有效匹配键记录",
     ):
         parse_unified_owner_rule_excel(
             _unified_workbook(
                 overrides={
-                    "US1组店铺负责人": [
+                    "US1": [
                         {
                             "店铺名": float("nan"),
-                            "202608负责人": "负责人甲",
-                            "202609负责人": "未来负责人",
+                            "202608": "负责人甲",
+                            "202609": "未来负责人",
                         }
                     ]
                 }
@@ -220,18 +208,18 @@ def test_unified_parser_rejects_required_sheet_without_match_keys():
 
 def test_unified_parser_rejects_conflicting_store_owners_across_us_sheets():
     overrides = {
-        "US1组店铺负责人": [
+        "US1": [
             {
                 "店铺名": "同名店铺",
-                "202608负责人": "负责人甲",
-                "202609负责人": "未来负责人",
+                "202608": "负责人甲",
+                "202609": "未来负责人",
             }
         ],
-        "US2组店铺负责人": [
+        "US2": [
             {
                 "店铺名": "同名店铺",
-                "202608负责人": "负责人乙",
-                "202609负责人": "未来负责人",
+                "202608": "负责人乙",
+                "202609": "未来负责人",
             }
         ],
     }
@@ -243,7 +231,7 @@ def test_unified_parser_rejects_conflicting_store_owners_across_us_sheets():
         )
 
 
-def test_unified_import_upserts_all_months_without_deleting_history(
+def test_unified_import_upserts_all_months_and_only_deletes_legacy_us3(
     monkeypatch,
 ):
     parsed = parse_unified_owner_rule_excel(
@@ -262,6 +250,7 @@ def test_unified_import_upserts_all_months_without_deleting_history(
         yield fake_connection
 
     upsert_calls = []
+    legacy_delete_calls = []
     batch_calls = []
     refresh_calls = []
     monkeypatch.setattr(
@@ -282,6 +271,16 @@ def test_unified_import_upserts_all_months_without_deleting_history(
         performance_service.repo,
         "upsert_owner_rules",
         upsert,
+    )
+
+    def delete_legacy(connection, **kwargs):
+        legacy_delete_calls.append((connection, kwargs))
+        return {"ods_rows": 3, "dwd_rows": 2}
+
+    monkeypatch.setattr(
+        performance_service.repo,
+        "delete_owner_rules_by_group",
+        delete_legacy,
     )
     monkeypatch.setattr(
         performance_service.repo,
@@ -307,6 +306,16 @@ def test_unified_import_upserts_all_months_without_deleting_history(
     )
 
     assert len(upsert_calls) == 1
+    assert legacy_delete_calls == [
+        (
+            fake_connection,
+            {
+                "platform": "amazon",
+                "group_code": "US3",
+                "stat_months": ["2026-08", "2026-09"],
+            },
+        )
+    ]
     assert {row["platform"] for row in upsert_calls[0][1]} == {
         "amazon",
         "ebay",
@@ -327,9 +336,9 @@ def test_unified_import_upserts_all_months_without_deleting_history(
     assert result["month_count"] == 2
     assert result["months"] == ["2026-08", "2026-09"]
     assert result["platform_stats"] == {"amazon": 10, "ebay": 2}
-    assert result["deleted_ods_rows"] == 0
-    assert result["deleted_dwd_rows"] == 0
+    assert result["deleted_ods_rows"] == 3
+    assert result["deleted_dwd_rows"] == 2
     assert result["refreshed_months"] == ["2026-08"]
     assert result["skipped_refresh_months"] == ["2026-09"]
-    assert result["ignored_sheets"] == sorted(IGNORED_SHEETS)
+    assert result["ignored_sheets"] == []
     assert len(result["refreshes"]) == 1

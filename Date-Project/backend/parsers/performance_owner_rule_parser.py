@@ -21,20 +21,20 @@ AMAZON_SHEETS = {
 }
 
 
-# The performance importer consumes the six AMZ/eBay sheets from the shared
-# company mapping workbook. The three women's-shoes sheets are intentionally
-# allowed but ignored by this module.
+# The unified importer follows the current ``负责人划分`` workbook exactly.
+# ``备注`` is intentionally absent here: only the first matching-key column
+# and YYYYMM month columns participate in rule generation.
 UNIFIED_OWNER_SHEETS = {
-    "EU组-sku品牌负责人": ("amazon", "EU", "BRAND", "品牌", True),
-    "EU-OTH负责人": ("amazon", "EU", "OTH_CODE", "中间码-OTH", True),
-    "US1组店铺负责人": ("amazon", "US1", "STORE", "店铺名", False),
-    "US2组店铺负责人": ("amazon", "US2", "STORE", "店铺名", False),
-    "US3组店铺负责人": ("amazon", "US3", "STORE", "店铺名", False),
-    # A1 is intentionally blank in the supplied template. Pandas exposes it as
-    # ``Unnamed: 0``; ``None`` means that the first column contains the brand.
-    "EBAYsku负责人": ("ebay", "", "EBAY_BRAND", None, True),
+    "EU-店铺": ("amazon", "EU", "STORE", "店铺", False),
+    "EU-品牌": ("amazon", "EU", "BRAND", "品牌", True),
+    "EU-OTH": ("amazon", "EU", "OTH_CODE", "中间码-OTH", True),
+    "US1": ("amazon", "US1", "STORE", "店铺名", False),
+    "US2": ("amazon", "US2", "STORE", "店铺名", False),
+    # The EBAY sheet intentionally does not name its first column. ``None``
+    # means that whatever the first header contains is the brand column.
+    "EBAY": ("ebay", "", "EBAY_BRAND", None, True),
 }
-UNIFIED_OWNER_IGNORED_SHEETS = {"女鞋一部", "女鞋二部", "女鞋三部"}
+UNIFIED_OWNER_IGNORED_SHEETS: set[str] = set()
 
 
 def parse_owner_rule_excel(
@@ -155,9 +155,15 @@ def parse_unified_owner_rule_excel(
                     )
                 duplicates[key] = (sheet_name, source_row)
 
-                # Store-name matching ignores the US group prefix. Conflicts
-                # therefore need to be checked within the same month.
-                if rule_type == "STORE" and principal_name:
+                # US store-name matching deliberately ignores the US1/US2
+                # prefix (legacy US3 stores are now maintained in US2).
+                # EU store rules are a separate dimension and must not collide
+                # with US store rules that happen to share a display name.
+                if (
+                    rule_type == "STORE"
+                    and group_code != "EU"
+                    and principal_name
+                ):
                     store_owner_key = (month, match_key)
                     previous = store_owners.get(store_owner_key)
                     if previous and previous[0] != principal_name:

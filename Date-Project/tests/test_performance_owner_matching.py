@@ -52,6 +52,37 @@ class AmazonOwnerMatchingTest(unittest.TestCase):
             ("负责人A", True, False),
         )
 
+    def test_eu_uk_site_always_uses_fixed_owner(self):
+        rules = {("EU", "BRAND", "ABC"): "其他品牌负责人"}
+
+        self.assertEqual(
+            _amazon_principal(
+                {
+                    "store_name": "EU-示例店铺-uk",
+                    "local_sku": "ABC-001",
+                },
+                rules,
+            ),
+            ("吴清栩", True, False),
+        )
+
+    def test_eu_store_dimension_does_not_leak_into_us_store_matching(self):
+        rules = {
+            ("EU", "STORE", "同名店铺"): "EU店铺负责人",
+            ("US1", "STORE", "同名店铺"): "US店铺负责人",
+        }
+
+        self.assertEqual(
+            _amazon_principal(
+                {
+                    "store_name": "US2-同名店铺-US",
+                    "local_sku": "ABC-001",
+                },
+                rules,
+            ),
+            ("US店铺负责人", True, False),
+        )
+
     def test_eu_keeps_original_brand_logic_even_with_store_rule(self):
         rules = {
             ("EU", "BRAND", "ABC"): "品牌负责人",
