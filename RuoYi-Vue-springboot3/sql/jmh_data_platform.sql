@@ -698,6 +698,24 @@ CREATE TABLE `ebay_replenish_formula`  (
 ) ENGINE = InnoDB AUTO_INCREMENT = 14 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'eBay补货公式配置' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
+-- Table structure for ebay_replenishment_v2_formula
+-- ----------------------------
+DROP TABLE IF EXISTS `ebay_replenishment_v2_formula`;
+CREATE TABLE `ebay_replenishment_v2_formula`  (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `product_level` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '产品分级：S、A、B、C',
+  `safety_coefficient` decimal(10, 4) NOT NULL COMMENT '安全库存风险系数',
+  `suggest_coefficient` decimal(10, 4) NOT NULL COMMENT '建议补货量系数',
+  `remark` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '备注',
+  `status` tinyint NOT NULL DEFAULT 1 COMMENT '状态：1启用 0停用',
+  `update_by` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '更新者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_product_level`(`product_level` ASC) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'eBay补货2.0安全库存与建议补货量系数配置；与原始补货公式表相互独立' ROW_FORMAT = Dynamic;
+
+-- ----------------------------
 -- Table structure for ebay_replenishment_snapshot
 -- ----------------------------
 DROP TABLE IF EXISTS `ebay_replenishment_snapshot`;

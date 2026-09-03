@@ -31,3 +31,15 @@ def test_ebay_tool_mount_requires_internal_token(monkeypatch) -> None:
 
     legacy = client.get("/ebay-tool-api/api/check", headers=headers)
     assert legacy.status_code == 200
+
+    business_error = client.get(
+        "/ebay-tool/api/status/not-found", headers=headers
+    )
+    assert business_error.status_code == 404
+    assert business_error.json() == {"error": "任务未找到"}
+
+    validation_error = client.post(
+        "/ebay-tool/api/sku/import", headers=headers
+    )
+    assert validation_error.status_code == 422
+    assert set(validation_error.json()) == {"error"}

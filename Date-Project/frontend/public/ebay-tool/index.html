@@ -890,7 +890,9 @@ async function doScrape() {
     statusDiv.innerHTML = '<span class="spinner"></span>正在提交搜索请求...';
 
     try {
-        let fd = new URLSearchParams();
+        // 使用 multipart FormData。Java 安全代理会重建 multipart 请求，
+        // 可避免 Servlet 读取会话参数时提前消耗 urlencoded 表单正文。
+        let fd = new FormData();
         fd.append("nkw", rawText);
         // site: radio group
         const siteRadio = document.querySelector('input[name="site"]:checked');

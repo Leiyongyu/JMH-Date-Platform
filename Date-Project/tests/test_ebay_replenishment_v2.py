@@ -72,7 +72,7 @@ def test_assemble_items_uses_latest_complete_month_and_fills_missing_month():
     assert item["overseas_in_transit_quantity"] == "56"
     assert item["overseas_sellable_quantity"] == "78"
     assert item["sell_through_ratio"] == "0.175214"
-    assert item["product_level"] == "长尾产品-B"
+    assert item["product_level"] == "B"
 
 
 def test_assemble_items_leaves_three_month_rates_empty_when_denominators_are_zero():

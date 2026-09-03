@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 from backend.database import db_connection
+from backend.repositories import ebay_replenishment_v2_repository as repository
 from backend.services import ebay_sku_analysis_service as sku_analysis_service
 
 
@@ -65,6 +66,7 @@ def list_replenishment(
     site: str | None = None,
     sku: str | None = None,
     product_name: str | None = None,
+    product_level: str | None = None,
     page: int = 1,
     page_size: int = 50,
     sort_field: str | None = None,
@@ -88,10 +90,16 @@ def list_replenishment(
         if str(sort_order or "desc").lower() in {"asc", "ascending"}
         else "DESC"
     )
+    # 产品等级由 _product_level 在组装阶段算出，SQL 里并不存在这一列，
+    # 因此带等级筛选时不能用 SQL 分页：先取全量、算完等级再筛选并分页，
+    # 否则每页会少于 page_size、总数也会是筛选前的值。
+    level_filter = (product_level or "").strip().upper() or None
+    paginate_in_sql = level_filter is None
 
     range_start = months[-1]["start_date"]
     range_end = months[0]["end_date"]
     where_sql, filter_params = _filters(site, sku, product_name)
+    limit_sql = "LIMIT %s OFFSET %s" if paginate_in_sql else ""
     month_params = [month["month"] for month in months for _ in range(5)]
     query = f"""
         WITH period_rows AS (
@@ -205,10 +213,11 @@ def list_replenishment(
              =CONVERT(base.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
         {where_sql}
         ORDER BY {sort_column} {sort_direction},site ASC,sku ASC
-        LIMIT %s OFFSET %s
+        {limit_sql}
     """
     params: list[Any] = [range_start, range_end, *month_params, *filter_params]
-    params.extend([page_size, (page - 1) * page_size])
+    if paginate_in_sql:
+        params.extend([page_size, (page - 1) * page_size])
 
     with db_connection() as connection, connection.cursor() as cursor:
         cursor.execute(query, params)
@@ -228,8 +237,25 @@ def list_replenishment(
         )
         sites = [row["site_name"] for row in cursor.fetchall()]
 
+    lead_time_days = repository.lead_time_days_by_sku() if rows else {}
+    formula_configs = repository.formula_by_level() if rows else {}
+    items = _assemble_items(
+        rows,
+        months,
+        lead_time_days=lead_time_days,
+        formula_configs=formula_configs,
+    )
+    if level_filter is not None:
+        items = [
+            item
+            for item in items
+            if str(item.get("product_level") or "").strip().upper() == level_filter
+        ]
+        total = len(items)
+        offset = (page - 1) * page_size
+        items = items[offset:offset + page_size]
     return {
-        "items": _assemble_items(rows, months),
+        "items": items,
         "months": [month["month"] for month in months],
         "latest_complete_month": months[0]["month"],
         "sites": sites,
@@ -316,8 +342,13 @@ def _previous_month_start(value: date) -> date:
 
 
 def _assemble_items(
-    rows: list[dict[str, Any]], months: list[dict[str, Any]]
+    rows: list[dict[str, Any]],
+    months: list[dict[str, Any]],
+    lead_time_days: dict[tuple[str, str], Decimal] | None = None,
+    formula_configs: dict[str, dict[str, Decimal]] | None = None,
 ) -> list[dict[str, Any]]:
+    lead_time_days = lead_time_days or {}
+    formula_configs = formula_configs or {}
     result: list[dict[str, Any]] = []
     for row in rows:
         monthly_metrics = []
@@ -370,6 +401,26 @@ def _assemble_items(
         )
         profit_rate = _ratio_decimal(three_month_profit, three_month_paid_amount)
         return_rate = _ratio_decimal(three_month_return_qty, three_month_sales_qty)
+        product_level = _product_level(return_rate, profit_rate, sell_through_ratio)
+        safety_stock_quantity, suggested_replenishment_quantity = (
+            _replenishment_quantities(
+                site=str(row.get("site") or "其他").strip(),
+                sku=str(row.get("sku") or "").strip(),
+                average_monthly_sales=raw_forecast_sales_quantity,
+                product_level=product_level,
+                inventory_total=sum(
+                    (
+                        _decimal(row.get("chengdu_in_transit_quantity")),
+                        _decimal(row.get("chengdu_sellable_quantity")),
+                        _decimal(row.get("overseas_in_transit_quantity")),
+                        _decimal(row.get("overseas_sellable_quantity")),
+                    ),
+                    Decimal("0"),
+                ),
+                lead_time_days=lead_time_days,
+                formula_configs=formula_configs,
+            )
+        )
         result.append(
             {
                 "site": row.get("site") or "其他",
@@ -386,9 +437,7 @@ def _assemble_items(
                 "forecast_return_quantity": forecast_return_quantity,
                 "forecast_return_amount": forecast_return_amount,
                 "sell_through_ratio": _ratio_decimal_text(sell_through_ratio),
-                "product_level": _product_level(
-                    return_rate, profit_rate, sell_through_ratio
-                ),
+                "product_level": product_level,
                 "chengdu_in_transit_quantity": _quantity_text(
                     row.get("chengdu_in_transit_quantity")
                 ),
@@ -401,6 +450,8 @@ def _assemble_items(
                 "overseas_sellable_quantity": _quantity_text(
                     row.get("overseas_sellable_quantity")
                 ),
+                "safety_stock_quantity": safety_stock_quantity,
+                "suggested_replenishment_quantity": suggested_replenishment_quantity,
                 "monthly_metrics": monthly_metrics,
             }
         )
@@ -436,11 +487,12 @@ def _product_level(
     if return_rate is None:
         return None
     if return_rate > Decimal("0.06"):
-        return "D"
+        return "C"
     if profit_rate is None:
         return None
     if return_rate >= Decimal("0.03"):
-        return "C" if profit_rate < Decimal("0.18") else "长尾产品-B"
+        # 长尾产品统一按 B 级展示与计算，不再单独输出「长尾产品-B」标签。
+        return "C" if profit_rate < Decimal("0.18") else "B"
     if monthly_turnover_rate is None:
         return None
     if profit_rate < Decimal("0.12"):
@@ -448,6 +500,111 @@ def _product_level(
     if profit_rate < Decimal("0.22"):
         return "B" if monthly_turnover_rate < Decimal("0.12") else "A"
     return "B" if monthly_turnover_rate < Decimal("0.15") else "S"
+
+
+def _replenishment_quantities(
+    *,
+    site: str,
+    sku: str,
+    average_monthly_sales: Decimal,
+    product_level: str | None,
+    inventory_total: Decimal,
+    lead_time_days: dict[tuple[str, str], Decimal],
+    formula_configs: dict[str, dict[str, Decimal]],
+) -> tuple[str | None, str | None]:
+    """按全局配置实时计算安全库存和建议补货量。"""
+
+    key = (site, sku)
+    if key not in lead_time_days:
+        return None, None
+    normalized_level = product_level
+    if normalized_level not in {"S", "A", "B", "C"}:
+        return None, None
+    config = formula_configs.get(normalized_level)
+    if config is None:
+        return None, None
+    safety_coefficient = config.get("safety_coefficient")
+    suggest_coefficient = config.get("suggest_coefficient")
+    if safety_coefficient is None or suggest_coefficient is None:
+        return None, None
+
+    total_days = _decimal(lead_time_days[key])
+    safety_stock = (
+        average_monthly_sales
+        * total_days
+        * _decimal(safety_coefficient)
+        / Decimal("30")
+    ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    suggested = (
+        average_monthly_sales
+        * total_days
+        * _decimal(suggest_coefficient)
+        / Decimal("30")
+        - inventory_total
+    )
+    suggested = max(suggested, Decimal("0")).quantize(
+        Decimal("1"), rounding=ROUND_HALF_UP
+    )
+    return format(safety_stock, "f"), format(suggested, "f")
+
+
+def list_formula_configs() -> list[dict[str, Any]]:
+    return [_formula_response(row) for row in repository.list_formula_rows()]
+
+
+def save_formula_configs(
+    rows: list[dict[str, Any]], operator: str | None = None
+) -> list[dict[str, Any]]:
+    expected_levels = {"S", "A", "B", "C"}
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        level = str(row.get("product_level") or "").strip().upper()
+        if level not in expected_levels or level in seen:
+            raise ValueError("公式配置必须且只能包含 S、A、B、C 四个级别")
+        seen.add(level)
+        remark = str(row.get("remark") or "").strip()
+        if len(remark) > 500:
+            raise ValueError(f"{level}级备注不能超过500个字符")
+        normalized.append(
+            {
+                "product_level": level,
+                "safety_coefficient": _non_negative_decimal(
+                    row.get("safety_coefficient"), f"{level}级安全系数"
+                ),
+                "suggest_coefficient": _non_negative_decimal(
+                    row.get("suggest_coefficient"), f"{level}级补货系数"
+                ),
+                "remark": remark or None,
+            }
+        )
+    if seen != expected_levels:
+        raise ValueError("公式配置必须且只能包含 S、A、B、C 四个级别")
+    safe_operator = str(operator or "SYSTEM").strip()[:64] or "SYSTEM"
+    repository.save_formula_rows(normalized, safe_operator)
+    return list_formula_configs()
+
+
+def _formula_response(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **row,
+        "safety_coefficient": format(
+            _decimal(row.get("safety_coefficient")), "f"
+        ),
+        "suggest_coefficient": format(
+            _decimal(row.get("suggest_coefficient")), "f"
+        ),
+    }
+
+
+def _non_negative_decimal(value: Any, label: str) -> Decimal:
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError(f"{label}必须是有效数字") from exc
+    if not result.is_finite() or result < 0:
+        raise ValueError(f"{label}必须大于或等于0")
+    return result.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
 
 def _average_metric(monthly_metrics: list[dict[str, str]], key: str) -> str:

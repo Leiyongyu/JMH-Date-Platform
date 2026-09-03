@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -45,9 +46,45 @@ def create_app() -> FastAPI:
         except HTTPException as exc:
             return JSONResponse(
                 status_code=exc.status_code,
-                content={"detail": exc.detail},
+                content={"error": exc.detail},
             )
         return await call_next(request)
+    # eBay 工具前端统一读取 response.error。FastAPI 已内置更具体的
+    # HTTPException / RequestValidationError 处理器，因此不能只注册
+    # Exception，否则业务 4xx 仍会返回 {"detail": ...}。
+    @ebay_tool_app.exception_handler(HTTPException)
+    async def ebay_tool_http_exception_handler(
+        request: Request, exc: HTTPException
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": str(exc.detail)},
+            headers=exc.headers,
+        )
+
+    @ebay_tool_app.exception_handler(RequestValidationError)
+    async def ebay_tool_validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        messages = [
+            str(error.get("msg") or "").strip()
+            for error in exc.errors()
+            if str(error.get("msg") or "").strip()
+        ]
+        return JSONResponse(
+            status_code=422,
+            content={"error": "；".join(messages) or "请求参数校验失败"},
+        )
+
+    @ebay_tool_app.exception_handler(Exception)
+    async def ebay_tool_unhandled_exception_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        # 不把内部异常和可能包含的敏感信息直接返回浏览器。
+        return JSONResponse(
+            status_code=500,
+            content={"error": "eBay价格查询服务异常，请稍后重试"},
+        )
 
     ebay_tool_app.include_router(ebay_tool_router)
     # 静态目录必须放在业务路由之后，避免吞掉 /api/*。

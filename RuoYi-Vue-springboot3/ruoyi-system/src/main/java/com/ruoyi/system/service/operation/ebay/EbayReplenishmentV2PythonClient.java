@@ -28,6 +28,30 @@ public class EbayReplenishmentV2PythonClient extends PythonHttpSupport
         return get(PREFIX + "/list", params, requestId);
     }
 
+    public Map<String, Object> formula(String requestId)
+    {
+        return get(PREFIX + "/formula", Map.of(), requestId);
+    }
+
+    public Map<String, Object> saveFormula(
+            Map<String, ?> body, String requestId)
+    {
+        try
+        {
+            String json = objectMapper.writeValueAsString(body);
+            HttpRequest request = baseRequest(PREFIX + "/formula", requestId)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            json, StandardCharsets.UTF_8))
+                    .build();
+            return send(request);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
     private Map<String, Object> get(
             String path,
             Map<String, ?> params,

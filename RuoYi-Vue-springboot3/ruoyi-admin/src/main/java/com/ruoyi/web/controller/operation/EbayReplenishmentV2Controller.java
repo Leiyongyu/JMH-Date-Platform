@@ -50,7 +50,7 @@ public class EbayReplenishmentV2Controller extends BaseController
     public AjaxResult list(
             @RequestParam(required = false) String site,
             @RequestParam(required = false) String sku,
-            @RequestParam(required = false) String productName,
+            @RequestParam(required = false) String productLevel,
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "50") int pageSize,
             @RequestParam(required = false) String sortField,
@@ -61,7 +61,7 @@ public class EbayReplenishmentV2Controller extends BaseController
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("site", trimToNull(site));
         params.put("sku", trimToNull(sku));
-        params.put("product_name", trimToNull(productName));
+        params.put("product_level", trimToNull(productLevel));
         params.put("page", Math.max(pageNum, 1));
         params.put("page_size", Math.min(
                 Math.max(pageSize, 1), MAX_PAGE_SIZE));
@@ -70,6 +70,29 @@ public class EbayReplenishmentV2Controller extends BaseController
         Object result = data(client.list(params, requestId));
         result = leadTimeService.enrich(result);
         return success(warehouseRentService.enrich(result));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
+    @GetMapping("/formula")
+    public AjaxResult formula(
+            @RequestHeader(value = "X-Request-ID", required = false)
+                    String requestId)
+    {
+        return success(data(client.formula(requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
+    @Log(title = "eBay补货2.0公式配置", businessType = BusinessType.UPDATE)
+    @PostMapping("/formula")
+    public AjaxResult saveFormula(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "X-Request-ID", required = false)
+                    String requestId)
+    {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        if (body != null) payload.putAll(body);
+        payload.put("operator", getUsername());
+        return success(data(client.saveFormula(payload, requestId)));
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:importWarehouseRent')")

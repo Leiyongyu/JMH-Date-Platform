@@ -10,6 +10,21 @@ export function listEbayReplenishmentV2(params) {
   })
 }
 
+export function getEbayReplenishmentV2Formula() {
+  return request({
+    url: `${base}/formula`,
+    method: 'get'
+  })
+}
+
+export function saveEbayReplenishmentV2Formula(data) {
+  return request({
+    url: `${base}/formula`,
+    method: 'post',
+    data
+  })
+}
+
 export function saveEbayReplenishmentV2LeadTime(data) {
   return request({
     url: `${base}/lead-time`,

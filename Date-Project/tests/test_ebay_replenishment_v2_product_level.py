@@ -8,10 +8,10 @@ from backend.services import ebay_replenishment_v2_service as service
 @pytest.mark.parametrize(
     ("return_rate", "profit_rate", "turnover_rate", "expected"),
     [
-        ("0.061", "0.30", "0.30", "D"),
+        ("0.061", "0.30", "0.30", "C"),
         ("0.03", "0.179", "0.30", "C"),
         ("0.029", "0.119", "0.12", "C"),
-        ("0.03", "0.18", "0.30", "长尾产品-B"),
+        ("0.03", "0.18", "0.30", "B"),
         ("0.029", "0.119", "0.121", "B"),
         ("0.029", "0.12", "0.119", "B"),
         ("0.029", "0.22", "0.149", "B"),

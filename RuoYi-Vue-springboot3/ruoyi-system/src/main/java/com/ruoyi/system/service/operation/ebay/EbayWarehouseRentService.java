@@ -131,13 +131,11 @@ public class EbayWarehouseRentService
         for (Object value : items)
         {
             if (!(value instanceof Map<?, ?> item)) continue;
-            String site = text(item.get("site"));
-            if (site == null) site = text(item.get("site_name"));
-            String sku = text(item.get("sku"));
-            if (sku == null) sku = text(item.get("inventory_sku"));
+            String site = itemSite(item);
+            String sku = itemSku(item);
             if (site == null || sku == null) continue;
-            SiteSkuKey key = new SiteSkuKey(site, sku);
-            requested.computeIfAbsent(key, ignored -> key.toDomain());
+            addKey(requested, site, sku);
+            addKey(requested, site, stripBrandPrefix(sku));
         }
         if (requested.isEmpty()) return data;
 
@@ -152,15 +150,58 @@ public class EbayWarehouseRentService
         {
             if (!(value instanceof Map<?, ?> rawItem)) continue;
             Map<String, Object> item = mutableMap(rawItem);
-            String site = text(item.get("site"));
-            if (site == null) site = text(item.get("site_name"));
-            String sku = text(item.get("sku"));
-            if (sku == null) sku = text(item.get("inventory_sku"));
-            BigDecimal amount = site == null || sku == null
-                    ? null : amounts.get(new SiteSkuKey(site, sku));
+            String site = itemSite(item);
+            String sku = itemSku(item);
+            BigDecimal amount = null;
+            if (site != null && sku != null)
+            {
+                amount = amounts.get(new SiteSkuKey(site, sku));
+                if (amount == null)
+                {
+                    String core = stripBrandPrefix(sku);
+                    if (core != null)
+                    {
+                        amount = amounts.get(new SiteSkuKey(site, core));
+                    }
+                }
+            }
             item.put("warehouse_rent_amount_cny", amount);
         }
         return data;
+    }
+
+    private static String itemSite(Map<?, ?> item)
+    {
+        String site = text(item.get("site"));
+        return site != null ? site : text(item.get("site_name"));
+    }
+
+    private static String itemSku(Map<?, ?> item)
+    {
+        String sku = text(item.get("sku"));
+        return sku != null ? sku : text(item.get("inventory_sku"));
+    }
+
+    private static void addKey(
+            Map<SiteSkuKey, EbayWarehouseRentAggregate> requested,
+            String site, String sku)
+    {
+        if (sku == null) return;
+        SiteSkuKey key = new SiteSkuKey(site, sku);
+        requested.computeIfAbsent(key, ignored -> key.toDomain());
+    }
+
+    /**
+     * 页面SKU带品牌前缀（BMW-30001-0001），仓租文件的商品编码是 JMH-30001-0001，
+     * 导入时已由 normalizeSku 剥成 30001-0001。两边只差首段前缀，去掉后即可对上。
+     * 先走精确匹配，匹配不上再用去前缀的结果兜底，避免影响本就同名的SKU。
+     */
+    private static String stripBrandPrefix(String sku)
+    {
+        if (sku == null) return null;
+        int index = sku.indexOf('-');
+        if (index < 0 || index + 1 >= sku.length()) return null;
+        return text(sku.substring(index + 1));
     }
 
     private ParseResult parse(MultipartFile file) throws Exception

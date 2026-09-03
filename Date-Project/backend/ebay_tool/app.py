@@ -1386,3 +1386,38 @@ def _safe_remove(path: str) -> None:
         os.remove(path)
     except OSError:
         pass
+
+
+# ── 独立运行入口（测试用）──
+if __name__ == "__main__":
+    import uvicorn
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse, RedirectResponse
+    from fastapi.staticfiles import StaticFiles
+
+    _test_app = FastAPI(title="eBay 价格查询工具（独立测试）")
+
+    # 异常处理器：把 HTTPException 转为前端期望的 {"error": "..."} 格式
+    @_test_app.exception_handler(HTTPException)
+    async def _http_exception_handler(request, exc):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": exc.detail},
+        )
+
+    _test_app.include_router(router, prefix="/ebay-tool-api")
+
+    # 挂载前端静态文件
+    _frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend" / "public" / "ebay-tool"
+    _test_app.mount("/ebay-tool", StaticFiles(directory=str(_frontend_dir), html=True), name="frontend")
+
+    @_test_app.get("/")
+    async def _redirect():
+        return RedirectResponse(url="/ebay-tool/")
+
+    print("=" * 50)
+    print("  eBay 价格查询工具（测试模式）")
+    print("  访问地址: http://localhost:8010")
+    print("=" * 50)
+    # 独立测试入口不经过 ERP 会话和内部 Token，只允许本机访问。
+    uvicorn.run(_test_app, host="127.0.0.1", port=8010)

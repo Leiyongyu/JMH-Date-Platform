@@ -6,6 +6,7 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Set;
@@ -49,7 +50,10 @@ public class EbayToolProxyController
     public void proxy(HttpServletRequest request, HttpServletResponse response)
             throws IOException
     {
-        String queryToken = request.getParameter("erp_session");
+        // 只能从URL查询串读取临时会话。request.getParameter() 会解析
+        // application/x-www-form-urlencoded 正文，导致后续转发拿到空请求体。
+        String queryToken = queryParameter(
+                request.getQueryString(), "erp_session");
         String sessionToken = StringUtils.hasText(queryToken)
                 ? queryToken.trim() : sessionCookie(request);
         ImageSopSessionService.SessionContext session =
@@ -96,6 +100,30 @@ public class EbayToolProxyController
         return ALLOWED_PATHS.contains(path) || STATUS_PATH.matcher(path).matches();
     }
 
+    private String queryParameter(String rawQuery, String expectedName)
+    {
+        if (!StringUtils.hasText(rawQuery))
+            return null;
+        for (String part : rawQuery.split("&"))
+        {
+            int equals = part.indexOf('=');
+            String rawName = equals >= 0 ? part.substring(0, equals) : part;
+            try
+            {
+                String name = URLDecoder.decode(rawName, StandardCharsets.UTF_8);
+                if (!expectedName.equals(name))
+                    continue;
+                String rawValue = equals >= 0 ? part.substring(equals + 1) : "";
+                return URLDecoder.decode(rawValue, StandardCharsets.UTF_8);
+            }
+            catch (IllegalArgumentException ignored)
+            {
+                return null;
+            }
+        }
+        return null;
+    }
+
     private String sessionCookie(HttpServletRequest request)
     {
         Cookie[] cookies = request.getCookies();
@@ -127,6 +155,6 @@ public class EbayToolProxyController
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write(
-                "{\"detail\":\"eBay价格工具会话无效或已过期，请刷新ERP页面\"}");
+                "{\"error\":\"eBay价格工具会话无效或已过期，请刷新ERP页面\"}");
     }
 }

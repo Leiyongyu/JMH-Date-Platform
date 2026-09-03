@@ -22,14 +22,20 @@
           @keyup.enter="handleQuery"
         />
       </el-form-item>
-      <el-form-item label="产品名称" prop="productName">
-        <el-input
-          v-model="queryParams.productName"
-          placeholder="请输入产品名称"
+      <el-form-item label="产品等级" prop="productLevel">
+        <el-select
+          v-model="queryParams.productLevel"
+          placeholder="全部等级"
           clearable
-          style="width: 220px"
-          @keyup.enter="handleQuery"
-        />
+          style="width: 160px"
+        >
+          <el-option
+            v-for="level in productLevelOptions"
+            :key="level"
+            :label="level"
+            :value="level"
+          />
+        </el-select>
       </el-form-item>
       <el-form-item>
         <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
@@ -109,7 +115,11 @@
           :show-overflow-tooltip="col.tooltip"
         >
           <template #header>
-            <span class="column-header">
+            <span
+              class="column-header"
+              :class="{ 'column-header--formula': canEditFormula && isFormulaColumn(col) }"
+              @click="canEditFormula && isFormulaColumn(col) && openFormulaDialog()"
+            >
               <span>{{ col.label }}</span>
               <el-tooltip v-if="col.tip" :content="columnTip(col)" placement="top">
                 <el-icon class="column-tip"><QuestionFilled /></el-icon>
@@ -158,9 +168,11 @@
                 </div>
               </div>
             </el-popover>
-            <strong v-else-if="col.key === 'suggestedReplenishmentQty' && hasValue(scope.row[col.key])" class="suggested-qty">
-              {{ formatCell(scope.row[col.key], col) }}
-            </strong>
+            <template v-else-if="isFormulaColumn(col)">
+              <span :class="{ 'suggested-qty': col.key === 'suggestedReplenishmentQty' && hasValue(scope.row[col.key]) }">
+                {{ formatCell(scope.row[col.key], col) }}
+              </span>
+            </template>
             <span v-else>{{ formatCell(scope.row[col.key], col) }}</span>
           </template>
         </el-table-column>
@@ -194,6 +206,57 @@
       :visible-keys="visibleKeys"
       @apply="handleColumnApply"
     />
+
+    <el-dialog
+      v-if="canEditFormula"
+      v-model="formulaDialogVisible"
+      title="安全库存与建议补货量公式配置"
+      width="720px"
+      append-to-body
+      destroy-on-close
+    >
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        title="修改后会影响全部同级别 SKU"
+        description="这里配置的是eBay补货2.0全局分级系数，不是当前行的单独配置；保存后页面会重新查询并实时计算全部SKU。"
+        class="formula-alert"
+      />
+      <div class="formula-description">
+        <div>安全库存 = 月均日销 ×（总提前天数 × 安全系数）</div>
+        <div>建议补货量 = 月均日销 ×（总提前天数 × 补货系数）− 库存合计，负数按0显示</div>
+      </div>
+      <el-table v-loading="formulaLoading" :data="formulaRows" border>
+        <el-table-column prop="productLevel" label="产品等级" width="120" align="center" />
+        <el-table-column label="安全系数" min-width="190" align="center">
+          <template #default="{ row }">
+            <el-input-number
+              v-model="row.safetyCoefficient"
+              :min="0"
+              :precision="4"
+              :step="0.1"
+              controls-position="right"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="补货系数" min-width="190" align="center">
+          <template #default="{ row }">
+            <el-input-number
+              v-model="row.suggestCoefficient"
+              :min="0"
+              :precision="4"
+              :step="0.1"
+              controls-position="right"
+            />
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="formulaDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="formulaSaving" @click="submitFormulaConfig">保存并重新计算</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="purchaseDialogVisible"
@@ -282,8 +345,10 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { QuestionFilled, UploadFilled } from '@element-plus/icons-vue'
 import {
+  getEbayReplenishmentV2Formula,
   importEbayReplenishmentV2WarehouseRent,
   listEbayReplenishmentV2,
+  saveEbayReplenishmentV2Formula,
   saveEbayReplenishmentV2LeadTime
 } from '@/api/operations/ebay/replenishmentV2'
 import { submitPendingPurchase } from '@/api/procurement/pendingPurchase'
@@ -297,10 +362,13 @@ const loading = ref(false)
 const rows = ref([])
 const total = ref(0)
 const siteOptions = ref([])
+// 与后端 _product_level 的取值保持一致：D 级已并入 C，长尾产品统一按 B 展示
+const productLevelOptions = ['S', 'A', 'B', 'C']
 const months = ref([])
 const latestCompleteMonth = ref('')
 const canSubmitPurchase = checkPermi(['procurement:pendingPurchase:add'])
 const canEditLeadTime = checkPermi(['operations:ebayReplenishmentV2:editLeadTime'])
+const canEditFormula = checkPermi(['operations:ebayReplenishmentV2:formula'])
 const leadTimeSavedValues = new Map()
 const leadTimeSaveTimers = new Map()
 const leadTimeSaveChains = new Map()
@@ -313,6 +381,11 @@ const warehouseRentDialogVisible = ref(false)
 const warehouseRentUploading = ref(false)
 const warehouseRentUploadRef = ref(null)
 const warehouseRentFiles = ref([])
+const formulaDialogVisible = ref(false)
+const formulaLoading = ref(false)
+const formulaSaving = ref(false)
+const formulaRows = ref([])
+const formulaLevels = ['S', 'A', 'B', 'C']
 const purchaseForm = reactive({
   site: '',
   sku: '',
@@ -379,7 +452,7 @@ const columnDefs = [
     tip: '预估退货金额 = 最近3个完整自然月的退货金额合计 ÷ 3；缺失月份按0计算。'
   },
   { key: 'sellThroughRatio', label: '动销比', align: 'right', width: 105, format: 'percentage', tip: '动销比 = 预估销量 ÷ 海外可售 × 100%；海外可售为0时不计算。' },
-  { key: 'productLevel', label: '产品等级', align: 'center', width: 125, tip: '利润率和退货率使用最近3个完整自然月的合计口径。按顺序判断：退货率>6%为D；退货率≥3%时利润率<18%为C，否则为长尾产品-B；退货率<3%时再按利润率12%/22%和动销比12%/15%划分C、B、A、S。' },
+  { key: 'productLevel', label: '产品等级', align: 'center', width: 125, tip: '利润率和退货率使用最近3个完整自然月的合计口径。按顺序判断：退货率>6%为C；退货率≥3%时利润率<18%为C，否则为B（长尾产品并入B级）；退货率<3%时再按利润率12%/22%和动销比12%/15%划分C、B、A、S。' },
   { key: 'chengduInTransitQty', label: '成都在途', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取成都中转仓待接收数' },
   { key: 'chengduSellableQty', label: '成都可售', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取成都中转仓可售数' },
   { key: 'overseasInTransitQty', label: '海外在途', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取海外仓在途数' },
@@ -387,8 +460,8 @@ const columnDefs = [
   { key: 'chengduWarehouseToWarehouseDays', label: '成都仓到仓时间', align: 'right', width: 165, format: 'days', manualLeadTime: true, tip: '人工填写整数天数；按站点和完整SKU长期保存，回车或鼠标离开后自动保存。' },
   { key: 'chengduQcToWarehouseDays', label: '成都质检出仓时间', align: 'right', width: 175, format: 'days', manualLeadTime: true, tip: '人工填写整数天数；按站点和完整SKU长期保存，回车或鼠标离开后自动保存。' },
   { key: 'overseasTransitToListingDays', label: '海外在途到上架时间', align: 'right', width: 185, format: 'days', manualLeadTime: true, tip: '人工填写整数天数；按站点和完整SKU长期保存，回车或鼠标离开后自动保存。' },
-  { key: 'safetyStockQty', label: '安全库存', align: 'right', width: 115, format: 'integer' },
-  { key: 'suggestedReplenishmentQty', label: '建议补货量', align: 'right', width: 130, fixed: 'right', format: 'integer' }
+  { key: 'safetyStockQty', label: '安全库存', align: 'right', width: 115, format: 'integer', tip: '安全库存 = 月均日销 ×（总提前天数 × 安全系数）；无时效或分级系数配置时显示--。' },
+  { key: 'suggestedReplenishmentQty', label: '建议补货量', align: 'right', width: 130, fixed: 'right', format: 'integer', tip: '建议补货量 = 月均日销 ×（总提前天数 × 补货系数）− 库存合计；负数按0显示。无时效或分级系数配置时显示--。' }
 ]
 
 const {
@@ -407,7 +480,7 @@ const queryParams = reactive({
   pageSize: 50,
   site: undefined,
   sku: undefined,
-  productName: undefined,
+  productLevel: undefined,
   sortField: undefined,
   sortOrder: undefined
 })
@@ -452,13 +525,78 @@ async function loadRows() {
   }
 }
 
+function isFormulaColumn(column) {
+  return ['safetyStockQty', 'suggestedReplenishmentQty'].includes(column?.key)
+}
+
+async function loadFormulaConfigs() {
+  if (!canEditFormula) return
+  formulaLoading.value = true
+  try {
+    const response = await getEbayReplenishmentV2Formula()
+    setFormulaRows(response?.data)
+  } finally {
+    formulaLoading.value = false
+  }
+}
+
+function setFormulaRows(configs) {
+  const byLevel = new Map((Array.isArray(configs) ? configs : []).map(item => [
+    String(item?.product_level || '').trim().toUpperCase(),
+    item
+  ]))
+  formulaRows.value = formulaLevels.map(productLevel => {
+    const item = byLevel.get(productLevel) || {}
+    return {
+      productLevel,
+      safetyCoefficient: numberOrNull(item.safety_coefficient),
+      suggestCoefficient: numberOrNull(item.suggest_coefficient)
+    }
+  })
+}
+
+async function openFormulaDialog() {
+  if (!canEditFormula) return
+  formulaDialogVisible.value = true
+  await loadFormulaConfigs()
+}
+
+async function submitFormulaConfig() {
+  const invalid = formulaRows.value.some(row =>
+    !Number.isFinite(Number(row.safetyCoefficient))
+    || Number(row.safetyCoefficient) < 0
+    || !Number.isFinite(Number(row.suggestCoefficient))
+    || Number(row.suggestCoefficient) < 0
+  )
+  if (invalid) {
+    ElMessage.warning('S、A、B、C四个级别的安全系数和补货系数都必须填写非负数')
+    return
+  }
+  formulaSaving.value = true
+  try {
+    const response = await saveEbayReplenishmentV2Formula({
+      configs: formulaRows.value.map(row => ({
+        product_level: row.productLevel,
+        safety_coefficient: Number(row.safetyCoefficient),
+        suggest_coefficient: Number(row.suggestCoefficient)
+      }))
+    })
+    setFormulaRows(response?.data)
+    ElMessage.success('全局公式系数已保存，正在重新计算全部SKU')
+    formulaDialogVisible.value = false
+    await loadRows()
+  } finally {
+    formulaSaving.value = false
+  }
+}
+
 function buildRequestParams() {
   return {
     pageNum: queryParams.pageNum,
     pageSize: queryParams.pageSize,
     site: queryParams.site || undefined,
     sku: String(queryParams.sku || '').trim() || undefined,
-    productName: String(queryParams.productName || '').trim() || undefined,
+    productLevel: queryParams.productLevel || undefined,
     sortField: queryParams.sortField || undefined,
     sortOrder: queryParams.sortOrder === 'ascending'
       ? 'asc'
@@ -761,13 +899,16 @@ function formatMonth(value, includeYear) {
 }
 
 function levelTagType(level) {
-  const typeMap = { S: 'success', A: 'primary', B: 'warning', '长尾产品-B': 'warning', C: 'info', D: 'danger' }
+  const typeMap = { S: 'success', A: 'primary', B: 'warning', C: 'info' }
   return typeMap[level] || 'info'
 }
 
 onMounted(async () => {
   await initColumnConfig()
-  await loadRows()
+  await Promise.all([
+    loadRows(),
+    canEditFormula ? loadFormulaConfigs() : Promise.resolve()
+  ])
 })
 
 onBeforeUnmount(() => {
@@ -857,6 +998,35 @@ onBeforeUnmount(() => {
 
 .suggested-qty {
   color: #409eff;
+  font-weight: 600;
+}
+
+.column-header--formula {
+  padding: 1px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  text-decoration: underline dotted #409eff;
+  text-underline-offset: 3px;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.column-header--formula:hover {
+  color: #409eff;
+  background: #ecf5ff;
+}
+
+.formula-alert {
+  margin-bottom: 14px;
+}
+
+.formula-description {
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border-radius: 4px;
+  color: #606266;
+  background: #f5f7fa;
+  font-size: 13px;
+  line-height: 1.8;
 }
 
 .lead-time-cell {
