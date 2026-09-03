@@ -93,6 +93,13 @@
           >
             计算
           </el-button>
+          <el-button
+            :loading="exporting"
+            v-hasPermi="['finance:monthlyInventoryReport:list']"
+            @click="handleExport"
+          >
+            导出
+          </el-button>
         </el-form-item>
       </el-form>
 
@@ -111,7 +118,7 @@
         border
         stripe
         :row-class-name="summaryRowClass"
-        :span-method="spanLocalTransitUs3"
+        :span-method="spanUs3MergedColumns"
       >
         <el-table-column prop="department_name" label="组别" width="145" fixed="left">
           <template #default="{ row }">
@@ -119,7 +126,7 @@
           </template>
         </el-table-column>
         <el-table-column label="总货值" min-width="160" align="right" fixed="left">
-          <template #default="{ row }">{{ money(totalGoodsValue(row)) }}</template>
+          <template #default="{ row }">{{ money(row.total_goods_value) }}</template>
         </el-table-column>
 
         <el-table-column label="本地仓" align="center">
@@ -161,7 +168,7 @@
         </el-table-column>
 
         <el-table-column label="FBA在途金额+FBA在库金额" min-width="210" align="right">
-          <template #default="{ row }">{{ money(combinedWarehouseTotalAmount(row)) }}</template>
+          <template #default="{ row }">{{ money(row.fba_transit_inventory_amount) }}</template>
         </el-table-column>
         <el-table-column min-width="145" align="right">
           <template #header>
@@ -196,24 +203,24 @@
               <span class="report-column-tip">{{ nextBusinessMonthLabel }}周转天数（货值）</span>
             </el-tooltip>
           </template>
-          <template #default="{ row }">{{ optionalDecimal(turnoverDaysByValue(row)) }}</template>
+          <template #default="{ row }">{{ optionalDecimal(row.turnover_days_by_value) }}</template>
         </el-table-column>
         <el-table-column
           :label="`${openingInventoryMonthLabel}初库存数量`"
           min-width="175"
           align="right"
         >
-          <template #default="{ row }">{{ optionalQty(reportMetricValue(row, 'next_month_opening_inventory_qty')) }}</template>
+          <template #default="{ row }">{{ optionalQty(row.next_month_opening_inventory_qty) }}</template>
         </el-table-column>
         <el-table-column :label="`${businessMonthLabel}销量`" min-width="125" align="right">
-          <template #default="{ row }">{{ optionalQty(reportMetricValue(row, 'monthly_sales_qty')) }}</template>
+          <template #default="{ row }">{{ optionalQty(row.monthly_sales_qty) }}</template>
         </el-table-column>
         <el-table-column
           :label="`${nextBusinessMonthLabel}初库销比`"
           min-width="165"
           align="right"
         >
-          <template #default="{ row }">{{ optionalDecimal(openingInventorySalesRatio(row)) }}</template>
+          <template #default="{ row }">{{ optionalDecimal(row.opening_inventory_sales_ratio) }}</template>
         </el-table-column>
         <el-table-column min-width="175" align="right">
           <template #header>
@@ -221,7 +228,15 @@
               <span class="report-column-tip">{{ businessMonthLabel }}周转天数（SKU）</span>
             </el-tooltip>
           </template>
-          <template #default="{ row }">{{ optionalDecimal(turnoverDaysBySku(row)) }}</template>
+          <template #default="{ row }">{{ optionalDecimal(row.turnover_days_by_sku) }}</template>
+        </el-table-column>
+        <el-table-column prop="ctu_over_30_cost" min-width="190" align="right">
+          <template #header>
+            <el-tooltip content="成都中转仓31天及以上库龄货值；与库龄成本使用同一快照月份，US3两组合并显示" placement="top">
+              <span class="report-column-tip">成都仓30天以上货值</span>
+            </el-tooltip>
+          </template>
+          <template #default="{ row }">{{ optionalMoney(row.ctu_over_30_cost) }}</template>
         </el-table-column>
         <el-table-column label="90-180库龄成本" min-width="165" align="right">
           <template #default="{ row }">{{ optionalMoney(row.inventory_age_90_180_cost) }}</template>
@@ -340,6 +355,7 @@
 import { computed, getCurrentInstance, onMounted, ref } from 'vue'
 import purchaseOrderFormatGuide from '@/assets/images/monthly-inventory/purchase-order-pending-arrival-export-fields.png'
 import {
+  exportMonthlyInventoryReport,
   getMonthlyInventoryDimensionSummary,
   getMonthlyInventorySummary,
   importMonthlyInventoryPurchaseOrder,
@@ -355,9 +371,11 @@ const selectedMonth = ref('')
 const activeDimension = ref('group')
 const summaryRows = ref([])
 const dimensionRows = ref([])
+const dimensionTotalRow = ref(null)
 const periodsLoading = ref(false)
 const summaryLoading = ref(false)
 const calculating = ref(false)
+const exporting = ref(false)
 const purchaseOrderUploading = ref(false)
 const purchaseOrderFileInput = ref(null)
 
@@ -470,76 +488,14 @@ const usdRateTip = computed(() => {
   return `按${rateMonth}领星USD我的汇率 ${rate.toLocaleString('zh-CN', { maximumFractionDigits: 6 })} 折算`
 })
 
-const dimensionMetricFields = [
-  'source_rows',
-  'total_goods_value',
-  'overseas_end_in_transit_qty',
-  'overseas_end_in_transit_total_cost',
-  'overseas_end_inventory_qty',
-  'overseas_end_inventory_total_cost',
-  'fba_end_in_transit_qty',
-  'fba_end_in_transit_total_cost',
-  'fba_end_inventory_qty',
-  'fba_end_inventory_total_cost',
-  'fba_transit_inventory_amount',
-  'inventory_181_plus_sku_count',
-  'sales_target_usd',
-  'actual_achievement_amount',
-  'actual_achievement_amount_usd'
-]
-
 const dimensionDisplayRows = computed(() => {
   if (!dimensionRows.value.length) {
     return []
   }
-  const total = {
-    is_dimension_total: 1,
-    dimension_value: '合计',
-    platform_code: '',
-    department_code: '',
-    rate_month: dimensionRows.value[0]?.rate_month || '',
-    usd_rate: dimensionRows.value[0]?.usd_rate ?? null
-  }
-  dimensionMetricFields.forEach(field => {
-    total[field] = dimensionRows.value.reduce(
-      (sum, row) => sum + numberValue(row?.[field]),
-      0
-    )
-  })
-  const targetValues = dimensionRows.value.map(row => row?.sales_target_usd)
-  const targetComplete = targetValues.length > 0
-    && targetValues.every(value => hasReportMetric(value))
-  total.sales_target_usd = targetComplete
-    ? targetValues.reduce((sum, value) => sum + numberValue(value), 0)
-    : null
-  total.sales_target_amount = total.sales_target_usd
-  const actualValues = dimensionRows.value.map(
-    row => row?.actual_achievement_amount_usd
-  )
-  const actualComplete = actualValues.length > 0
-    && actualValues.every(value => hasReportMetric(value))
-  total.actual_achievement_amount_usd = actualComplete
-    ? actualValues.reduce((sum, value) => sum + numberValue(value), 0)
-    : null
-  total.target_achievement_rate = actualComplete && total.sales_target_usd
-    ? total.actual_achievement_amount_usd / total.sales_target_usd
-    : null
-  const healthInventoryQty =
-    total.overseas_end_inventory_qty + total.fba_end_inventory_qty
-  const healthRows = dimensionRows.value.filter(row => (
-    numberValue(row?.overseas_end_inventory_qty)
-      + numberValue(row?.fba_end_inventory_qty)
-  ) > 0)
-  const healthDataComplete = healthRows.length > 0 && healthRows.every(row => (
-    row?.inventory_181_plus_sku_count !== null
-      && row?.inventory_181_plus_sku_count !== undefined
-  ))
-  total.inventory_health_rate = healthDataComplete && healthInventoryQty
-    ? total.inventory_181_plus_sku_count / healthInventoryQty
-    : null
-  return [total, ...dimensionRows.value]
+  return dimensionTotalRow.value
+    ? [dimensionTotalRow.value, ...dimensionRows.value]
+    : dimensionRows.value
 })
-
 function numberValue(value) {
   const result = Number(value || 0)
   return Number.isFinite(result) ? result : 0
@@ -625,12 +581,6 @@ function combinedWarehouseTotalAmount(row) {
   )
 }
 
-function totalGoodsValue(row) {
-  return numberValue(row?.local_end_in_transit_total_cost)
-    + numberValue(row?.local_end_inventory_total_cost)
-    + combinedWarehouseTotalAmount(row)
-}
-
 function departmentFactor(row) {
   const factors = {
     'EBAY-1': 0.45,
@@ -649,89 +599,6 @@ function overseasFbaInventoryAmount(row) {
     'overseas_end_inventory_total_cost',
     'fba_end_inventory_total_cost'
   )
-}
-
-function turnoverDaysByValue(row) {
-  // 货值周转天数沿用既有6.8口径；与本次USD销售目标/实际达成汇率无关。
-  if (Number(row?.is_total) === 1) {
-    const actualAmount = reportMetricValue(row, 'actual_achievement_amount')
-    if (!actualAmount) {
-      return null
-    }
-    const adjustedInventoryAmount = editableSummaryRows.value.reduce(
-      (sum, item) => sum + overseasFbaInventoryAmount(item) / departmentFactor(item),
-      0
-    )
-    return adjustedInventoryAmount / 6.8 / actualAmount * 28
-  }
-  const actualAmount = numberValue(row?.actual_achievement_amount)
-  if (!actualAmount) {
-    return null
-  }
-  return overseasFbaInventoryAmount(row)
-    / 6.8
-    / departmentFactor(row)
-    / actualAmount
-    * 28
-}
-
-function hasReportMetric(value) {
-  return value !== null && value !== undefined && value !== ''
-}
-
-function reportMetricValue(row, field) {
-  if (Number(row?.is_total) !== 1) {
-    return hasReportMetric(row?.[field]) ? numberValue(row[field]) : null
-  }
-  const values = editableSummaryRows.value.map(item => item?.[field])
-  if (!values.length || values.some(value => !hasReportMetric(value))) {
-    return null
-  }
-  return values.reduce((sum, value) => sum + numberValue(value), 0)
-}
-
-function openingInventorySalesRatio(row) {
-  const openingInventoryQty = reportMetricValue(
-    row,
-    'next_month_opening_inventory_qty'
-  )
-  const monthlySalesQty = reportMetricValue(row, 'monthly_sales_qty')
-  if (openingInventoryQty === null || !monthlySalesQty) {
-    return null
-  }
-  const inTransitQty = combinedWarehouseValue(
-    row,
-    'overseas_end_in_transit_qty',
-    'fba_end_in_transit_qty'
-  )
-  return (openingInventoryQty + inTransitQty) / monthlySalesQty
-}
-
-function turnoverDaysBySku(row) {
-  const openingInventoryQty = reportMetricValue(
-    row,
-    'next_month_opening_inventory_qty'
-  )
-  const monthlySalesQty = reportMetricValue(row, 'monthly_sales_qty')
-  if (openingInventoryQty === null || !monthlySalesQty) {
-    return null
-  }
-  const inventoryQty = combinedWarehouseValue(
-    row,
-    'overseas_end_inventory_qty',
-    'fba_end_inventory_qty'
-  )
-  const inTransitQty = combinedWarehouseValue(
-    row,
-    'overseas_end_in_transit_qty',
-    'fba_end_in_transit_qty'
-  )
-  const averageInventoryQty = (
-    openingInventoryQty + inventoryQty + inTransitQty / 2
-  ) / 2
-  return averageInventoryQty > 0
-    ? 28 / (monthlySalesQty / averageInventoryQty)
-    : 0
 }
 
 function salesSprintTarget(row) {
@@ -757,8 +624,12 @@ function summaryRowClass({ row }) {
   return Number(row.is_total) === 1 ? 'total-row' : ''
 }
 
-function spanLocalTransitUs3({ row, column }) {
-  if (!['local_end_in_transit_qty', 'local_end_in_transit_total_cost'].includes(column.property)) {
+function spanUs3MergedColumns({ row, column }) {
+  if (![
+    'local_end_in_transit_qty',
+    'local_end_in_transit_total_cost',
+    'ctu_over_30_cost'
+  ].includes(column.property)) {
     return [1, 1]
   }
   if (row.department_code === 'AMZ-US2-MJ') {
@@ -801,6 +672,7 @@ async function loadSummary() {
   if (!sourceStatMonth.value) {
     summaryRows.value = []
     dimensionRows.value = []
+    dimensionTotalRow.value = null
     return
   }
   summaryLoading.value = true
@@ -809,6 +681,7 @@ async function loadSummary() {
       const response = await getMonthlyInventorySummary(sourceStatMonth.value)
       summaryRows.value = response.data?.items || []
       dimensionRows.value = []
+      dimensionTotalRow.value = null
     } else {
       const dimensionType = activeDimension.value === 'store' ? 'STORE' : 'OWNER'
       const response = await getMonthlyInventoryDimensionSummary(
@@ -816,6 +689,7 @@ async function loadSummary() {
         dimensionType
       )
       dimensionRows.value = response.data?.items || []
+      dimensionTotalRow.value = response.data?.total || null
       summaryRows.value = []
     }
   } finally {
@@ -879,6 +753,50 @@ async function handlePurchaseOrderUpload(options) {
   }
 }
 
+async function handleExport() {
+  if (!sourceStatMonth.value) {
+    proxy.$modal.msgError('请选择需要导出的月份')
+    return
+  }
+  const dimensionType = activeDimension.value === 'group'
+    ? 'GROUP'
+    : activeDimension.value === 'store' ? 'STORE' : 'OWNER'
+  const dimensionLabel = dimensionType === 'GROUP'
+    ? '组别'
+    : dimensionType === 'STORE' ? '店铺' : '负责人'
+  exporting.value = true
+  try {
+    const data = await exportMonthlyInventoryReport(
+      sourceStatMonth.value,
+      dimensionType
+    )
+    const blob = data instanceof Blob
+      ? data
+      : new Blob([data], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        })
+    const timestamp = new Date().toISOString()
+      .replace(/[-:T.Z]/g, '')
+      .slice(0, 14)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${statMonth.value}-月度库存-${dimensionLabel}-${timestamp}.xlsx`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    proxy.$modal.msgSuccess(`${statMonth.value}月度库存${dimensionLabel}导出成功`)
+  } catch (error) {
+    const responseData = error?.response?.data
+    const message = responseData instanceof Blob
+      ? await responseData.text()
+      : String(responseData?.msg || responseData || error?.message || '月度库存导出失败')
+    proxy.$modal.msgError(message || '月度库存导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
 onMounted(async () => {
   await loadPeriods(true)
   await loadSummary()

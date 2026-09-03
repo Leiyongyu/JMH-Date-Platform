@@ -7,6 +7,7 @@ from starlette.background import BackgroundTask
 from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import quote
 
 from backend.api.deps import require_internal_access
 from backend.api.upload_helpers import read_excel_upload
@@ -37,6 +38,9 @@ from backend.services.inventory_report_etl_service import (
     list_details as list_inventory_report_details,
     list_months as list_inventory_report_months,
     rebuild_monthly_inventory_report,
+)
+from backend.services.inventory_report_export_service import (
+    export_monthly_inventory_report,
 )
 from backend.services.inventory_report_source_sync_service import (
     InventoryReportSourceSyncError,
@@ -358,6 +362,41 @@ def get_monthly_inventory_report_dimension_summary(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return success_response(data, request_id=request.state.request_id)
 
+
+@router.get("/monthly-inventory-report/exports")
+async def get_monthly_inventory_report_export(
+    stat_month: str | None = Query(
+        None, pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"
+    ),
+    dimension_type: str = Query(
+        "GROUP", pattern="^(GROUP|STORE|OWNER)$"
+    ),
+):
+    try:
+        download_name, content = await run_in_threadpool(
+            export_monthly_inventory_report,
+            stat_month,
+            dimension_type,
+        )
+        return StreamingResponse(
+            BytesIO(content),
+            media_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition": (
+                    "attachment; filename*=UTF-8''" + quote(download_name)
+                )
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"月度库存报表导出失败: {exc}",
+        ) from exc
 
 @router.get("/monthly-inventory-report/details")
 def get_monthly_inventory_report_details(

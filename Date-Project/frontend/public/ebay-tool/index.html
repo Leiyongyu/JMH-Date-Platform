@@ -1,0 +1,1675 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>eBay SP 价格查询工具</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f4f6f8; color: #182230; padding: 18px;
+        }
+        .wrap { max-width: 1500px; margin: 0 auto; }
+
+        /* ── 卡片基础 ── */
+        .card {
+            border: 1px solid #e6eaf0; border-radius: 14px; background: #fff;
+            box-shadow: 0 3px 14px rgb(15 23 42 / 4%);
+        }
+
+        /* ── 页头 ── */
+        .page-heading {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 24px; padding: 20px 22px; margin-bottom: 14px;
+        }
+        .eyebrow {
+            margin-bottom: 4px; color: #356fe5; font-size: 11px;
+            font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase;
+        }
+        .page-heading h2 { margin: 0; font-size: 22px; }
+        .page-heading p { margin: 7px 0 0; color: #667085; font-size: 13px; }
+        .heading-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .health-tag {
+            display: inline-block; padding: 4px 12px; border-radius: 16px;
+            font-size: 12px; font-weight: 600; border: 1px solid transparent;
+        }
+        .health-ok { background: #ecfdf3; color: #027a48; border-color: #a6f4c5; }
+        .health-err { background: #fef3f2; color: #b42318; border-color: #fecdca; }
+
+        /* ── 按钮 ── */
+        .btn-primary {
+            padding: 8px 20px; background: #356fe5; color: #fff;
+            border: none; border-radius: 8px; font-size: 14px; font-weight: 600;
+            cursor: pointer; white-space: nowrap;
+        }
+        .btn-primary:hover { background: #2b5bc7; }
+        .btn-primary:disabled { background: #a0b4d0; cursor: not-allowed; }
+        .btn-secondary {
+            padding: 8px 16px; background: #f2f4f7; color: #344054;
+            border: 1px solid #d0d5dd; border-radius: 8px; font-size: 14px;
+            font-weight: 500; cursor: pointer; white-space: nowrap;
+        }
+        .btn-secondary:hover { background: #e4e7ec; }
+        .btn-manage { background: #6c757d; color: #fff; border: none; }
+        .btn-manage:hover { background: #545b62; }
+
+        /* ── 流程步骤条 ── */
+        .flow-steps {
+            display: grid; grid-template-columns: repeat(4, 1fr);
+            border-bottom: 1px solid #edf0f4; background: #f9fafb;
+            border-radius: 14px 14px 0 0;
+        }
+        .flow-step {
+            display: flex; align-items: center; gap: 10px;
+            padding: 16px 18px; border-right: 1px solid #edf0f4;
+        }
+        .flow-step:last-child { border-right: 0; }
+        .flow-step > span {
+            display: grid; width: 28px; height: 28px; flex: 0 0 28px;
+            place-items: center; border-radius: 50%;
+            background: #eaf1ff; color: #356fe5; font-weight: 700; font-size: 13px;
+        }
+        .flow-step div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+        .flow-step strong { font-size: 13px; color: #243244; }
+        .flow-step small { overflow: hidden; color: #7b8796; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* ── 输入区域 ── */
+        .upload-card { margin-top: 14px; overflow: hidden; }
+        .upload-body { display: grid; grid-template-columns: minmax(300px, .8fr) minmax(400px, 1.2fr); gap: 32px; padding: 30px; }
+        .upload-copy h3 { margin: 0 0 8px; font-size: 18px; color: #243244; }
+        .upload-copy p { margin: 0; color: #667085; font-size: 13px; line-height: 1.7; }
+        .upload-copy ul { margin: 14px 0; padding-left: 20px; color: #475467; font-size: 13px; line-height: 2; }
+        .site-picker { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
+        .site-picker > span { color: #475467; font-size: 13px; font-weight: 600; }
+        .radio-group { display: flex; gap: 0; }
+        .radio-group label {
+            padding: 6px 16px; border: 1px solid #d0d5dd; font-size: 13px;
+            cursor: pointer; background: #fff; color: #344054; font-weight: 500;
+            transition: all .15s;
+        }
+        .radio-group label:first-child { border-radius: 6px 0 0 6px; }
+        .radio-group label:last-child { border-radius: 0 6px 6px 0; }
+        .radio-group label:not(:first-child) { border-left: 0; }
+        .radio-group input { display: none; }
+        .radio-group input:checked + span { color: #fff; }
+        .radio-group label:has(input:checked) { background: #356fe5; border-color: #356fe5; color: #fff; }
+
+        .upload-panel { display: flex; flex-direction: column; gap: 14px; }
+        .create-method {
+            display: flex; flex-direction: column; gap: 12px; padding: 18px;
+            border: 1px solid #e4e9f0; border-radius: 12px; background: #fbfcfe;
+        }
+        .method-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .method-heading > div { display: flex; align-items: baseline; gap: 9px; }
+        .method-heading strong { color: #27364a; font-size: 14px; }
+        .method-heading span { color: #7b8796; font-size: 11px; }
+        .method-heading .limit-tag {
+            padding: 2px 8px; border-radius: 10px; background: #f2f4f7;
+            color: #667085; font-size: 11px; font-weight: 600;
+            border: 1px solid #e4e9f0;
+        }
+        .method-divider {
+            display: flex; align-items: center; gap: 12px;
+            color: #98a2b3; font-size: 11px;
+        }
+        .method-divider::before, .method-divider::after {
+            height: 1px; flex: 1; background: #e9edf3; content: '';
+        }
+
+        .file-picker-row { display: flex; min-width: 0; align-items: center; gap: 10px; }
+        .file-picker-row > span {
+            overflow: hidden; flex: 1; color: #98a2b3; font-size: 12px;
+            text-overflow: ellipsis; white-space: nowrap;
+        }
+        .file-picker-row > span.selected { color: #356fe5; font-weight: 600; }
+        .file-placeholder {
+            padding: 20px; border: 2px dashed #d0d5dd; border-radius: 10px;
+            text-align: center; color: #98a2b3; font-size: 13px;
+            background: #fafbfc;
+        }
+
+        .nkw-click-area {
+            padding: 12px 14px; border: 2px solid #e0e0e0; border-radius: 8px;
+            font-size: 14px; cursor: pointer; min-height: 48px;
+            line-height: 1.6; overflow: hidden; white-space: nowrap;
+            text-overflow: ellipsis; transition: border-color .2s;
+        }
+        .nkw-click-area:hover { border-color: #356fe5; }
+        .nkw-hint { font-size: 12px; color: #999; margin-top: 4px; }
+
+        /* ── 选项行 ── */
+        .options-row {
+            display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+            margin-top: 12px;
+        }
+        .options-row label {
+            display: flex; align-items: center; gap: 5px;
+            cursor: pointer; font-size: 13px; user-select: none; color: #344054;
+        }
+        .options-row input[type="checkbox"] {
+            accent-color: #356fe5; width: 15px; height: 15px; cursor: pointer;
+        }
+        .options-row select {
+            padding: 6px 10px; border: 1px solid #d0d5dd; border-radius: 6px;
+            font-size: 13px; color: #344054; background: #fff; outline: none;
+        }
+        .options-row select:focus { border-color: #356fe5; }
+
+        /* ── 输入弹窗 ── */
+        .nkw-overlay {
+            display: none; position: fixed; inset: 0; z-index: 1000;
+            background: rgba(0,0,0,0.45); justify-content: center; align-items: center;
+        }
+        .nkw-overlay.open { display: flex; }
+        .nkw-modal {
+            background: #fff; border-radius: 14px; padding: 24px;
+            width: 90%; max-width: 700px; max-height: 80vh;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.25); display: flex;
+            flex-direction: column; gap: 14px;
+        }
+        .nkw-modal h3 { font-size: 17px; color: #243244; }
+        .nkw-modal textarea {
+            flex: 1; padding: 14px; border: 2px solid #e0e0e0;
+            border-radius: 8px; font-size: 15px; outline: none;
+            font-family: inherit; resize: none; min-height: 300px; line-height: 1.8;
+        }
+        .nkw-modal textarea:focus { border-color: #356fe5; }
+        .modal-btns { display: flex; gap: 10px; justify-content: flex-end; }
+        .modal-btns button {
+            padding: 8px 24px; border: none; border-radius: 6px;
+            font-size: 14px; cursor: pointer; font-weight: 600;
+        }
+        .btn-ok { background: #356fe5; color: #fff; }
+        .btn-ok:hover { background: #2b5bc7; }
+        .btn-cancel { background: #f2f4f7; color: #344054; }
+        .btn-cancel:hover { background: #e4e7ec; }
+
+        /* ── 状态提示 ── */
+        #status {
+            padding: 16px 20px; border-radius: 10px; margin: 14px 0;
+            font-size: 14px; display: none; white-space: pre-line;
+        }
+        #status.info { display: block; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+        #status.error { display: block; background: #fef3f2; color: #b42318; border: 1px solid #fecdca; }
+        #status.warn { display: block; background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+
+        .spinner {
+            display: inline-block; width: 18px; height: 18px;
+            border: 2px solid #ccc; border-top-color: #356fe5;
+            border-radius: 50%; animation: spin .6s linear infinite;
+            vertical-align: middle; margin-right: 8px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .progress-bar-wrap { background: #e5e7eb; border-radius: 4px; height: 6px; margin-top: 10px; }
+        .progress-bar-fill {
+            background: #356fe5; border-radius: 4px; height: 100%;
+            transition: width 0.4s ease;
+        }
+
+        /* ── 任务摘要 ── */
+        .task-summary {
+            display: grid; grid-template-columns: minmax(400px, 1.5fr) minmax(380px, 1fr);
+            gap: 24px; margin-top: 14px; padding: 18px 20px;
+        }
+        .task-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 13px; }
+        .task-label { color: #7b8796; font-size: 11px; }
+        .task-title h3 { margin: 2px 0; font-size: 16px; color: #243244; }
+        .task-title p { margin: 0; color: #7b8796; font-size: 11px; }
+        .progress-row { display: grid; grid-template-columns: 64px minmax(140px, 1fr) 60px; align-items: center; gap: 12px; margin-top: 8px; }
+        .progress-row > span { color: #667085; font-size: 12px; }
+        .progress-row > strong { color: #344054; font-size: 12px; text-align: right; }
+
+        .el-progress { height: 10px; background: #e5e7eb; border-radius: 5px; overflow: hidden; }
+        .el-progress-bar { height: 100%; border-radius: 5px; transition: width .4s ease; }
+        .el-progress-blue { background: #356fe5; }
+        .el-progress-green { background: #12b76a; }
+
+        .summary-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; align-content: center; }
+        .summary-grid > div {
+            display: flex; align-items: center; flex-direction: column; gap: 4px;
+            padding: 12px 6px; border-radius: 9px; background: #f8fafc;
+        }
+        .summary-grid span { color: #7b8796; font-size: 11px; }
+        .summary-grid strong { font-size: 20px; }
+        .summary-grid .stat-success { color: #079455; }
+        .summary-grid .stat-danger { color: #d92d20; }
+        .summary-grid .stat-primary { color: #356fe5; }
+        .summary-grid .stat-muted { color: #667085; }
+        .summary-grid .stat-warning { color: #b54708; }
+
+        /* ── 结果区 ── */
+        #results-container { margin-top: 14px; }
+
+        /* ── 审核工作台：侧边栏 + 主内容 ── */
+        .review-workbench {
+            display: grid; grid-template-columns: 265px minmax(0, 1fr);
+            min-height: 610px; margin-top: 14px; overflow: hidden;
+            border: 1px solid #e6eaf0; border-radius: 14px; background: #fff;
+            box-shadow: 0 3px 14px rgb(15 23 42 / 4%);
+        }
+        .oe-sidebar {
+            display: flex; min-height: 0; flex-direction: column; gap: 10px;
+            padding: 14px; border-right: 1px solid #e9edf3; background: #fbfcfd;
+        }
+        .sidebar-heading { display: flex; align-items: center; justify-content: space-between; }
+        .sidebar-heading > div { display: flex; align-items: baseline; gap: 8px; }
+        .sidebar-heading strong { font-size: 15px; color: #243244; }
+        .sidebar-heading span { color: #98a2b3; font-size: 11px; }
+        .sidebar-search {
+            padding: 8px 12px; border: 1px solid #d0d5dd; border-radius: 6px;
+            font-size: 13px; width: 100%;
+        }
+        .sidebar-search:focus { border-color: #356fe5; outline: none; }
+        .oe-list {
+            display: flex; max-height: calc(100vh - 390px); min-height: 400px;
+            flex-direction: column; gap: 4px; overflow-y: auto;
+        }
+        .oe-list-item {
+            display: flex; align-items: center; gap: 8px; width: 100%;
+            padding: 9px 10px; border: 1px solid transparent; border-radius: 8px;
+            background: transparent; color: inherit; cursor: pointer;
+            font-size: 13px; text-align: left; font-family: inherit;
+        }
+        .oe-list-item:hover { background: #f1f5fb; }
+        .oe-list-item.active { border-color: #b8ccf7; background: #eaf1ff; }
+        .oe-list-item .oe-name {
+            flex: 1; overflow: hidden; font-family: "Consolas", "Courier New", monospace;
+            font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .oe-list-item .oe-count { color: #98a2b3; font-size: 11px; white-space: nowrap; }
+        .oe-list-item .oe-selected { color: #356fe5; font-size: 11px; font-weight: 600; white-space: nowrap; }
+
+        /* ── 主内容区 ── */
+        .review-main { min-width: 0; display: flex; flex-direction: column; }
+        .review-heading {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 18px; padding: 16px 18px; border-bottom: 1px solid #edf0f4;
+            flex-wrap: wrap;
+        }
+        .review-position { color: #356fe5; font-size: 12px; font-weight: 700; }
+        .current-oe-line { display: flex; align-items: center; gap: 8px; margin-top: 3px; flex-wrap: wrap; }
+        .current-oe-line .oe-label {
+            color: #356fe5; font-family: "Consolas", "Courier New", monospace;
+            font-size: 19px; font-weight: 700;
+        }
+        .review-heading p { margin: 5px 0 0; color: #7b8796; font-size: 11px; }
+        .position-jump { display: flex; gap: 8px; }
+
+        .selection-bar {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 16px; padding: 11px 18px; border-bottom: 1px solid #edf0f4; background: #fcfcfd;
+        }
+        .selection-bar > div { display: flex; align-items: center; gap: 8px; }
+        .selection-bar strong { font-size: 13px; color: #243244; }
+        .selection-bar span { color: #7b8796; font-size: 11px; }
+        .selection-bar b { color: #356fe5; font-size: 14px; }
+        .selection-bar .btn-link {
+            background: none; border: none; color: #356fe5; cursor: pointer;
+            font-size: 12px; padding: 0; font-weight: 600;
+        }
+        .selection-bar .btn-link:hover { text-decoration: underline; }
+
+        /* ── 价格分布直方图 ── */
+        .price-chart {
+            background: #fafbfd; border: 1px solid #edf0f4; border-radius: 10px;
+            padding: 14px 18px 10px; margin: 12px 0;
+        }
+        .price-chart-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 10px;
+        }
+        .price-chart-header span { font-size: 12px; color: #7b8796; }
+        .price-chart-header strong { font-size: 13px; color: #243244; }
+        .price-chart-bars {
+            display: flex; align-items: flex-end; gap: 3px; height: 90px;
+            padding-bottom: 22px; position: relative;
+        }
+        .price-bar-wrap {
+            flex: 1; display: flex; flex-direction: column; align-items: center;
+            position: relative; height: 100%; justify-content: flex-end;
+        }
+        .price-bar-count {
+            font-size: 10px; color: #7b8796; margin-bottom: 2px;
+            white-space: nowrap; min-height: 14px;
+        }
+        .price-bar {
+            width: 100%; border-radius: 3px 3px 0 0;
+            background: linear-gradient(180deg, #5b8def 0%, #356fe5 100%);
+            min-height: 2px; transition: background 0.15s;
+            position: relative;
+        }
+        .price-bar:hover { background: linear-gradient(180deg, #7da4f5 0%, #4a7fee 100%); }
+        .price-bar-tip {
+            display: none; position: absolute; bottom: calc(100% + 6px); left: 50%;
+            transform: translateX(-50%); background: #243244; color: #fff;
+            font-size: 11px; padding: 4px 8px; border-radius: 4px; white-space: nowrap;
+            z-index: 10; pointer-events: none;
+        }
+        .price-bar-wrap:hover .price-bar-tip { display: block; }
+        .price-bar-label {
+            font-size: 10px; color: #98a2b3; margin-top: 3px;
+            white-space: nowrap; text-align: center;
+        }
+        .price-bar-highlight {
+            background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%) !important;
+        }
+
+        .review-footer {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 20px; padding: 14px 18px; border-top: 1px solid #edf0f4; margin-top: auto;
+        }
+        .review-footer > div { display: flex; align-items: center; gap: 7px; color: #667085; font-size: 11px; }
+
+        .state-panel {
+            display: flex; min-height: 400px; align-items: center; justify-content: center;
+            flex-direction: column; padding: 40px; text-align: center;
+        }
+        .state-panel h3 { margin: 15px 0 6px; color: #243244; }
+        .state-panel p { max-width: 500px; margin: 0; color: #667085; font-size: 13px; line-height: 1.7; }
+
+        .main-table-wrap { flex: 1; overflow: auto; }
+
+        /* ── 旧版 OE section（排序重建时保留兼容） ── */
+        .oe-section {
+            margin-bottom: 0; border: none; border-radius: 0;
+            background: #fff; box-shadow: none; overflow: hidden;
+        }
+        .oe-section-header {
+            display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+            padding: 12px 18px; background: #f9fafb;
+            border-bottom: 1px solid #edf0f4; font-size: 14px;
+        }
+        .oe-label {
+            color: #356fe5; font-family: "Consolas", "Courier New", monospace;
+            font-size: 15px; font-weight: 700;
+        }
+        .oe-count { color: #7b8796; font-size: 12px; }
+        .badge { padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .badge-ok { background: #ecfdf3; color: #027a48; }
+        .badge-warn { background: #fffbeb; color: #92400e; }
+        .badge-err { background: #fef3f2; color: #b42318; }
+
+        .strategy-tag {
+            display: inline-block; padding: 2px 8px; border-radius: 10px;
+            font-size: 10px; font-weight: 600;
+        }
+        .strategy-locked { background: #e3f2fd; color: #1565c0; }
+        .strategy-fallback { background: #fff3e0; color: #e65100; }
+        .strategy-global { background: #ffebee; color: #c62828; }
+
+        .btn-sort {
+            margin-left: auto; padding: 4px 10px; border: 1px solid #d0d5dd;
+            border-radius: 6px; background: #fff; font-size: 12px;
+            cursor: pointer; color: #344054; white-space: nowrap;
+        }
+        .btn-sort:hover { background: #f2f4f7; }
+        .btn-sort.active { background: #356fe5; color: #fff; border-color: #356fe5; }
+
+        .sold-tag {
+            padding: 3px 10px; background: #ecfdf3; color: #027a48;
+            border-radius: 6px; font-size: 12px; font-weight: 600;
+        }
+
+        /* ── 表格 ── */
+        .table-scroll { overflow: auto; max-height: 70vh; }
+        .oe-table { width: 100%; border-collapse: collapse; }
+        .oe-table th {
+            background: #f7f8fa; color: #475467; font-size: 12px;
+            padding: 10px 12px; text-align: left; font-weight: 600;
+            border-bottom: 1px solid #edf0f4; position: sticky; top: 0; z-index: 1;
+        }
+        .oe-table td {
+            padding: 8px 12px; border-bottom: 1px solid #f2f4f7;
+            font-size: 12px; vertical-align: middle;
+        }
+        .oe-table tr:hover td { background: #f8fafc !important; }
+        .oe-table tr:nth-child(even) td { background: #fcfcfd; }
+        .oe-table tr:nth-child(even):hover td { background: #f8fafc !important; }
+        .oe-table tr.checked td { background: #ecfdf3 !important; }
+
+        .td-chk { width: 36px; text-align: center; }
+        .td-chk input { width: 15px; height: 15px; cursor: pointer; accent-color: #356fe5; }
+        .td-num { width: 38px; text-align: center; }
+        .rank-badge {
+            display: inline-grid; width: 27px; height: 27px; place-items: center;
+            border-radius: 8px; background: #ecfdf3; color: #027a48;
+            font-size: 11px; font-weight: 700;
+        }
+        .td-oe {
+            width: 130px; text-align: center; font-weight: 700;
+            font-size: 13px !important; font-family: "Consolas", "Courier New", monospace;
+            color: #356fe5;
+        }
+        .td-price { width: 100px; text-align: right; }
+        .price-cell { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; }
+        .price-cell strong { color: #b54708; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 14px !important; }
+        .td-title { min-width: 260px; }
+        .product-title {
+            display: -webkit-box; overflow: hidden; color: #243244; font-size: 13px;
+            font-weight: 500; line-height: 1.45;
+            -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+        }
+        .suspect-badge {
+            display: inline-block; background: #fef3f2; color: #b42318;
+            font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-left: 6px;
+        }
+        .td-link { min-width: 180px; max-width: 280px; }
+        .td-link a { color: #356fe5; font-size: 11px; text-decoration: none; word-break: break-all; }
+        .td-link a:hover { text-decoration: underline; }
+        .td-img { width: 180px; padding: 4px !important; }
+        .td-img .img-cell { display: flex; gap: 3px; }
+        .td-img img {
+            width: 55px; height: 55px; object-fit: contain;
+            border-radius: 6px; border: 1px solid #eaecf0; background: #f8fafc;
+            cursor: pointer; transition: transform .2s;
+        }
+        .td-img img:hover { transform: scale(1.08); }
+        .td-seller { width: 110px; text-align: center; font-size: 11px !important; }
+        .seller-cell { display: flex; flex-direction: column; gap: 2px; }
+        .seller-cell span { color: #344054; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .seller-cell small { color: #7b8796; font-size: 10px; }
+        .td-sold { width: 70px; text-align: center; font-size: 12px !important; color: #475467; font-variant-numeric: tabular-nums; }
+        .td-feedback { width: 60px; text-align: center; font-size: 11px !important; color: #027a48; font-weight: 600; }
+        .td-shipping { width: 80px; text-align: center; font-size: 11px !important; white-space: nowrap; }
+        .td-shipping .free { color: #027a48; font-weight: 600; }
+
+        .oe-section-warning { padding: 14px 18px; color: #92400e; font-size: 13px; background: #fffbeb; }
+
+        /* ── 图片预览弹窗 ── */
+        .img-preview-overlay {
+            display: none; position: fixed; inset: 0; z-index: 2000;
+            background: rgba(0,0,0,0.8); justify-content: center; align-items: center; cursor: zoom-out;
+        }
+        .img-preview-overlay.open { display: flex; }
+        .img-preview-overlay img { max-width: 90vw; max-height: 90vh; border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+
+        /* ── SKU 管理弹窗 ── */
+        .sku-overlay {
+            display: none; position: fixed; inset: 0; z-index: 1000;
+            background: rgba(0,0,0,0.45); justify-content: center; align-items: center;
+        }
+        .sku-overlay.open { display: flex; }
+        .sku-modal {
+            background: #fff; border-radius: 14px;
+            width: 90%; max-width: 700px; max-height: 85vh;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+            display: flex; flex-direction: column;
+        }
+        .sku-modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 20px; border-bottom: 1px solid #edf0f4;
+        }
+        .sku-modal-header h3 { font-size: 17px; color: #243244; margin: 0; }
+        .sku-close-btn {
+            background: none; border: none; font-size: 22px; cursor: pointer;
+            color: #98a2b3; padding: 0 4px; line-height: 1;
+        }
+        .sku-close-btn:hover { color: #344054; }
+        .sku-modal-body {
+            flex: 1; overflow: hidden; display: flex; flex-direction: column;
+            padding: 16px 20px;
+        }
+        .sku-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; align-items: center; }
+        .sku-actions input {
+            padding: 8px 12px; border: 1px solid #d0d5dd; border-radius: 6px; font-size: 14px;
+            flex: 1 1 100px; min-width: 80px;
+        }
+        .sku-actions input:focus { border-color: #356fe5; outline: none; }
+        .sku-actions button {
+            padding: 8px 16px; border: none; border-radius: 6px;
+            font-size: 14px; cursor: pointer; font-weight: 600;
+            flex-shrink: 0; white-space: nowrap;
+        }
+        .btn-add { background: #079455; color: #fff; }
+        .btn-add:hover { background: #057a47; }
+        .btn-refresh { background: #356fe5; color: #fff; }
+        .btn-refresh:hover { background: #2b5bc7; }
+        .sku-search { margin-bottom: 12px; }
+        .sku-search input {
+            padding: 8px 12px; border: 1px solid #d0d5dd; border-radius: 6px;
+            font-size: 14px; width: 100%;
+        }
+        .sku-search input:focus { border-color: #356fe5; outline: none; }
+        .sku-list-container { flex: 1; overflow: auto; border: 1px solid #edf0f4; border-radius: 8px; }
+        .sku-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .sku-table th {
+            background: #f7f8fa; color: #475467; font-size: 13px;
+            padding: 10px 12px; text-align: left; font-weight: 600;
+            position: sticky; top: 0; border-bottom: 1px solid #edf0f4;
+        }
+        .sku-table td { padding: 8px 12px; border-bottom: 1px solid #f2f4f7; font-size: 13px; word-break: break-all; }
+        .sku-table tr:hover td { background: #f8fafc !important; }
+        .sku-table tr:nth-child(even) td { background: #fcfcfd; }
+        .sku-table .btn-edit {
+            padding: 4px 12px; background: #356fe5; color: #fff;
+            border: none; border-radius: 4px; font-size: 12px; cursor: pointer;
+        }
+        .sku-table .btn-edit:hover { background: #2b5bc7; }
+        .sku-table .btn-delete {
+            padding: 4px 12px; background: #d92d20; color: #fff;
+            border: none; border-radius: 4px; font-size: 12px; cursor: pointer;
+        }
+        .sku-table .btn-delete:hover { background: #b42318; }
+        .sku-footer {
+            display: flex; justify-content: space-between; align-items: center;
+            padding-top: 12px; border-top: 1px solid #edf0f4; margin-top: 12px;
+        }
+        .sku-footer span { color: #7b8796; font-size: 13px; }
+
+        .sku-edit-overlay {
+            display: none; position: fixed; inset: 0; z-index: 1100;
+            background: rgba(0,0,0,0.5); justify-content: center; align-items: center;
+        }
+        .sku-edit-overlay.open { display: flex; }
+        .sku-edit-modal {
+            background: #fff; border-radius: 14px; padding: 24px;
+            width: 90%; max-width: 400px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+        }
+        .sku-edit-modal h3 { font-size: 17px; margin: 0 0 16px; color: #243244; }
+        .sku-edit-modal label { display: block; margin-bottom: 6px; font-weight: 600; color: #344054; font-size: 13px; }
+        .sku-edit-modal input {
+            padding: 8px 12px; border: 1px solid #d0d5dd; border-radius: 6px;
+            font-size: 14px; width: 100%; margin-bottom: 14px;
+        }
+        .sku-edit-modal input:focus { border-color: #356fe5; outline: none; }
+        .sku-edit-modal .btn-row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+        .sku-edit-modal .btn-row button { padding: 8px 24px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600; }
+
+        /* ── 响应式 ── */
+        @media (max-width: 1200px) {
+            .task-summary { grid-template-columns: 1fr; }
+            .upload-body { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 900px) {
+            .flow-steps { grid-template-columns: 1fr 1fr; }
+            .summary-grid { grid-template-columns: repeat(3, 1fr); }
+            .review-workbench { grid-template-columns: 1fr; min-height: auto; }
+            .oe-sidebar { border-right: 0; border-bottom: 1px solid #e9edf3; }
+            .oe-list { max-height: 260px; min-height: 160px; }
+        }
+        @media (max-width: 680px) {
+            body { padding: 10px; }
+            .page-heading, .heading-actions { align-items: flex-start; flex-direction: column; }
+            .flow-steps, .summary-grid { grid-template-columns: 1fr 1fr; }
+            .upload-body { padding: 18px; }
+            .review-heading, .selection-bar, .review-footer { flex-direction: column; align-items: flex-start; }
+            .position-jump { width: 100%; }
+            .position-jump .btn-primary { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <!-- ── 页头 ── -->
+    <section class="page-heading card">
+        <div>
+            <div class="eyebrow">EBAY SP PRICE TOOL</div>
+            <h2>eBay SP 价格查询工具</h2>
+            <p>输入 SKU 或 OE 号，系统通过 eBay Browse API 抓取最低价商品，支持类目锁定与 Best Match 两种查询策略。</p>
+        </div>
+        <div class="heading-actions">
+            <span id="health-tag" class="health-tag health-err">检查中...</span>
+            <button class="btn-secondary btn-manage" onclick="openSkuManager()">管理 SKU-OE 映射</button>
+        </div>
+    </section>
+
+    <!-- ── 输入卡片 ── -->
+    <section class="upload-card card">
+        <div class="flow-steps">
+            <div class="flow-step">
+                <span>1</span>
+                <div><strong>输入编号</strong><small>SKU 或 OE 号</small></div>
+            </div>
+            <div class="flow-step">
+                <span>2</span>
+                <div><strong>后台查询</strong><small>eBay API 异步搜索</small></div>
+            </div>
+            <div class="flow-step">
+                <span>3</span>
+                <div><strong>查看结果</strong><small>按价格排序展示</small></div>
+            </div>
+            <div class="flow-step">
+                <span>4</span>
+                <div><strong>勾选导出</strong><small>生成 Excel 含图片</small></div>
+            </div>
+        </div>
+
+        <div class="upload-body">
+            <div class="upload-copy">
+                <h3>查询说明</h3>
+                <p>输入 SKU 或 OE 号（支持多个），系统自动从 eBay 抓取搜索结果并按价格排序。</p>
+                <ul>
+                    <li>选择"自动识别"时，先尝试作为 SKU 查找 OE，找不到则直接作为 OE 搜索。</li>
+                    <li>多个编号请用换行或逗号分隔，重复编号自动去重。</li>
+                    <li><b>类目锁定</b>：两遍搜索，先探类目再锁价格，精确排除零件干扰。</li>
+                    <li><b>Best Match</b>：单遍搜索，eBay 默认排序保证相关性最高。</li>
+                    <li>勾选需要的商品后可导出为带图片的 Excel 文件。</li>
+                </ul>
+                <div class="site-picker">
+                    <span>查询站点</span>
+                    <div class="radio-group">
+                        <label><input type="radio" name="site" value="de" checked><span>德国站</span></label>
+                        <label><input type="radio" name="site" value="uk"><span>英国站</span></label>
+                        <label><input type="radio" name="site" value="us"><span>美国站</span></label>
+                    </div>
+                </div>
+                <div class="options-row">
+                    <span style="color:#475467;font-size:13px;font-weight:600;">查询方式</span>
+                    <select id="search-strategy" title="查询方式">
+                        <option value="category_lock">类目锁定（价格精确）</option>
+                        <option value="best_match">Best Match（相关性优先）</option>
+                    </select>
+                    <label>
+                        <input type="checkbox" id="free-shipping"> 仅免运费
+                    </label>
+                </div>
+            </div>
+
+            <div class="upload-panel">
+                <section class="create-method">
+                    <div class="method-heading">
+                        <div><strong>输入 SKU / OE 号</strong><span>支持批量，换行或逗号分隔</span></div>
+                    </div>
+                    <div>
+                        <select id="input-type" style="padding:6px 10px;border:1px solid #d0d5dd;border-radius:6px;font-size:13px;color:#344054;">
+                            <option value="auto">自动识别</option>
+                            <option value="sku">SKU</option>
+                            <option value="oe">OE 号</option>
+                        </select>
+                    </div>
+                    <div class="nkw-click-area" id="nkw-mini" onclick="openNkwModal()">点击此处输入 SKU 或 OE 号（支持多个）</div>
+                    <span class="nkw-hint">多个编号请用换行或逗号分隔，支持 Ctrl+Enter 快速确认</span>
+                    <button class="btn-primary" id="btn" onclick="doScrape()" style="align-self:flex-end;margin-top:4px;">开始查询</button>
+                </section>
+
+                <div class="method-divider"><span>或者上传 Excel 文件</span></div>
+
+                <section class="create-method">
+                    <div class="method-heading">
+                        <div><strong>上传 Excel 文件</strong><span>适合批量数据</span></div>
+                        <span class="limit-tag">最多 2000 条</span>
+                    </div>
+                    <div class="file-picker-row">
+                        <button class="btn-secondary" onclick="document.getElementById('file-input').click()">选择 Excel 文件</button>
+                        <input type="file" id="file-input" accept=".xlsx,.xlsm,.xls" style="display:none;" onchange="handleFileSelect(this)">
+                        <span id="file-name">尚未选择文件</span>
+                        <button id="file-remove" class="btn-secondary" style="display:none;padding:4px 10px;font-size:12px;" onclick="clearFileSelection()">移除</button>
+                    </div>
+                    <div style="font-size:12px;color:#7b8796;margin:4px 0 0;line-height:1.7;">
+                        <div style="margin-bottom:2px;">支持两种格式：</div>
+                        <div>• 一列表：A1 为"OE号"，从 A2 开始每行一个 OE。</div>
+                        <div>• 两列表：A1 为"SKU"、B1 为"OE号"，数据顺序固定为 A列SKU、B列OE。</div>
+                        <div style="margin-top:2px;">B列已填 OE 时直接查询该 OE；B列为空时再按 SKU 查询对照表，无映射则把 A 列输入值直接当作 OE 查询。</div>
+                    </div>
+                    <button class="btn-primary" id="btn-file" onclick="doScrapeFile()" style="align-self:flex-end;margin-top:4px;" disabled>上传并开始查询</button>
+                </section>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── 状态 ── -->
+    <div id="status"></div>
+
+    <!-- ── 结果区 ── -->
+    <div id="results-container"></div>
+</div>
+
+<!-- ── 输入弹窗 ── -->
+<div class="nkw-overlay" id="nkw-overlay">
+    <div class="nkw-modal">
+        <h3>输入产品编号</h3>
+        <textarea id="nkw" placeholder="每行一个产品编号（SKU 或 OE 号），例如：&#10;FRD-70087&#10;DAS-10290&#10;7L0839016D"></textarea>
+        <div style="font-size:12px;color:#7b8796;">
+            提示：选择"自动识别"模式时，系统会先尝试作为 SKU 查找对应的 OE 号，找不到则直接作为 OE 号搜索。
+        </div>
+        <div class="modal-btns">
+            <button class="btn-cancel" onclick="closeNkwModal(false)">取消</button>
+            <button class="btn-ok" onclick="closeNkwModal(true)">确认</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── 图片预览 ── -->
+<div class="img-preview-overlay" id="img-preview" onclick="this.classList.remove('open')">
+    <img id="img-preview-src" src="" alt="预览">
+</div>
+
+<!-- ── SKU 管理弹窗 ── -->
+<div class="sku-overlay" id="sku-overlay">
+    <div class="sku-modal">
+        <div class="sku-modal-header">
+            <h3>SKU-OE 映射管理</h3>
+            <button class="sku-close-btn" onclick="closeSkuManager()">&times;</button>
+        </div>
+        <div class="sku-modal-body">
+            <div class="sku-actions">
+                <input type="text" id="new-sku" placeholder="SKU">
+                <input type="text" id="new-oe" placeholder="主OE号">
+                <input type="text" id="new-mc" placeholder="中间码（选填）">
+                <button class="btn-add" onclick="addSku()">添加</button>
+                <button class="btn-refresh" onclick="refreshSkuList()">刷新</button>
+                <button class="btn-refresh" style="background:#6c757d;" onclick="document.getElementById('sku-import-file').click()">从Excel导入</button>
+                <input type="file" id="sku-import-file" accept=".xlsx,.xlsm,.xls" style="display:none;" onchange="importSkuExcel(this)">
+            </div>
+            <div style="font-size:11px;color:#98a2b3;margin-bottom:8px;">导入格式：第一列SKU，第二列主OE，第三列中间码（可选）。没有的追加，有的覆盖，不会删除现有数据。</div>
+            <div class="sku-search">
+                <input type="text" id="sku-search-input" placeholder="搜索 SKU、OE 或中间码..." oninput="filterSkuList()">
+            </div>
+            <div class="sku-list-container">
+                <table class="sku-table">
+                    <thead>
+                        <tr>
+                            <th style="width:40px;">#</th>
+                            <th style="width:22%;">SKU</th>
+                            <th style="width:auto;">主OE号</th>
+                            <th style="width:18%;">中间码</th>
+                            <th style="width:130px;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sku-tbody"></tbody>
+                </table>
+            </div>
+            <div class="sku-footer">
+                <span id="sku-count">共 0 条记录</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── SKU 编辑弹窗 ── -->
+<div class="sku-edit-overlay" id="sku-edit-overlay">
+    <div class="sku-edit-modal">
+        <h3>编辑 SKU-OE</h3>
+        <div>
+            <label>SKU:</label>
+            <input type="text" id="edit-sku" readonly style="background:#f2f4f7;">
+        </div>
+        <div>
+            <label>主OE号:</label>
+            <input type="text" id="edit-oe">
+        </div>
+        <div>
+            <label>中间码（选填，不填则从SKU自动提取）:</label>
+            <input type="text" id="edit-mc" placeholder="留空则自动提取">
+        </div>
+        <div class="btn-row">
+            <button class="btn-cancel" onclick="closeEditSku()">取消</button>
+            <button class="btn-ok" onclick="saveEditSku()">保存</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ═══════════════════════ 配置 ═══════════════════════
+const _urlParams = new URLSearchParams(window.location.search);
+const API_BASE = _urlParams.get('api_base') || '/ebay-tool-api';
+
+// ═══════════ 变量 ═══════════
+let allResultsData = null;
+let sortOrders = {};
+let nkwDraft = '';
+let skuListData = [];
+let editingSku = null;
+let currentOeIdx = 0;
+let oeSelections = {};
+let sidebarFilterText = '';
+
+// ═══════════ 健康检查 ═══════════
+async function checkHealth() {
+    const tag = document.getElementById('health-tag');
+    try {
+        const resp = await fetch(`${API_BASE}/api/check`);
+        const data = await resp.json();
+        if (data.configured) {
+            tag.className = 'health-tag health-ok';
+            tag.textContent = 'eBay 接口正常';
+        } else {
+            tag.className = 'health-tag health-err';
+            tag.textContent = 'eBay 接口未配置';
+        }
+    } catch (_) {
+        tag.className = 'health-tag health-err';
+        tag.textContent = '服务不可用';
+    }
+}
+checkHealth();
+
+// ═══════════ 输入弹窗 ═══════════
+function openNkwModal() {
+    const modal = document.getElementById('nkw-overlay');
+    const ta = document.getElementById('nkw');
+    ta.value = nkwDraft;
+    modal.classList.add('open');
+    setTimeout(() => ta.focus(), 50);
+}
+
+function closeNkwModal(save) {
+    const modal = document.getElementById('nkw-overlay');
+    const ta = document.getElementById('nkw');
+    const mini = document.getElementById('nkw-mini');
+    if (save) {
+        nkwDraft = ta.value;
+        const lines = nkwDraft.trim().split(/[\n,，]+/).filter(s => s.trim());
+        if (lines.length > 0) {
+            mini.textContent = lines.join('、');
+            mini.style.color = '#356fe5';
+            mini.style.fontWeight = '600';
+        } else {
+            mini.textContent = '点击此处输入 SKU 或 OE 号（支持多个）';
+            mini.style.color = '#333';
+            mini.style.fontWeight = 'normal';
+        }
+    }
+    modal.classList.remove('open');
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeNkwModal(false);
+        closeEditSku();
+        document.getElementById('img-preview').classList.remove('open');
+    }
+    if (e.key === 'Enter' && e.ctrlKey && document.getElementById('nkw-overlay').classList.contains('open')) {
+        closeNkwModal(true);
+    }
+});
+
+// ═══════════ 搜索 ═══════════
+async function doScrape() {
+    const rawText = nkwDraft.trim();
+    if (!rawText) { openNkwModal(); return; }
+
+    const btn = document.getElementById("btn");
+    const statusDiv = document.getElementById("status");
+    const container = document.getElementById("results-container");
+    btn.disabled = true; btn.textContent = "查询中...";
+    container.innerHTML = "";
+    statusDiv.className = "info";
+    statusDiv.innerHTML = '<span class="spinner"></span>正在提交搜索请求...';
+
+    try {
+        let fd = new URLSearchParams();
+        fd.append("nkw", rawText);
+        // site: radio group
+        const siteRadio = document.querySelector('input[name="site"]:checked');
+        fd.append("site", siteRadio ? siteRadio.value : "de");
+        fd.append("input_type", document.getElementById("input-type").value);
+        fd.append("free_shipping", document.getElementById("free-shipping").checked ? "true" : "false");
+        fd.append("search_strategy", document.getElementById("search-strategy").value);
+
+        let resp = await fetch(`${API_BASE}/api/scrape`, { method: "POST", body: fd });
+        let data = await resp.json();
+        if (data.error) {
+            if (data.not_found && data.not_found.length > 0) {
+                throw new Error(`${data.error}\n未找到的 SKU: ${data.not_found.join(', ')}`);
+            }
+            throw new Error(data.error);
+        }
+
+        const taskId = data.task_id;
+        const skuMapping = data.sku_mapping || {};
+        const notFoundSkus = data.not_found_skus || [];
+        let results = null;
+
+        let mappingInfo = '';
+        if (Object.keys(skuMapping).length > 0) {
+            const pairs = Object.entries(skuMapping).map(([sku, oe]) => `${sku} → ${oe}`).join(', ');
+            mappingInfo = `<div style="margin-top:8px;font-size:13px;color:#1d4ed8;">SKU 映射: ${esc(pairs)}</div>`;
+        }
+        if (notFoundSkus.length > 0) {
+            mappingInfo += `<div style="margin-top:4px;font-size:13px;color:#92400e;">未找到的 SKU: ${esc(notFoundSkus.join(', '))}</div>`;
+        }
+
+        for (let i = 0; i < 600; i++) {
+            await sleep(1500);
+            let sr = await fetch(`${API_BASE}/api/status/${taskId}`);
+            let sd = await sr.json();
+
+            if (sd.status === "error") throw new Error(sd.msg);
+
+            if (sd.status === "running") {
+                if (sd.progress) {
+                    const p = sd.progress;
+                    const pct = Math.round((p.current - 1) / p.total * 100);
+                    statusDiv.innerHTML = `<span class="spinner"></span>正在搜索 ${p.current}/${p.total}: <b>${esc(p.oe)}</b>
+                        <div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+                        ${mappingInfo}`;
+                }
+            }
+
+            if (sd.status === "done") { results = sd.results; break; }
+        }
+
+        if (!results) throw new Error("请求超时，请重试");
+
+        statusDiv.className = "";
+        statusDiv.innerHTML = "";
+        renderResults(results, skuMapping);
+        btn.disabled = false; btn.textContent = "开始查询";
+
+    } catch (err) {
+        showStatus(err.message, "error");
+        btn.disabled = false; btn.textContent = "开始查询";
+    }
+}
+
+// ═══════════ 文件上传搜索 ═══════════
+let selectedFile = null;
+
+function handleFileSelect(input) {
+    const file = input.files[0];
+    if (!file) return;
+    selectedFile = file;
+    document.getElementById('file-name').textContent = file.name;
+    document.getElementById('file-name').classList.add('selected');
+    document.getElementById('file-remove').style.display = '';
+    document.getElementById('btn-file').disabled = false;
+}
+
+function clearFileSelection() {
+    selectedFile = null;
+    const fi = document.getElementById('file-input');
+    fi.value = '';
+    document.getElementById('file-name').textContent = '尚未选择文件';
+    document.getElementById('file-name').classList.remove('selected');
+    document.getElementById('file-remove').style.display = 'none';
+    document.getElementById('btn-file').disabled = true;
+}
+
+async function doScrapeFile() {
+    if (!selectedFile) { return; }
+
+    const btn = document.getElementById("btn-file");
+    const statusDiv = document.getElementById("status");
+    const container = document.getElementById("results-container");
+    btn.disabled = true; btn.textContent = "上传中...";
+    container.innerHTML = "";
+    statusDiv.className = "info";
+    statusDiv.innerHTML = '<span class="spinner"></span>正在上传并解析 Excel 文件...';
+
+    try {
+        const siteRadio = document.querySelector('input[name="site"]:checked');
+        const fd = new FormData();
+        fd.append("file", selectedFile);
+        fd.append("site", siteRadio ? siteRadio.value : "de");
+        fd.append("free_shipping", document.getElementById("free-shipping").checked ? "true" : "false");
+        fd.append("search_strategy", document.getElementById("search-strategy").value);
+
+        let resp = await fetch(`${API_BASE}/api/scrape-file`, { method: "POST", body: fd });
+        let data = await resp.json();
+        if (data.error) {
+            if (data.not_found && data.not_found.length > 0) {
+                throw new Error(`${data.error}\n未找到的 SKU: ${data.not_found.join(', ')}`);
+            }
+            throw new Error(data.error);
+        }
+
+        const taskId = data.task_id;
+        const skuMapping = data.sku_mapping || {};
+        const notFoundSkus = data.not_found_skus || [];
+        const fileInfo = data.file_info || {};
+        let results = null;
+
+        let infoHtml = '';
+        if (fileInfo.fileName) {
+            infoHtml += `<div style="margin-top:8px;font-size:13px;color:#1d4ed8;">文件: ${esc(fileInfo.fileName)}（${fileInfo.totalRows || 0} 行，跳过 ${fileInfo.skippedRows || 0} 行）</div>`;
+        }
+        if (Object.keys(skuMapping).length > 0) {
+            const pairs = Object.entries(skuMapping).map(([sku, oe]) => `${sku} → ${oe}`).join(', ');
+            infoHtml += `<div style="margin-top:4px;font-size:13px;color:#1d4ed8;">SKU 映射: ${esc(pairs)}</div>`;
+        }
+        if (notFoundSkus.length > 0) {
+            infoHtml += `<div style="margin-top:4px;font-size:13px;color:#92400e;">未找到的 SKU: ${esc(notFoundSkus.join(', '))}</div>`;
+        }
+
+        for (let i = 0; i < 600; i++) {
+            await sleep(1500);
+            let sr = await fetch(`${API_BASE}/api/status/${taskId}`);
+            let sd = await sr.json();
+
+            if (sd.status === "error") throw new Error(sd.msg);
+
+            if (sd.status === "running") {
+                if (sd.progress) {
+                    const p = sd.progress;
+                    const pct = Math.round((p.current - 1) / p.total * 100);
+                    statusDiv.innerHTML = `<span class="spinner"></span>正在搜索 ${p.current}/${p.total}: <b>${esc(p.oe)}</b>
+                        <div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+                        ${infoHtml}`;
+                }
+            }
+
+            if (sd.status === "done") { results = sd.results; break; }
+        }
+
+        if (!results) throw new Error("请求超时，请重试");
+
+        statusDiv.className = "";
+        statusDiv.innerHTML = "";
+        renderResults(results, skuMapping);
+        btn.disabled = false; btn.textContent = "上传并开始查询";
+
+    } catch (err) {
+        showStatus(err.message, "error");
+        btn.disabled = false; btn.textContent = "上传并开始查询";
+    }
+}
+
+// ═══════════ 渲染结果（侧边栏 + 主内容布局） ═══════════
+function renderResults(results, skuMapping = {}) {
+    allResultsData = { results, skuMapping };
+    oeSelections = {};
+    currentOeIdx = 0;
+    sidebarFilterText = '';
+    results.forEach(r => {
+        if (r.items && r.items.length > 0 && !(r.oe in sortOrders)) {
+            sortOrders[r.oe] = 'asc';
+        }
+    });
+
+    const container = document.getElementById("results-container");
+    container.innerHTML = "";
+
+    let totalItems = 0, okOe = 0, warnOe = 0, totalSold = 0;
+    results.forEach(r => {
+        if (r.warning) warnOe++; else okOe++;
+        totalItems += r.count || 0;
+        totalSold += r.soldTotal || 0;
+    });
+
+    const strategy = document.getElementById("search-strategy").value;
+    const siteLabel = {de:'德国站',uk:'英国站',us:'美国站'}[
+        (document.querySelector('input[name="site"]:checked') || {}).value || 'de'
+    ];
+    let html = `<section class="task-summary card">
+        <div class="summary-main">
+            <div class="task-title">
+                <div>
+                    <span class="task-label">查询结果</span>
+                    <h3>${results.length} 个 OE 号 · ${strategy === 'category_lock' ? '类目锁定' : 'Best Match'}</h3>
+                    <p>${siteLabel} · 共 ${totalItems} 件商品</p>
+                </div>
+            </div>
+            <div class="progress-row">
+                <span>查询进度</span>
+                <div class="el-progress"><div class="el-progress-bar el-progress-blue" style="width:100%"></div></div>
+                <strong>${results.length} / ${results.length}</strong>
+            </div>
+        </div>
+        <div class="summary-grid">
+            <div><span>OE 总数</span><strong>${results.length}</strong></div>
+            <div><span>有结果</span><strong class="stat-success">${okOe}</strong></div>
+            <div><span>无结果</span><strong class="stat-muted">${warnOe}</strong></div>
+            <div><span>总商品</span><strong class="stat-primary">${totalItems}</strong></div>
+            <div><span>累计销量</span><strong class="stat-warning">${totalSold > 0 ? totalSold : '-'}</strong></div>
+        </div>
+    </section>`;
+
+    if (totalItems > 0) {
+        html += `<div style="display:flex;align-items:center;gap:12px;margin-top:14px;">
+            <button class="btn-primary" id="btn-export" onclick="exportExcel()">导出选中商品</button>
+            <span style="color:#7b8796;font-size:12px;" id="export-count"></span>
+        </div>`;
+    }
+
+    // 侧边栏 + 主内容
+    const oeToSku = {};
+    for (const [sku, oe] of Object.entries(skuMapping)) oeToSku[oe] = sku;
+
+    let sidebarItems = '';
+    results.forEach((r, idx) => {
+        const skuInfo = oeToSku[r.oe] ? ` (${oeToSku[r.oe]})` : '';
+        const countText = r.warning ? '无结果' : `${r.count} 件`;
+        sidebarItems += `<button class="oe-list-item${idx === 0 ? ' active' : ''}" data-idx="${idx}" onclick="showOe(${idx})">
+            <span class="oe-name" title="${esc(r.oe)}${esc(skuInfo)}">${esc(r.oe)}${esc(skuInfo)}</span>
+            <span class="oe-count">${countText}</span>
+        </button>`;
+    });
+
+    html += `<div class="review-workbench">
+        <aside class="oe-sidebar">
+            <div class="sidebar-heading">
+                <div><strong>OE 列表</strong><span>${results.length} 个</span></div>
+            </div>
+            <input class="sidebar-search" type="text" placeholder="搜索 OE..." oninput="sidebarFilter(this.value)">
+            <div class="oe-list" id="oe-list">${sidebarItems}</div>
+        </aside>
+        <main class="review-main" id="review-main"></main>
+    </div>`;
+
+    container.innerHTML = html;
+    showOe(0);
+}
+
+function showOe(idx) {
+    if (!allResultsData) return;
+    const results = allResultsData.results;
+    if (idx < 0 || idx >= results.length) return;
+
+    // 保存当前选中状态
+    saveCurrentSelection();
+
+    currentOeIdx = idx;
+    const r = results[idx];
+
+    // 高亮侧边栏
+    document.querySelectorAll('.oe-list-item').forEach(el => {
+        el.classList.toggle('active', parseInt(el.dataset.idx) === idx);
+    });
+    // 确保可见
+    const activeBtn = document.querySelector(`.oe-list-item[data-idx="${idx}"]`);
+    if (activeBtn) activeBtn.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+
+    // 渲染主内容
+    const main = document.getElementById('review-main');
+    main.innerHTML = buildMainContent(r, idx, results.length);
+    restoreSelection(r.oe);
+    updateExportCount();
+}
+
+function buildPriceChart(allPrices, currency) {
+    if (!allPrices || allPrices.length < 2) return '';
+
+    const prices = allPrices.slice().sort((a, b) => a - b);
+    const min = prices[0];
+    const max = prices[prices.length - 1];
+    if (min === max) return '';
+
+    // 确定前20的边界（高亮用）
+    const top20Boundary = prices[Math.min(19, prices.length - 1)];
+
+    // 分成区间（最多12个，去空后只显示有数据的）
+    const rawBucketCount = 12;
+    const step = (max - min) / rawBucketCount;
+    const bucketData = [];
+    for (let i = 0; i < rawBucketCount; i++) {
+        const lo = min + step * i;
+        const hi = min + step * (i + 1);
+        let count = 0;
+        prices.forEach(p => {
+            let bi = Math.floor((p - min) / step);
+            if (bi >= rawBucketCount) bi = rawBucketCount - 1;
+            if (bi === i) count++;
+        });
+        if (count > 0) {
+            bucketData.push({ lo, hi, count, highlight: lo <= top20Boundary });
+        }
+    }
+
+    if (bucketData.length === 0) return '';
+
+    const maxCount = Math.max(...bucketData.map(b => b.count));
+    const avg = (prices.reduce((s, p) => s + p, 0) / prices.length).toFixed(2);
+
+    // 简化价格显示：去掉多余小数
+    function fmtPrice(v) {
+        return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : Math.round(v);
+    }
+
+    let html = '<div class="price-chart">';
+    html += '<div class="price-chart-header">';
+    html += `<span>共 <strong>${prices.length}</strong> 件商品 · 均价 <strong>${avg} ${esc(currency)}</strong></span>`;
+    html += `<span>最低 ${min.toFixed(2)} ~ 最高 ${max.toFixed(2)} ${esc(currency)}</span>`;
+    html += '</div>';
+    html += '<div class="price-chart-bars">';
+
+    bucketData.forEach(b => {
+        const heightPct = (b.count / maxCount * 100);
+        const barClass = b.highlight ? 'price-bar price-bar-highlight' : 'price-bar';
+
+        html += '<div class="price-bar-wrap">';
+        html += `<div class="price-bar-count">${b.count}</div>`;
+        html += `<div class="${barClass}" style="height:${Math.max(heightPct, 4)}%;"></div>`;
+        html += `<div class="price-bar-tip">${b.lo.toFixed(0)}-${b.hi.toFixed(0)} ${esc(currency)}：${b.count} 件</div>`;
+        html += `<div class="price-bar-label">${fmtPrice(b.lo)}</div>`;
+        html += '</div>';
+    });
+
+    html += '</div>';
+    // 图例
+    html += '<div style="display:flex;gap:16px;margin-top:6px;justify-content:center;">';
+    html += '<span style="font-size:11px;color:#7b8796;display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:12px;height:10px;border-radius:2px;background:#356fe5;"></span>价格分布</span>';
+    html += '<span style="font-size:11px;color:#7b8796;display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:12px;height:10px;border-radius:2px;background:#d97706;"></span>前20低价区间</span>';
+    html += '</div>';
+    html += '</div>';
+    return html;
+}
+
+function buildMainContent(r, idx, total) {
+    const oeToSku = {};
+    if (allResultsData && allResultsData.skuMapping) {
+        for (const [sku, oe] of Object.entries(allResultsData.skuMapping)) oeToSku[oe] = sku;
+    }
+    const skuInfo = oeToSku[r.oe] ? ` (SKU: ${oeToSku[r.oe]})` : '';
+
+    let html = '<div class="review-heading"><div>';
+    html += `<span class="review-position">当前查看：第 ${idx + 1} / 共 ${total} 个</span>`;
+    html += `<div class="current-oe-line"><span class="oe-label">${esc(r.oe)}${esc(skuInfo)}</span>`;
+    if (r.warning) {
+        html += `<span class="badge badge-warn">无结果</span>`;
+    } else {
+        if (r.strategy === 'category_locked') html += `<span class="strategy-tag strategy-locked">类目已锁定</span>`;
+        else if (r.strategy === 'category_pool_fallback') html += `<span class="strategy-tag strategy-fallback">类目池回退</span>`;
+        else if (r.strategy === 'best_match_fallback') html += `<span class="strategy-tag strategy-global">全局回退</span>`;
+        else if (r.strategy === 'best_match') html += `<span class="strategy-tag strategy-locked">Best Match</span>`;
+        if (r.categoryInfo && r.categoryInfo.share != null) {
+            const pct = (r.categoryInfo.share * 100).toFixed(0);
+            html += `<span style="color:#98a2b3;font-size:12px;">类目占比 ${pct}%</span>`;
+        }
+    }
+    html += '</div>';
+    if (!r.warning) html += '<p>按商品价格排序，勾选确认匹配的商品后可导出。</p>';
+    html += '</div>';
+    html += `<div class="position-jump">
+        <button class="btn-secondary" onclick="goPrev()" ${idx <= 0 ? 'disabled' : ''}>上一个</button>
+        <button class="btn-primary" onclick="goNext()" ${idx >= total - 1 ? 'disabled' : ''}>下一个</button>
+    </div></div>`;
+
+    // 价格分布直方图
+    if (r.allPrices && r.allPrices.length > 0) {
+        const cur = (r.items && r.items.length > 0) ? r.items[0].currency : 'EUR';
+        html += buildPriceChart(r.allPrices, cur);
+    }
+
+    if (r.warning) {
+        html += `<div class="state-panel"><h3>没有搜索到商品</h3><p>${esc(r.warning)}</p></div>`;
+        return html;
+    }
+
+    // 选择栏
+    html += `<div class="selection-bar">
+        <div><strong>请选择确认匹配的商品</strong><span>可以多选</span></div>
+        <div>
+            <span>已选 <b id="sel-count">0</b> / ${r.items.length}</span>
+            <button class="btn-link" onclick="selectAllCurrent()">全选</button>
+            <button class="btn-link" onclick="clearAllCurrent()">清空</button>
+        </div>
+    </div>`;
+
+    // 表格
+    html += `<div class="main-table-wrap">${buildTable(r)}</div>`;
+
+    // 底栏
+    html += `<div class="review-footer">
+        <div><span>勾选结果即时保存，已查看 OE 可返回修改。</span></div>
+        <button class="btn-primary" onclick="exportExcel()">导出全部已选商品</button>
+    </div>`;
+
+    return html;
+}
+
+function buildTable(r) {
+    const order = sortOrders[r.oe] || 'asc';
+    const items = [...r.items].sort((a, b) => order === 'asc' ? a.pf - b.pf : b.pf - a.pf);
+    const oeSafe = escId(r.oe);
+
+    let t = '<table class="oe-table"><thead><tr>';
+    t += `<th class="td-chk"><input type="checkbox" onchange="toggleAll('${oeSafe}', this)"></th>`;
+    t += '<th class="td-num">#</th><th class="td-price">价格</th>';
+    t += '<th class="td-title">商品信息</th><th class="td-seller">卖家</th>';
+    t += '<th class="td-sold">已售</th>';
+    t += '<th class="td-shipping">运费</th><th class="td-link">链接</th>';
+    t += '<th class="td-img">图片</th>';
+    t += '</tr></thead><tbody>';
+    items.forEach((item, i) => {
+        const rowId = `row-${oeSafe}-${i}`;
+        t += `<tr id="${rowId}">`;
+        t += `<td class="td-chk"><input type="checkbox" data-oe="${esc(item.oe)}" data-idx="${i}" onchange="onCheck(this,'${rowId}')"></td>`;
+        t += `<td class="td-num"><span class="rank-badge">${i + 1}</span></td>`;
+        t += `<td class="td-price"><div class="price-cell"><strong>${esc(item.price)}</strong></div></td>`;
+        t += `<td class="td-title"><span class="product-title">${esc(item.title)}</span></td>`;
+        const fb = item.sellerFeedback ? `${item.sellerFeedback}% 好评` : '暂无好评率';
+        t += `<td class="td-seller"><div class="seller-cell"><span>${esc(item.seller || '-')}</span><small>${fb}</small></div></td>`;
+        t += `<td class="td-sold">${item.estimatedSold != null ? item.estimatedSold : '-'}</td>`;
+        const shipText = esc(item.shipping || '');
+        t += `<td class="td-shipping">${shipText === '免运费' ? '<span class="free">免运费</span>' : shipText}</td>`;
+        t += `<td class="td-link"><a href="${esc(item.link)}" target="_blank" title="${esc(item.link)}">${esc(item.link)}</a></td>`;
+        if (item.images.length > 0) {
+            const imgs = item.images.slice(0, 3).map(src =>
+                `<img src="${esc(src)}" loading="lazy" onclick="previewImg(this.src)" onerror="this.style.display='none'">`
+            ).join('');
+            t += `<td class="td-img"><div class="img-cell">${imgs}</div></td>`;
+        } else {
+            t += '<td class="td-img"><span style="color:#98a2b3;font-size:11px;">无图片</span></td>';
+        }
+        t += '</tr>';
+    });
+    t += '</tbody></table>';
+    return t;
+}
+
+// ═══════════ 图片预览 ═══════════
+function previewImg(src) {
+    const overlay = document.getElementById('img-preview');
+    document.getElementById('img-preview-src').src = src;
+    overlay.classList.add('open');
+}
+
+// ═══════════ 排序（仅重建表格） ═══════════
+function toggleSort(oe) {
+    sortOrders[oe] = sortOrders[oe] === 'asc' ? 'desc' : 'asc';
+    if (!allResultsData) return;
+    const r = allResultsData.results.find(x => x.oe === oe);
+    if (!r) return;
+    const wrap = document.querySelector('.main-table-wrap');
+    if (wrap) { saveCurrentSelection(); wrap.innerHTML = buildTable(r); restoreSelection(r.oe); }
+}
+
+// ═══════════ OE 导航 ═══════════
+function goPrev() { showOe(currentOeIdx - 1); }
+function goNext() { showOe(currentOeIdx + 1); }
+
+// ═══════════ 选择持久化（跨 OE 切换保留） ═══════════
+function saveCurrentSelection() {
+    if (!allResultsData) return;
+    const r = allResultsData.results[currentOeIdx];
+    if (!r || !r.items) return;
+    const selected = [];
+    document.querySelectorAll('.main-table-wrap tbody input[type="checkbox"]').forEach(cb => {
+        if (cb.checked) selected.push(parseInt(cb.dataset.idx));
+    });
+    oeSelections[r.oe] = selected;
+}
+
+function restoreSelection(oe) {
+    const selected = oeSelections[oe] || [];
+    if (!selected.length) { updateSelCount(); return; }
+    document.querySelectorAll('.main-table-wrap tbody input[type="checkbox"]').forEach(cb => {
+        const idx = parseInt(cb.dataset.idx);
+        if (selected.includes(idx)) {
+            cb.checked = true;
+            const tr = cb.closest('tr');
+            if (tr) tr.classList.add('checked');
+        }
+    });
+    updateMasterCheckbox();
+    updateSelCount();
+}
+
+// ═══════════ 侧边栏搜索 ═══════════
+function sidebarFilter(text) {
+    sidebarFilterText = text.toLowerCase();
+    document.querySelectorAll('.oe-list-item').forEach(el => {
+        const idx = parseInt(el.dataset.idx);
+        const oe = allResultsData.results[idx]?.oe || '';
+        el.style.display = oe.toLowerCase().includes(sidebarFilterText) ? '' : 'none';
+    });
+}
+
+// ═══════════ 侧边栏 badge 更新 ═══════════
+function updateSidebarBadges() {
+    document.querySelectorAll('.oe-list-item').forEach(el => {
+        const idx = parseInt(el.dataset.idx);
+        const r = allResultsData?.results[idx];
+        if (!r) return;
+        const sel = oeSelections[r.oe] || [];
+        const countEl = el.querySelector('.oe-count');
+        if (countEl) {
+            countEl.textContent = r.warning ? '无结果' : `${r.count} 件`;
+        }
+        let selEl = el.querySelector('.oe-selected');
+        if (sel.length > 0) {
+            if (!selEl) { selEl = document.createElement('span'); selEl.className = 'oe-selected'; el.appendChild(selEl); }
+            selEl.textContent = `已选 ${sel.length}`;
+        } else if (selEl) {
+            selEl.remove();
+        }
+    });
+}
+
+// ═══════════ 全选 / 清空当前 OE ═══════════
+function selectAllCurrent() {
+    document.querySelectorAll('.main-table-wrap tbody input[type="checkbox"]').forEach(cb => {
+        cb.checked = true;
+        const tr = cb.closest('tr'); if (tr) tr.classList.add('checked');
+    });
+    updateMasterCheckbox(); updateSelCount();
+}
+
+function clearAllCurrent() {
+    document.querySelectorAll('.main-table-wrap tbody input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+        const tr = cb.closest('tr'); if (tr) tr.classList.remove('checked');
+    });
+    updateMasterCheckbox(); updateSelCount();
+}
+
+// ═══════════ 勾选 / 导出 ═══════════
+function toggleAll(oeSafe, cb) {
+    document.querySelectorAll('.main-table-wrap tbody input[type="checkbox"]').forEach(c => { c.checked = cb.checked; });
+    document.querySelectorAll('.main-table-wrap tbody tr').forEach(tr => {
+        cb.checked ? tr.classList.add("checked") : tr.classList.remove("checked");
+    });
+    saveCurrentSelection(); updateSidebarBadges(); updateSelCount();
+}
+
+function onCheck(cb, rowId) {
+    const tr = document.getElementById(rowId);
+    if (tr) tr.classList.toggle("checked", cb.checked);
+    updateMasterCheckbox();
+    saveCurrentSelection(); updateSidebarBadges(); updateSelCount();
+}
+
+function updateMasterCheckbox() {
+    const all = document.querySelectorAll('.main-table-wrap tbody input[type="checkbox"]');
+    const master = document.querySelector('.main-table-wrap thead input[type="checkbox"]');
+    if (master && all.length) {
+        master.checked = [...all].every(c => c.checked);
+        master.indeterminate = [...all].some(c => c.checked) && !master.checked;
+    }
+}
+
+function updateSelCount() {
+    const count = document.querySelectorAll('.main-table-wrap tbody input[type="checkbox"]:checked').length;
+    const el = document.getElementById("sel-count");
+    if (el) el.textContent = count;
+    updateExportCount();
+}
+
+function getCheckedItems() {
+    if (!allResultsData) return [];
+    saveCurrentSelection();
+    const checked = [];
+    allResultsData.results.forEach(r => {
+        if (!r.items || !r.warning === false) return;
+        const order = sortOrders[r.oe] || 'asc';
+        const sorted = [...r.items].sort((a, b) => order === 'asc' ? a.pf - b.pf : b.pf - a.pf);
+        const selected = oeSelections[r.oe] || [];
+        selected.forEach(idx => { if (idx >= 0 && idx < sorted.length) checked.push(sorted[idx]); });
+    });
+    return checked;
+}
+
+function updateExportCount() {
+    const el = document.getElementById("export-count");
+    const btn = document.getElementById("btn-export");
+    if (!el && !btn) return;
+    const c = getCheckedItems();
+    if (el) el.textContent = c.length > 0 ? `已选 ${c.length} 件` : "";
+    if (btn) btn.disabled = c.length === 0;
+}
+
+async function exportExcel() {
+    const checked = getCheckedItems();
+    if (checked.length === 0) { alert('请先勾选要导出的商品'); return; }
+    const btns = document.querySelectorAll('#btn-export');
+    btns.forEach(b => { b.disabled = true; b.textContent = "生成中..."; });
+    try {
+        const resp = await fetch(`${API_BASE}/api/export`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({items: checked}),
+        });
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.error || "导出失败");
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `ebay_export_${Date.now()}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        showStatus(e.message, "error");
+    }
+    btns.forEach(b => { b.disabled = false; b.textContent = "导出选中商品"; });
+}
+
+// ═══════════ SKU 管理 ═══════════
+function openSkuManager() {
+    document.getElementById('sku-overlay').classList.add('open');
+    loadSkuList();
+}
+
+function closeSkuManager() {
+    document.getElementById('sku-overlay').classList.remove('open');
+}
+
+async function loadSkuList() {
+    try {
+        const resp = await fetch(`${API_BASE}/api/sku/list`);
+        const data = await resp.json();
+        skuListData = data.items || [];
+        renderSkuList(skuListData);
+    } catch (e) {
+        alert('加载失败: ' + e.message);
+    }
+}
+
+function renderSkuList(items) {
+    const tbody = document.getElementById('sku-tbody');
+    tbody.innerHTML = '';
+    items.forEach((item, i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${i + 1}</td>
+            <td style="font-family:Consolas,monospace;font-weight:600;color:#356fe5;">${esc(item.sku)}</td>
+            <td style="font-family:Consolas,monospace;">${esc(item.oe)}</td>
+            <td style="font-family:Consolas,monospace;color:#7b8796;">${esc(item.middleCode || '')}</td>
+            <td>
+                <button class="btn-edit" onclick="editSku('${esc(item.sku)}','${esc(item.oe)}','${esc(item.middleCode || '')}')">编辑</button>
+                <button class="btn-delete" onclick="deleteSku('${esc(item.sku)}')">删除</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+    document.getElementById('sku-count').textContent = `共 ${items.length} 条记录`;
+}
+
+function filterSkuList() {
+    const query = document.getElementById('sku-search-input').value.toLowerCase();
+    if (!query) { renderSkuList(skuListData); return; }
+    const filtered = skuListData.filter(item =>
+        item.sku.toLowerCase().includes(query) ||
+        item.oe.toLowerCase().includes(query) ||
+        (item.middleCode || '').toLowerCase().includes(query)
+    );
+    renderSkuList(filtered);
+}
+
+async function addSku() {
+    const sku = document.getElementById('new-sku').value.trim();
+    const oe = document.getElementById('new-oe').value.trim();
+    const middleCode = document.getElementById('new-mc').value.trim();
+    if (!sku || !oe) { alert('SKU 和 OE 都不能为空'); return; }
+    try {
+        const resp = await fetch(`${API_BASE}/api/sku/add`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({sku, oe, middleCode})
+        });
+        const data = await resp.json();
+        if (data.error) { alert(data.error); }
+        else { document.getElementById('new-sku').value = ''; document.getElementById('new-oe').value = ''; document.getElementById('new-mc').value = ''; loadSkuList(); }
+    } catch (e) { alert('添加失败: ' + e.message); }
+}
+
+function editSku(sku, oe, mc) {
+    editingSku = sku;
+    document.getElementById('edit-sku').value = sku;
+    document.getElementById('edit-oe').value = oe;
+    document.getElementById('edit-mc').value = mc || '';
+    document.getElementById('sku-edit-overlay').classList.add('open');
+}
+
+function closeEditSku() {
+    document.getElementById('sku-edit-overlay').classList.remove('open');
+    editingSku = null;
+}
+
+async function saveEditSku() {
+    const sku = document.getElementById('edit-sku').value;
+    const oe = document.getElementById('edit-oe').value.trim();
+    const middleCode = document.getElementById('edit-mc').value.trim();
+    if (!oe) { alert('OE 号不能为空'); return; }
+    try {
+        const resp = await fetch(`${API_BASE}/api/sku/update`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({sku, oe, middleCode})
+        });
+        const data = await resp.json();
+        if (data.error) { alert(data.error); }
+        else { closeEditSku(); loadSkuList(); }
+    } catch (e) { alert('保存失败: ' + e.message); }
+}
+
+async function deleteSku(sku) {
+    if (!confirm(`确定要删除 SKU "${sku}" 吗？`)) return;
+    try {
+        const resp = await fetch(`${API_BASE}/api/sku/delete`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({sku})
+        });
+        const data = await resp.json();
+        if (data.error) { alert(data.error); }
+        else { loadSkuList(); }
+    } catch (e) { alert('删除失败: ' + e.message); }
+}
+
+async function refreshSkuList() {
+    try {
+        const resp = await fetch(`${API_BASE}/api/sku/refresh`, {method: 'POST'});
+        const data = await resp.json();
+        if (data.success) { loadSkuList(); alert('已重新加载 Excel 文件'); }
+    } catch (e) { alert('刷新失败: ' + e.message); }
+}
+
+async function importSkuExcel(input) {
+    const file = input.files[0];
+    if (!file) return;
+    if (!confirm(`确定从 "${file.name}" 导入映射吗？\n没有的追加，有的覆盖，不会删除现有数据。`)) {
+        input.value = '';
+        return;
+    }
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const resp = await fetch(`${API_BASE}/api/sku/import`, { method: 'POST', body: fd });
+        const data = await resp.json();
+        if (data.error) {
+            alert('导入失败: ' + data.error);
+        } else {
+            alert(`导入成功！\n读取 ${data.totalRows} 行，跳过 ${data.skippedRows} 行\n导入 ${data.imported} 条：新增 ${data.created}，覆盖 ${data.updated}`);
+            loadSkuList();
+        }
+    } catch (e) {
+        alert('导入失败: ' + e.message);
+    }
+    input.value = '';
+}
+
+// ═══════════ 工具函数 ═══════════
+function showStatus(msg, cls) {
+    const div = document.getElementById("status");
+    div.className = cls;
+    div.textContent = msg;
+}
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escId(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, '_'); }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+</script>
+</body>
+</html>

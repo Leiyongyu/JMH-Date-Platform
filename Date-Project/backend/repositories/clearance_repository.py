@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from backend.config import settings
@@ -78,6 +79,30 @@ def resolve_store_name(
             return normalized_warehouse
     return "0"
 
+
+def ctu_warehouse_names(wids) -> dict[str, str]:
+    """Read current warehouse names from the shared LingXing warehouse dimension."""
+    normalized = [str(wid).strip() for wid in wids if str(wid).strip()]
+    if not normalized:
+        return {}
+    database = settings.shop_source_database.strip() or "jmh_data_platform"
+    escaped_database = database.replace("`", "``")
+    placeholders = ",".join(["%s"] * len(normalized))
+    with db_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT CAST(wid AS CHAR) wid,MAX(NULLIF(TRIM(name),'')) warehouse_name
+            FROM `{escaped_database}`.warehouse
+            WHERE CAST(wid AS CHAR) IN ({placeholders})
+            GROUP BY wid
+            """,
+            tuple(normalized),
+        )
+        return {
+            str(row["wid"]): str(row["warehouse_name"]).strip()
+            for row in cur.fetchall()
+            if str(row.get("warehouse_name") or "").strip()
+        }
 
 def ebay_inventory_age_source_rows(month: str) -> list[dict[str, Any]]:
     """跨库读取谷仓库龄，并按去前缀后的SKU匹配领星采购与头程成本。"""
@@ -365,6 +390,136 @@ def replace_month(conn, month: str, rows: list[dict], groups: list[dict]) -> dic
     }
 
 
+def replace_ctu_inventory_month(
+    conn,
+    month: str,
+    rows: list[dict[str, Any]],
+    groups: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Atomically replace one current-month CTU detail and group snapshot."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(1) n FROM ods_lingxing_ctu_inventory_detail "
+            "WHERE pull_month=%s",
+            (month,),
+        )
+        old_ods_rows = int(cur.fetchone()["n"])
+        cur.execute(
+            "SELECT COUNT(1) n FROM dws_ctu_inventory_age_group "
+            "WHERE pull_month=%s",
+            (month,),
+        )
+        old_group_rows = int(cur.fetchone()["n"])
+        cur.execute(
+            "DELETE FROM ods_lingxing_ctu_inventory_detail WHERE pull_month=%s",
+            (month,),
+        )
+        cur.execute(
+            "DELETE FROM dws_ctu_inventory_age_group WHERE pull_month=%s",
+            (month,),
+        )
+        if rows:
+            cur.executemany(
+                """
+                INSERT INTO ods_lingxing_ctu_inventory_detail
+                (pull_month,wid,warehouse_name,group_code,sku,product_id,
+                 product_total,stock_price,average_age,over_30_qty,
+                 over_30_cost,stock_age_list,raw_json,sync_batch_id,pulled_at)
+                VALUES
+                (%(pull_month)s,%(wid)s,%(warehouse_name)s,%(group_code)s,
+                 %(sku)s,%(product_id)s,%(product_total)s,%(stock_price)s,
+                 %(average_age)s,%(over_30_qty)s,%(over_30_cost)s,
+                 %(stock_age_list)s,%(raw_json)s,%(sync_batch_id)s,%(pulled_at)s)
+                """,
+                rows,
+            )
+        if groups:
+            cur.executemany(
+                """
+                INSERT INTO dws_ctu_inventory_age_group
+                (pull_month,group_code,warehouse_count,source_row_count,
+                 over_30_qty,over_30_cost,pulled_at)
+                VALUES
+                (%(pull_month)s,%(group_code)s,%(warehouse_count)s,
+                 %(source_row_count)s,%(over_30_qty)s,%(over_30_cost)s,
+                 %(pulled_at)s)
+                """,
+                groups,
+            )
+    return {
+        "ctu_ods_old_rows": old_ods_rows,
+        "ctu_ods_deleted_rows": old_ods_rows,
+        "ctu_ods_inserted_rows": len(rows),
+        "ctu_group_old_rows": old_group_rows,
+        "ctu_group_rows": len(groups),
+    }
+
+
+def ctu_over_30_costs(pull_month: str) -> dict[str, Decimal]:
+    """Read CTU 31-day-and-over inventory cost by snapshot group."""
+    if not pull_month:
+        return {}
+    with db_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT group_code,over_30_cost
+            FROM dws_ctu_inventory_age_group
+            WHERE pull_month=%s
+            """,
+            (pull_month,),
+        )
+        return {
+            str(row["group_code"]): row["over_30_cost"]
+            for row in cur.fetchall()
+        }
+
+def ctu_inventory_age_details(month: str | None) -> dict[str, Any]:
+    """Return current-batch CTU SKU rows that actually contain over-30 stock."""
+    with db_connection() as conn, conn.cursor() as cur:
+        if not month:
+            cur.execute(
+                "SELECT MAX(pull_month) m FROM ods_lingxing_ctu_inventory_detail"
+            )
+            month = cur.fetchone()["m"]
+        if not month:
+            return {"pull_month": None, "items": []}
+        cur.execute(
+            """
+            SELECT pull_month,group_code,wid,warehouse_name,sku,product_id,
+                   product_total,stock_price,average_age,over_30_qty,
+                   over_30_cost,stock_age_list,pulled_at,sync_batch_id
+            FROM ods_lingxing_ctu_inventory_detail
+            WHERE pull_month=%s AND over_30_qty>0
+            ORDER BY FIELD(group_code,'EBAY-1','EU','US1','US2','US3'),
+                     wid,sku,product_id,id
+            """,
+            (month,),
+        )
+        return {"pull_month": month, "items": list(cur.fetchall())}
+
+
+def ctu_inventory_age_summary(month: str | None) -> dict[str, Any]:
+    if not month:
+        return {"ctu_over_30_qty": None, "ctu_over_30_cost": None}
+    with db_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*) group_count,
+                   COALESCE(SUM(over_30_qty),0) ctu_over_30_qty,
+                   COALESCE(SUM(over_30_cost),0) ctu_over_30_cost
+            FROM dws_ctu_inventory_age_group
+            WHERE pull_month=%s
+            """,
+            (month,),
+        )
+        row = cur.fetchone()
+    if not row or int(row.get("group_count") or 0) == 0:
+        return {"ctu_over_30_qty": None, "ctu_over_30_cost": None}
+    return {
+        "ctu_over_30_qty": row["ctu_over_30_qty"],
+        "ctu_over_30_cost": row["ctu_over_30_cost"],
+    }
+
 def list_groups(month: str | None) -> dict:
     with db_connection() as conn, conn.cursor() as cur:
         if not month:
@@ -379,6 +534,8 @@ def list_groups(month: str | None) -> dict:
         cur.execute(
             f"""
             SELECT g.*,
+                   c.over_30_qty AS ctu_over_30_qty,
+                   c.over_30_cost AS ctu_over_30_cost,
                    p.pull_month AS previous_cost_month,
                    p.inventory_91_180_cost AS previous_month_91_180_cost,
                    CASE WHEN p.group_code IS NULL THEN NULL
@@ -389,6 +546,12 @@ def list_groups(month: str | None) -> dict:
                         ELSE p.inventory_181_plus_cost - g.inventory_181_plus_cost END
                        AS inventory_181_plus_variance
             FROM ({GROUP_SOURCE_SQL}) g
+            LEFT JOIN dws_ctu_inventory_age_group c
+              ON c.pull_month=g.pull_month
+             AND c.group_code=(CASE
+                    WHEN g.group_code IN ('US2-MJ','US1-ZXY') THEN 'US3'
+                    ELSE g.group_code
+                 END)
             LEFT JOIN ({GROUP_SOURCE_SQL}) p
               ON p.pull_month=%s
              AND p.group_code=g.group_code
@@ -412,6 +575,9 @@ def summary(month: str | None) -> dict:
     result = {"pull_month": data["pull_month"], "group_count": data["total"]}
     for field in fields:
         result[field] = sum((row[field] for row in data["items"]), 0)
+    # Query the five CTU groups directly so the US3 amount displayed on two
+    # merged business rows is counted only once in the top summary card.
+    result.update(ctu_inventory_age_summary(data["pull_month"]))
     result["pulled_at"] = max(
         (row["pulled_at"] for row in data["items"]), default=None
     )

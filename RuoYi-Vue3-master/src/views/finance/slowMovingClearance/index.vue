@@ -5,7 +5,7 @@
         <div>
           <div class="eyebrow">FINANCE / INVENTORY AGE</div>
           <h2>滞销清货</h2>
-          <p>按 eBay、EU、US1、US2 及拆分后的 US3 组别，自动对比本月与上个自然月的海外仓/FBA库龄成本。</p>
+          <p>按 eBay、EU、US1、US2 及拆分后的 US3 组别，展示海外仓/FBA库龄成本与成都仓30天以上库存。</p>
         </div>
         <el-button
           class="cost-action-trigger"
@@ -15,7 +15,7 @@
           @click="handleCostDetailExport"
         >
           <el-icon><Download /></el-icon>
-          <span>导出库龄成本明细</span>
+          <span>导出库龄明细</span>
         </el-button>
       </div>
     </el-card>
@@ -38,6 +38,13 @@
             :value="item.pull_month"
           />
         </el-select>
+      </article>
+      <article class="summary-item ctu">
+        <el-tooltip content="成都中转仓31天及以上库龄；数据自2026-09起提供" placement="top">
+          <span>30天以上成都仓数量 / 成本</span>
+        </el-tooltip>
+        <strong>{{ numberOrDash(summary.ctu_over_30_qty) }}</strong>
+        <small>{{ moneyOrDash(summary.ctu_over_30_cost) }}</small>
       </article>
       <article class="summary-item">
         <span>0–90天数量 / 成本</span>
@@ -73,6 +80,7 @@
         border
         stripe
         :fit="true"
+        :span-method="spanCtuUs3"
         class="age-table"
       >
         <el-table-column prop="region_name" label="区域" width="100" fixed>
@@ -87,6 +95,19 @@
         </el-table-column>
         <el-table-column prop="shop_count" label="店铺/仓库数" width="115" align="right">
           <template #default="{ row }">{{ number(row.shop_count) }}</template>
+        </el-table-column>
+        <el-table-column align="center">
+          <template #header>
+            <el-tooltip content="成都中转仓31天及以上库龄；数据自2026-09起提供" placement="top">
+              <span>30天以上成都仓</span>
+            </el-tooltip>
+          </template>
+          <el-table-column prop="ctu_over_30_qty" label="库存数量" min-width="120" align="right">
+            <template #default="{ row }">{{ numberOrDash(row.ctu_over_30_qty) }}</template>
+          </el-table-column>
+          <el-table-column prop="ctu_over_30_cost" label="库龄成本" min-width="130" align="right">
+            <template #default="{ row }">{{ moneyOrDash(row.ctu_over_30_cost) }}</template>
+          </el-table-column>
         </el-table-column>
         <el-table-column label="0–90天" align="center">
           <el-table-column prop="inventory_0_90_qty" label="库存数量" min-width="120" align="right">
@@ -166,6 +187,10 @@ function number(value) {
   })
 }
 
+function numberOrDash(value) {
+  return value === null || value === undefined ? '--' : number(value)
+}
+
 function money(value) {
   return `¥${Number(value || 0).toLocaleString('zh-CN', {
     minimumFractionDigits: 2,
@@ -179,6 +204,15 @@ function moneyOrDash(value) {
 
 function isNegative(value) {
   return value !== null && value !== undefined && Number(value) < 0
+}
+
+function spanCtuUs3({ row, column }) {
+  if (!['ctu_over_30_qty', 'ctu_over_30_cost'].includes(column.property)) {
+    return [1, 1]
+  }
+  if (row.group_code === 'US2-MJ') return [2, 1]
+  if (row.group_code === 'US1-ZXY') return [0, 0]
+  return [1, 1]
 }
 
 async function loadData() {
@@ -235,7 +269,7 @@ async function handleCostDetailExport() {
     link.click()
     link.remove()
     URL.revokeObjectURL(url)
-    proxy.$modal.msgSuccess(`${month} 库龄成本明细导出成功`)
+    proxy.$modal.msgSuccess(`${month} 库龄明细导出成功`)
   } finally {
     costExporting.value = false
   }
@@ -259,7 +293,7 @@ onMounted(() => Promise.all([loadMonths(), loadData()]))
 .eyebrow { color: #2563eb; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  grid-template-columns: repeat(5, minmax(180px, 1fr));
   gap: 10px;
   margin-bottom: 16px;
   overflow-x: auto;
@@ -286,6 +320,7 @@ onMounted(() => Promise.all([loadMonths(), loadData()]))
 }
 .summary-item small { display: block; margin-top: 4px; color: #64748b; font-size: 13px; }
 .summary-item.snapshot-item { border-top: 3px solid #2563eb; }
+.summary-item.ctu { border-top: 3px solid #d97706; }
 .summary-item.warning { border-top: 3px solid #f59e0b; }
 .summary-item.danger { border-top: 3px solid #dc2626; }
 .snapshot-select { width: 100%; margin-top: 9px; }

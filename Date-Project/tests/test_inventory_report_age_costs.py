@@ -45,6 +45,21 @@ def test_department_summary_uses_next_month_clearance_age_costs(monkeypatch):
         return costs
 
     monkeypatch.setattr(service.repo, "inventory_age_group_costs", age_costs)
+    requested_ctu_months = []
+
+    def ctu_costs(month):
+        requested_ctu_months.append(month)
+        return {
+            "EBAY-1": Decimal("7"),
+            "EU": Decimal("10"),
+            "US1": Decimal("20"),
+            "US2": Decimal("30"),
+            "US3": Decimal("40"),
+        }
+
+    monkeypatch.setattr(
+        service.clearance_repo, "ctu_over_30_costs", ctu_costs
+    )
     monkeypatch.setattr(
         service.repo, "amz_sales_volume_by_department", lambda _month: None
     )
@@ -59,6 +74,12 @@ def test_department_summary_uses_next_month_clearance_age_costs(monkeypatch):
     rows = {row["department_code"]: row for row in result["items"]}
 
     assert requested_months == ["2026-08"]
+    assert requested_ctu_months == ["2026-08"]
+    assert rows["AMZ-EU"]["ctu_over_30_cost"] == "10"
+    assert rows["AMZ-US2-MJ"]["ctu_over_30_cost"] == "40"
+    assert rows["AMZ-US1-ZXY"]["ctu_over_30_cost"] == "40"
+    assert rows["AUTO-PARTS-TOTAL"]["ctu_over_30_cost"] == "107"
+    assert rows["AUTO-PARTS-TOTAL"]["ctu_cost_month"] == "2026-08"
     assert rows["AMZ-EU"]["inventory_age_90_180_cost"] == "10"
     assert rows["AMZ-EU"]["inventory_age_180_plus_cost"] == "1"
     assert rows["EBAY-1"]["inventory_age_90_180_cost"] == "7"
@@ -95,6 +116,9 @@ def test_department_summary_uses_report_month_sales_volume(monkeypatch):
         },
     )
     monkeypatch.setattr(service.repo, "inventory_age_group_costs", lambda _month: {})
+    monkeypatch.setattr(
+        service.clearance_repo, "ctu_over_30_costs", lambda _month: {}
+    )
     monkeypatch.setattr(service.repo, "ebay_sales_volume", lambda month: Decimal("9"))
     monkeypatch.setattr(
         service.repo,
@@ -112,6 +136,9 @@ def test_department_summary_uses_report_month_sales_volume(monkeypatch):
     result = service.get_department_summary("2026-07")
     rows = {row["department_code"]: row for row in result["items"]}
 
+    assert rows["EBAY-1"]["ctu_over_30_cost"] is None
+    assert rows["AUTO-PARTS-TOTAL"]["ctu_over_30_cost"] is None
+    assert rows["EBAY-1"]["ctu_cost_month"] == "2026-08"
     assert rows["EBAY-1"]["monthly_sales_qty"] == "9"
     assert rows["AMZ-EU"]["monthly_sales_qty"] == "12"
     assert rows["AMZ-US1"]["monthly_sales_qty"] == "0"

@@ -28,4 +28,10 @@ class LingXingInventoryDomain(LingXingDomainBase):
             path="inventory/center/openapi/storageReport/local/detail/page",
             description="按日期和系统仓库ID查询本地仓库存报表明细",
         ),
+        "ctu_inventory_detail": LingXingEndpointSpec(
+            key="ctu_inventory_detail",
+            name="仓库-库存明细",
+            path="erp/sc/routing/data/local_inventory/inventoryDetails",
+            description="按仓库ID查询本地仓/海外仓库存明细及库龄分档",
+        ),
     }

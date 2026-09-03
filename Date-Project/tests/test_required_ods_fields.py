@@ -178,6 +178,11 @@ def test_inventory_age_detail_export_contains_structured_columns(monkeypatch, tm
             ],
         },
     )
+    monkeypatch.setattr(
+        clearance_export_service.repo,
+        "ctu_inventory_age_details",
+        lambda month: {"pull_month": month, "items": []},
+    )
 
     file_path, download_name = clearance_export_service.export_inventory_age_details(
         "2026-08"
@@ -225,6 +230,11 @@ def test_inventory_age_detail_export_contains_shared_warehouse(monkeypatch, tmp_
                 }
             ],
         },
+    )
+    monkeypatch.setattr(
+        clearance_export_service.repo,
+        "ctu_inventory_age_details",
+        lambda month: {"pull_month": month, "items": []},
     )
 
     file_path, _ = clearance_export_service.export_inventory_age_details("2026-08")

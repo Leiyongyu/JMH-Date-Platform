@@ -12,6 +12,7 @@ from backend.infrastructure.exception_handlers import register_exception_handler
 from backend.infrastructure.logging import configure_logging
 from backend.infrastructure.request_context import RequestIdMiddleware
 from backend.image_sop.app import app as image_sop_app
+from backend.ebay_tool.app import router as ebay_tool_router
 from backend.image_sop.cleanup import cleanup_keep_recent
 
 
@@ -28,6 +29,10 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
     app.include_router(api_router)
     app.mount("/image-sop", image_sop_app, name="image-sop")
+    # eBay 价格查询工具 — APIRouter 包装为子应用后挂载
+    ebay_tool_app = FastAPI(title="eBay 价格查询工具")
+    ebay_tool_app.include_router(ebay_tool_router)
+    app.mount("/ebay-tool-api", ebay_tool_app, name="ebay-tool")
     frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
     app.mount(
         "/script-tools",

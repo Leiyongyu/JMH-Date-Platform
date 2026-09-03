@@ -722,6 +722,128 @@ def amz_sales_amount_by_store(stat_month: str) -> list[dict[str, Any]]:
         return list(cursor.fetchall())
 
 
+def amz_sales_volume_by_store(
+    stat_month: str,
+) -> list[dict[str, Any]] | None:
+    """按组别和店铺读取Amazon销量；None表示当月没有销售源数据。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS source_rows
+            FROM dwd_inventory_report_amz_sales_detail
+            WHERE stat_month=%s
+            """,
+            (stat_month,),
+        )
+        if int(cursor.fetchone()["source_rows"] or 0) == 0:
+            return None
+        cursor.execute(
+            """
+            SELECT department_code,store_name,
+                   COALESCE(SUM(volume),0) AS sales_volume
+            FROM dwd_inventory_report_amz_sales_detail
+            WHERE stat_month=%s AND department_code IS NOT NULL
+            GROUP BY department_code,store_name
+            """,
+            (stat_month,),
+        )
+        return list(cursor.fetchall())
+
+
+def amz_sales_volume_by_owner(
+    stat_month: str,
+) -> list[dict[str, Any]] | None:
+    """按组别和负责人读取Amazon销量；None表示当月没有销售源数据。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS source_rows
+            FROM dwd_inventory_report_amz_sales_detail
+            WHERE stat_month=%s
+            """,
+            (stat_month,),
+        )
+        if int(cursor.fetchone()["source_rows"] or 0) == 0:
+            return None
+        cursor.execute(
+            """
+            SELECT department_code,principal_name,
+                   COALESCE(SUM(volume),0) AS sales_volume
+            FROM dwd_inventory_report_amz_sales_detail
+            WHERE stat_month=%s AND department_code IS NOT NULL
+            GROUP BY department_code,principal_name
+            """,
+            (stat_month,),
+        )
+        return list(cursor.fetchall())
+
+
+def ebay_sales_volume_rows(
+    stat_month: str,
+) -> list[dict[str, Any]] | None:
+    """按SKU读取eBay销量；新版利润表无销量时回退付款日期订单源。"""
+    database = _source_database()
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS source_rows,
+                   COALESCE(SUM(sold_quantity),0) AS sales_volume
+            FROM dwd_ebay_monthly_profit
+            WHERE stat_month=%s
+            """,
+            (stat_month,),
+        )
+        performance_row = cursor.fetchone()
+        performance_volume = (
+            performance_row.get("sales_volume") or ZERO
+            if performance_row
+            else ZERO
+        )
+        if (
+            performance_row
+            and int(performance_row.get("source_rows") or 0) > 0
+            and performance_volume != ZERO
+        ):
+            cursor.execute(
+                """
+                SELECT sku,COALESCE(SUM(sold_quantity),0) AS sales_volume
+                FROM dwd_ebay_monthly_profit
+                WHERE stat_month=%s
+                GROUP BY sku
+                """,
+                (stat_month,),
+            )
+            return list(cursor.fetchall())
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) AS source_rows
+            FROM `{database}`.`ebay_sales`
+            WHERE payment_time >= STR_TO_DATE(CONCAT(%s,'-01'), '%%Y-%%m-%%d')
+              AND payment_time < DATE_ADD(
+                    STR_TO_DATE(CONCAT(%s,'-01'), '%%Y-%%m-%%d'),
+                    INTERVAL 1 MONTH
+                  )
+            """,
+            (stat_month, stat_month),
+        )
+        if int(cursor.fetchone()["source_rows"] or 0) == 0:
+            return None
+        cursor.execute(
+            f"""
+            SELECT sku,COALESCE(SUM(COALESCE(quantity,0)),0) AS sales_volume
+            FROM `{database}`.`ebay_sales`
+            WHERE payment_time >= STR_TO_DATE(CONCAT(%s,'-01'), '%%Y-%%m-%%d')
+              AND payment_time < DATE_ADD(
+                    STR_TO_DATE(CONCAT(%s,'-01'), '%%Y-%%m-%%d'),
+                    INTERVAL 1 MONTH
+                  )
+            GROUP BY sku
+            """,
+            (stat_month, stat_month),
+        )
+        return list(cursor.fetchall())
+
 def ebay_sales_amount(stat_month: str) -> Decimal | None:
     """Return eBay achievement from the unified monthly profit import."""
     with db_connection() as connection, connection.cursor() as cursor:

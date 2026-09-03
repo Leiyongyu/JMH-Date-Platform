@@ -125,6 +125,40 @@ public class PerformancePythonClient extends PythonHttpSupport
                 params, requestId);
     }
 
+    public byte[] exportMonthlyInventoryReport(
+            String statMonth,
+            String dimensionType,
+            String requestId)
+    {
+        try
+        {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("stat_month", statMonth);
+            params.put("dimension_type", dimensionType);
+            HttpRequest request = baseRequest(
+                    "/monthly-inventory-report/exports"
+                            + queryString(params),
+                    requestId)
+                    .setHeader("Accept", EXCEL_CONTENT_TYPE)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 400)
+            {
+                String body = new String(
+                        response.body(), StandardCharsets.UTF_8);
+                Map<String, Object> json = parseJson(body);
+                throw new IllegalStateException(errorMessage(
+                        json, response.statusCode(), SERVICE_NAME));
+            }
+            return response.body();
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
     public Map<String, Object> monthlyInventoryReportDetails(
             Map<String, ?> params, String requestId)
     {

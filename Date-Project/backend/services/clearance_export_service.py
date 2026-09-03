@@ -15,7 +15,7 @@ from backend.config import settings
 from backend.repositories import clearance_repository as repo
 
 
-HEADERS = [
+FBA_HEADERS = [
     ("快照月份", "pull_month", "text"),
     ("区域", "region_name", "text"),
     ("组别", "group_code", "text"),
@@ -47,50 +47,53 @@ HEADERS = [
     ("同步批次ID", "sync_batch_id", "text"),
 ]
 
+CTU_HEADERS = [
+    ("快照月份", "pull_month", "text"),
+    ("组别", "group_code", "text"),
+    ("仓库ID", "wid", "text"),
+    ("仓库名称", "warehouse_name", "text"),
+    ("SKU", "sku", "text"),
+    ("本地产品ID", "product_id", "text"),
+    ("实际库存总量", "product_total", "qty"),
+    ("单位库存成本", "stock_price", "money"),
+    ("平均库龄天数", "average_age", "qty"),
+    ("30天以上库存数量", "over_30_qty", "qty"),
+    ("30天以上库龄成本", "over_30_cost", "money"),
+    ("库龄分档原值", "stock_age_list", "text"),
+    ("拉取时间", "pulled_at", "datetime"),
+    ("同步批次ID", "sync_batch_id", "text"),
+]
+
 
 def export_inventory_age_details(pull_month: str | None) -> tuple[str, str]:
-    data = repo.inventory_age_details(pull_month)
-    month = data["pull_month"]
-    rows = data["items"]
-    if not month or not rows:
+    fba_data = repo.inventory_age_details(pull_month)
+    ctu_data = repo.ctu_inventory_age_details(pull_month)
+    month = fba_data["pull_month"] or ctu_data["pull_month"]
+    fba_rows = fba_data["items"]
+    ctu_rows = ctu_data["items"]
+    if not month or (not fba_rows and not ctu_rows):
         raise ValueError(f"{pull_month or '当前月份'} 没有可导出的库龄明细")
 
     workbook = Workbook(write_only=True)
-    sheet = workbook.create_sheet(title="库龄明细")
-    sheet.freeze_panes = "A2"
-    sheet.sheet_view.showGridLines = False
-    widths = [12, 12, 12, 28, 62, 28, 24] + [20] * 20 + [20, 38]
-    for index, width in enumerate(widths, start=1):
-        sheet.column_dimensions[get_column_letter(index)].width = width
+    if fba_rows:
+        _append_sheet(
+            workbook,
+            "库龄明细",
+            FBA_HEADERS,
+            fba_rows,
+            [12, 12, 12, 28, 62, 28, 24] + [20] * 20 + [20, 38],
+            "2563EB",
+        )
+    if ctu_rows:
+        _append_sheet(
+            workbook,
+            "成都仓30天以上明细",
+            CTU_HEADERS,
+            ctu_rows,
+            [12, 12, 14, 25, 28, 18, 18, 18, 18, 21, 21, 45, 20, 38],
+            "D97706",
+        )
 
-    header_fill = PatternFill("solid", fgColor="2563EB")
-    header_font = Font(color="FFFFFF", bold=True)
-    header_cells = []
-    for title, _, _ in HEADERS:
-        cell = WriteOnlyCell(sheet, value=title)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        header_cells.append(cell)
-    sheet.append(header_cells)
-
-    for row in rows:
-        cells = []
-        for _, key, value_type in HEADERS:
-            value = row.get(key)
-            if key == "store_name" and not str(value or "").strip():
-                value = "0"
-            cell = WriteOnlyCell(sheet, value=_excel_value(value))
-            if value_type == "qty":
-                cell.number_format = "#,##0"
-            elif value_type == "money":
-                cell.number_format = "#,##0.00"
-            elif value_type == "datetime":
-                cell.number_format = "yyyy-mm-dd hh:mm:ss"
-            cells.append(cell)
-        sheet.append(cells)
-
-    sheet.auto_filter.ref = f"A1:{get_column_letter(len(HEADERS))}{len(rows) + 1}"
     export_dir = Path(settings.export_output_dir)
     export_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -104,6 +107,51 @@ def export_inventory_age_details(pull_month: str | None) -> tuple[str, str]:
     temp.close()
     workbook.save(temp.name)
     return temp.name, download_name
+
+
+def _append_sheet(
+    workbook: Workbook,
+    title: str,
+    headers: list[tuple[str, str, str]],
+    rows: list[dict[str, Any]],
+    widths: list[int],
+    header_color: str,
+) -> None:
+    sheet = workbook.create_sheet(title=title)
+    sheet.freeze_panes = "A2"
+    sheet.sheet_view.showGridLines = False
+    for index, width in enumerate(widths, start=1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
+
+    header_fill = PatternFill("solid", fgColor=header_color)
+    header_font = Font(color="FFFFFF", bold=True)
+    header_cells = []
+    for column_title, _, _ in headers:
+        cell = WriteOnlyCell(sheet, value=column_title)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        header_cells.append(cell)
+    sheet.append(header_cells)
+
+    for row in rows:
+        cells = []
+        for _, key, value_type in headers:
+            value = row.get(key)
+            if key == "store_name" and not str(value or "").strip():
+                value = "0"
+            cell = WriteOnlyCell(sheet, value=_excel_value(value))
+            if value_type == "qty":
+                cell.number_format = "#,##0.######"
+            elif value_type == "money":
+                cell.number_format = "#,##0.00"
+            elif value_type == "datetime":
+                cell.number_format = "yyyy-mm-dd hh:mm:ss"
+            cells.append(cell)
+        sheet.append(cells)
+    sheet.auto_filter.ref = (
+        f"A1:{get_column_letter(len(headers))}{len(rows) + 1}"
+    )
 
 
 def _excel_value(value: Any) -> Any:

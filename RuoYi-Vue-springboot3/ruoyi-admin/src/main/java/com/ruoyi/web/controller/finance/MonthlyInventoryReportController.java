@@ -7,9 +7,17 @@ import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.system.service.finance.MonthlyInventoryDashboardService;
 import com.ruoyi.system.service.finance.PerformancePythonClient;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -109,6 +117,51 @@ public class MonthlyInventoryReportController extends BaseController
         }
     }
 
+    @Log(title = "月度库存报表导出", businessType = BusinessType.EXPORT)
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list')")
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> export(
+            @RequestParam String statMonth,
+            @RequestParam(defaultValue = "GROUP") String dimensionType,
+            @RequestHeader(value = "X-Request-ID", required = false)
+            String requestId)
+    {
+        try
+        {
+            byte[] file = pythonClient.exportMonthlyInventoryReport(
+                    statMonth, dimensionType, requestId);
+            String reportMonth = YearMonth.parse(statMonth).plusMonths(1)
+                    .toString();
+            String dimensionLabel = switch (dimensionType.toUpperCase())
+            {
+                case "STORE" -> "店铺";
+                case "OWNER" -> "负责人";
+                default -> "组别";
+            };
+            String timestamp = LocalDateTime.now().format(
+                    DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+            String filename = URLEncoder.encode(
+                    reportMonth + "-月度库存-" + dimensionLabel + "-"
+                            + timestamp + ".xlsx",
+                    StandardCharsets.UTF_8).replace("+", "%20");
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                            "attachment; filename*=UTF-8''" + filename)
+                    .contentType(MediaType.parseMediaType(
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                    .contentLength(file.length)
+                    .body(file);
+        }
+        catch (RuntimeException e)
+        {
+            byte[] message = String.valueOf(e.getMessage()).getBytes(
+                    StandardCharsets.UTF_8);
+            return ResponseEntity.badRequest()
+                    .contentType(new MediaType("text", "plain", StandardCharsets.UTF_8))
+                    .contentLength(message.length)
+                    .body(message);
+        }
+    }
     @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list')")
     @GetMapping("/list")
     public AjaxResult list(

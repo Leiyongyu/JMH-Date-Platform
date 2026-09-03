@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -19,6 +20,24 @@ PARTIAL_PAGE_RETRIES = 2
 PAGE_INTERVAL_SECONDS = 1.1
 FBA_INVENTORY_MONTH_RE = re.compile(r"20\d{2}-(0[1-9]|1[0-2])")
 logger = logging.getLogger(__name__)
+
+CTU_ENDPOINT_KEY = "ctu_inventory_detail"
+CTU_PAGE_SIZE = 800
+CTU_MAX_PAGES = 100
+CTU_PAGE_INTERVAL_SECONDS = 1.1
+CTU_GROUP_ORDER = ("EU", "US1", "US2", "US3", "EBAY-1")
+CTU_WAREHOUSES = {
+    "18677": ("EU", "CTUAMZ-EU中转仓"),
+    "19561": ("EU", "CTUAMZ-UK中转仓"),
+    "18678": ("US1", "CTUAMZ-US1中转仓"),
+    "18679": ("US2", "CTUAMZ-US2中转仓"),
+    "18680": ("US3", "CTUAMZ-US3中转仓"),
+    "18674": ("EBAY-1", "CTUeBay-DE中转仓"),
+    "18675": ("EBAY-1", "CTUeBay-UK中转仓"),
+    "18676": ("EBAY-1", "CTUeBay-US中转仓"),
+    "19578": ("EBAY-1", "CTUeBay-1组中转仓"),
+    "19579": ("EBAY-1", "CTUeBay-2组中转仓"),
+}
 
 
 def resolve_fba_inventory_pull_month(pull_month: str | None = None) -> str:
@@ -42,6 +61,175 @@ def resolve_fba_inventory_pull_month(pull_month: str | None = None) -> str:
         )
     return pull_month
 
+
+def _ctu_over_30_quantity(stock_age_list) -> tuple[Decimal, set[str]]:
+    """Return inventory quantity whose age bucket starts at 31 days or later."""
+    quantity = Decimal("0")
+    unparsed_names: set[str] = set()
+    if not isinstance(stock_age_list, list):
+        return quantity, unparsed_names
+    for bucket in stock_age_list:
+        if not isinstance(bucket, dict):
+            unparsed_names.add(str(bucket))
+            continue
+        name = str(bucket.get("name") or "").strip()
+        match = re.match(r"^(\d+)", name)
+        if not match:
+            unparsed_names.add(name or "<空档位名>")
+            continue
+        if int(match.group(1)) >= 31:
+            quantity += _num(bucket.get("qty"))
+    return quantity, unparsed_names
+
+
+def _ctu_group_rows(month: str, rows: list[dict], pulled_at: datetime) -> list[dict]:
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        grouped[row["group_code"]].append(row)
+    result = []
+    for group_code in CTU_GROUP_ORDER:
+        items = grouped.get(group_code, [])
+        result.append({
+            "pull_month": month,
+            "group_code": group_code,
+            "warehouse_count": len({item["wid"] for item in items}),
+            "source_row_count": len(items),
+            "over_30_qty": sum(
+                (item["over_30_qty"] for item in items), Decimal("0")
+            ),
+            "over_30_cost": sum(
+                (item["over_30_cost"] for item in items), Decimal("0")
+            ),
+            "pulled_at": pulled_at,
+        })
+    return result
+
+
+def sync_ctu_inventory(pull_month: str | None = None) -> dict:
+    """Pull current CTU inventory and rebuild the 31-day-and-over snapshot."""
+    month = resolve_fba_inventory_pull_month(pull_month)
+    batch_id = str(uuid4())
+    pulled_at = datetime.now()
+    domain = LingXingInventoryDomain()
+    warehouse_ids = ",".join(CTU_WAREHOUSES)
+    remote: list[dict] = []
+    expected_total: int | None = None
+    completed = False
+    for page in range(CTU_MAX_PAGES):
+        response = domain.request_endpoint(
+            CTU_ENDPOINT_KEY,
+            {
+                "wid": warehouse_ids,
+                "offset": page * CTU_PAGE_SIZE,
+                "length": CTU_PAGE_SIZE,
+            },
+        )
+        batch, response_total = _response_page(response)
+        if response_total is not None:
+            expected_total = response_total
+        remote.extend(batch)
+        if expected_total is not None and len(remote) >= expected_total:
+            completed = True
+            break
+        if len(batch) < CTU_PAGE_SIZE:
+            completed = True
+            break
+        time.sleep(CTU_PAGE_INTERVAL_SECONDS)
+    if not completed:
+        raise RuntimeError(f"领星成都仓库存超过最大分页限制: {CTU_MAX_PAGES}页")
+    if expected_total is not None and expected_total != len(remote):
+        logger.warning(
+            "领星成都仓库存分页期间total发生变化: 接口报告%s条，实际取得%s条",
+            expected_total,
+            len(remote),
+        )
+    if not remote:
+        raise RuntimeError("领星成都仓库存返回0条，已拒绝清空当月数据")
+
+    warehouse_names = repo.ctu_warehouse_names(CTU_WAREHOUSES)
+    rows: list[dict] = []
+    unmapped_wids: set[str] = set()
+    unparsed_bucket_names: set[str] = set()
+    missing_stock_price_rows = 0
+    for item in remote:
+        wid = str(item.get("wid") or "").strip()
+        warehouse = CTU_WAREHOUSES.get(wid)
+        if warehouse is None:
+            unmapped_wids.add(wid or "<空仓库ID>")
+            continue
+        group_code, fallback_warehouse_name = warehouse
+        warehouse_name = warehouse_names.get(wid) or fallback_warehouse_name
+        stock_age_list = item.get("stock_age_list")
+        over_30_qty, unparsed_names = _ctu_over_30_quantity(stock_age_list)
+        unparsed_bucket_names.update(unparsed_names)
+        stock_price = _optional_num(item.get("stock_price"))
+        if stock_price is None and over_30_qty != 0:
+            missing_stock_price_rows += 1
+        over_30_cost = over_30_qty * (stock_price or Decimal("0"))
+        rows.append({
+            "pull_month": month,
+            "wid": wid,
+            "warehouse_name": warehouse_name,
+            "group_code": group_code,
+            "sku": str(item.get("sku") or "").strip() or None,
+            "product_id": str(item.get("product_id") or "").strip() or None,
+            "product_total": _optional_num(item.get("product_total")),
+            "stock_price": stock_price,
+            "average_age": _optional_int(item.get("average_age")),
+            "over_30_qty": over_30_qty,
+            "over_30_cost": over_30_cost,
+            "stock_age_list": json.dumps(
+                stock_age_list if isinstance(stock_age_list, list) else [],
+                ensure_ascii=False,
+                default=str,
+            ),
+            "raw_json": json.dumps(item, ensure_ascii=False, default=str),
+            "sync_batch_id": batch_id,
+            "pulled_at": pulled_at,
+        })
+    if unmapped_wids:
+        unmapped_row_count = sum(
+            1 for item in remote
+            if (str(item.get("wid") or "").strip() or "<空仓库ID>")
+            in unmapped_wids
+        )
+        logger.warning(
+            "%s 成都仓库存存在未映射仓库ID，已跳过%s条: %s",
+            month,
+            unmapped_row_count,
+            ", ".join(sorted(unmapped_wids)),
+        )
+    if unparsed_bucket_names:
+        logger.warning(
+            "%s 成都仓库存存在无法解析的库龄档位，已按0处理: %s",
+            month,
+            ", ".join(sorted(unparsed_bucket_names)),
+        )
+    if not rows:
+        raise RuntimeError("领星成都仓库存没有可识别仓库，已拒绝清空当月数据")
+    groups = _ctu_group_rows(month, rows, pulled_at)
+    with repo.connection() as conn:
+        try:
+            persisted = repo.replace_ctu_inventory_month(
+                conn, month, rows, groups
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return {
+        "status": "completed",
+        "pull_month": month,
+        "sync_batch_id": batch_id,
+        "extract_rows": len(remote),
+        "ods_rows": len(rows),
+        "group_rows": len(groups),
+        "unmapped_wid_rows": len(remote) - len(rows),
+        "unmapped_wids": sorted(unmapped_wids),
+        "unparsed_bucket_names": sorted(unparsed_bucket_names),
+        "missing_stock_price_rows": missing_stock_price_rows,
+        **persisted,
+    }
 
 def sync_fba_inventory(pull_month: str | None = None) -> dict:
     month = resolve_fba_inventory_pull_month(pull_month)
@@ -169,7 +357,7 @@ def sync_fba_inventory(pull_month: str | None = None) -> dict:
         except Exception:
             conn.rollback()
             raise
-    return {
+    result = {
         "pull_month": month, "sync_batch_id": batch_id,
         "extract_rows": len(remote), "ods_rows": len(ods),
         **ods_stats, **stats,
@@ -179,6 +367,18 @@ def sync_fba_inventory(pull_month: str | None = None) -> dict:
         **ebay_persisted,
         "status": "completed",
     }
+    # The FBA/eBay transaction is already committed. A CTU failure is reported
+    # separately and must not roll back the valid primary inventory snapshot.
+    try:
+        result["ctu_inventory"] = sync_ctu_inventory(month)
+    except Exception as exc:
+        logger.warning(
+            "%s 成都中转仓库存同步失败，30天以上列暂时无新数据: %s",
+            month,
+            exc,
+        )
+        result["ctu_inventory"] = {"status": "failed", "error": str(exc)}
+    return result
 
 
 REQUIRED_INVENTORY_FIELDS = (

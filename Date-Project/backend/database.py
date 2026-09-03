@@ -545,6 +545,7 @@ def init_database() -> None:
         project_root / "migrations" / "20260902_amz_promotion_discount.sql",
         project_root / "migrations" / "20260902_ebay_profit_sold_quantity.sql",
         project_root / "migrations" / "20260902_lingxing_currency_month.sql",
+        project_root / "migrations" / "20260903_ctu_inventory_over_30.sql",
     ]
     schema = "\n".join(
         path.read_text(encoding="utf-8")
