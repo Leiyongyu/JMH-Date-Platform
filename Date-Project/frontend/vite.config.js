@@ -13,6 +13,19 @@ export default defineConfig(({ mode }) => {
       port: 5174,
       strictPort: true,
       proxy: {
+        '/ebay-tool': {
+          target: 'http://127.0.0.1:8010',
+          changeOrigin: true,
+          configure: (proxy) => {
+            if (internalToken) {
+              proxy.on('proxyReq', (proxyReq) => {
+                proxyReq.setHeader('X-Internal-Token', internalToken)
+                proxyReq.setHeader('X-ERP-User-ID', '0')
+                proxyReq.setHeader('X-ERP-Username-B64', 'ZGV2ZWxvcGVy')
+              })
+            }
+          },
+        },
         '/image-sop/api': {
           target: 'http://127.0.0.1:8010',
           changeOrigin: true,

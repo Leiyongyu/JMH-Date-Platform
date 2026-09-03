@@ -234,6 +234,14 @@ image-sop:
     connect-timeout: 5000
     read-timeout: 900000
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+# eBay价格工具通过Java安全代理访问Python；与其他Python模块复用JMH_PYTHON_BASE_URL。
+ebay-tool:
+  python:
+    base-url: ${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}/ebay-tool
+    connect-timeout: 5000
+    read-timeout: 900000
+    internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+
 # Python 绩效排名服务
 performance:
   python:

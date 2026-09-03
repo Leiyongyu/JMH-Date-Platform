@@ -1,11 +1,12 @@
 import asyncio
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.api.deps import require_internal_access
 from backend.api.router import api_router
 from backend.database import init_database
 from backend.infrastructure.exception_handlers import register_exception_handlers
@@ -29,10 +30,41 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
     app.include_router(api_router)
     app.mount("/image-sop", image_sop_app, name="image-sop")
-    # eBay 价格查询工具 — APIRouter 包装为子应用后挂载
+    # eBay 价格查询工具：页面与 API 统一挂载，并且只接受 Java 代理的内部调用。
     ebay_tool_app = FastAPI(title="eBay 价格查询工具")
+
+    @ebay_tool_app.middleware("http")
+    async def require_ebay_tool_internal_access(request: Request, call_next):
+        # FastAPI全局dependencies不会覆盖内部mount的StaticFiles，必须在
+        # 子应用中间件层校验，才能同时保护静态页面与全部API。
+        try:
+            require_internal_access(
+                request,
+                request.headers.get("X-Internal-Token"),
+            )
+        except HTTPException as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
+            )
+        return await call_next(request)
+
     ebay_tool_app.include_router(ebay_tool_router)
-    app.mount("/ebay-tool-api", ebay_tool_app, name="ebay-tool")
+    # 静态目录必须放在业务路由之后，避免吞掉 /api/*。
+    ebay_tool_app.mount(
+        "/",
+        StaticFiles(
+            directory=Path(__file__).resolve().parent.parent
+            / "frontend"
+            / "public"
+            / "ebay-tool",
+            html=True,
+        ),
+        name="ebay-tool-static",
+    )
+    app.mount("/ebay-tool", ebay_tool_app, name="ebay-tool")
+    # 兼容旧 API 地址；共用受保护的子应用，不保留匿名旁路。
+    app.mount("/ebay-tool-api", ebay_tool_app, name="ebay-tool-legacy")
     frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
     app.mount(
         "/script-tools",
