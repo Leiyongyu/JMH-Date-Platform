@@ -20,4 +20,15 @@ export default [
     devBase: '/image-sop',
     needSession: true,
   },
+  {
+    code: 'daily-workspace',
+    name: '每日工作台',
+    description: '任务进度跟踪与工作结果导出。',
+    icon: 'DW',
+    category: '效率工具',
+    tags: ['任务管理', 'Excel 导出'],
+    permission: 'sop:dailyWorkspace:use',
+    transport: 'direct',
+    page: '/script-tools/daily-workspace/index.html',
+  },
 ]
