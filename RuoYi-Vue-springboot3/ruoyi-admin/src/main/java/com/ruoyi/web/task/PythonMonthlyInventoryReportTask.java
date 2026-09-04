@@ -37,6 +37,12 @@ public class PythonMonthlyInventoryReportTask
     private static final String OPENING_INVENTORY_API_PATH =
             "/api/v1/internal/scheduler/tasks/"
             + "monthly_inventory_report_opening_inventory_fill/run";
+    private static final String CURRENCY_SYNC_TYPE =
+            "python_lingxing_currency_month";
+    private static final String CURRENCY_SYNC_NAME =
+            "领星月度汇率同步";
+    private static final String CURRENCY_API_PATH =
+            "/api/v1/internal/scheduler/tasks/currency_month_sync/run";
     private static final DateTimeFormatter REQUEST_TIME =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
@@ -54,7 +60,7 @@ public class PythonMonthlyInventoryReportTask
         this.objectMapper = objectMapper;
     }
 
-    /** 每月先同步领星USD汇率，再拉取上一个完整自然月库存数据。 */
+    /** 每月先同步领星全部币种汇率，再拉取上一个完整自然月库存数据。 */
     public void syncPreviousMonth()
     {
         execute(null);
@@ -88,6 +94,18 @@ public class PythonMonthlyInventoryReportTask
     public void fillPreviousMonthOpeningInventory()
     {
         execute(null, false, true);
+    }
+
+    /** 独立同步当前自然月的领星全部币种汇率；Quartz任务默认暂停。 */
+    public void syncCurrentMonthCurrency()
+    {
+        executeCurrency(null);
+    }
+
+    /** 供任务页面按月补跑，例如 syncCurrencyMonth('2026-08')。 */
+    public void syncCurrencyMonth(String statMonth)
+    {
+        executeCurrency(statMonth);
     }
 
     @SuppressWarnings("unchecked")
@@ -206,6 +224,80 @@ public class PythonMonthlyInventoryReportTask
         {
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("pull_month", statMonth);
+            params.put("trigger_type", "JOB");
+            params.put("request_id", requestId);
+            return objectMapper.writeValueAsString(params);
+        }
+        catch (Exception ignored)
+        {
+            return "{\"request_id\":\"" + requestId + "\"}";
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void executeCurrency(String statMonth)
+    {
+        long started = System.currentTimeMillis();
+        String requestId = "quartz-currency-month-"
+                + LocalDateTime.now().format(REQUEST_TIME)
+                + "-"
+                + UUID.randomUUID().toString().replace("-", "");
+        Long logId = logService.start(
+                CURRENCY_SYNC_TYPE, CURRENCY_SYNC_NAME, CURRENCY_API_PATH,
+                "JOB", "SYSTEM", null, null);
+        String requestParams = currencyRequestParams(statMonth, requestId);
+        try
+        {
+            Map<String, Object> response =
+                    client.runCurrencyMonth(statMonth, requestId);
+            Map<String, Object> data = map(response.get("data"));
+            Map<String, Object> resultData = map(data.get("result"));
+            int extractRows = integer(resultData.get("extract_rows"));
+            int storedRows = integer(resultData.get("stored_rows"));
+
+            OperationSyncResult result = OperationSyncResult.success(
+                    CURRENCY_SYNC_TYPE, CURRENCY_SYNC_NAME,
+                    CURRENCY_API_PATH, extractRows, storedRows,
+                    System.currentTimeMillis() - started);
+            result.setRequestParams(requestParams);
+            result.setDetails(response);
+            result.setBusinessSummary(
+                    "汇率月份" + resultData.get("rate_month")
+                    + "；领星返回" + extractRows + "条"
+                    + "；有效币种" + integer(resultData.get("currency_count"))
+                    + "个；写入" + storedRows + "条"
+                    + "；requestId=" + requestId);
+            logService.finish(logId, result);
+            OperationSyncContext.set(result);
+        }
+        catch (Exception e)
+        {
+            OperationSyncResult failed = OperationSyncResult.failed(
+                    CURRENCY_SYNC_TYPE, CURRENCY_SYNC_NAME,
+                    CURRENCY_API_PATH,
+                    "requestId=" + requestId + "；" + e.getMessage(),
+                    System.currentTimeMillis() - started);
+            failed.setRequestParams(requestParams);
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("request_id", requestId);
+            details.put("stat_month", statMonth);
+            details.put("error", e.getMessage());
+            failed.setDetails(details);
+            logService.finish(logId, failed);
+            OperationSyncContext.set(failed);
+            throw new IllegalStateException(
+                    "Python领星月度汇率同步失败，requestId="
+                    + requestId + "：" + e.getMessage(), e);
+        }
+    }
+
+    private String currencyRequestParams(
+            String statMonth, String requestId)
+    {
+        try
+        {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("stat_month", statMonth);
             params.put("trigger_type", "JOB");
             params.put("request_id", requestId);
             return objectMapper.writeValueAsString(params);

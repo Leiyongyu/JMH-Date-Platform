@@ -28,6 +28,24 @@ class FormulaConfigSaveRequest(BaseModel):
     operator: str | None = Field(default=None, max_length=64)
 
 
+class ForecastFormulaConfigItem(BaseModel):
+    rule_group: str = Field(min_length=1, max_length=16)
+    tier: int = Field(ge=1, le=5)
+    threshold_ratio: Decimal | None = Field(default=None, ge=0)
+    weight_7d: Decimal | None = Field(default=None, ge=0)
+    weight_15d: Decimal | None = Field(default=None, ge=0)
+    weight_30d: Decimal | None = Field(default=None, ge=0)
+    month_days: Decimal | None = Field(default=None, gt=0)
+    new_age_cap: Decimal | None = Field(default=None, gt=0)
+    old_fallback_ratio: Decimal | None = Field(default=None, ge=0)
+    remark: str | None = Field(default=None, max_length=255)
+
+
+class ForecastFormulaConfigSaveRequest(BaseModel):
+    configs: list[ForecastFormulaConfigItem]
+    operator: str | None = Field(default=None, max_length=64)
+
+
 @router.get("/list")
 def list_replenishment(
     request: Request,
@@ -85,4 +103,33 @@ def save_formula_configs(request: Request, payload: FormulaConfigSaveRequest):
     except Exception as exc:
         raise HTTPException(
             status_code=500, detail=f"eBay补货2.0公式配置保存失败: {exc}"
+        ) from exc
+
+
+@router.get("/forecast-formula")
+def list_forecast_formula_configs(request: Request):
+    try:
+        return success_response(
+            service.list_forecast_formula_configs(),
+            request_id=request.state.request_id,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"eBay补货2.0预估销量公式查询失败: {exc}"
+        ) from exc
+
+
+@router.post("/forecast-formula")
+def save_forecast_formula_configs(
+    request: Request, payload: ForecastFormulaConfigSaveRequest
+):
+    try:
+        rows = [item.dict() for item in payload.configs]
+        data = service.save_forecast_formula_configs(rows, payload.operator)
+        return success_response(data, request_id=request.state.request_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"eBay补货2.0预估销量公式保存失败: {exc}"
         ) from exc

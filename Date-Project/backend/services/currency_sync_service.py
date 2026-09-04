@@ -12,6 +12,7 @@ from backend.repositories import currency_repository as repo
 
 
 RATE_LIMIT_INTERVAL_SECONDS = 1.1
+TASK_CODE = "currency_month_sync"
 
 
 def sync_currency_month(
@@ -21,42 +22,45 @@ def sync_currency_month(
     month = _validate_month(rate_month)
     currency_domain = domain or LingXingCurrencyDomain()
     rows = currency_domain.fetch_monthly_rates(month)
-    usd = next(
-        (
-            row for row in rows
-            if str(row.get("code") or "").strip().upper() == "USD"
-        ),
-        None,
-    )
-    if usd is None:
-        raise RuntimeError(f"领星 {month} 汇率数据中没有USD")
-    my_rate = _positive_decimal(usd.get("my_rate"), "my_rate")
-    rate_org = _optional_decimal(usd.get("rate_org"), "rate_org")
-    response_month = str(usd.get("date") or month).strip()
-    if response_month != month:
-        raise RuntimeError(
-            f"领星汇率月份不一致：请求{month}，返回{response_month}"
-        )
     sync_batch_id = str(uuid4())
     synced_at = datetime.now()
-    stored_rows = repo.upsert_monthly_rates([
-        {
+    payload = []
+    for row in rows:
+        currency_code = str(row.get("code") or "").strip().upper()
+        if not currency_code:
+            continue
+        response_month = str(row.get("date") or month).strip()
+        if response_month != month:
+            raise RuntimeError(
+                f"领星汇率月份不一致：请求{month}，返回{response_month}"
+            )
+        payload.append({
             "rate_month": month,
-            "currency_code": "USD",
-            "my_rate": my_rate,
-            "rate_org": rate_org,
+            "currency_code": currency_code,
+            "my_rate": _positive_decimal(
+                row.get("my_rate"), f"{currency_code} my_rate"
+            ),
+            "rate_org": _optional_decimal(
+                row.get("rate_org"), f"{currency_code} rate_org"
+            ),
             "sync_batch_id": sync_batch_id,
             "synced_at": synced_at,
-        }
-    ])
+        })
+    if not any(item["currency_code"] == "USD" for item in payload):
+        raise RuntimeError(f"领星 {month} 汇率数据中没有USD")
+    stored_rows = repo.upsert_monthly_rates(payload)
     return {
+        "stat_month": month,
         "rate_month": month,
-        "currency_code": "USD",
-        "my_rate": my_rate,
-        "rate_org": rate_org,
+        "currency_count": len(payload),
         "sync_batch_id": sync_batch_id,
         "extract_rows": len(rows),
+        "ods_rows": stored_rows,
         "stored_rows": stored_rows,
+        "inserted_rows": stored_rows,
+        "updated_rows": 0,
+        "deleted_rows": 0,
+        "skipped_rows": len(rows) - len(payload),
         "synced_at": synced_at,
     }
 
@@ -67,7 +71,7 @@ def sync_inventory_currency_rates(
     domain: LingXingCurrencyDomain | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict:
-    """同步当月、上月及历史补跑所需业务月的USD汇率。"""
+    """同步当月、上月及历史补跑所需业务月的全部领星汇率。"""
     current_day = today or date.today()
     current_month = current_day.strftime("%Y-%m")
     previous_month = (current_day.replace(day=1) - timedelta(days=1)).strftime(
@@ -87,7 +91,7 @@ def sync_inventory_currency_rates(
         results.append(sync_currency_month(month, currency_domain))
     return {
         "rate_months": months,
-        "currency_code": "USD",
+        "currency_count": sum(item["currency_count"] for item in results),
         "stored_rows": sum(item["stored_rows"] for item in results),
         "rates": results,
     }
@@ -110,7 +114,7 @@ def _next_month(stat_month: str) -> str:
 def _positive_decimal(value, field: str) -> Decimal:
     parsed = _optional_decimal(value, field)
     if parsed is None or parsed <= 0:
-        raise RuntimeError(f"领星USD汇率{field}无效：{value}")
+        raise RuntimeError(f"领星汇率{field}无效：{value}")
     return parsed
 
 
@@ -120,4 +124,4 @@ def _optional_decimal(value, field: str) -> Decimal | None:
     try:
         return Decimal(str(value).replace(",", "").strip())
     except (InvalidOperation, ValueError) as exc:
-        raise RuntimeError(f"领星USD汇率{field}不是有效数字：{value}") from exc
+        raise RuntimeError(f"领星汇率{field}不是有效数字：{value}") from exc

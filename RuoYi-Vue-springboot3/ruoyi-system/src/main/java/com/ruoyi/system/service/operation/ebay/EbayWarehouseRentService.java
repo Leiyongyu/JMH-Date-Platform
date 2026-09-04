@@ -4,9 +4,11 @@ import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.system.domain.operation.ebay.EbayWarehouseRentAggregate;
 import com.ruoyi.system.domain.operation.ebay.EbayWarehouseRentDetail;
 import com.ruoyi.system.mapper.operation.ebay.EbayWarehouseRentMapper;
+import com.ruoyi.system.mapper.operation.ebay.LingxingCurrencyMonthMapper;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -60,32 +62,32 @@ public class EbayWarehouseRentService
             "USWE", "美国",
             "USEA", "美国");
 
-    private static final Map<String, BigDecimal> EXCHANGE_RATES = Map.of(
-            "USD", new BigDecimal("6.7828"),
-            "EUR", new BigDecimal("7.8344"),
-            "GBP", new BigDecimal("9.1530"));
-
     private final EbayWarehouseRentMapper mapper;
     private final EbayWarehouseRentReplaceService replaceService;
+    private final LingxingCurrencyMonthMapper currencyMonthMapper;
 
     public EbayWarehouseRentService(
             EbayWarehouseRentMapper mapper,
-            EbayWarehouseRentReplaceService replaceService)
+            EbayWarehouseRentReplaceService replaceService,
+            LingxingCurrencyMonthMapper currencyMonthMapper)
     {
         this.mapper = mapper;
         this.replaceService = replaceService;
+        this.currencyMonthMapper = currencyMonthMapper;
     }
 
-    /** 先完整解析校验，再按本次单号增量覆盖明细并重建全量汇总。 */
+    /** 先完整解析校验，再按本次仓库、商品编码与账单日增量覆盖并重建全量汇总。 */
     public Map<String, Object> importFile(MultipartFile file, String operator)
     {
         validateFile(file);
         String sourceFileName = safeFileName(file.getOriginalFilename());
         String importedBy = safeOperator(operator);
+        String rateMonth = YearMonth.now().toString();
+        Map<String, RateInfo> exchangeRates = loadRates(rateMonth);
         ParseResult parsed;
         try
         {
-            parsed = parse(file);
+            parsed = parse(file, exchangeRates, rateMonth);
         }
         catch (ServiceException e)
         {
@@ -111,11 +113,20 @@ public class EbayWarehouseRentService
         result.put("sourceFileName", sourceFileName);
         result.put("sourceRowCount", parsed.sourceRowCount());
         result.put("detailRowCount", replaced.detailRowCount());
-        result.put("coveredDocumentCount", replaced.replacedOrderCount());
+        result.put("coveredWarehouseProductBillingDayCount",
+                replaced.replacedWarehouseProductBillingDayCount());
+        // 兼容尚未更新的前端，值的实际粒度已经是“仓库+商品+账单日”。
+        result.put("coveredWarehouseProductCount",
+                replaced.replacedWarehouseProductBillingDayCount());
         result.put("aggregateRowCount", replaced.aggregateRowCount());
         result.put("warehouseRentAmountCny", parsed.totalAmountCny()
                 .setScale(2, RoundingMode.HALF_UP).toPlainString());
         result.put("importBatchId", batchId);
+        result.put("rateMonth", rateMonth);
+        result.put("exchangeRateSummary", rateSummary(
+                parsed.usedRates(), rateMonth));
+        result.put("hasExchangeRateFallback", parsed.usedRates().values()
+                .stream().anyMatch(rate -> !rateMonth.equals(rate.rateMonth())));
         return result;
     }
 
@@ -204,7 +215,59 @@ public class EbayWarehouseRentService
         return text(sku.substring(index + 1));
     }
 
-    private ParseResult parse(MultipartFile file) throws Exception
+    /**
+     * 汇率来自领星currencyMonth接口的my_rate并四舍五入到2位。每个币种取不晚于
+     * 导入当月的最近一条；完全没有历史汇率时由行校验明确拒绝导入。
+     */
+    private Map<String, RateInfo> loadRates(String rateMonth)
+    {
+        Map<String, RateInfo> rates = new HashMap<>();
+        for (Map<String, Object> row
+                : currencyMonthMapper.selectRatesByMonth(rateMonth))
+        {
+            String code = text(row.get("currency_code"));
+            Object value = row.get("my_rate");
+            String sourceMonth = text(row.get("rate_month"));
+            if (code == null || value == null || sourceMonth == null) continue;
+            try
+            {
+                BigDecimal rate = new BigDecimal(String.valueOf(value))
+                        .setScale(2, RoundingMode.HALF_UP);
+                if (rate.signum() > 0)
+                {
+                    rates.put(code.toUpperCase(Locale.ROOT),
+                            new RateInfo(rate, sourceMonth));
+                }
+            }
+            catch (NumberFormatException ignored)
+            {
+                // 无效汇率按缺失处理，统一由行校验给出币种和月份。
+            }
+        }
+        return rates;
+    }
+
+    private String rateSummary(
+            Map<String, RateInfo> rates, String requestedMonth)
+    {
+        List<String> parts = new ArrayList<>();
+        rates.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> {
+                    RateInfo value = entry.getValue();
+                    String fallback = requestedMonth.equals(value.rateMonth())
+                            ? "" : "，当月缺失已回退";
+                    parts.add(entry.getKey() + " "
+                            + value.rate().toPlainString() + " ("
+                            + value.rateMonth() + fallback + ")");
+                });
+        return String.join("、", parts);
+    }
+
+    private ParseResult parse(
+            MultipartFile file,
+            Map<String, RateInfo> exchangeRates,
+            String rateMonth) throws Exception
     {
         try (InputStream input = file.getInputStream();
              OPCPackage pkg = OPCPackage.open(input))
@@ -224,7 +287,8 @@ public class EbayWarehouseRentService
                     found = true;
                     Map<Integer, String> rawTotalAmounts =
                             parseRawTotalAmounts(sheetInput);
-                    handler = new WarehouseRentSheetHandler(rawTotalAmounts);
+                    handler = new WarehouseRentSheetHandler(
+                            rawTotalAmounts, exchangeRates, rateMonth);
                     try (InputStream formattedSheetInput =
                                  sheets.getSheetPart().getInputStream())
                     {
@@ -354,7 +418,12 @@ public class EbayWarehouseRentService
     private record ParseResult(
             List<EbayWarehouseRentDetail> items,
             int sourceRowCount,
-            BigDecimal totalAmountCny)
+            BigDecimal totalAmountCny,
+            Map<String, RateInfo> usedRates)
+    {
+    }
+
+    private record RateInfo(BigDecimal rate, String rateMonth)
     {
     }
 
@@ -439,11 +508,18 @@ public class EbayWarehouseRentService
         private boolean rowHasAnyValue;
         private BigDecimal totalAmountCny = BigDecimal.ZERO;
         private final Map<Integer, String> rawTotalAmounts;
+        private final Map<String, RateInfo> exchangeRates;
+        private final Map<String, RateInfo> usedRates = new LinkedHashMap<>();
+        private final String rateMonth;
 
         private WarehouseRentSheetHandler(
-                Map<Integer, String> rawTotalAmounts)
+                Map<Integer, String> rawTotalAmounts,
+                Map<String, RateInfo> exchangeRates,
+                String rateMonth)
         {
             this.rawTotalAmounts = rawTotalAmounts;
+            this.exchangeRates = exchangeRates;
+            this.rateMonth = rateMonth;
         }
 
         @Override
@@ -485,15 +561,11 @@ public class EbayWarehouseRentService
             String sku = normalizeSku(productCode);
             String normalizedCurrency = currency == null
                     ? null : currency.toUpperCase(Locale.ROOT);
-            BigDecimal rate = EXCHANGE_RATES.get(normalizedCurrency);
+            RateInfo rateInfo = exchangeRates.get(normalizedCurrency);
+            BigDecimal rate = rateInfo == null ? null : rateInfo.rate();
             BigDecimal sourceAmount = parseAmount(totalAmount);
 
             boolean valid = true;
-            if (orderNo == null)
-            {
-                addError(excelRow, "单号不能为空");
-                valid = false;
-            }
             if (site == null)
             {
                 addError(excelRow, "仓库“" + display(warehouseCode) + "”没有站点映射");
@@ -506,7 +578,9 @@ public class EbayWarehouseRentService
             }
             if (rate == null)
             {
-                addError(excelRow, "计费币种“" + display(currency) + "”不支持");
+                addError(excelRow, "缺少" + display(normalizedCurrency)
+                        + "的汇率（已回退查找至" + rateMonth
+                        + "及更早月份仍未找到），请先执行汇率同步任务");
                 valid = false;
             }
             if (sourceAmount == null)
@@ -518,8 +592,9 @@ public class EbayWarehouseRentService
 
             BigDecimal cnyAmount = sourceAmount.multiply(rate)
                     .setScale(4, RoundingMode.HALF_UP);
+            usedRates.put(normalizedCurrency, rateInfo);
             details.add(buildDetail(
-                    orderNo, site, sku, rate, cnyAmount, excelRow));
+                    orderNo, site, sku, rateInfo, cnyAmount, excelRow));
             totalAmountCny = totalAmountCny.add(cnyAmount);
         }
 
@@ -547,7 +622,7 @@ public class EbayWarehouseRentService
                 String orderNo,
                 String site,
                 String sku,
-                BigDecimal exchangeRate,
+                RateInfo rateInfo,
                 BigDecimal amountCny,
                 int excelRow)
         {
@@ -576,7 +651,8 @@ public class EbayWarehouseRentService
             item.setTotalAmountExclTaxText(sourceValues[21]);
             item.setSite(site);
             item.setSku(sku);
-            item.setExchangeRate(exchangeRate);
+            item.setExchangeRate(rateInfo.rate());
+            item.setExchangeRateMonth(rateInfo.rateMonth());
             item.setWarehouseRentAmountCny(amountCny);
             item.setSourceRowNum(excelRow);
             return item;
@@ -626,7 +702,8 @@ public class EbayWarehouseRentService
                 throw new ServiceException("仓租明细没有可导入的数据");
             }
             return new ParseResult(
-                    List.copyOf(details), details.size(), totalAmountCny);
+                    List.copyOf(details), details.size(), totalAmountCny,
+                    Map.copyOf(usedRates));
         }
 
         private String sourceText(String value)

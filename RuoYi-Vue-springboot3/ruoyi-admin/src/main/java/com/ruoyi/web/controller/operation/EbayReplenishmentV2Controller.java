@@ -97,6 +97,29 @@ public class EbayReplenishmentV2Controller extends BaseController
         return success(data(client.saveFormula(payload, requestId)));
     }
 
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
+    @GetMapping("/forecast-formula")
+    public AjaxResult forecastFormula(
+            @RequestHeader(value = "X-Request-ID", required = false)
+                    String requestId)
+    {
+        return success(data(client.forecastFormula(requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
+    @Log(title = "eBay补货2.0预估销量公式配置", businessType = BusinessType.UPDATE)
+    @PostMapping("/forecast-formula")
+    public AjaxResult saveForecastFormula(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "X-Request-ID", required = false)
+                    String requestId)
+    {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        if (body != null) payload.putAll(body);
+        payload.put("operator", getUsername());
+        return success(data(client.saveForecastFormula(payload, requestId)));
+    }
+
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:importWarehouseRent')")
     @Log(title = "eBay补货2.0仓租明细导入", businessType = BusinessType.IMPORT)
     @PostMapping("/warehouse-rent/import")

@@ -1,6 +1,7 @@
 package com.ruoyi.system.mapper.operation.ebay;
 
 import com.ruoyi.system.domain.operation.ebay.EbayWarehouseRentDetail;
+import com.ruoyi.system.domain.operation.ebay.EbayWarehouseProductKey;
 import java.util.List;
 import org.apache.ibatis.annotations.Param;
 
@@ -11,6 +12,9 @@ public interface EbayWarehouseRentDetailMapper
     String lockImport();
 
     int deleteByOrderNos(@Param("orderNos") List<String> orderNos);
+
+    int deleteByWarehouseProductBillingDays(
+            @Param("keys") List<EbayWarehouseProductKey> keys);
 
     int batchInsert(@Param("items") List<EbayWarehouseRentDetail> items);
 }

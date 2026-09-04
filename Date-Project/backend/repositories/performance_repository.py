@@ -723,6 +723,15 @@ def insert_scheduler_run(connection: Connection, payload: dict[str, Any]) -> Non
             """,
             payload,
         )
+        if payload.get("completed_at") is not None:
+            cursor.execute(
+                """
+                UPDATE scheduler_task
+                SET last_run_at = %s
+                WHERE task_code = %s
+                """,
+                (payload["completed_at"], payload["task_code"]),
+            )
 
 
 def _ensure_default_scheduler_task(connection: Connection) -> None:
@@ -737,6 +746,23 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
                 '0 0 22 4 * ?',
                 1,
                 '每月4日22:00拉取上一个完整自然月的领星Amazon订单利润'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
+                'currency_month_sync',
+                '领星月度汇率同步',
+                '0 0 6 1 * ?',
+                0,
+                '拉取领星currencyMonth全部币种的当月汇率；默认禁用，可手动触发；月度库存源数据任务也会同步汇率'
             )
             ON DUPLICATE KEY UPDATE
                 task_name = VALUES(task_name),
@@ -787,7 +813,7 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
                 '月度库存统计表数据拉取',
                 '0 0 6 1 * ?',
                 1,
-                '每月1日06:00先同步当月和上月领星USD汇率，再拉取上月FBA、海外仓、本地仓数据并重建月度库存报表'
+                '每月1日06:00先同步当月和上月领星全部币种汇率，再拉取上月FBA、海外仓、本地仓数据并重建月度库存报表'
             )
             ON DUPLICATE KEY UPDATE
                 task_name = VALUES(task_name),

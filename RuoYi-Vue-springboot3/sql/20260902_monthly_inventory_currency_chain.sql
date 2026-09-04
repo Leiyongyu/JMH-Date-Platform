@@ -4,7 +4,7 @@ USE `jmh_data_platform`;
 START TRANSACTION;
 
 UPDATE `sys_job`
-SET `remark` = '每月1日06:00先同步当月和上月领星USD汇率，再拉取上个完整自然月FBA、海外仓、本地仓数据并重建月度库存报表',
+SET `remark` = '每月1日06:00先同步当月和上月领星全部币种汇率，再拉取上个完整自然月FBA、海外仓、本地仓数据并重建月度库存报表',
     `update_by` = 'SYSTEM',
     `update_time` = NOW()
 WHERE `invoke_target` IN (

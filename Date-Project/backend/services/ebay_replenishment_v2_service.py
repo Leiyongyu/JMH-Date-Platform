@@ -16,6 +16,12 @@ _SORT_COLUMNS = {
     "productName": "product_name",
     "sales_qty": "sales_qty_m1",
     "salesQty": "sales_qty_m1",
+    "sales_qty_7d": "sales_qty_7d",
+    "salesQty7d": "sales_qty_7d",
+    "sales_qty_15d": "sales_qty_15d",
+    "salesQty15d": "sales_qty_15d",
+    "sales_qty_30d": "sales_qty_30d",
+    "salesQty30d": "sales_qty_30d",
     "gross_profit_amount": "gross_profit_amount_m1",
     "grossProfitAmount": "gross_profit_amount_m1",
     "profit_rate": (
@@ -85,7 +91,13 @@ def list_replenishment(
     months = _complete_months()
     page = max(_positive_int(page, 1), 1)
     page_size = min(max(_positive_int(page_size, 50), 1), 200)
-    sort_column = _SORT_COLUMNS.get(sort_field or "sales_qty", "sales_qty_m1")
+    forecast_sort_requested = (sort_field or "") in {
+        "forecast_sales_quantity_2",
+        "forecastSalesQuantity2",
+    }
+    sort_column = _SORT_COLUMNS.get(
+        sort_field or "sales_qty_30d", "sales_qty_30d"
+    )
     sort_direction = (
         "ASC"
         if str(sort_order or "desc").lower() in {"asc", "ascending"}
@@ -96,7 +108,11 @@ def list_replenishment(
     # 否则每页会少于 page_size、总数也会是筛选前的值。
     level_filter = (product_level or "").strip().upper() or None
     nature_filter = (product_nature or "").strip() or None
-    paginate_in_sql = level_filter is None and nature_filter is None
+    paginate_in_sql = (
+        level_filter is None
+        and nature_filter is None
+        and not forecast_sort_requested
+    )
 
     range_start = months[-1]["start_date"]
     range_end = months[0]["end_date"]
@@ -110,6 +126,27 @@ def list_replenishment(
                    shipping_status
             FROM dwd_ebay_sku_analysis_order
             WHERE payment_time >= %s AND payment_time < %s
+        ),
+        anchor AS (
+            SELECT COALESCE(DATE(MAX(payment_time)),CURDATE()) anchor_date
+            FROM dwd_ebay_sku_analysis_order
+        ),
+        recent_windows AS (
+            SELECT recent.site_name,recent.inventory_sku,
+                   SUM(CASE WHEN recent.payment_time
+                            >= DATE_SUB(anchor.anchor_date,INTERVAL 6 DAY)
+                            THEN recent.purchase_quantity ELSE 0 END) sales_qty_7d,
+                   SUM(CASE WHEN recent.payment_time
+                            >= DATE_SUB(anchor.anchor_date,INTERVAL 14 DAY)
+                            THEN recent.purchase_quantity ELSE 0 END) sales_qty_15d,
+                   SUM(recent.purchase_quantity) sales_qty_30d
+            FROM dwd_ebay_sku_analysis_order recent
+            CROSS JOIN anchor
+            WHERE recent.payment_time
+                  >= DATE_SUB(anchor.anchor_date,INTERVAL 29 DAY)
+              AND recent.payment_time
+                  < DATE_ADD(anchor.anchor_date,INTERVAL 1 DAY)
+            GROUP BY recent.site_name,recent.inventory_sku
         ),
         period_keys AS (
             SELECT DISTINCT site_name,inventory_sku FROM period_rows
@@ -206,8 +243,14 @@ def list_replenishment(
                    overseas_in_transit_quantity,
                COALESCE(inventory_summary.overseas_sellable_quantity,0)
                    overseas_sellable_quantity,
+               COALESCE(recent_windows.sales_qty_7d,0) sales_qty_7d,
+               COALESCE(recent_windows.sales_qty_15d,0) sales_qty_15d,
+               COALESCE(recent_windows.sales_qty_30d,0) sales_qty_30d,
                COUNT(*) OVER() total_count
         FROM base
+        LEFT JOIN recent_windows
+          ON recent_windows.site_name=base.site
+         AND recent_windows.inventory_sku=base.sku
         LEFT JOIN inventory_summary
           ON CONVERT(inventory_summary.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
              =CONVERT(base.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
@@ -242,12 +285,16 @@ def list_replenishment(
     lead_time_days = repository.lead_time_days_by_sku() if rows else {}
     formula_configs = repository.formula_by_level() if rows else {}
     first_listing_dates = repository.first_listing_date_by_sku() if rows else {}
+    inventory_ages = repository.overseas_inventory_age_by_sku() if rows else {}
+    forecast_formula = repository.forecast_formula_by_group() if rows else {}
     items = _assemble_items(
         rows,
         months,
         lead_time_days=lead_time_days,
         formula_configs=formula_configs,
         first_listing_dates=first_listing_dates,
+        inventory_ages=inventory_ages,
+        forecast_formula=forecast_formula,
     )
     if level_filter is not None or nature_filter is not None:
         items = [
@@ -264,6 +311,9 @@ def list_replenishment(
                 == nature_filter
             )
         ]
+    if forecast_sort_requested:
+        items = _sort_forecast_sales_2(items, sort_direction)
+    if not paginate_in_sql:
         total = len(items)
         offset = (page - 1) * page_size
         items = items[offset:offset + page_size]
@@ -360,10 +410,14 @@ def _assemble_items(
     lead_time_days: dict[tuple[str, str], Decimal] | None = None,
     formula_configs: dict[str, dict[str, Decimal]] | None = None,
     first_listing_dates: dict[tuple[str, str], Any] | None = None,
+    inventory_ages: dict[tuple[str, str], Decimal] | None = None,
+    forecast_formula: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     lead_time_days = lead_time_days or {}
     formula_configs = formula_configs or {}
     first_listing_dates = first_listing_dates or {}
+    inventory_ages = inventory_ages or {}
+    forecast_formula = forecast_formula or {}
     today = date.today()
     result: list[dict[str, Any]] = []
     for row in rows:
@@ -427,6 +481,20 @@ def _assemble_items(
             ),
             today,
         )
+        overseas_inventory_age = inventory_ages.get(
+            (
+                str(row.get("site") or "其他").strip(),
+                str(row.get("sku") or "").strip(),
+            )
+        )
+        forecast_sales_quantity_2 = _forecast_sales_2(
+            product_nature=product_nature,
+            sales_7d=_decimal(row.get("sales_qty_7d")),
+            sales_15d=_decimal(row.get("sales_qty_15d")),
+            sales_30d=_decimal(row.get("sales_qty_30d")),
+            age_days=overseas_inventory_age,
+            config=forecast_formula,
+        )
         safety_stock_quantity, suggested_replenishment_quantity = (
             _replenishment_quantities(
                 site=str(row.get("site") or "其他").strip(),
@@ -451,6 +519,9 @@ def _assemble_items(
                 "site": row.get("site") or "其他",
                 "sku": row.get("sku") or "",
                 "product_name": row.get("product_name") or "",
+                "sales_qty_7d": _quantity_text(row.get("sales_qty_7d")),
+                "sales_qty_15d": _quantity_text(row.get("sales_qty_15d")),
+                "sales_qty_30d": _quantity_text(row.get("sales_qty_30d")),
                 "sales_qty": latest["sales_qty"],
                 "gross_profit_amount": latest["gross_profit_amount"],
                 "profit_rate": _ratio_decimal_text(profit_rate),
@@ -458,6 +529,14 @@ def _assemble_items(
                 "return_amount": latest["return_amount"],
                 "return_rate": _ratio_decimal_text(return_rate),
                 "forecast_sales_quantity": forecast_sales_quantity,
+                "overseas_inventory_age_days": (
+                    _quantity_text(overseas_inventory_age)
+                    if overseas_inventory_age is not None
+                    else None
+                ),
+                "forecast_sales_quantity_2": _forecast_quantity_text(
+                    forecast_sales_quantity_2
+                ),
                 "forecast_gross_profit_amount": forecast_gross_profit_amount,
                 "forecast_return_quantity": forecast_return_quantity,
                 "forecast_return_amount": forecast_return_amount,
@@ -550,6 +629,121 @@ def _product_nature(first_listing_date: Any, today: date) -> str | None:
         if (today - listing_date).days > _NEW_PRODUCT_MAX_DAYS
         else "新品"
     )
+
+
+def _forecast_sales_2(
+    *,
+    product_nature: str | None,
+    sales_7d: Decimal,
+    sales_15d: Decimal,
+    sales_30d: Decimal,
+    age_days: Decimal | None,
+    config: dict[str, Any],
+) -> Decimal | None:
+    """新品按最老批次库龄折算，老品按日均分档加权；封顶值由MISC配置控制。"""
+
+    if product_nature not in {"新品", "老品"}:
+        return None
+    misc = config.get("MISC")
+    if not isinstance(misc, dict):
+        return None
+    month_days = misc.get("month_days")
+    new_age_cap = misc.get("new_age_cap")
+    fallback_ratio = misc.get("old_fallback_ratio")
+    if (
+        month_days is None
+        or _decimal(month_days) <= 0
+        or new_age_cap is None
+        or _decimal(new_age_cap) <= 0
+        or fallback_ratio is None
+        or _decimal(fallback_ratio) < 0
+    ):
+        return None
+
+    month_days_value = _decimal(month_days)
+    fallback = sales_30d * _decimal(fallback_ratio)
+    if product_nature == "新品":
+        if age_days is None or _decimal(age_days) <= 0:
+            return fallback
+        divisor = min(_decimal(age_days), _decimal(new_age_cap))
+        return sales_30d * month_days_value / divisor
+
+    rate_7d = sales_7d / Decimal("7")
+    rate_15d = sales_15d / Decimal("15")
+    rate_30d = sales_30d / Decimal("30")
+    if sales_7d > 0:
+        tier = _match_tier(config.get("OLD_7D"), rate_7d, rate_30d)
+        if tier is None:
+            return None
+        weights = (
+            tier.get("weight_7d"),
+            tier.get("weight_15d"),
+            tier.get("weight_30d"),
+        )
+        if any(weight is None for weight in weights):
+            return None
+        weighted = (
+            rate_7d * _decimal(weights[0])
+            + rate_15d * _decimal(weights[1])
+            + rate_30d * _decimal(weights[2])
+        )
+    elif sales_15d > 0:
+        tier = _match_tier(config.get("OLD_15D"), rate_15d, rate_30d)
+        if tier is None:
+            return None
+        weights = (tier.get("weight_15d"), tier.get("weight_30d"))
+        if any(weight is None for weight in weights):
+            return None
+        weighted = (
+            rate_15d * _decimal(weights[0])
+            + rate_30d * _decimal(weights[1])
+        )
+    else:
+        # 规则12包含近30天也为0的规则13，此时自然返回0。
+        return fallback
+    return weighted * month_days_value
+
+
+def _match_tier(
+    tiers: Any, rate: Decimal, rate_30d: Decimal
+) -> dict[str, Any] | None:
+    """按档位升序取第一个满足下限的档，NULL阈值为无条件兜底。"""
+
+    if not isinstance(tiers, list) or not tiers:
+        return None
+    for tier in tiers:
+        threshold = tier.get("threshold_ratio")
+        if threshold is None or rate >= _decimal(threshold) * rate_30d:
+            return tier
+    return None
+
+
+def _sort_forecast_sales_2(
+    items: list[dict[str, Any]], direction: str
+) -> list[dict[str, Any]]:
+    """预估销量2是派生值，需在组装后内存排序；空值始终排在末尾。"""
+
+    available = [
+        item
+        for item in items
+        if item.get("forecast_sales_quantity_2") is not None
+    ]
+    missing = [
+        item
+        for item in items
+        if item.get("forecast_sales_quantity_2") is None
+    ]
+    available.sort(
+        key=lambda item: (
+            str(item.get("site") or ""),
+            str(item.get("sku") or ""),
+        )
+    )
+    available.sort(
+        key=lambda item: _decimal(item.get("forecast_sales_quantity_2")),
+        reverse=direction == "DESC",
+    )
+    return available + missing
 
 
 def _replenishment_quantities(
@@ -647,6 +841,115 @@ def _formula_response(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def list_forecast_formula_configs() -> list[dict[str, Any]]:
+    return [
+        _forecast_formula_response(row)
+        for row in repository.list_forecast_formula_rows()
+    ]
+
+
+def save_forecast_formula_configs(
+    rows: list[dict[str, Any]], operator: str | None = None
+) -> list[dict[str, Any]]:
+    expected_keys = {
+        *(("OLD_7D", tier) for tier in range(1, 6)),
+        *(("OLD_15D", tier) for tier in range(1, 6)),
+        ("MISC", 1),
+    }
+    normalized: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    for row in rows:
+        group = str(row.get("rule_group") or "").strip().upper()
+        tier = _positive_int(row.get("tier"), 0)
+        key = (group, tier)
+        if key not in expected_keys or key in seen:
+            raise ValueError("预估销量2公式必须且只能包含两个五档规则组和一条全局配置")
+        seen.add(key)
+        remark = str(row.get("remark") or "").strip()
+        if len(remark) > 255:
+            raise ValueError(f"{group}第{tier}档备注不能超过255个字符")
+        item: dict[str, Any] = {
+            "rule_group": group,
+            "tier": tier,
+            "threshold_ratio": None,
+            "weight_7d": None,
+            "weight_15d": None,
+            "weight_30d": None,
+            "month_days": None,
+            "new_age_cap": None,
+            "old_fallback_ratio": None,
+            "remark": remark or None,
+        }
+        if group == "OLD_7D":
+            if tier < 5:
+                item["threshold_ratio"] = _required_non_negative_decimal(
+                    row.get("threshold_ratio"), f"老品近7天第{tier}档阈值"
+                )
+            elif row.get("threshold_ratio") not in {None, ""}:
+                raise ValueError("老品近7天第5档必须是无阈值兜底档")
+            item["weight_7d"] = _required_non_negative_decimal(
+                row.get("weight_7d"), f"老品近7天第{tier}档7天权重"
+            )
+            item["weight_15d"] = _required_non_negative_decimal(
+                row.get("weight_15d"), f"老品近7天第{tier}档15天权重"
+            )
+            item["weight_30d"] = _required_non_negative_decimal(
+                row.get("weight_30d"), f"老品近7天第{tier}档30天权重"
+            )
+        elif group == "OLD_15D":
+            if tier < 5:
+                item["threshold_ratio"] = _required_non_negative_decimal(
+                    row.get("threshold_ratio"), f"老品近15天第{tier}档阈值"
+                )
+            elif row.get("threshold_ratio") not in {None, ""}:
+                raise ValueError("老品近15天第5档必须是无阈值兜底档")
+            item["weight_15d"] = _required_non_negative_decimal(
+                row.get("weight_15d"), f"老品近15天第{tier}档15天权重"
+            )
+            item["weight_30d"] = _required_non_negative_decimal(
+                row.get("weight_30d"), f"老品近15天第{tier}档30天权重"
+            )
+        else:
+            item["month_days"] = _required_positive_decimal(
+                row.get("month_days"), "月销折算天数"
+            )
+            item["new_age_cap"] = _required_positive_decimal(
+                row.get("new_age_cap"), "新品库龄封顶天数"
+            )
+            item["old_fallback_ratio"] = _required_non_negative_decimal(
+                row.get("old_fallback_ratio"), "无近期销量回退系数"
+            )
+        normalized.append(item)
+    if seen != expected_keys:
+        raise ValueError("预估销量2公式必须且只能包含两个五档规则组和一条全局配置")
+    safe_operator = str(operator or "SYSTEM").strip()[:64] or "SYSTEM"
+    repository.save_forecast_formula_rows(normalized, safe_operator)
+    return list_forecast_formula_configs()
+
+
+def _forecast_formula_response(row: dict[str, Any]) -> dict[str, Any]:
+    decimal_fields = (
+        "threshold_ratio",
+        "weight_7d",
+        "weight_15d",
+        "weight_30d",
+        "month_days",
+        "new_age_cap",
+        "old_fallback_ratio",
+    )
+    return {
+        **row,
+        **{
+            field: (
+                format(_decimal(row.get(field)), "f")
+                if row.get(field) is not None
+                else None
+            )
+            for field in decimal_fields
+        },
+    }
+
+
 def _non_negative_decimal(value: Any, label: str) -> Decimal:
     try:
         result = Decimal(str(value))
@@ -655,6 +958,19 @@ def _non_negative_decimal(value: Any, label: str) -> Decimal:
     if not result.is_finite() or result < 0:
         raise ValueError(f"{label}必须大于或等于0")
     return result.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+
+def _required_non_negative_decimal(value: Any, label: str) -> Decimal:
+    if value is None or value == "":
+        raise ValueError(f"{label}不能为空")
+    return _non_negative_decimal(value, label)
+
+
+def _required_positive_decimal(value: Any, label: str) -> Decimal:
+    result = _required_non_negative_decimal(value, label)
+    if result <= 0:
+        raise ValueError(f"{label}必须大于0")
+    return result
 
 
 def _average_metric(monthly_metrics: list[dict[str, str]], key: str) -> str:
@@ -678,6 +994,14 @@ def _quantity_text(value: Any) -> str:
     if decimal_value == 0:
         return "0"
     return format(decimal_value.normalize(), "f")
+
+
+def _forecast_quantity_text(value: Decimal | None) -> str | None:
+    if value is None:
+        return None
+    return format(
+        value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), "f"
+    )
 
 
 def _money_text(value: Any) -> str:

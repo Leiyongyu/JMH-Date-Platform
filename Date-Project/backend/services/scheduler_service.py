@@ -14,6 +14,10 @@ from backend.services.clearance_service import (
     resolve_fba_inventory_pull_month,
     sync_fba_inventory,
 )
+from backend.services.currency_sync_service import (
+    TASK_CODE as CURRENCY_TASK_CODE,
+    sync_currency_month,
+)
 from backend.services.amz_sop_after_sales_service import (
     TASK_CODE as AMZ_SOP_TASK_CODE,
     TASK_NAME as AMZ_SOP_TASK_NAME,
@@ -46,6 +50,7 @@ TASK_CODES = {
     INVENTORY_REPORT_TASK_CODE,
     SALES_VOLUME_TASK_CODE,
     OPENING_INVENTORY_TASK_CODE,
+    CURRENCY_TASK_CODE,
 }
 
 
@@ -116,6 +121,8 @@ def run_scheduler_task(
                 lock_name = f"inventory:monthly-sales-volume:{month}"
             elif task_code == OPENING_INVENTORY_TASK_CODE:
                 lock_name = f"inventory:next-month-opening:{month}"
+            elif task_code == CURRENCY_TASK_CODE:
+                lock_name = f"currency:lingxing-month:{month}"
             else:
                 lock_name = f"warehouse:amz-ebay-inventory-age:{month}"
             with repo.named_lock(lock_name) as acquired:
@@ -129,6 +136,8 @@ def run_scheduler_task(
                         if task_code == SALES_VOLUME_TASK_CODE
                         else OPENING_INVENTORY_TASK_NAME
                         if task_code == OPENING_INVENTORY_TASK_CODE
+                        else "领星月度汇率同步"
+                        if task_code == CURRENCY_TASK_CODE
                         else "AMZ FBA与eBay海外仓库存库龄同步"
                     )
                     raise SchedulerTaskAlreadyRunning(
@@ -142,6 +151,8 @@ def run_scheduler_task(
                     result = sync_monthly_inventory_sales_volume(month)
                 elif task_code == OPENING_INVENTORY_TASK_CODE:
                     result = fill_next_month_opening_inventory(month)
+                elif task_code == CURRENCY_TASK_CODE:
+                    result = sync_currency_month(month)
                 else:
                     result = run_amz_sop_chain(
                         start_date=start_date,

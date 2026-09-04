@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS `dim_lingxing_currency_month` (
 COMMENT='DIM-领星月度汇率';
 
 UPDATE `scheduler_task`
-SET `description` = '每月1日06:00先同步当月和上月领星USD汇率，再拉取上个完整自然月FBA、海外仓、本地仓数据并重建月度库存报表'
+SET `description` = '每月1日06:00先同步当月和上月领星全部币种汇率，再拉取上个完整自然月FBA、海外仓、本地仓数据并重建月度库存报表'
 WHERE `task_code` = 'monthly_inventory_report_source_sync';
 
 SELECT `table_name`, `table_comment`

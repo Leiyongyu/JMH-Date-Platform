@@ -716,6 +716,29 @@ CREATE TABLE `ebay_replenishment_v2_formula`  (
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'eBay补货2.0安全库存与建议补货量系数配置；与原始补货公式表相互独立' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
+-- Table structure for ebay_replenishment_v2_forecast_formula
+-- ----------------------------
+DROP TABLE IF EXISTS `ebay_replenishment_v2_forecast_formula`;
+CREATE TABLE `ebay_replenishment_v2_forecast_formula`  (
+  `id` int UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `rule_group` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '规则组：OLD_7D、OLD_15D、MISC',
+  `tier` tinyint NOT NULL COMMENT '档位序号；MISC组固定为1',
+  `threshold_ratio` decimal(10, 4) NULL DEFAULT NULL COMMENT '相对近30天日均的下限；兜底档为NULL',
+  `weight_7d` decimal(10, 4) NULL DEFAULT NULL COMMENT '近7天日均权重',
+  `weight_15d` decimal(10, 4) NULL DEFAULT NULL COMMENT '近15天日均权重',
+  `weight_30d` decimal(10, 4) NULL DEFAULT NULL COMMENT '近30天日均权重',
+  `month_days` decimal(10, 4) NULL DEFAULT NULL COMMENT '日均折算月销天数；仅MISC使用',
+  `new_age_cap` decimal(10, 4) NULL DEFAULT NULL COMMENT '新品库龄分母封顶值；仅MISC使用',
+  `old_fallback_ratio` decimal(10, 4) NULL DEFAULT NULL COMMENT '无近期销量回退系数；仅MISC使用',
+  `status` tinyint NOT NULL DEFAULT 1 COMMENT '1启用 0停用',
+  `remark` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '备注',
+  `update_by` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '最后修改人',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '最后修改时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_group_tier`(`rule_group` ASC, `tier` ASC) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'eBay补货2.0预估销量2公式配置' ROW_FORMAT = Dynamic;
+
+-- ----------------------------
 -- Table structure for ebay_replenishment_snapshot
 -- ----------------------------
 DROP TABLE IF EXISTS `ebay_replenishment_snapshot`;

@@ -29,6 +29,7 @@
         <result property="site" column="site"/>
         <result property="sku" column="sku"/>
         <result property="exchangeRate" column="exchange_rate"/>
+        <result property="exchangeRateMonth" column="exchange_rate_month"/>
         <result property="warehouseRentAmountCny" column="warehouse_rent_amount_cny"/>
         <result property="importBatchId" column="import_batch_id"/>
         <result property="sourceFileName" column="source_file_name"/>
@@ -53,6 +54,14 @@
         </foreach>
     </delete>
 
+    <delete id="deleteByWarehouseProductBillingDays">
+        DELETE FROM ebay_replenishment_v2_warehouse_rent_detail
+        WHERE (warehouse_code, product_code, billing_time_text) IN
+        <foreach collection="keys" item="key" open="(" separator="," close=")">
+            (#{key.warehouseCode}, #{key.productCode}, #{key.billingTimeText})
+        </foreach>
+    </delete>
+
     <insert id="batchInsert">
         INSERT INTO ebay_replenishment_v2_warehouse_rent_detail
             (order_no, warehouse_code, product_code, goods_barcode,
@@ -65,6 +74,7 @@
              over_age_surcharge_excl_tax_text,
              oversized_surcharge_excl_tax_text,
              total_amount_excl_tax_text, site, sku, exchange_rate,
+             exchange_rate_month,
              warehouse_rent_amount_cny, import_batch_id,
              source_file_name, source_sheet_name, source_row_num,
              imported_by, import_time)
@@ -82,7 +92,8 @@
              #{item.overAgeSurchargeExclTaxText},
              #{item.oversizedSurchargeExclTaxText},
              #{item.totalAmountExclTaxText}, #{item.site}, #{item.sku},
-             #{item.exchangeRate}, #{item.warehouseRentAmountCny},
+             #{item.exchangeRate}, #{item.exchangeRateMonth},
+             #{item.warehouseRentAmountCny},
              #{item.importBatchId}, #{item.sourceFileName},
              #{item.sourceSheetName}, #{item.sourceRowNum},
              #{item.importedBy}, NOW())

@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS ebay_replenishment_v2_warehouse_rent_import_lock (
   PRIMARY KEY (id),
   UNIQUE KEY uk_ebay_replenishment_v2_rent_lock_key (lock_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='eBay补货2.0仓租按单号增量覆盖并发控制表';
+  COMMENT='eBay补货2.0仓租按仓库、商品编码和账单日增量覆盖并发控制表';
 
 INSERT INTO ebay_replenishment_v2_warehouse_rent_import_lock(id,lock_key)
 VALUES (1,'warehouse_rent_import')
@@ -54,7 +54,7 @@ ON DUPLICATE KEY UPDATE lock_key=VALUES(lock_key);
 
 CREATE TABLE IF NOT EXISTS ebay_replenishment_v2_warehouse_rent_detail (
   id BIGINT NOT NULL AUTO_INCREMENT COMMENT '仓租源明细主键',
-  order_no VARCHAR(128) NOT NULL COMMENT '仓租单号，作为增量覆盖键',
+  order_no VARCHAR(128) NULL COMMENT '仓租单号，仅用于来源追溯，不参与覆盖键',
   warehouse_code VARCHAR(64) NOT NULL COMMENT '仓库代码',
   product_code VARCHAR(255) NOT NULL COMMENT '商品编码',
   goods_barcode VARCHAR(255) NULL COMMENT '商品条码',
@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS ebay_replenishment_v2_warehouse_rent_detail (
   site VARCHAR(100) NOT NULL COMMENT '仓库代码映射后的站点',
   sku VARCHAR(255) NOT NULL COMMENT '去除JMH-前缀后的完整库存SKU',
   exchange_rate DECIMAL(18,6) NOT NULL COMMENT '导入时使用的人民币汇率',
+  exchange_rate_month VARCHAR(7) NULL COMMENT '所用汇率月份，当月缺失时记录回退月份',
   warehouse_rent_amount_cny DECIMAL(18,4) NOT NULL COMMENT '该明细人民币仓租费用',
   import_batch_id CHAR(32) NOT NULL COMMENT '导入批次编号',
   source_file_name VARCHAR(255) NOT NULL COMMENT 'Excel源文件名',
@@ -88,10 +89,11 @@ CREATE TABLE IF NOT EXISTS ebay_replenishment_v2_warehouse_rent_detail (
   import_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '导入时间',
   PRIMARY KEY (id),
   KEY idx_ebay_replenishment_v2_rent_detail_order (order_no),
+  KEY idx_ebay_replenishment_v2_rent_detail_warehouse_product_billing (warehouse_code,product_code,billing_time_text),
   KEY idx_ebay_replenishment_v2_rent_detail_site_sku (site,sku),
   KEY idx_ebay_replenishment_v2_rent_detail_batch (import_batch_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='eBay补货2.0仓租明细Sheet结构化源数据，按单号增量覆盖';
+  COMMENT='eBay补货2.0仓租明细Sheet结构化源数据，按仓库、商品编码和账单日增量覆盖';
 
 SET @operations_id := (
   SELECT menu_id FROM sys_menu
@@ -253,7 +255,7 @@ INSERT INTO sys_menu(
 )
 SELECT '上传仓租明细',@ebay_replenishment_v2_id,2,'',NULL,NULL,'',
        1,0,'F','0','0','operations:ebayReplenishmentV2:importWarehouseRent','',
-       'SYSTEM',NOW(),'上传仓租明细Excel，按单号增量覆盖明细并重建站点SKU汇总'
+       'SYSTEM',NOW(),'上传仓租明细Excel，按仓库、商品编码和账单日增量覆盖明细并重建站点SKU汇总'
 WHERE @ebay_replenishment_v2_id IS NOT NULL
   AND @warehouse_rent_import_id IS NULL;
 SET @warehouse_rent_import_id := (
@@ -273,7 +275,7 @@ SET parent_id=@ebay_replenishment_v2_id,menu_name='上传仓租明细',order_num
     menu_type='F',visible='0',status='0',
     perms='operations:ebayReplenishmentV2:importWarehouseRent',icon='',
     update_by='SYSTEM',update_time=NOW(),
-    remark='上传仓租明细Excel，按单号增量覆盖明细并重建站点SKU汇总'
+    remark='上传仓租明细Excel，按仓库、商品编码和账单日增量覆盖明细并重建站点SKU汇总'
 WHERE menu_id=@warehouse_rent_import_id
   AND @ebay_replenishment_v2_id IS NOT NULL;
 

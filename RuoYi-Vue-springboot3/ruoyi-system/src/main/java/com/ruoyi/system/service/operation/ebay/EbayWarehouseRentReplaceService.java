@@ -2,6 +2,7 @@ package com.ruoyi.system.service.operation.ebay;
 
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.system.domain.operation.ebay.EbayWarehouseRentDetail;
+import com.ruoyi.system.domain.operation.ebay.EbayWarehouseProductKey;
 import com.ruoyi.system.mapper.operation.ebay.EbayWarehouseRentDetailMapper;
 import com.ruoyi.system.mapper.operation.ebay.EbayWarehouseRentMapper;
 import java.util.LinkedHashSet;
@@ -13,7 +14,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** 仓租明细按单号增量覆盖，并从全量明细重建仓租汇总。 */
+/** 仓租明细按仓库、商品编码与账单日增量覆盖，并从全量明细重建仓租汇总。 */
 @Service
 public class EbayWarehouseRentReplaceService
 {
@@ -46,17 +47,26 @@ public class EbayWarehouseRentReplaceService
         {
             throw new ServiceException("仓租明细没有可覆盖的数据");
         }
-        Set<String> distinctOrderNos = new LinkedHashSet<>();
+        Set<EbayWarehouseProductKey> distinctKeys = new LinkedHashSet<>();
         for (EbayWarehouseRentDetail item : items)
         {
-            if (item == null || item.getOrderNo() == null
-                    || item.getOrderNo().isBlank())
+            if (item == null
+                    || item.getWarehouseCode() == null
+                    || item.getWarehouseCode().isBlank()
+                    || item.getProductCode() == null
+                    || item.getProductCode().isBlank()
+                    || item.getBillingTimeText() == null
+                    || item.getBillingTimeText().isBlank())
             {
-                throw new ServiceException("仓租明细存在空单号，已拒绝覆盖");
+                throw new ServiceException(
+                        "仓租明细存在空仓库、空商品编码或空计费时间，已拒绝覆盖");
             }
-            distinctOrderNos.add(item.getOrderNo());
+            distinctKeys.add(new EbayWarehouseProductKey(
+                    item.getWarehouseCode().trim(),
+                    item.getProductCode().trim(),
+                    item.getBillingTimeText().trim()));
         }
-        List<String> orderNos = List.copyOf(distinctOrderNos);
+        List<EbayWarehouseProductKey> keys = List.copyOf(distinctKeys);
 
         if (!IMPORT_LOCK.tryLock())
         {
@@ -65,7 +75,7 @@ public class EbayWarehouseRentReplaceService
         try
         {
             ReplaceResult result = transactionTemplate.execute(status ->
-                    replaceInTransaction(items, orderNos));
+                    replaceInTransaction(items, keys));
             if (result == null)
                 throw new ServiceException("仓租明细覆盖事务未返回结果");
             return result;
@@ -78,7 +88,7 @@ public class EbayWarehouseRentReplaceService
 
     private ReplaceResult replaceInTransaction(
             List<EbayWarehouseRentDetail> items,
-            List<String> orderNos)
+            List<EbayWarehouseProductKey> keys)
     {
         String lockKey = detailMapper.lockImport();
         if (lockKey == null)
@@ -87,10 +97,11 @@ public class EbayWarehouseRentReplaceService
                     "仓租导入控制锁未初始化，请先执行数据库部署脚本");
         }
 
-        for (int start = 0; start < orderNos.size(); start += BATCH_SIZE)
+        for (int start = 0; start < keys.size(); start += BATCH_SIZE)
         {
-            int end = Math.min(start + BATCH_SIZE, orderNos.size());
-            detailMapper.deleteByOrderNos(orderNos.subList(start, end));
+            int end = Math.min(start + BATCH_SIZE, keys.size());
+            detailMapper.deleteByWarehouseProductBillingDays(
+                    keys.subList(start, end));
         }
 
         int inserted = 0;
@@ -117,12 +128,12 @@ public class EbayWarehouseRentReplaceService
             throw new ServiceException("仓租明细已写入，但汇总表重建结果为空");
         }
         return new ReplaceResult(
-                inserted, orderNos.size(), aggregateRows);
+                inserted, keys.size(), aggregateRows);
     }
 
     public record ReplaceResult(
             int detailRowCount,
-            int replacedOrderCount,
+            int replacedWarehouseProductBillingDayCount,
             int aggregateRowCount)
     {
     }

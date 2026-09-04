@@ -25,6 +25,21 @@ export function saveEbayReplenishmentV2Formula(data) {
   })
 }
 
+export function getEbayReplenishmentV2ForecastFormula() {
+  return request({
+    url: `${base}/forecast-formula`,
+    method: 'get'
+  })
+}
+
+export function saveEbayReplenishmentV2ForecastFormula(data) {
+  return request({
+    url: `${base}/forecast-formula`,
+    method: 'post',
+    data
+  })
+}
+
 export function saveEbayReplenishmentV2LeadTime(data) {
   return request({
     url: `${base}/lead-time`,

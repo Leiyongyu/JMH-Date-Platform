@@ -36,10 +36,27 @@ public class EbayReplenishmentV2PythonClient extends PythonHttpSupport
     public Map<String, Object> saveFormula(
             Map<String, ?> body, String requestId)
     {
+        return post(PREFIX + "/formula", body, requestId);
+    }
+
+    public Map<String, Object> forecastFormula(String requestId)
+    {
+        return get(PREFIX + "/forecast-formula", Map.of(), requestId);
+    }
+
+    public Map<String, Object> saveForecastFormula(
+            Map<String, ?> body, String requestId)
+    {
+        return post(PREFIX + "/forecast-formula", body, requestId);
+    }
+
+    private Map<String, Object> post(
+            String path, Map<String, ?> body, String requestId)
+    {
         try
         {
             String json = objectMapper.writeValueAsString(body);
-            HttpRequest request = baseRequest(PREFIX + "/formula", requestId)
+            HttpRequest request = baseRequest(path, requestId)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(
                             json, StandardCharsets.UTF_8))

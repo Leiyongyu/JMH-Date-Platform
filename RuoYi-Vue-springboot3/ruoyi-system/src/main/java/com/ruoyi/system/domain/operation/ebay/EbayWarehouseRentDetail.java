@@ -32,6 +32,7 @@ public class EbayWarehouseRentDetail
     private String site;
     private String sku;
     private BigDecimal exchangeRate;
+    private String exchangeRateMonth;
     private BigDecimal warehouseRentAmountCny;
     private String importBatchId;
     private String sourceFileName;
@@ -92,6 +93,8 @@ public class EbayWarehouseRentDetail
     public void setSku(String sku) { this.sku = sku; }
     public BigDecimal getExchangeRate() { return exchangeRate; }
     public void setExchangeRate(BigDecimal exchangeRate) { this.exchangeRate = exchangeRate; }
+    public String getExchangeRateMonth() { return exchangeRateMonth; }
+    public void setExchangeRateMonth(String value) { this.exchangeRateMonth = value; }
     public BigDecimal getWarehouseRentAmountCny() { return warehouseRentAmountCny; }
     public void setWarehouseRentAmountCny(BigDecimal value) { this.warehouseRentAmountCny = value; }
     public String getImportBatchId() { return importBatchId; }

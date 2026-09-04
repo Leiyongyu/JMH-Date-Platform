@@ -25,6 +25,8 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
             "monthly_inventory_report_sales_volume_sync";
     private static final String INVENTORY_REPORT_OPENING_INVENTORY_TASK =
             "monthly_inventory_report_opening_inventory_fill";
+    private static final String CURRENCY_MONTH_TASK =
+            "currency_month_sync";
     private static final String AMZ_SOP_TASK =
             "amz_sop_after_sales_chain";
     private static final String SERVICE_NAME = "Python绩效ETL";
@@ -71,6 +73,12 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
                 INVENTORY_REPORT_OPENING_INVENTORY_TASK,
                 statMonth,
                 requestId);
+    }
+
+    public Map<String, Object> runCurrencyMonth(
+            String statMonth, String requestId)
+    {
+        return run(CURRENCY_MONTH_TASK, statMonth, requestId);
     }
 
     public Map<String, Object> runAmzSop(
