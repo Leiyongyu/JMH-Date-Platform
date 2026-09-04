@@ -37,6 +37,21 @@
           />
         </el-select>
       </el-form-item>
+      <el-form-item label="产品性质" prop="productNature">
+        <el-select
+          v-model="queryParams.productNature"
+          placeholder="全部性质"
+          clearable
+          style="width: 160px"
+        >
+          <el-option
+            v-for="nature in productNatureOptions"
+            :key="nature"
+            :label="nature"
+            :value="nature"
+          />
+        </el-select>
+      </el-form-item>
       <el-form-item>
         <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
         <el-button icon="Refresh" @click="resetQuery">重置</el-button>
@@ -364,6 +379,7 @@ const total = ref(0)
 const siteOptions = ref([])
 // 与后端 _product_level 的取值保持一致：D 级已并入 C，长尾产品统一按 B 展示
 const productLevelOptions = ['S', 'A', 'B', 'C']
+const productNatureOptions = ['新品', '老品']
 const months = ref([])
 const latestCompleteMonth = ref('')
 const canSubmitPurchase = checkPermi(['procurement:pendingPurchase:add'])
@@ -453,6 +469,7 @@ const columnDefs = [
   },
   { key: 'sellThroughRatio', label: '动销比', align: 'right', width: 105, format: 'percentage', tip: '动销比 = 预估销量 ÷ 海外可售 × 100%；海外可售为0时不计算。' },
   { key: 'productLevel', label: '产品等级', align: 'center', width: 125, tip: '利润率和退货率使用最近3个完整自然月的合计口径。按顺序判断：退货率>6%为C；退货率≥3%时利润率<18%为C，否则为B（长尾产品并入B级）；退货率<3%时再按利润率12%/22%和动销比12%/15%划分C、B、A、S。' },
+  { key: 'productNature', label: '产品性质', align: 'center', width: 105, tip: '按站点和完整MSKU精确匹配最早刊登时间；距今天数>90天为老品，≤90天为新品，查不到刊登记录时显示--。' },
   { key: 'chengduInTransitQty', label: '成都在途', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取成都中转仓待接收数' },
   { key: 'chengduSellableQty', label: '成都可售', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取成都中转仓可售数' },
   { key: 'overseasInTransitQty', label: '海外在途', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取海外仓在途数' },
@@ -479,8 +496,9 @@ const queryParams = reactive({
   pageNum: 1,
   pageSize: 50,
   site: undefined,
-  sku: undefined,
-  productLevel: undefined,
+    sku: undefined,
+    productLevel: undefined,
+    productNature: undefined,
   sortField: undefined,
   sortOrder: undefined
 })
@@ -597,6 +615,7 @@ function buildRequestParams() {
     site: queryParams.site || undefined,
     sku: String(queryParams.sku || '').trim() || undefined,
     productLevel: queryParams.productLevel || undefined,
+    productNature: queryParams.productNature || undefined,
     sortField: queryParams.sortField || undefined,
     sortOrder: queryParams.sortOrder === 'ascending'
       ? 'asc'
@@ -632,6 +651,7 @@ function normalizeRow(item) {
     forecastReturnAmount: numberOrNull(item.forecast_return_amount),
     sellThroughRatio: numberOrNull(item.sell_through_ratio),
     productLevel: item.product_level || null,
+    productNature: item.product_nature || null,
     chengduInTransitQty: numberOrNull(item.chengdu_in_transit_quantity),
     chengduSellableQty: numberOrNull(item.chengdu_sellable_quantity),
     overseasInTransitQty: numberOrNull(item.overseas_in_transit_quantity),

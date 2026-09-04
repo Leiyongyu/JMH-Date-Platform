@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
@@ -67,6 +67,7 @@ def list_replenishment(
     sku: str | None = None,
     product_name: str | None = None,
     product_level: str | None = None,
+    product_nature: str | None = None,
     page: int = 1,
     page_size: int = 50,
     sort_field: str | None = None,
@@ -90,11 +91,12 @@ def list_replenishment(
         if str(sort_order or "desc").lower() in {"asc", "ascending"}
         else "DESC"
     )
-    # 产品等级由 _product_level 在组装阶段算出，SQL 里并不存在这一列，
-    # 因此带等级筛选时不能用 SQL 分页：先取全量、算完等级再筛选并分页，
+    # 产品等级和产品性质均在组装阶段算出，SQL 里不存在这两列，
+    # 因此带任一派生筛选时不能用 SQL 分页：先取全量、算完再筛选并分页，
     # 否则每页会少于 page_size、总数也会是筛选前的值。
     level_filter = (product_level or "").strip().upper() or None
-    paginate_in_sql = level_filter is None
+    nature_filter = (product_nature or "").strip() or None
+    paginate_in_sql = level_filter is None and nature_filter is None
 
     range_start = months[-1]["start_date"]
     range_end = months[0]["end_date"]
@@ -239,17 +241,28 @@ def list_replenishment(
 
     lead_time_days = repository.lead_time_days_by_sku() if rows else {}
     formula_configs = repository.formula_by_level() if rows else {}
+    first_listing_dates = repository.first_listing_date_by_sku() if rows else {}
     items = _assemble_items(
         rows,
         months,
         lead_time_days=lead_time_days,
         formula_configs=formula_configs,
+        first_listing_dates=first_listing_dates,
     )
-    if level_filter is not None:
+    if level_filter is not None or nature_filter is not None:
         items = [
             item
             for item in items
-            if str(item.get("product_level") or "").strip().upper() == level_filter
+            if (
+                level_filter is None
+                or str(item.get("product_level") or "").strip().upper()
+                == level_filter
+            )
+            and (
+                nature_filter is None
+                or str(item.get("product_nature") or "").strip()
+                == nature_filter
+            )
         ]
         total = len(items)
         offset = (page - 1) * page_size
@@ -346,9 +359,12 @@ def _assemble_items(
     months: list[dict[str, Any]],
     lead_time_days: dict[tuple[str, str], Decimal] | None = None,
     formula_configs: dict[str, dict[str, Decimal]] | None = None,
+    first_listing_dates: dict[tuple[str, str], Any] | None = None,
 ) -> list[dict[str, Any]]:
     lead_time_days = lead_time_days or {}
     formula_configs = formula_configs or {}
+    first_listing_dates = first_listing_dates or {}
+    today = date.today()
     result: list[dict[str, Any]] = []
     for row in rows:
         monthly_metrics = []
@@ -402,6 +418,15 @@ def _assemble_items(
         profit_rate = _ratio_decimal(three_month_profit, three_month_paid_amount)
         return_rate = _ratio_decimal(three_month_return_qty, three_month_sales_qty)
         product_level = _product_level(return_rate, profit_rate, sell_through_ratio)
+        product_nature = _product_nature(
+            first_listing_dates.get(
+                (
+                    str(row.get("sku") or "").strip(),
+                    str(row.get("site") or "其他").strip(),
+                )
+            ),
+            today,
+        )
         safety_stock_quantity, suggested_replenishment_quantity = (
             _replenishment_quantities(
                 site=str(row.get("site") or "其他").strip(),
@@ -438,6 +463,7 @@ def _assemble_items(
                 "forecast_return_amount": forecast_return_amount,
                 "sell_through_ratio": _ratio_decimal_text(sell_through_ratio),
                 "product_level": product_level,
+                "product_nature": product_nature,
                 "chengdu_in_transit_quantity": _quantity_text(
                     row.get("chengdu_in_transit_quantity")
                 ),
@@ -500,6 +526,30 @@ def _product_level(
     if profit_rate < Decimal("0.22"):
         return "B" if monthly_turnover_rate < Decimal("0.12") else "A"
     return "B" if monthly_turnover_rate < Decimal("0.15") else "S"
+
+
+_NEW_PRODUCT_MAX_DAYS = 90
+
+
+def _product_nature(first_listing_date: Any, today: date) -> str | None:
+    """刊登超过90天为老品，90天以内（含90天）为新品。"""
+
+    if first_listing_date is None:
+        return None
+    if isinstance(first_listing_date, datetime):
+        listing_date = first_listing_date.date()
+    elif isinstance(first_listing_date, date):
+        listing_date = first_listing_date
+    else:
+        try:
+            listing_date = date.fromisoformat(str(first_listing_date).strip()[:10])
+        except (TypeError, ValueError):
+            return None
+    return (
+        "老品"
+        if (today - listing_date).days > _NEW_PRODUCT_MAX_DAYS
+        else "新品"
+    )
 
 
 def _replenishment_quantities(

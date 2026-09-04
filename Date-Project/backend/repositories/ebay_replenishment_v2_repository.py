@@ -29,6 +29,29 @@ def lead_time_days_by_sku() -> dict[tuple[str, str], Decimal]:
         }
 
 
+def first_listing_date_by_sku() -> dict[tuple[str, str], Any]:
+    """按完整 MSKU 和站点精确读取最早刊登时间；没有记录的 SKU 不返回。"""
+
+    database = _source_database()
+    query = f"""
+        SELECT msku,site_name,MIN(listing_start_time) first_listing_start_time
+        FROM `{database}`.ebay_product_listing
+        WHERE msku IS NOT NULL AND TRIM(msku)<>''
+          AND site_name IS NOT NULL AND TRIM(site_name)<>''
+          AND listing_start_time IS NOT NULL
+        GROUP BY msku,site_name
+    """
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(query)
+        return {
+            (_text(row.get("msku")), _text(row.get("site_name"))): row.get(
+                "first_listing_start_time"
+            )
+            for row in cursor.fetchall()
+            if _text(row.get("msku")) and _text(row.get("site_name"))
+        }
+
+
 def formula_by_level() -> dict[str, dict[str, Decimal]]:
     """读取启用的 v2 系数；缺失级别不会生成任何代码默认值。"""
 

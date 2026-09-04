@@ -51,6 +51,7 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestParam(required = false) String site,
             @RequestParam(required = false) String sku,
             @RequestParam(required = false) String productLevel,
+            @RequestParam(required = false) String productNature,
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "50") int pageSize,
             @RequestParam(required = false) String sortField,
@@ -62,6 +63,7 @@ public class EbayReplenishmentV2Controller extends BaseController
         params.put("site", trimToNull(site));
         params.put("sku", trimToNull(sku));
         params.put("product_level", trimToNull(productLevel));
+        params.put("product_nature", trimToNull(productNature));
         params.put("page", Math.max(pageNum, 1));
         params.put("page_size", Math.min(
                 Math.max(pageSize, 1), MAX_PAGE_SIZE));
