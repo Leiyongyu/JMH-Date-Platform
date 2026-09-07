@@ -228,6 +228,8 @@ CALL deploy_add_index_if_missing('date-project','dwd_ebay_sku_analysis_order','i
   '`site_name`,`inventory_sku`,`payment_time`');
 CALL deploy_add_index_if_missing('date-project','dwd_ebay_sku_analysis_order','idx_esa_dwd_return_time',
   '`refund_time`,`site_name`,`inventory_sku`');
+CALL deploy_add_index_if_missing('jmh_data_platform','ebay_product_listing','idx_site_msku_start',
+  '`site_name`,`msku`,`listing_start_time`');
 
 DROP PROCEDURE IF EXISTS deploy_add_index_if_missing;
 DROP PROCEDURE IF EXISTS deploy_add_column_if_missing;

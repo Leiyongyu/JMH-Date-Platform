@@ -668,7 +668,8 @@ CREATE TABLE `ebay_product_listing`  (
   INDEX `idx_listing_end_time`(`listing_end_time` ASC) USING BTREE,
   INDEX `idx_platform`(`platform` ASC) USING BTREE,
   INDEX `idx_quantity`(`quantity` ASC) USING BTREE,
-  INDEX `idx_msku_local_sku`(`msku` ASC, `local_sku` ASC) USING BTREE
+  INDEX `idx_msku_local_sku`(`msku` ASC, `local_sku` ASC) USING BTREE,
+  INDEX `idx_site_msku_start`(`site_name` ASC, `msku` ASC, `listing_start_time` ASC) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 86272 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '领星eBay商品Listing源数据表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------

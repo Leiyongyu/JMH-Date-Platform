@@ -39,7 +39,7 @@ def first_listing_date_by_sku() -> dict[tuple[str, str], Any]:
         WHERE msku IS NOT NULL AND TRIM(msku)<>''
           AND site_name IS NOT NULL AND TRIM(site_name)<>''
           AND listing_start_time IS NOT NULL
-        GROUP BY msku,site_name
+        GROUP BY site_name,msku
     """
     with db_connection() as connection, connection.cursor() as cursor:
         cursor.execute(query)

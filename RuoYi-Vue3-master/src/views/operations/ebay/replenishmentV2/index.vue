@@ -161,30 +161,18 @@
               />
               <span v-else>{{ formatCell(scope.row[col.key], col) }}</span>
               <span v-if="isLeadTimeSaving(scope.row, col.key)" class="lead-time-saving">保存中</span>
+              <span v-else-if="isRowRecalculating(scope.row)" class="lead-time-saving">计算中</span>
               <span v-else-if="canEditLeadTime" class="lead-time-unit">天</span>
             </div>
-            <el-popover
+            <span
               v-else-if="col.monthlyKey"
-              placement="top"
-              :width="300"
-              trigger="hover"
-              :show-after="180"
-              popper-class="replenishment-monthly-popper"
+              class="monthly-metric-trigger"
+              @mouseenter="showMonthlyPopover($event, scope.row, col)"
+              @mouseleave="hideMonthlyPopover"
             >
-              <template #reference>
-                <span class="monthly-metric-trigger">
-                  <strong>{{ formatCell(scope.row[col.key], col) }}</strong>
-                  <span class="monthly-metric-month">{{ formatMonth(latestCompleteMonth, false) }}</span>
-                </span>
-              </template>
-              <div class="monthly-history">
-                <div class="monthly-history__title">{{ col.label }} · 最近3个完整自然月</div>
-                <div v-for="metric in monthlyRows(scope.row)" :key="metric.month" class="monthly-history__row">
-                  <span>{{ formatMonth(metric.month, true) }}</span>
-                  <strong>{{ formatMonthlyValue(metric[col.monthlyKey], col) }}</strong>
-                </div>
-              </div>
-            </el-popover>
+              <strong>{{ formatCell(scope.row[col.key], col) }}</strong>
+              <span class="monthly-metric-month">{{ formatMonth(latestCompleteMonth, false) }}</span>
+            </span>
             <template v-else-if="isFormulaColumn(col)">
               <span :class="{ 'suggested-qty': col.key === 'suggestedReplenishmentQty' && hasValue(scope.row[col.key]) }">
                 {{ formatCell(scope.row[col.key], col) }}
@@ -207,6 +195,36 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <!--
+      月度明细弹窗：全表共用一个实例。
+      原先每个带 monthlyKey 的单元格各挂一个 el-popover（4列×50行=200个），
+      Element Plus 会提前渲染其内容，占了约 30% 的 DOM 节点，且翻页时全部重建。
+      改为虚拟触发后只保留 1 个实例，hover 时切换锚点与数据，行为与原先一致。
+    -->
+    <el-popover
+      :virtual-ref="monthlyPopoverRef"
+      virtual-triggering
+      :visible="monthlyPopoverVisible"
+      placement="top"
+      :width="300"
+      :show-after="0"
+      :hide-after="0"
+      popper-class="replenishment-monthly-popper"
+    >
+      <div class="monthly-history">
+        <div class="monthly-history__title">{{ monthlyPopoverTitle }}</div>
+        <div
+          v-for="metric in monthlyPopoverRows"
+          :key="metric.month"
+          class="monthly-history__row"
+        >
+          <span>{{ formatMonth(metric.month, true) }}</span>
+          <strong>{{ formatMonthlyValue(metric[monthlyPopoverKey], monthlyPopoverColumn) }}</strong>
+        </div>
+      </div>
+    </el-popover>
+
 
     <pagination
       v-show="total > 0"
@@ -465,6 +483,15 @@ const siteOptions = ref([])
 const productLevelOptions = ['S', 'A', 'B', 'C']
 const productNatureOptions = ['新品', '老品']
 const months = ref([])
+// 月度明细弹窗的共享状态：全表只有一个 el-popover 实例，
+// hover 时把锚点指向当前单元格并换掉内容，避免每格各建一个组件。
+const monthlyPopoverRef = ref(null)
+const monthlyPopoverVisible = ref(false)
+const monthlyPopoverRows = ref([])
+const monthlyPopoverTitle = ref('')
+const monthlyPopoverKey = ref('')
+const monthlyPopoverColumn = ref(null)
+let monthlyPopoverTimer = null
 const latestCompleteMonth = ref('')
 const canSubmitPurchase = checkPermi(['procurement:pendingPurchase:add'])
 const canEditLeadTime = checkPermi(['operations:ebayReplenishmentV2:editLeadTime'])
@@ -474,6 +501,11 @@ const leadTimeSaveTimers = new Map()
 const leadTimeSaveChains = new Map()
 const leadTimeEditVersions = new Map()
 const savingLeadTimeKeys = reactive(new Set())
+// 行级重算：时效改动只影响安全库存和建议补货量，保存成功后按SKU局部重查回填。
+// 防抖键用“站点|SKU”而非“站点|SKU|字段”，连填三个格子只会触发一次重算。
+const rowRecalcTimers = new Map()
+const rowRecalcVersions = new Map()
+const recalculatingRowKeys = reactive(new Set())
 const purchaseDialogVisible = ref(false)
 const purchaseSubmitting = ref(false)
 const purchaseFormRef = ref(null)
@@ -923,6 +955,25 @@ function normalizeRow(item) {
   }
 }
 
+/** 保留原 el-popover 的 180ms 延迟显示，手感与改造前一致。 */
+function showMonthlyPopover(event, row, column) {
+  clearTimeout(monthlyPopoverTimer)
+  const anchor = event.currentTarget
+  monthlyPopoverTimer = setTimeout(() => {
+    monthlyPopoverRef.value = anchor
+    monthlyPopoverRows.value = monthlyRows(row)
+    monthlyPopoverTitle.value = `${column.label} · 最近3个完整自然月`
+    monthlyPopoverKey.value = column.monthlyKey
+    monthlyPopoverColumn.value = column
+    monthlyPopoverVisible.value = true
+  }, 180)
+}
+
+function hideMonthlyPopover() {
+  clearTimeout(monthlyPopoverTimer)
+  monthlyPopoverVisible.value = false
+}
+
 function monthlyRows(row) {
   const source = Array.isArray(row.monthlyMetrics) ? row.monthlyMetrics : []
   if (!months.value.length) return source
@@ -1115,6 +1166,7 @@ function enqueueLeadTimeSave(row, column, key, days, version) {
         days
       })
       leadTimeSavedValues.set(key, days)
+      scheduleRowRecalc(row)
     } catch (error) {
       if (leadTimeEditVersions.get(key) === version) {
         row[column.key] = leadTimeSavedValues.get(key) ?? null
@@ -1129,6 +1181,63 @@ function enqueueLeadTimeSave(row, column, key, days, version) {
   current.finally(() => {
     if (leadTimeSaveChains.get(key) === current) leadTimeSaveChains.delete(key)
   }).catch(() => undefined)
+}
+
+function rowKey(row) {
+  return `${String(row.site || '').trim()}|${String(row.sku || '').trim()}`
+}
+
+function isRowRecalculating(row) {
+  return recalculatingRowKeys.has(rowKey(row))
+}
+
+/** 行级防抖：三个时效格子连续填写时合并为一次重算。 */
+function scheduleRowRecalc(row) {
+  const key = rowKey(row)
+  const version = (rowRecalcVersions.get(key) || 0) + 1
+  rowRecalcVersions.set(key, version)
+  const oldTimer = rowRecalcTimers.get(key)
+  if (oldTimer) clearTimeout(oldTimer)
+  rowRecalcTimers.set(key, setTimeout(() => {
+    rowRecalcTimers.delete(key)
+    recalcRow(row, key, version)
+  }, 500))
+}
+
+/**
+ * 重新计算单行的安全库存与建议补货量。
+ * 公式在后端，前端不复刻，避免两个真相源。
+ */
+async function recalcRow(row, key, version) {
+  // 三个时效格子各有独立保存链，必须全部落库后再查，避免读到半新半旧的值。
+  const chains = Object.keys(leadTimeFieldMap)
+    .map(columnKey => leadTimeSaveChains.get(leadTimeCellKey(row, columnKey)))
+    .filter(Boolean)
+  if (chains.length) {
+    await Promise.allSettled(chains)
+  }
+  if (rowRecalcVersions.get(key) !== version) return
+
+  recalculatingRowKeys.add(key)
+  try {
+    const response = await listEbayReplenishmentV2({
+      pageNum: 1,
+      pageSize: 1,
+      site: String(row.site || '').trim(),
+      sku: String(row.sku || '').trim()
+    })
+    // 慢响应不得覆盖期间产生的新输入。
+    if (rowRecalcVersions.get(key) !== version) return
+    const fresh = (response?.data?.items || [])[0]
+    if (!fresh) return
+    // 只回填受时效影响的两个派生字段，避免冲掉用户正在编辑的时效输入。
+    row.safetyStockQty = numberOrNull(fresh.safety_stock_quantity)
+    row.suggestedReplenishmentQty = numberOrNull(fresh.suggested_replenishment_quantity)
+  } catch (error) {
+    // 时效已经保存成功；展示重算失败时保持原值，用户刷新页面即可恢复。
+  } finally {
+    if (rowRecalcVersions.get(key) === version) recalculatingRowKeys.delete(key)
+  }
 }
 
 function formatSuggestedQuantity(value) {
@@ -1205,8 +1314,11 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  clearTimeout(monthlyPopoverTimer)
   for (const timer of leadTimeSaveTimers.values()) clearTimeout(timer)
   leadTimeSaveTimers.clear()
+  for (const timer of rowRecalcTimers.values()) clearTimeout(timer)
+  rowRecalcTimers.clear()
 })
 </script>
 

@@ -117,6 +117,12 @@ def list_replenishment(
     range_start = months[-1]["start_date"]
     range_end = months[0]["end_date"]
     where_sql, filter_params = _filters(site, sku, product_name)
+    # 站点和 SKU 都是订单源表原生字段，可在 CTE 聚合前安全下推。
+    # 商品名称取自最新一条历史订单，只能保留在外层，避免改变原有语义。
+    source_where_sql, source_filter_params = _source_filters(site, sku)
+    recent_where_sql, recent_filter_params = _source_filters(
+        site, sku, alias="recent"
+    )
     limit_sql = "LIMIT %s OFFSET %s" if paginate_in_sql else ""
     month_params = [month["month"] for month in months for _ in range(5)]
     query = f"""
@@ -126,6 +132,7 @@ def list_replenishment(
                    shipping_status
             FROM dwd_ebay_sku_analysis_order
             WHERE payment_time >= %s AND payment_time < %s
+            {source_where_sql}
         ),
         anchor AS (
             SELECT COALESCE(DATE(MAX(payment_time)),CURDATE()) anchor_date
@@ -146,25 +153,23 @@ def list_replenishment(
                   >= DATE_SUB(anchor.anchor_date,INTERVAL 29 DAY)
               AND recent.payment_time
                   < DATE_ADD(anchor.anchor_date,INTERVAL 1 DAY)
+              {recent_where_sql}
             GROUP BY recent.site_name,recent.inventory_sku
         ),
         period_keys AS (
             SELECT DISTINCT site_name,inventory_sku FROM period_rows
         ),
         latest_source AS (
-            SELECT site_name,inventory_sku,product_name_cn
-            FROM (
-                SELECT source.site_name,source.inventory_sku,source.product_name_cn,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY source.site_name,source.inventory_sku
-                           ORDER BY source.payment_time DESC,source.id DESC
-                       ) latest_rank
-                FROM dwd_ebay_sku_analysis_order source
-                INNER JOIN period_keys period_key
-                    ON period_key.site_name=source.site_name
-                   AND period_key.inventory_sku=source.inventory_sku
-            ) ranked_source
-            WHERE latest_rank=1
+            SELECT period_key.site_name,period_key.inventory_sku,
+                   (
+                       SELECT source.product_name_cn
+                       FROM dwd_ebay_sku_analysis_order source
+                       WHERE source.site_name=period_key.site_name
+                         AND source.inventory_sku=period_key.inventory_sku
+                       ORDER BY source.payment_time DESC,source.id DESC
+                       LIMIT 1
+                   ) product_name_cn
+            FROM period_keys period_key
         ),
         monthly AS (
             SELECT site_name,inventory_sku,
@@ -260,7 +265,14 @@ def list_replenishment(
         ORDER BY {sort_column} {sort_direction},site ASC,sku ASC
         {limit_sql}
     """
-    params: list[Any] = [range_start, range_end, *month_params, *filter_params]
+    params: list[Any] = [
+        range_start,
+        range_end,
+        *source_filter_params,
+        *recent_filter_params,
+        *month_params,
+        *filter_params,
+    ]
     if paginate_in_sql:
         params.extend([page_size, (page - 1) * page_size])
 
@@ -270,7 +282,13 @@ def list_replenishment(
         total = int(rows[0].get("total_count") or 0) if rows else 0
         if not rows and page > 1:
             total = _count_filtered(
-                cursor, range_start, range_end, where_sql, filter_params
+                cursor,
+                range_start,
+                range_end,
+                source_where_sql,
+                source_filter_params,
+                where_sql,
+                filter_params,
             )
         cursor.execute(
             """SELECT DISTINCT site_name
@@ -326,27 +344,33 @@ def list_replenishment(
     }
 
 
-def _count_filtered(cursor, range_start, range_end, where_sql, filter_params) -> int:
+def _count_filtered(
+    cursor,
+    range_start,
+    range_end,
+    source_where_sql,
+    source_filter_params,
+    where_sql,
+    filter_params,
+) -> int:
     query = f"""
         WITH period_keys AS (
             SELECT DISTINCT site_name,inventory_sku
             FROM dwd_ebay_sku_analysis_order
             WHERE payment_time >= %s AND payment_time < %s
+            {source_where_sql}
         ),
         latest_source AS (
-            SELECT site_name,inventory_sku,product_name_cn
-            FROM (
-                SELECT source.site_name,source.inventory_sku,source.product_name_cn,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY source.site_name,source.inventory_sku
-                           ORDER BY source.payment_time DESC,source.id DESC
-                       ) latest_rank
-                FROM dwd_ebay_sku_analysis_order source
-                INNER JOIN period_keys period_key
-                    ON period_key.site_name=source.site_name
-                   AND period_key.inventory_sku=source.inventory_sku
-            ) ranked_source
-            WHERE latest_rank=1
+            SELECT period_key.site_name,period_key.inventory_sku,
+                   (
+                       SELECT source.product_name_cn
+                       FROM dwd_ebay_sku_analysis_order source
+                       WHERE source.site_name=period_key.site_name
+                         AND source.inventory_sku=period_key.inventory_sku
+                       ORDER BY source.payment_time DESC,source.id DESC
+                       LIMIT 1
+                   ) product_name_cn
+            FROM period_keys period_key
         ),
         base AS (
             SELECT period_key.site_name site,period_key.inventory_sku sku,
@@ -358,7 +382,10 @@ def _count_filtered(cursor, range_start, range_end, where_sql, filter_params) ->
         )
         SELECT COUNT(*) total FROM base {where_sql}
     """
-    cursor.execute(query, [range_start, range_end, *filter_params])
+    cursor.execute(
+        query,
+        [range_start, range_end, *source_filter_params, *filter_params],
+    )
     row = cursor.fetchone() or {}
     return int(row.get("total") or 0)
 
@@ -378,6 +405,23 @@ def _filters(
         clauses.append("COALESCE(base.product_name,'') LIKE %s")
         params.append(f"%{product_name.strip()}%")
     return ("WHERE " + " AND ".join(clauses), params) if clauses else ("", params)
+
+
+def _source_filters(
+    site: str | None, sku: str | None, alias: str | None = None
+) -> tuple[str, list[Any]]:
+    """生成可安全下推到订单源表的站点/SKU条件；保留现有模糊搜索语义。"""
+
+    prefix = f"{alias}." if alias else ""
+    clauses: list[str] = []
+    params: list[Any] = []
+    if site and site.strip():
+        clauses.append(f"{prefix}site_name=%s")
+        params.append(site.strip())
+    if sku and sku.strip():
+        clauses.append(f"{prefix}inventory_sku LIKE %s")
+        params.append(f"%{sku.strip().upper()}%")
+    return (" AND " + " AND ".join(clauses), params) if clauses else ("", params)
 
 
 def _complete_months(reference_date: date | None = None) -> list[dict[str, Any]]:
