@@ -39,6 +39,7 @@ CLIENT_SECRET = os.getenv("EBAY_CLIENT_SECRET", "").strip()
 # ═══════════════════════ v3 策略配置 ═══════════════════════
 
 CATEGORY_MIN_SHARE = 0.40
+RESULT_LIMIT = 100
 VERIFY_ENABLED = True
 VERIFY_TOP_N = 5
 
@@ -547,7 +548,7 @@ def _finalize_oe(
     cat_info: dict | None,
     verify: bool = False,
 ) -> tuple[list[dict], None, str, dict | None, list[float]]:
-    """公共收尾：format → 设 oe → 排序 → 可选核验 → 截断前 20"""
+    """公共收尾：format → 设 oe → 排序 → 可选核验 → 限制返回数量。"""
     result = [format_item(it) for it in items_raw]
     for it in result:
         it["oe"] = oe
@@ -555,7 +556,7 @@ def _finalize_oe(
     all_prices = [it["pf"] for it in result]
     if verify:
         result = _verify_top_items(result, mp)
-    return result[:20], None, strategy, cat_info, all_prices
+    return result[:RESULT_LIMIT], None, strategy, cat_info, all_prices
 
 
 def _raw_cat_id(item: dict) -> str:
@@ -576,7 +577,7 @@ def scrape_one_oe(
     """
     搜索单个 OE 号
     search_strategy:
-      best_match     — 单遍搜索，Best Match 排序，本地按价格取前 20（v1 策略，相关性优先）
+      best_match     — 单遍搜索，Best Match 取样，本地按价格排序（相关性优先）
       category_lock  — 两遍搜索 + 类目锁定 + getItem 核验（v3 策略，价格精确优先）
     返回 (items, warning, sold_total, strategy, cat_info, all_prices)
     """
@@ -585,7 +586,7 @@ def scrape_one_oe(
 
     # ═══ Best Match 策略：单遍搜索，相关性优先 ═══
     if search_strategy == "best_match":
-        data, error = search_ebay(oe, mp, limit=50, free_shipping=free_shipping)
+        data, error = search_ebay(oe, mp, limit=RESULT_LIMIT, free_shipping=free_shipping)
         if error:
             return [], error, 0, "error", None, []
 
@@ -638,10 +639,10 @@ def scrape_one_oe(
         "top": dist_top,
     }
 
-    # ═══ 类目不可信 → 退回全局 Best Match（只取相关性最高的前 40 条） ═══
+    # ═══ 类目不可信 → 退回全局 Best Match（沿用第一遍的100条取样） ═══
     if not cat_id:
         items, _, strategy, ci, all_prices = _finalize_oe(
-            items_raw1[:40], oe, "best_match_fallback", mp, cat_info
+            items_raw1[:RESULT_LIMIT], oe, "best_match_fallback", mp, cat_info
         )
         return items, None, sold_total, strategy, ci, all_prices
 
@@ -649,7 +650,7 @@ def scrape_one_oe(
     data2, error2 = search_ebay(
         oe,
         mp,
-        limit=50,
+        limit=RESULT_LIMIT,
         sort="price",
         category_id=cat_id,
         fixed_price_only=True,
@@ -675,7 +676,7 @@ def scrape_one_oe(
 
     # 类目 id 与第一遍摘要对不上（少见），退回全局 Best Match
     items, _, strategy, ci, all_prices = _finalize_oe(
-        items_raw1[:40], oe, "best_match_fallback", mp, cat_info
+        items_raw1[:RESULT_LIMIT], oe, "best_match_fallback", mp, cat_info
     )
     return items, None, sold_total, strategy, ci, all_prices
 

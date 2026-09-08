@@ -11,6 +11,14 @@
             background: #f4f6f8; color: #182230; padding: 18px;
         }
         .wrap { max-width: 1500px; margin: 0 auto; }
+        .result-filters { margin-top: 14px; padding: 16px; }
+        .filter-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 12px 0; }
+        .filter-fields label { display: grid; gap: 6px; font-size: 12px; color: #475467; }
+        .filter-fields input:not([type="checkbox"]), .filter-fields select {
+            width: 145px; padding: 8px; border: 1px solid #d0d5dd; border-radius: 6px; background: #fff;
+        }
+        .filter-hint { font-size: 12px; color: #667085; }
+        #filter-error { color: #b42318; margin-left: 12px; }
 
         /* ── 卡片基础 ── */
         .card {
@@ -808,13 +816,138 @@ const API_BASE = _urlParams.get('api_base') || '/ebay-tool-api';
 
 // ═══════════ 变量 ═══════════
 let allResultsData = null;
-let sortOrders = {};
+// 原始结果永不按筛选覆盖；选中项使用原始序号，不使用排序后的行号。
+let rawResultsData = null;
 let nkwDraft = '';
 let skuListData = [];
 let editingSku = null;
 let currentOeIdx = 0;
-let oeSelections = {};
+let oeSelections = Object.create(null);
 let sidebarFilterText = '';
+
+function optionalNumber(value) {
+    if (value == null || String(value).trim() === '') return null;
+    const number = Number(String(value).replace(/%$/, '').trim());
+    return Number.isFinite(number) ? number : null;
+}
+
+function filterResultGroups(results, filters) {
+    return results.map(group => {
+        const items = (group.items || []).filter(item => {
+            const price = optionalNumber(item.pf);
+            const feedback = optionalNumber(item.sellerFeedback);
+            const sold = optionalNumber(item.estimatedSold);
+            const title = String(item.title || '').toLowerCase();
+            return (filters.minPrice == null || (price != null && price >= filters.minPrice))
+                && (filters.maxPrice == null || (price != null && price <= filters.maxPrice))
+                && (filters.feedback == null || (feedback != null && feedback >= filters.feedback))
+                && (filters.sold == null || (sold != null && sold >= filters.sold))
+                && (!filters.freeShipping || item.shipping === '免运费')
+                && (!filters.include || title.includes(filters.include.toLowerCase()))
+                && (!filters.exclude || !title.includes(filters.exclude.toLowerCase()));
+        });
+        const field = { sold_desc: 'estimatedSold', feedback_desc: 'sellerFeedback' }[filters.sort] || 'pf';
+        const direction = filters.sort === 'price_asc' ? 1 : -1;
+        items.sort((a, b) => {
+            const av = optionalNumber(a[field]), bv = optionalNumber(b[field]);
+            // 无数据排最后；相同值以原始序号稳定排序。
+            if (av === null && bv !== null) return 1;
+            if (bv === null && av !== null) return -1;
+            return (av !== null && bv !== null ? direction * (av - bv) : 0)
+                || a._selectionKey - b._selectionKey;
+        });
+        return { ...group, items, count: items.length,
+            allPrices: items.map(item => optionalNumber(item.pf)).filter(value => value !== null) };
+    });
+}
+
+function visibleSelectedItems(results, selections) {
+    return results.flatMap(group => {
+        const selected = new Set(selections[group.oe] || []);
+        return (group.items || []).filter(item => selected.has(item._selectionKey));
+    });
+}
+
+function buildResultFilters() {
+    return `<section class="result-filters card">
+        <strong>结果内筛选与排序</strong>
+        <p class="filter-hint">对全部 OE 生效，仅处理已抓取的最多100条/每个OE，不重新请求 eBay。价格按商品标价币种，不含运费；缺失的好评率/销量不满足已启用的下限。</p>
+        <div class="filter-fields" oninput="applyResultFilters()" onchange="applyResultFilters()">
+            <label>最低价格<input id="filter-min" type="number" min="0" step="any"></label>
+            <label>最高价格<input id="filter-max" type="number" min="0" step="any"></label>
+            <label>好评率下限（%）<input id="filter-feedback" type="number" min="0" max="100" step="any"></label>
+            <label>已售数量下限<input id="filter-sold" type="number" min="0" step="1"></label>
+            <label>标题包含<input id="filter-include" type="text" placeholder="不区分大小写"></label>
+            <label>标题排除<input id="filter-exclude" type="text" placeholder="不区分大小写"></label>
+            <label>排序<select id="filter-sort">
+                <option value="price_asc">价格从低到高</option><option value="price_desc">价格从高到低</option>
+                <option value="sold_desc">已售数量从高到低</option><option value="feedback_desc">好评率从高到低</option>
+            </select></label>
+            <label><span><input id="filter-free" type="checkbox"> 仅免运费</span></label>
+            <button class="btn-secondary" onclick="resetResultFilters()">重置筛选</button>
+        </div>
+        <span class="filter-hint">筛除的商品会取消勾选；放宽筛选可恢复商品，但不会自动重新勾选。</span>
+        <span id="filter-error" role="alert"></span>
+    </section>`;
+}
+
+function applyResultFilters() {
+    if (!rawResultsData) return;
+    const value = id => document.getElementById(id).value.trim();
+    const filters = {
+        minPrice: optionalNumber(value('filter-min')), maxPrice: optionalNumber(value('filter-max')),
+        feedback: optionalNumber(value('filter-feedback')), sold: optionalNumber(value('filter-sold')),
+        include: value('filter-include'), exclude: value('filter-exclude'), sort: value('filter-sort'),
+        freeShipping: document.getElementById('filter-free').checked
+    };
+    const invalid = [...document.querySelectorAll('.filter-fields input[type="number"]')]
+        .some(input => !input.validity.valid);
+    const error = invalid ? '请输入有效范围内的数字。'
+        : filters.minPrice != null && filters.maxPrice != null && filters.minPrice > filters.maxPrice
+            ? '最低价格不能大于最高价格。' : '';
+    document.getElementById('filter-error').textContent = error;
+    if (error) return;
+    saveCurrentSelection();
+    const results = filterResultGroups(rawResultsData.results, filters);
+    results.forEach(group => {
+        const visible = new Set(group.items.map(item => item._selectionKey));
+        oeSelections[group.oe] = (oeSelections[group.oe] || []).filter(key => visible.has(key));
+    });
+    allResultsData = { ...rawResultsData, results };
+    // 不再读取旧表格，否则会把刚剔除的隐藏勾选写回来。
+    showOe(currentOeIdx, false);
+    updateSidebarBadges();
+}
+
+function resetResultFilters() {
+    document.querySelectorAll('.filter-fields input').forEach(input => {
+        if (input.type === 'checkbox') input.checked = false;
+        else input.value = '';
+    });
+    document.getElementById('filter-sort').value = 'price_asc';
+    applyResultFilters();
+}
+
+async function readApiJson(response) {
+    let data;
+    try { data = await response.json(); }
+    catch (_) { throw new Error(`服务响应不是有效JSON（HTTP ${response.status}），请检查代理或登录状态`); }
+    if (!response.ok || !data || data.error || data.detail) {
+        const detail = data?.error || data?.detail;
+        const message = typeof detail === 'string' ? detail : detail ? JSON.stringify(detail) : `请求失败：HTTP ${response.status}`;
+        const missing = data?.not_found?.length ? `\n未找到的 SKU: ${data.not_found.join(', ')}` : '';
+        throw new Error(message + missing);
+    }
+    return data;
+}
+
+function requireTaskId(data) {
+    if (typeof data.task_id !== 'string' || !data.task_id.trim()
+        || ['undefined', 'null'].includes(data.task_id.trim())) {
+        throw new Error('服务未返回有效task_id，请重试或检查代理日志');
+    }
+    return encodeURIComponent(data.task_id.trim());
+}
 
 // ═══════════ 健康检查 ═══════════
 async function checkHealth() {
@@ -902,15 +1035,8 @@ async function doScrape() {
         fd.append("search_strategy", document.getElementById("search-strategy").value);
 
         let resp = await fetch(`${API_BASE}/api/scrape`, { method: "POST", body: fd });
-        let data = await resp.json();
-        if (data.error) {
-            if (data.not_found && data.not_found.length > 0) {
-                throw new Error(`${data.error}\n未找到的 SKU: ${data.not_found.join(', ')}`);
-            }
-            throw new Error(data.error);
-        }
-
-        const taskId = data.task_id;
+        let data = await readApiJson(resp);
+        const taskId = requireTaskId(data);
         const skuMapping = data.sku_mapping || {};
         const notFoundSkus = data.not_found_skus || [];
         let results = null;
@@ -927,14 +1053,15 @@ async function doScrape() {
         for (let i = 0; i < 600; i++) {
             await sleep(1500);
             let sr = await fetch(`${API_BASE}/api/status/${taskId}`);
-            let sd = await sr.json();
+            let sd = await readApiJson(sr);
 
-            if (sd.status === "error") throw new Error(sd.msg);
+            if (sd.status === "error") throw new Error(sd.msg || '搜索任务失败');
+            if (!['error', 'running', 'done'].includes(sd.status)) throw new Error('搜索任务状态无效，请重试');
 
             if (sd.status === "running") {
                 if (sd.progress) {
                     const p = sd.progress;
-                    const pct = Math.round((p.current - 1) / p.total * 100);
+                    const pct = p.total > 0 ? Math.max(0, Math.min(100, Math.round(p.current / p.total * 100))) : 0;
                     statusDiv.innerHTML = `<span class="spinner"></span>正在搜索 ${p.current}/${p.total}: <b>${esc(p.oe)}</b>
                         <div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
                         ${mappingInfo}`;
@@ -1000,15 +1127,8 @@ async function doScrapeFile() {
         fd.append("search_strategy", document.getElementById("search-strategy").value);
 
         let resp = await fetch(`${API_BASE}/api/scrape-file`, { method: "POST", body: fd });
-        let data = await resp.json();
-        if (data.error) {
-            if (data.not_found && data.not_found.length > 0) {
-                throw new Error(`${data.error}\n未找到的 SKU: ${data.not_found.join(', ')}`);
-            }
-            throw new Error(data.error);
-        }
-
-        const taskId = data.task_id;
+        let data = await readApiJson(resp);
+        const taskId = requireTaskId(data);
         const skuMapping = data.sku_mapping || {};
         const notFoundSkus = data.not_found_skus || [];
         const fileInfo = data.file_info || {};
@@ -1029,14 +1149,15 @@ async function doScrapeFile() {
         for (let i = 0; i < 600; i++) {
             await sleep(1500);
             let sr = await fetch(`${API_BASE}/api/status/${taskId}`);
-            let sd = await sr.json();
+            let sd = await readApiJson(sr);
 
-            if (sd.status === "error") throw new Error(sd.msg);
+            if (sd.status === "error") throw new Error(sd.msg || '搜索任务失败');
+            if (!['error', 'running', 'done'].includes(sd.status)) throw new Error('搜索任务状态无效，请重试');
 
             if (sd.status === "running") {
                 if (sd.progress) {
                     const p = sd.progress;
-                    const pct = Math.round((p.current - 1) / p.total * 100);
+                    const pct = p.total > 0 ? Math.max(0, Math.min(100, Math.round(p.current / p.total * 100))) : 0;
                     statusDiv.innerHTML = `<span class="spinner"></span>正在搜索 ${p.current}/${p.total}: <b>${esc(p.oe)}</b>
                         <div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
                         ${infoHtml}`;
@@ -1061,15 +1182,14 @@ async function doScrapeFile() {
 
 // ═══════════ 渲染结果（侧边栏 + 主内容布局） ═══════════
 function renderResults(results, skuMapping = {}) {
+    rawResultsData = { results: results.map(group => ({ ...group,
+        items: (group.items || []).map((item, index) => ({ ...item, _selectionKey: index }))
+    })), skuMapping };
+    results = filterResultGroups(rawResultsData.results, { sort: 'price_asc' });
     allResultsData = { results, skuMapping };
-    oeSelections = {};
+    oeSelections = Object.create(null);
     currentOeIdx = 0;
     sidebarFilterText = '';
-    results.forEach(r => {
-        if (r.items && r.items.length > 0 && !(r.oe in sortOrders)) {
-            sortOrders[r.oe] = 'asc';
-        }
-    });
 
     const container = document.getElementById("results-container");
     container.innerHTML = "";
@@ -1110,6 +1230,7 @@ function renderResults(results, skuMapping = {}) {
     </section>`;
 
     if (totalItems > 0) {
+        html += buildResultFilters();
         html += `<div style="display:flex;align-items:center;gap:12px;margin-top:14px;">
             <button class="btn-primary" id="btn-export" onclick="exportExcel()">导出选中商品</button>
             <span style="color:#7b8796;font-size:12px;" id="export-count"></span>
@@ -1145,13 +1266,13 @@ function renderResults(results, skuMapping = {}) {
     showOe(0);
 }
 
-function showOe(idx) {
+function showOe(idx, saveSelection = true) {
     if (!allResultsData) return;
     const results = allResultsData.results;
     if (idx < 0 || idx >= results.length) return;
 
     // 保存当前选中状态
-    saveCurrentSelection();
+    if (saveSelection) saveCurrentSelection();
 
     currentOeIdx = idx;
     const r = results[idx];
@@ -1162,7 +1283,7 @@ function showOe(idx) {
     });
     // 确保可见
     const activeBtn = document.querySelector(`.oe-list-item[data-idx="${idx}"]`);
-    if (activeBtn) activeBtn.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (activeBtn && saveSelection) activeBtn.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 
     // 渲染主内容
     const main = document.getElementById('review-main');
@@ -1262,7 +1383,7 @@ function buildMainContent(r, idx, total) {
         }
     }
     html += '</div>';
-    if (!r.warning) html += '<p>按商品价格排序，勾选确认匹配的商品后可导出。</p>';
+    if (!r.warning) html += '<p>按上方结果排序查看，勾选确认匹配的商品后可导出。筛选与排序对全部 OE 生效。</p>';
     html += '</div>';
     html += `<div class="position-jump">
         <button class="btn-secondary" onclick="goPrev()" ${idx <= 0 ? 'disabled' : ''}>上一个</button>
@@ -1278,6 +1399,9 @@ function buildMainContent(r, idx, total) {
     if (r.warning) {
         html += `<div class="state-panel"><h3>没有搜索到商品</h3><p>${esc(r.warning)}</p></div>`;
         return html;
+    }
+    if (!r.items.length) {
+        return html + '<div class="state-panel"><h3>没有符合筛选条件的商品</h3><p>请放宽上方筛选条件，原始查询结果仍保留。</p></div>';
     }
 
     // 选择栏
@@ -1303,8 +1427,7 @@ function buildMainContent(r, idx, total) {
 }
 
 function buildTable(r) {
-    const order = sortOrders[r.oe] || 'asc';
-    const items = [...r.items].sort((a, b) => order === 'asc' ? a.pf - b.pf : b.pf - a.pf);
+    const items = r.items;
     const oeSafe = escId(r.oe);
 
     let t = '<table class="oe-table"><thead><tr>';
@@ -1318,12 +1441,12 @@ function buildTable(r) {
     items.forEach((item, i) => {
         const rowId = `row-${oeSafe}-${i}`;
         t += `<tr id="${rowId}">`;
-        t += `<td class="td-chk"><input type="checkbox" data-oe="${esc(item.oe)}" data-idx="${i}" onchange="onCheck(this,'${rowId}')"></td>`;
+        t += `<td class="td-chk"><input type="checkbox" data-oe="${esc(item.oe)}" data-idx="${item._selectionKey}" onchange="onCheck(this,'${rowId}')"></td>`;
         t += `<td class="td-num"><span class="rank-badge">${i + 1}</span></td>`;
         t += `<td class="td-price"><div class="price-cell"><strong>${esc(item.price)}</strong></div></td>`;
-        t += `<td class="td-title"><span class="product-title">${esc(item.title)}</span></td>`;
+        t += `<td class="td-title"><span class="product-title">${esc(item.title)}</span>${item.suspect ? '<span class="badge badge-warn">类型疑似不匹配，请核对</span>' : ''}</td>`;
         const fb = item.sellerFeedback ? `${item.sellerFeedback}% 好评` : '暂无好评率';
-        t += `<td class="td-seller"><div class="seller-cell"><span>${esc(item.seller || '-')}</span><small>${fb}</small></div></td>`;
+        t += `<td class="td-seller"><div class="seller-cell"><span>${esc(item.seller || '-')}</span><small>${esc(fb)}</small></div></td>`;
         t += `<td class="td-sold">${item.estimatedSold != null ? item.estimatedSold : '-'}</td>`;
         const shipText = esc(item.shipping || '');
         t += `<td class="td-shipping">${shipText === '免运费' ? '<span class="free">免运费</span>' : shipText}</td>`;
@@ -1347,16 +1470,6 @@ function previewImg(src) {
     const overlay = document.getElementById('img-preview');
     document.getElementById('img-preview-src').src = src;
     overlay.classList.add('open');
-}
-
-// ═══════════ 排序（仅重建表格） ═══════════
-function toggleSort(oe) {
-    sortOrders[oe] = sortOrders[oe] === 'asc' ? 'desc' : 'asc';
-    if (!allResultsData) return;
-    const r = allResultsData.results.find(x => x.oe === oe);
-    if (!r) return;
-    const wrap = document.querySelector('.main-table-wrap');
-    if (wrap) { saveCurrentSelection(); wrap.innerHTML = buildTable(r); restoreSelection(r.oe); }
 }
 
 // ═══════════ OE 导航 ═══════════
@@ -1427,7 +1540,7 @@ function selectAllCurrent() {
         cb.checked = true;
         const tr = cb.closest('tr'); if (tr) tr.classList.add('checked');
     });
-    updateMasterCheckbox(); updateSelCount();
+    saveCurrentSelection(); updateSidebarBadges(); updateMasterCheckbox(); updateSelCount();
 }
 
 function clearAllCurrent() {
@@ -1435,7 +1548,7 @@ function clearAllCurrent() {
         cb.checked = false;
         const tr = cb.closest('tr'); if (tr) tr.classList.remove('checked');
     });
-    updateMasterCheckbox(); updateSelCount();
+    saveCurrentSelection(); updateSidebarBadges(); updateMasterCheckbox(); updateSelCount();
 }
 
 // ═══════════ 勾选 / 导出 ═══════════
@@ -1473,15 +1586,8 @@ function updateSelCount() {
 function getCheckedItems() {
     if (!allResultsData) return [];
     saveCurrentSelection();
-    const checked = [];
-    allResultsData.results.forEach(r => {
-        if (!r.items || !r.warning === false) return;
-        const order = sortOrders[r.oe] || 'asc';
-        const sorted = [...r.items].sort((a, b) => order === 'asc' ? a.pf - b.pf : b.pf - a.pf);
-        const selected = oeSelections[r.oe] || [];
-        selected.forEach(idx => { if (idx >= 0 && idx < sorted.length) checked.push(sorted[idx]); });
-    });
-    return checked;
+    return visibleSelectedItems(allResultsData.results, oeSelections)
+        .map(({ _selectionKey, ...item }) => item);
 }
 
 function updateExportCount() {
@@ -1489,7 +1595,9 @@ function updateExportCount() {
     const btn = document.getElementById("btn-export");
     if (!el && !btn) return;
     const c = getCheckedItems();
-    if (el) el.textContent = c.length > 0 ? `已选 ${c.length} 件` : "";
+    const originalCount = rawResultsData?.results.reduce((sum, group) => sum + group.items.length, 0) || 0;
+    const visibleCount = allResultsData?.results.reduce((sum, group) => sum + group.items.length, 0) || 0;
+    if (el) el.textContent = `共 ${originalCount} 条 / 筛选后 ${visibleCount} 条 / 已勾选 ${c.length} 条`;
     if (btn) btn.disabled = c.length === 0;
 }
 
@@ -1506,7 +1614,7 @@ async function exportExcel() {
         });
         if (!resp.ok) {
             const err = await resp.json();
-            throw new Error(err.error || "导出失败");
+            throw new Error(err.error || err.detail || "导出失败");
         }
         const blob = await resp.blob();
         const url = URL.createObjectURL(blob);
