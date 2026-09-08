@@ -293,84 +293,12 @@
       </template>
     </el-dialog>
 
-    <el-dialog
+    <forecast-rule-dialog
       v-if="canEditFormula"
-      v-model="forecastFormulaDialogVisible"
-      title="预估销量2公式配置"
-      width="980px"
-      append-to-body
-      destroy-on-close
-    >
-      <el-alert
-        type="warning"
-        :closable="false"
-        show-icon
-        title="修改后会影响全部 SKU 的预估销量2"
-        description="新品按海外仓最老批次库龄折算；老品按近7/15/30天日均分档加权。新品库龄封顶值由全局系数控制，设为极大值即不封顶。保存后页面会重新查询并实时计算全部SKU。"
-        class="formula-alert"
-      />
-
-      <section class="forecast-formula-section">
-        <h4>老品：近7天有销量</h4>
-        <el-table v-loading="forecastFormulaLoading" :data="forecastOld7dRows" border size="small">
-          <el-table-column prop="tier" label="档位" width="70" align="center" />
-          <el-table-column label="相对30天日均阈值" min-width="175" align="center">
-            <template #default="{ row }">
-              <el-input-number v-if="row.tier < 5" v-model="row.thresholdRatio" :min="0" :precision="4" :step="0.1" controls-position="right" />
-              <el-tag v-else type="info">无条件兜底</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="7天日均权重" min-width="165" align="center">
-            <template #default="{ row }"><el-input-number v-model="row.weight7d" :min="0" :precision="4" :step="0.1" controls-position="right" /></template>
-          </el-table-column>
-          <el-table-column label="15天日均权重" min-width="165" align="center">
-            <template #default="{ row }"><el-input-number v-model="row.weight15d" :min="0" :precision="4" :step="0.1" controls-position="right" /></template>
-          </el-table-column>
-          <el-table-column label="30天日均权重" min-width="165" align="center">
-            <template #default="{ row }"><el-input-number v-model="row.weight30d" :min="0" :precision="4" :step="0.1" controls-position="right" /></template>
-          </el-table-column>
-        </el-table>
-      </section>
-
-      <section class="forecast-formula-section">
-        <h4>老品：近7天无销量、近15天有销量</h4>
-        <el-table v-loading="forecastFormulaLoading" :data="forecastOld15dRows" border size="small">
-          <el-table-column prop="tier" label="档位" width="70" align="center" />
-          <el-table-column label="相对30天日均阈值" min-width="210" align="center">
-            <template #default="{ row }">
-              <el-input-number v-if="row.tier < 5" v-model="row.thresholdRatio" :min="0" :precision="4" :step="0.1" controls-position="right" />
-              <el-tag v-else type="info">无条件兜底</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="15天日均权重" min-width="210" align="center">
-            <template #default="{ row }"><el-input-number v-model="row.weight15d" :min="0" :precision="4" :step="0.1" controls-position="right" /></template>
-          </el-table-column>
-          <el-table-column label="30天日均权重" min-width="210" align="center">
-            <template #default="{ row }"><el-input-number v-model="row.weight30d" :min="0" :precision="4" :step="0.1" controls-position="right" /></template>
-          </el-table-column>
-        </el-table>
-      </section>
-
-      <section class="forecast-formula-section">
-        <h4>全局系数</h4>
-        <el-form :model="forecastMisc" inline label-width="145px">
-          <el-form-item label="日均折算月销天数">
-            <el-input-number v-model="forecastMisc.monthDays" :min="0.0001" :precision="4" :step="1" controls-position="right" />
-          </el-form-item>
-          <el-form-item label="新品库龄封顶天数">
-            <el-input-number v-model="forecastMisc.newAgeCap" :min="0.0001" :precision="4" :step="1" controls-position="right" />
-          </el-form-item>
-          <el-form-item label="无近期销量回退系数">
-            <el-input-number v-model="forecastMisc.oldFallbackRatio" :min="0" :precision="4" :step="0.1" controls-position="right" />
-          </el-form-item>
-        </el-form>
-      </section>
-
-      <template #footer>
-        <el-button @click="forecastFormulaDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="forecastFormulaSaving" @click="submitForecastFormulaConfig">保存并重新计算</el-button>
-      </template>
-    </el-dialog>
+      v-model="forecastRuleDialogVisible"
+      :site-options="siteOptions"
+      @saved="loadRows"
+    />
 
     <el-dialog
       v-model="purchaseDialogVisible"
@@ -459,17 +387,16 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { QuestionFilled, UploadFilled } from '@element-plus/icons-vue'
 import {
-  getEbayReplenishmentV2ForecastFormula,
   getEbayReplenishmentV2Formula,
   importEbayReplenishmentV2WarehouseRent,
   listEbayReplenishmentV2,
-  saveEbayReplenishmentV2ForecastFormula,
   saveEbayReplenishmentV2Formula,
   saveEbayReplenishmentV2LeadTime
 } from '@/api/operations/ebay/replenishmentV2'
 import { submitPendingPurchase } from '@/api/procurement/pendingPurchase'
 import { checkPermi } from '@/utils/permission'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
+import ForecastRuleDialog from './components/ForecastRuleDialog.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
 
 const showSearch = ref(true)
@@ -514,21 +441,11 @@ const warehouseRentUploading = ref(false)
 const warehouseRentUploadRef = ref(null)
 const warehouseRentFiles = ref([])
 const formulaDialogVisible = ref(false)
+const forecastRuleDialogVisible = ref(false)
 const formulaLoading = ref(false)
 const formulaSaving = ref(false)
 const formulaRows = ref([])
 const formulaLevels = ['S', 'A', 'B', 'C']
-const forecastFormulaDialogVisible = ref(false)
-const forecastFormulaLoading = ref(false)
-const forecastFormulaSaving = ref(false)
-const forecastOld7dRows = ref([])
-const forecastOld15dRows = ref([])
-const forecastMisc = reactive({
-  monthDays: null,
-  newAgeCap: null,
-  oldFallbackRatio: null,
-  remark: null
-})
 const purchaseForm = reactive({
   site: '',
   sku: '',
@@ -600,7 +517,7 @@ const columnDefs = [
   },
   {
     key: 'forecastSalesQuantity2', label: '预估销量2', align: 'right', width: 125, sortable: true, format: 'quantity2',
-    tip: '新品按近30天销量和海外仓最老批次库龄折算；老品按近7/15/30天日均分档加权。产品性质未知或公式配置缺失时显示--；有权限时点击表头可配置公式。'
+    tip: '按13条规则顺序匹配计算；有权限时点击表头可编辑规则并试算。新品按最老批次库龄折算、不封顶；新品缺库龄、性质未知、无规则命中或规则错误时显示--。'
   },
   {
     key: 'forecastGrossProfitAmount', label: '预估毛利', align: 'right', width: 125, format: 'money',
@@ -701,9 +618,9 @@ async function loadRows() {
 
 function isFormulaColumn(column) {
   return [
+    'forecastSalesQuantity2',
     'safetyStockQty',
-    'suggestedReplenishmentQty',
-    'forecastSalesQuantity2'
+    'suggestedReplenishmentQty'
   ].includes(column?.key)
 }
 
@@ -736,8 +653,7 @@ function setFormulaRows(configs) {
 async function openFormulaDialog(columnKey) {
   if (!canEditFormula) return
   if (columnKey === 'forecastSalesQuantity2') {
-    forecastFormulaDialogVisible.value = true
-    await loadForecastFormulaConfigs()
+    forecastRuleDialogVisible.value = true
     return
   }
   formulaDialogVisible.value = true
@@ -770,127 +686,6 @@ async function submitFormulaConfig() {
     await loadRows()
   } finally {
     formulaSaving.value = false
-  }
-}
-
-async function loadForecastFormulaConfigs() {
-  if (!canEditFormula) return
-  forecastFormulaLoading.value = true
-  try {
-    const response = await getEbayReplenishmentV2ForecastFormula()
-    setForecastFormulaRows(response?.data)
-  } finally {
-    forecastFormulaLoading.value = false
-  }
-}
-
-function setForecastFormulaRows(configs) {
-  const source = Array.isArray(configs) ? configs : []
-  const byKey = new Map(source.map(item => [
-    `${String(item?.rule_group || '').trim().toUpperCase()}|${Number(item?.tier)}`,
-    item
-  ]))
-  const buildRows = group => Array.from({ length: 5 }, (_unused, index) => {
-    const tier = index + 1
-    const item = byKey.get(`${group}|${tier}`) || {}
-    return {
-      ruleGroup: group,
-      tier,
-      thresholdRatio: tier < 5 ? numberOrNull(item.threshold_ratio) : null,
-      weight7d: numberOrNull(item.weight_7d),
-      weight15d: numberOrNull(item.weight_15d),
-      weight30d: numberOrNull(item.weight_30d),
-      remark: item.remark || null
-    }
-  })
-  forecastOld7dRows.value = buildRows('OLD_7D')
-  forecastOld15dRows.value = buildRows('OLD_15D')
-  const misc = byKey.get('MISC|1') || {}
-  Object.assign(forecastMisc, {
-    monthDays: numberOrNull(misc.month_days),
-    newAgeCap: numberOrNull(misc.new_age_cap),
-    oldFallbackRatio: numberOrNull(misc.old_fallback_ratio),
-    remark: misc.remark || null
-  })
-}
-
-async function submitForecastFormulaConfig() {
-  const validNonNegative = value => hasValue(value)
-    && Number.isFinite(Number(value))
-    && Number(value) >= 0
-  const old7dInvalid = forecastOld7dRows.value.some(row =>
-    (row.tier < 5 && !validNonNegative(row.thresholdRatio))
-    || !validNonNegative(row.weight7d)
-    || !validNonNegative(row.weight15d)
-    || !validNonNegative(row.weight30d)
-  )
-  const old15dInvalid = forecastOld15dRows.value.some(row =>
-    (row.tier < 5 && !validNonNegative(row.thresholdRatio))
-    || !validNonNegative(row.weight15d)
-    || !validNonNegative(row.weight30d)
-  )
-  const miscInvalid = !validNonNegative(forecastMisc.oldFallbackRatio)
-    || !Number.isFinite(Number(forecastMisc.monthDays))
-    || Number(forecastMisc.monthDays) <= 0
-    || !Number.isFinite(Number(forecastMisc.newAgeCap))
-    || Number(forecastMisc.newAgeCap) <= 0
-  if (old7dInvalid || old15dInvalid || miscInvalid) {
-    ElMessage.warning('阈值、权重和全局系数必须填写有效的非负数，折算天数与库龄封顶必须大于0')
-    return
-  }
-
-  const warnings = []
-  const weightSumInvalid = forecastOld7dRows.value.some(row =>
-    Math.abs(Number(row.weight7d) + Number(row.weight15d) + Number(row.weight30d) - 1) > 0.0001
-  ) || forecastOld15dRows.value.some(row =>
-    Math.abs(Number(row.weight15d) + Number(row.weight30d) - 1) > 0.0001
-  )
-  if (weightSumInvalid) warnings.push('部分档位权重之和不等于1')
-  const thresholdsDescending = rows => rows.slice(0, 4).every((row, index, values) =>
-    index === 0 || Number(values[index - 1].thresholdRatio) >= Number(row.thresholdRatio)
-  )
-  if (!thresholdsDescending(forecastOld7dRows.value) || !thresholdsDescending(forecastOld15dRows.value)) {
-    warnings.push('部分阈值未按档位递减')
-  }
-  if (warnings.length) ElMessage.warning(`${warnings.join('；')}，仍将按当前配置保存`)
-
-  const oldRows = [...forecastOld7dRows.value, ...forecastOld15dRows.value].map(row => ({
-    rule_group: row.ruleGroup,
-    tier: row.tier,
-    threshold_ratio: row.tier < 5 ? Number(row.thresholdRatio) : null,
-    weight_7d: row.ruleGroup === 'OLD_7D' ? Number(row.weight7d) : null,
-    weight_15d: Number(row.weight15d),
-    weight_30d: Number(row.weight30d),
-    month_days: null,
-    new_age_cap: null,
-    old_fallback_ratio: null,
-    remark: row.remark
-  }))
-  forecastFormulaSaving.value = true
-  try {
-    const response = await saveEbayReplenishmentV2ForecastFormula({
-      configs: [
-        ...oldRows,
-        {
-          rule_group: 'MISC',
-          tier: 1,
-          threshold_ratio: null,
-          weight_7d: null,
-          weight_15d: null,
-          weight_30d: null,
-          month_days: Number(forecastMisc.monthDays),
-          new_age_cap: Number(forecastMisc.newAgeCap),
-          old_fallback_ratio: Number(forecastMisc.oldFallbackRatio),
-          remark: forecastMisc.remark
-        }
-      ]
-    })
-    setForecastFormulaRows(response?.data)
-    ElMessage.success('预估销量2公式已保存，正在重新计算全部SKU')
-    forecastFormulaDialogVisible.value = false
-    await loadRows()
-  } finally {
-    forecastFormulaSaving.value = false
   }
 }
 
@@ -1432,19 +1227,6 @@ onBeforeUnmount(() => {
   background: #f5f7fa;
   font-size: 13px;
   line-height: 1.8;
-}
-
-.forecast-formula-section {
-  margin-top: 18px;
-}
-
-.forecast-formula-section h4 {
-  margin: 0 0 10px;
-  color: #303133;
-}
-
-.forecast-formula-section :deep(.el-input-number) {
-  width: 145px;
 }
 
 .lead-time-cell {

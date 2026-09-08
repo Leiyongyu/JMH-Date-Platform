@@ -25,19 +25,26 @@ export function saveEbayReplenishmentV2Formula(data) {
   })
 }
 
-export function getEbayReplenishmentV2ForecastFormula() {
-  return request({
-    url: `${base}/forecast-formula`,
-    method: 'get'
-  })
+export function getEbayReplenishmentV2ForecastRules() {
+  return request({ url: `${base}/forecast-rule`, method: 'get' })
 }
 
-export function saveEbayReplenishmentV2ForecastFormula(data) {
-  return request({
-    url: `${base}/forecast-formula`,
-    method: 'post',
-    data
-  })
+export function saveEbayReplenishmentV2ForecastRules(data) {
+  return request({ url: `${base}/forecast-rule`, method: 'post', data })
+}
+
+export function validateEbayReplenishmentV2ForecastRules(data) {
+  return request({ url: `${base}/forecast-rule/validate`, method: 'post', data,
+    headers: { repeatSubmit: false } })
+}
+
+export function previewEbayReplenishmentV2ForecastRules(data) {
+  return request({ url: `${base}/forecast-rule/preview`, method: 'post', data,
+    headers: { repeatSubmit: false } })
+}
+
+export function getEbayReplenishmentV2ForecastSku(params) {
+  return request({ url: `${base}/forecast-rule/sku`, method: 'get', params })
 }
 
 export function saveEbayReplenishmentV2LeadTime(data) {

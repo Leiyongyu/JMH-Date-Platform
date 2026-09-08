@@ -39,15 +39,29 @@ public class EbayReplenishmentV2PythonClient extends PythonHttpSupport
         return post(PREFIX + "/formula", body, requestId);
     }
 
-    public Map<String, Object> forecastFormula(String requestId)
+    public Map<String, Object> forecastRules(String requestId)
     {
-        return get(PREFIX + "/forecast-formula", Map.of(), requestId);
+        return get(PREFIX + "/forecast-rule", Map.of(), requestId);
     }
 
-    public Map<String, Object> saveForecastFormula(
-            Map<String, ?> body, String requestId)
+    public Map<String, Object> saveForecastRules(Map<String, ?> body, String requestId)
     {
-        return post(PREFIX + "/forecast-formula", body, requestId);
+        return post(PREFIX + "/forecast-rule", body, requestId);
+    }
+
+    public Map<String, Object> validateForecastRules(Map<String, ?> body, String requestId)
+    {
+        return post(PREFIX + "/forecast-rule/validate", body, requestId);
+    }
+
+    public Map<String, Object> previewForecastRules(Map<String, ?> body, String requestId)
+    {
+        return post(PREFIX + "/forecast-rule/preview", body, requestId);
+    }
+
+    public Map<String, Object> forecastRuleSku(Map<String, ?> params, String requestId)
+    {
+        return get(PREFIX + "/forecast-rule/sku", params, requestId);
     }
 
     private Map<String, Object> post(

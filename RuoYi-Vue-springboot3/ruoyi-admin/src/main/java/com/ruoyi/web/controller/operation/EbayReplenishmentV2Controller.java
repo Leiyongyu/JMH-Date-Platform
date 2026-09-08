@@ -97,29 +97,6 @@ public class EbayReplenishmentV2Controller extends BaseController
         return success(data(client.saveFormula(payload, requestId)));
     }
 
-    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
-    @GetMapping("/forecast-formula")
-    public AjaxResult forecastFormula(
-            @RequestHeader(value = "X-Request-ID", required = false)
-                    String requestId)
-    {
-        return success(data(client.forecastFormula(requestId)));
-    }
-
-    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
-    @Log(title = "eBay补货2.0预估销量公式配置", businessType = BusinessType.UPDATE)
-    @PostMapping("/forecast-formula")
-    public AjaxResult saveForecastFormula(
-            @RequestBody Map<String, Object> body,
-            @RequestHeader(value = "X-Request-ID", required = false)
-                    String requestId)
-    {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        if (body != null) payload.putAll(body);
-        payload.put("operator", getUsername());
-        return success(data(client.saveForecastFormula(payload, requestId)));
-    }
-
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:importWarehouseRent')")
     @Log(title = "eBay补货2.0仓租明细导入", businessType = BusinessType.IMPORT)
     @PostMapping("/warehouse-rent/import")
@@ -137,6 +114,53 @@ public class EbayReplenishmentV2Controller extends BaseController
     {
         leadTimeService.save(request, getUsername());
         return success();
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
+    @GetMapping("/forecast-rule")
+    public AjaxResult forecastRules(
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        return success(data(client.forecastRules(requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
+    @Log(title = "eBay补货2.0预估销量2规则配置", businessType = BusinessType.UPDATE)
+    @PostMapping("/forecast-rule")
+    public AjaxResult saveForecastRules(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        Map<String, Object> payload = new LinkedHashMap<>(body);
+        payload.put("operator", getUsername());
+        return success(data(client.saveForecastRules(payload, requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
+    @PostMapping("/forecast-rule/validate")
+    public AjaxResult validateForecastRules(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        return success(data(client.validateForecastRules(body, requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
+    @PostMapping("/forecast-rule/preview")
+    public AjaxResult previewForecastRules(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        return success(data(client.previewForecastRules(body, requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
+    @GetMapping("/forecast-rule/sku")
+    public AjaxResult forecastRuleSku(
+            @RequestParam String site, @RequestParam String sku,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        return success(data(client.forecastRuleSku(Map.of("site", site, "sku", sku), requestId)));
     }
 
     private Object data(Map<String, Object> response)

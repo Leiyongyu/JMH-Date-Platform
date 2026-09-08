@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 from decimal import Decimal
 from typing import Any
+
+from pymysql.err import ProgrammingError
 
 from backend.config import settings
 from backend.database import db_connection
 
+logger = logging.getLogger(__name__)
 
 def lead_time_days_by_sku() -> dict[tuple[str, str], Decimal]:
     """按站点和完整 SKU 一次读取总提前天数；没有配置的 SKU 不返回。"""
@@ -151,95 +157,99 @@ def save_formula_rows(rows: list[dict[str, Any]], operator: str) -> None:
             raise
 
 
-def forecast_formula_by_group() -> dict[str, Any]:
-    """读取启用的预估销量2配置；不提供任何代码默认值。"""
+def forecast_rules() -> list[dict[str, Any]]:
+    """读取启用规则，不为空表达式提供默认值；错误交由解释器显式处理。
 
-    grouped: dict[str, Any] = {"OLD_7D": [], "OLD_15D": []}
-    for row in list_forecast_formula_rows(active_only=True):
-        group = row["rule_group"]
-        if group == "MISC":
-            grouped["MISC"] = row
-        elif group in {"OLD_7D", "OLD_15D"}:
-            grouped[group].append(row)
-    return grouped
-
-
-def list_forecast_formula_rows(
-    active_only: bool = False,
-) -> list[dict[str, Any]]:
+    表属于jmh_data_platform（源库），旧forecast_formula表保留但不再读写。
+    """
     database = _source_database()
-    where_sql = "WHERE status=1" if active_only else ""
     query = f"""
-        SELECT rule_group,tier,threshold_ratio,weight_7d,weight_15d,
-               weight_30d,month_days,new_age_cap,old_fallback_ratio,
-               remark,status,update_by,update_time
-        FROM `{database}`.ebay_replenishment_v2_forecast_formula
-        {where_sql}
-        ORDER BY FIELD(rule_group,'OLD_7D','OLD_15D','MISC'),tier
+        SELECT rule_no,product_nature,condition_expr,formula_expr
+        FROM `{database}`.ebay_replenishment_v2_forecast_rule
+        WHERE status=1
+        ORDER BY rule_no
     """
-    with db_connection() as connection, connection.cursor() as cursor:
-        cursor.execute(query)
-        rows = cursor.fetchall()
-    decimal_fields = (
-        "threshold_ratio",
-        "weight_7d",
-        "weight_15d",
-        "weight_30d",
-        "month_days",
-        "new_age_cap",
-        "old_fallback_ratio",
-    )
-    return [
-        {
-            **row,
-            "rule_group": _text(row.get("rule_group")).upper(),
-            "tier": int(row.get("tier") or 0),
-            **{
-                field: _nullable_decimal(row.get(field))
-                for field in decimal_fields
-            },
-        }
-        for row in rows
-        if _text(row.get("rule_group")) and int(row.get("tier") or 0) > 0
-    ]
+    try:
+        with db_connection() as connection, connection.cursor() as cursor:
+            cursor.execute(query)
+            return list(cursor.fetchall())
+    except ProgrammingError as exc:
+        if not exc.args or exc.args[0] != 1146:
+            raise
+        logger.error("预估销量2规则表未部署：%s.ebay_replenishment_v2_forecast_rule；该列显示--", database)
+        return []
 
 
-def save_forecast_formula_rows(
-    rows: list[dict[str, Any]], operator: str
-) -> None:
-    """在一个事务内覆盖预估销量2的全部启用配置。"""
-
+def list_forecast_rule_rows() -> list[dict[str, Any]]:
+    """Editor reads disabled rules too; missing table must be an actionable error."""
     database = _source_database()
-    deactivate_query = f"""
-        UPDATE `{database}`.ebay_replenishment_v2_forecast_formula
-        SET status=0,update_by=%s,update_time=NOW()
-        WHERE status<>0
-    """
-    upsert_query = f"""
-        INSERT INTO `{database}`.ebay_replenishment_v2_forecast_formula
-          (rule_group,tier,threshold_ratio,weight_7d,weight_15d,weight_30d,
-           month_days,new_age_cap,old_fallback_ratio,status,remark,update_by,
-           update_time)
-        VALUES
-          (%(rule_group)s,%(tier)s,%(threshold_ratio)s,%(weight_7d)s,
-           %(weight_15d)s,%(weight_30d)s,%(month_days)s,%(new_age_cap)s,
-           %(old_fallback_ratio)s,1,%(remark)s,%(operator)s,NOW())
-        ON DUPLICATE KEY UPDATE
-          threshold_ratio=VALUES(threshold_ratio),weight_7d=VALUES(weight_7d),
-          weight_15d=VALUES(weight_15d),weight_30d=VALUES(weight_30d),
-          month_days=VALUES(month_days),new_age_cap=VALUES(new_age_cap),
-          old_fallback_ratio=VALUES(old_fallback_ratio),status=1,
-          remark=VALUES(remark),update_by=VALUES(update_by),update_time=NOW()
-    """
-    params = [{**row, "operator": operator} for row in rows]
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(f"""
+            SELECT rule_no,product_nature,condition_expr,formula_expr,remark,status,
+                   update_by,update_time
+            FROM `{database}`.ebay_replenishment_v2_forecast_rule
+            ORDER BY rule_no
+        """)
+        return list(cursor.fetchall())
+
+
+def forecast_rules_revision(rows: list[dict[str, Any]]) -> str:
+    fields = ("rule_no", "product_nature", "condition_expr", "formula_expr", "remark", "status")
+    normalized = [{key: (row.get(key) if key in {"rule_no", "status"} else row.get(key) or "")
+                   for key in fields} for row in sorted(rows, key=lambda row: row["rule_no"])]
+    return hashlib.sha256(json.dumps(normalized, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def save_forecast_rules(rows: list[dict[str, Any]], operator: str, revision: str) -> None:
+    """Only update initialized rules, atomically; reject stale editor sessions."""
+    database = _source_database()
     with db_connection() as connection, connection.cursor() as cursor:
         try:
-            cursor.execute(deactivate_query, (operator,))
-            cursor.executemany(upsert_query, params)
+            cursor.execute(f"""
+                SELECT rule_no,product_nature,condition_expr,formula_expr,remark,status
+                FROM `{database}`.ebay_replenishment_v2_forecast_rule
+                ORDER BY rule_no FOR UPDATE
+            """)
+            current = list(cursor.fetchall())
+            if {int(row["rule_no"]) for row in current} != set(range(1, 14)):
+                raise ValueError("规则表必须已初始化完整13条规则，请先检查部署脚本")
+            if forecast_rules_revision(current) != revision:
+                raise ValueError("规则已被其他人修改，请重新打开编辑器后再保存")
+            cursor.executemany(f"""
+                UPDATE `{database}`.ebay_replenishment_v2_forecast_rule
+                SET condition_expr=%(condition_expr)s,formula_expr=%(formula_expr)s,
+                    remark=%(remark)s,status=%(status)s,update_by=%(operator)s,update_time=NOW()
+                WHERE rule_no=%(rule_no)s
+            """, [{**row, "operator": operator} for row in rows])
             connection.commit()
         except Exception:
             connection.rollback()
             raise
+
+
+def forecast_sku_sales(site: str, sku: str) -> dict[str, Any] | None:
+    """Exact site/full-SKU lookup; anchor is global, identical to the list."""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute("""
+            WITH anchor AS (
+                SELECT COALESCE(DATE(MAX(payment_time)),CURDATE()) anchor_date
+                FROM dwd_ebay_sku_analysis_order
+            )
+            SELECT recent.site_name site,recent.inventory_sku sku,anchor.anchor_date,
+                   COALESCE(SUM(CASE WHEN recent.payment_time >= DATE_SUB(anchor.anchor_date,INTERVAL 6 DAY)
+                                     AND recent.payment_time < DATE_ADD(anchor.anchor_date,INTERVAL 1 DAY)
+                                     THEN recent.purchase_quantity ELSE 0 END),0) sales_7d,
+                   COALESCE(SUM(CASE WHEN recent.payment_time >= DATE_SUB(anchor.anchor_date,INTERVAL 14 DAY)
+                                     AND recent.payment_time < DATE_ADD(anchor.anchor_date,INTERVAL 1 DAY)
+                                     THEN recent.purchase_quantity ELSE 0 END),0) sales_15d,
+                   COALESCE(SUM(CASE WHEN recent.payment_time >= DATE_SUB(anchor.anchor_date,INTERVAL 29 DAY)
+                                     AND recent.payment_time < DATE_ADD(anchor.anchor_date,INTERVAL 1 DAY)
+                                     THEN recent.purchase_quantity ELSE 0 END),0) sales_30d
+            FROM dwd_ebay_sku_analysis_order recent CROSS JOIN anchor
+            WHERE recent.site_name=%s AND recent.inventory_sku=%s
+            GROUP BY recent.site_name,recent.inventory_sku,anchor.anchor_date
+        """, (site, sku))
+        return cursor.fetchone()
 
 
 def _source_database() -> str:
