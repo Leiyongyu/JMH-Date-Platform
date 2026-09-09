@@ -124,6 +124,7 @@
               <span v-else>{{ scope.row.inventory_sku }}</span>
             </template>
             <template v-else-if="col.format === 'money'">{{ money(scope.row[col.key]) }}</template>
+            <template v-else-if="col.format === 'integer'">{{ inventoryInteger(scope.row[col.key]) }}</template>
             <template v-else-if="col.format === 'speed'">{{ speed(scope.row[col.key]) }}</template>
             <template v-else-if="col.format === 'percentage'">{{ percentage(scope.row[col.key]) }}</template>
             <template v-else>{{ displayValue(scope.row[col.key]) }}</template>
@@ -180,6 +181,10 @@ const columnDefs = [
     tip: '利润率 = 当前筛选区间内“订单利润(￥)”汇总 ÷ 已支付金额 × 100%。利润和已支付金额均来自上传的订单文件。'
   },
   { key: 'sold_quantity', label: '已售出', width: 95, align: 'right' },
+  { key: 'chengdu_in_transit_quantity', label: '成都在途', width: 110, align: 'right', format: 'integer', tip: '实时库存，按站点和完整SKU匹配成都仓待接收数；不受付款日期影响。' },
+  { key: 'chengdu_sellable_quantity', label: '成都可售', width: 110, align: 'right', format: 'integer', tip: '实时库存，按站点和完整SKU匹配成都仓可售数；不受付款日期影响。' },
+  { key: 'overseas_in_transit_quantity', label: '海外在途', width: 110, align: 'right', format: 'integer', tip: '实时库存，按站点和完整SKU匹配海外仓在途数；不受付款日期影响。' },
+  { key: 'overseas_sellable_quantity', label: '海外可售', width: 110, align: 'right', format: 'integer', tip: '实时库存，按站点和完整SKU匹配海外仓可售数；不受付款日期影响。' },
   {
     key: 'sales_velocity_total', label: '销售速度(总)', width: 145, align: 'right', format: 'speed',
     tip: '所选付款日期范围内的已售数量 ÷ 所选自然日天数；开始日期和结束日期都计入天数。'
@@ -242,6 +247,13 @@ function number(value) { return Number(value || 0).toLocaleString('zh-CN') }
 function speed(value) { return Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 function percentage(value) { return value === null || value === undefined ? '--' : `${(Number(value) * 100).toFixed(2)}%` }
 function displayValue(value) { return value === null || value === undefined || value === '' ? '--' : value }
+function inventoryInteger(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return '--'
+  const quantity = Number(value)
+  return Number.isFinite(quantity)
+    ? quantity.toLocaleString('zh-CN', { maximumFractionDigits: 0, useGrouping: false })
+    : '--'
+}
 function disabledPaymentDate(date) {
   const min = dateBounds.value.min_date ? new Date(`${dateBounds.value.min_date}T00:00:00`).getTime() : undefined
   const max = dateBounds.value.max_date ? new Date(`${dateBounds.value.max_date}T23:59:59`).getTime() : undefined

@@ -919,6 +919,8 @@ def list_summary(start_date: str | None, end_date: str | None, sku: str | None,
         cursor.execute(f"SELECT COUNT(*) total FROM ({grouped}) x", grouped_params); total = int(cursor.fetchone()["total"])
         cursor.execute(grouped + " ORDER BY paid_amount DESC,inventory_sku LIMIT %s OFFSET %s", grouped_params + [page_size, (page-1)*page_size])
         items = [_json_row(row) for row in cursor.fetchall()]
+        from backend.services.ebay_inventory_shared import enrich_sku_items
+        enrich_sku_items(cursor, items)
         cursor.execute(grouped + f" ORDER BY {chart_column} {chart_direction},inventory_sku ASC LIMIT 20", grouped_params); chart = [_json_row(row) for row in cursor.fetchall()]
         cursor.execute(f"""SELECT ROUND(SUM(o.paid_amount_cny)-SUM(CASE WHEN o.shipping_status LIKE '%%已退款%%' THEN o.refund_amount_cny ELSE 0 END),2) paid_amount,ROUND(SUM(o.purchase_quantity),0) sold_quantity,
             COUNT(DISTINCT o.platform_order_no) paid_order_count,COUNT(DISTINCT o.inventory_sku) sku_count,

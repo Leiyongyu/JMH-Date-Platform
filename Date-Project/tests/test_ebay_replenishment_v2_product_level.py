@@ -20,10 +20,10 @@ from backend.services import ebay_replenishment_v2_service as service
     ],
 )
 def test_product_level_rules_follow_declared_priority(
-    return_rate, profit_rate, turnover_rate, expected
+    return_rate, profit_rate, turnover_rate, expected, level_rules
 ):
     assert service._product_level(
-        Decimal(return_rate), Decimal(profit_rate), Decimal(turnover_rate)
+        Decimal(return_rate), Decimal(profit_rate), Decimal(turnover_rate), level_rules
     ) == expected
 
 

@@ -7,6 +7,7 @@ import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.system.domain.procurement.PendingPurchase;
 import com.ruoyi.system.domain.procurement.PendingPurchaseExportRequest;
+import com.ruoyi.system.domain.procurement.PendingPurchaseDeleteRequest;
 import com.ruoyi.system.domain.procurement.PendingPurchaseSubmitRequest;
 import com.ruoyi.system.service.procurement.PendingPurchaseService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -17,6 +18,7 @@ import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -55,6 +57,15 @@ public class PendingPurchaseController extends BaseController
     {
         service.submit(request, getUsername());
         return success("已加入待采购清单");
+    }
+
+    @Log(title = "删除待采购", businessType = BusinessType.DELETE)
+    @PreAuthorize("@ss.hasPermi('procurement:pendingPurchase:remove')")
+    @DeleteMapping
+    public AjaxResult remove(@Valid @RequestBody PendingPurchaseDeleteRequest request)
+    {
+        service.deletePending(request.getIds());
+        return success("已删除选中的采购记录");
     }
 
     @Log(title = "待采购导出并确认采购", businessType = BusinessType.EXPORT)

@@ -6,6 +6,10 @@ export function listPendingPurchase(params) {
   return request({ url: `${base}/list`, method: 'get', params })
 }
 
+export function deletePendingPurchase(ids) {
+  return request({ url: base, method: 'delete', data: { ids } })
+}
+
 export function submitPendingPurchase(data) {
   return request({ url: base, method: 'post', data })
 }

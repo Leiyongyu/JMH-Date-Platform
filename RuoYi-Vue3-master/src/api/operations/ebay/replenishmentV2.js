@@ -2,12 +2,29 @@ import request from '@/utils/request'
 
 const base = '/operations/ebay/replenishment-v2'
 
+export function saveEbayReplenishmentV2SalesType(data) {
+  return request({ url: `${base}/sales-type`, method: 'post', data })
+}
+
 export function listEbayReplenishmentV2(params) {
   return request({
     url: `${base}/list`,
     method: 'get',
     params
   })
+}
+
+export function getEbayReplenishmentV2LevelRules() {
+  return request({ url: `${base}/level-rule`, method: 'get' })
+}
+
+export function saveEbayReplenishmentV2LevelRules(data) {
+  return request({ url: `${base}/level-rule`, method: 'post', data })
+}
+
+export function validateEbayReplenishmentV2LevelRules(data) {
+  return request({ url: `${base}/level-rule/validate`, method: 'post', data,
+    headers: { repeatSubmit: false } })
 }
 
 export function getEbayReplenishmentV2Formula() {

@@ -193,6 +193,42 @@ def list_forecast_rule_rows() -> list[dict[str, Any]]:
         return list(cursor.fetchall())
 
 
+def list_level_rules(allow_missing=False):
+    database = _source_database()
+    try:
+        with db_connection() as connection, connection.cursor() as cursor:
+            cursor.execute(f"SELECT rule_no,condition_expr,result_level,remark,status,update_by,update_time FROM `{database}`.ebay_replenishment_v2_level_rule ORDER BY rule_no")
+            return list(cursor.fetchall())
+    except ProgrammingError as exc:
+        if allow_missing and exc.args and exc.args[0] == 1146:
+            logger.error("产品等级规则表未部署，等级显示--")
+            return []
+        raise
+
+
+def level_rules_revision(rows):
+    fields = ('rule_no', 'condition_expr', 'result_level', 'remark', 'status')
+    values = [{key: row.get(key) for key in fields} for row in sorted(rows, key=lambda row:row['rule_no'])]
+    return hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
+
+
+def save_level_rules(rows, operator, revision):
+    database = _source_database()
+    with db_connection() as connection, connection.cursor() as cursor:
+        try:
+            cursor.execute(f"SELECT rule_no,condition_expr,result_level,remark,status FROM `{database}`.ebay_replenishment_v2_level_rule ORDER BY rule_no FOR UPDATE")
+            current = list(cursor.fetchall())
+            if len(current) != 9 or {row['rule_no'] for row in current} != set(range(1,10)):
+                raise ValueError('等级规则表必须初始化完整9条，禁止增删规则')
+            if level_rules_revision(current) != revision:
+                raise ValueError('规则已被其他人修改，请重新打开编辑器再保存')
+            cursor.executemany(f"UPDATE `{database}`.ebay_replenishment_v2_level_rule SET condition_expr=%(condition_expr)s,result_level=%(result_level)s,remark=%(remark)s,status=%(status)s,update_by=%(operator)s,update_time=NOW() WHERE rule_no=%(rule_no)s", [{**row,'operator':operator} for row in rows])
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
+
 def forecast_rules_revision(rows: list[dict[str, Any]]) -> str:
     fields = ("rule_no", "product_nature", "condition_expr", "formula_expr", "remark", "status")
     normalized = [{key: (row.get(key) if key in {"rule_no", "status"} else row.get(key) or "")

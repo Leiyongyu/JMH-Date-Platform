@@ -7,6 +7,9 @@ from typing import Any
 from backend.database import db_connection
 from backend.repositories import ebay_replenishment_v2_repository as repository
 from backend.services import ebay_sku_analysis_service as sku_analysis_service
+from backend.services import ebay_level_rule_service as level_service
+from backend.services import ebay_replenishment_sales_type_service as sales_type_service
+from backend.repositories import ebay_replenishment_sales_type_repository as sales_type_repository
 from backend.services.ebay_forecast_rule_engine import (
     PreparedRules,
     calculate_forecast as _forecast_sales_2,
@@ -52,25 +55,7 @@ _SORT_COLUMNS = {
 }
 
 
-# 与原 eBay 补货计算链路 application.yml 中 lingxing.inventory-wids 保持一致。
-# 匹配库存时仅对站点标签和完整 SKU 做等值匹配，不再截取 SKU 后缀。
-_INVENTORY_SITE_BY_WID = {
-    18674: "德国",  # 成都 eBay-DE 中转仓
-    18675: "英国",  # 成都 eBay-UK 中转仓
-    18676: "美国",  # 成都 eBay-US 中转仓
-    18699: "德国",  # 谷仓德国仓
-    18700: "美国",  # 谷仓美国新泽西仓
-    18701: "美国",  # 谷仓美国加州仓
-    18702: "英国",  # 谷仓英国仓
-}
-_CHENGDU_WIDS = (18674, 18675, 18676)
-_OVERSEAS_WIDS = (18699, 18700, 18701, 18702)
-_INVENTORY_WIDS_SQL = ",".join(str(wid) for wid in _INVENTORY_SITE_BY_WID)
-_CHENGDU_WIDS_SQL = ",".join(str(wid) for wid in _CHENGDU_WIDS)
-_OVERSEAS_WIDS_SQL = ",".join(str(wid) for wid in _OVERSEAS_WIDS)
-_INVENTORY_SITE_CASE_SQL = " ".join(
-    f"WHEN {wid} THEN '{site}'" for wid, site in _INVENTORY_SITE_BY_WID.items()
-)
+from backend.services.ebay_inventory_shared import inventory_ctes
 
 
 def list_replenishment(
@@ -83,6 +68,7 @@ def list_replenishment(
     page_size: int = 50,
     sort_field: str | None = None,
     sort_order: str | None = None,
+    sales_type: str | None = None,
 ) -> dict[str, Any]:
     """Return the latest three complete natural months by site and SKU.
 
@@ -92,6 +78,7 @@ def list_replenishment(
     ``monthly_metrics`` for the UI hover card.
     """
 
+    sales_type_filter = sales_type_service.normalize_filter(sales_type)
     sku_analysis_service._ensure_tables()
     months = _complete_months()
     page = max(_positive_int(page, 1), 1)
@@ -122,6 +109,12 @@ def list_replenishment(
     range_start = months[-1]["start_date"]
     range_end = months[0]["end_date"]
     where_sql, filter_params = _filters(site, sku, product_name)
+    sales_type_join = sales_type_repository.join_sql()
+    sales_type_select = "COALESCE(sales_type.sales_type,'NORMAL') AS sales_type"
+    sales_type_available = True
+    if sales_type_filter:
+        where_sql += (" AND " if where_sql else "WHERE ") + "COALESCE(sales_type.sales_type,'NORMAL')=%s"
+        filter_params.append(sales_type_filter)
     # 站点和 SKU 都是订单源表原生字段，可在 CTE 聚合前安全下推。
     # 商品名称取自最新一条历史订单，只能保留在外层，避免改变原有语义。
     source_where_sql, source_filter_params = _source_filters(site, sku)
@@ -129,13 +122,20 @@ def list_replenishment(
         site, sku, alias="recent"
     )
     limit_sql = "LIMIT %s OFFSET %s" if paginate_in_sql else ""
-    month_params = [month["month"] for month in months for _ in range(5)]
+    month_params = [month["month"] for month in months for _ in range(7)]
     query = f"""
         WITH period_rows AS (
             SELECT id,site_name,inventory_sku,payment_time,purchase_quantity,
                    paid_amount_cny,order_profit_cny,refund_quantity,refund_amount_cny,
-                   shipping_status
+                   shipping_status,
+                   CASE WHEN TRIM(assignment.big_category)='产品质量问题'
+                        THEN refund_quantity ELSE 0 END quality_return_qty,
+                   CASE WHEN assignment.platform_order_no IS NULL
+                        THEN refund_quantity ELSE 0 END unclassified_return_qty
             FROM dwd_ebay_sku_analysis_order
+            -- 按中间分类匹配，包含其全部小类；订单号主键一对一关联，不扩增订单行。
+            LEFT JOIN ebay_sku_analysis_return_classification assignment
+              ON assignment.platform_order_no=dwd_ebay_sku_analysis_order.platform_order_no
             WHERE payment_time >= %s AND payment_time < %s
             {source_where_sql}
         ),
@@ -186,7 +186,9 @@ def list_replenishment(
                                THEN refund_amount_cny ELSE 0 END) paid_amount,
                    SUM(refund_quantity) return_qty,
                    SUM(CASE WHEN shipping_status LIKE '%%已退款%%'
-                            THEN refund_amount_cny ELSE 0 END) return_amount
+                            THEN refund_amount_cny ELSE 0 END) return_amount,
+                   SUM(quality_return_qty) quality_return_qty,
+                   SUM(unclassified_return_qty) unclassified_return_qty
             FROM period_rows
             GROUP BY site_name,inventory_sku,DATE_FORMAT(payment_time,'%%Y-%%m')
         ),
@@ -199,16 +201,22 @@ def list_replenishment(
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.paid_amount ELSE 0 END),0) paid_amount_m1,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_qty ELSE 0 END),0) return_qty_m1,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_amount ELSE 0 END),0) return_amount_m1,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.quality_return_qty ELSE 0 END),0) quality_return_qty_m1,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.unclassified_return_qty ELSE 0 END),0) unclassified_return_qty_m1,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.sales_qty ELSE 0 END),0) sales_qty_m2,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.gross_profit_amount ELSE 0 END),0) gross_profit_amount_m2,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.paid_amount ELSE 0 END),0) paid_amount_m2,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_qty ELSE 0 END),0) return_qty_m2,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_amount ELSE 0 END),0) return_amount_m2,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.quality_return_qty ELSE 0 END),0) quality_return_qty_m2,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.unclassified_return_qty ELSE 0 END),0) unclassified_return_qty_m2,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.sales_qty ELSE 0 END),0) sales_qty_m3,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.gross_profit_amount ELSE 0 END),0) gross_profit_amount_m3,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.paid_amount ELSE 0 END),0) paid_amount_m3,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_qty ELSE 0 END),0) return_qty_m3,
-                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_amount ELSE 0 END),0) return_amount_m3
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_amount ELSE 0 END),0) return_amount_m3,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.quality_return_qty ELSE 0 END),0) quality_return_qty_m3,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.unclassified_return_qty ELSE 0 END),0) unclassified_return_qty_m3
             FROM monthly
             LEFT JOIN latest_source
               ON latest_source.site_name=monthly.site_name
@@ -216,35 +224,9 @@ def list_replenishment(
             GROUP BY monthly.site_name,monthly.inventory_sku,
                      latest_source.product_name_cn
         ),
-        inventory_source AS (
-            SELECT CASE source.wid {_INVENTORY_SITE_CASE_SQL} END site,
-                   TRIM(source.sku) sku,
-                   CASE WHEN source.wid IN ({_CHENGDU_WIDS_SQL})
-                        THEN COALESCE(source.quantity_receive,0) ELSE 0 END
-                       chengdu_in_transit_quantity,
-                   CASE WHEN source.wid IN ({_CHENGDU_WIDS_SQL})
-                        THEN COALESCE(source.product_valid_num,0) ELSE 0 END
-                       chengdu_sellable_quantity,
-                   CASE WHEN source.wid IN ({_OVERSEAS_WIDS_SQL})
-                        THEN COALESCE(source.product_onway,0) ELSE 0 END
-                       overseas_in_transit_quantity,
-                   CASE WHEN source.wid IN ({_OVERSEAS_WIDS_SQL})
-                        THEN COALESCE(source.product_valid_num,0) ELSE 0 END
-                       overseas_sellable_quantity
-            FROM jmh_data_platform.warehouse_inventory_detail source
-            WHERE source.wid IN ({_INVENTORY_WIDS_SQL})
-              AND source.sku IS NOT NULL AND TRIM(source.sku)<>''
-        ),
-        inventory_summary AS (
-            SELECT site,sku,
-                   SUM(chengdu_in_transit_quantity) chengdu_in_transit_quantity,
-                   SUM(chengdu_sellable_quantity) chengdu_sellable_quantity,
-                   SUM(overseas_in_transit_quantity) overseas_in_transit_quantity,
-                   SUM(overseas_sellable_quantity) overseas_sellable_quantity
-            FROM inventory_source
-            GROUP BY site,sku
-        )
+        {inventory_ctes()}
         SELECT base.*,
+               {sales_type_select},
                COALESCE(inventory_summary.chengdu_in_transit_quantity,0)
                    chengdu_in_transit_quantity,
                COALESCE(inventory_summary.chengdu_sellable_quantity,0)
@@ -258,6 +240,7 @@ def list_replenishment(
                COALESCE(recent_windows.sales_qty_30d,0) sales_qty_30d,
                COUNT(*) OVER() total_count
         FROM base
+        {sales_type_join}
         LEFT JOIN recent_windows
           ON recent_windows.site_name=base.site
          AND recent_windows.inventory_sku=base.sku
@@ -282,7 +265,18 @@ def list_replenishment(
         params.extend([page_size, (page - 1) * page_size])
 
     with db_connection() as connection, connection.cursor() as cursor:
-        cursor.execute(query, params)
+        try:
+            cursor.execute(query, params)
+        except Exception as exc:
+            if not sales_type_repository.missing_table(exc):
+                raise
+            if sales_type_filter:
+                raise ValueError(sales_type_repository.MIGRATION_MESSAGE) from exc
+            # 缺部署表时保留旧列表，明确返回不可编辑状态，不把丢失配置伪装成正常。
+            query = query.replace(sales_type_join, "").replace(sales_type_select, "NULL AS sales_type")
+            sales_type_join = ""
+            sales_type_available = False
+            cursor.execute(query, params)
         rows = cursor.fetchall()
         total = int(rows[0].get("total_count") or 0) if rows else 0
         if not rows and page > 1:
@@ -294,6 +288,7 @@ def list_replenishment(
                 source_filter_params,
                 where_sql,
                 filter_params,
+                sales_type_join,
             )
         cursor.execute(
             """SELECT DISTINCT site_name
@@ -310,6 +305,7 @@ def list_replenishment(
     first_listing_dates = repository.first_listing_date_by_sku() if rows else {}
     inventory_ages = repository.overseas_inventory_age_by_sku() if rows else {}
     forecast_rules = prepare_rules(repository.forecast_rules()) if rows else PreparedRules()
+    level_rules = level_service.prepare_levels(repository.list_level_rules(allow_missing=True)) if rows else None
     items = _assemble_items(
         rows,
         months,
@@ -318,6 +314,7 @@ def list_replenishment(
         first_listing_dates=first_listing_dates,
         inventory_ages=inventory_ages,
         forecast_rules=forecast_rules,
+        level_rules=level_rules,
     )
     if level_filter is not None or nature_filter is not None:
         items = [
@@ -342,6 +339,7 @@ def list_replenishment(
         items = items[offset:offset + page_size]
     return {
         "items": items,
+        "sales_type_available": sales_type_available,
         "months": [month["month"] for month in months],
         "latest_complete_month": months[0]["month"],
         "sites": sites,
@@ -357,6 +355,7 @@ def _count_filtered(
     source_filter_params,
     where_sql,
     filter_params,
+    sales_type_join="",
 ) -> int:
     query = f"""
         WITH period_keys AS (
@@ -385,7 +384,7 @@ def _count_filtered(
               ON latest_source.site_name=period_key.site_name
              AND latest_source.inventory_sku=period_key.inventory_sku
         )
-        SELECT COUNT(*) total FROM base {where_sql}
+        SELECT COUNT(*) total FROM base {sales_type_join} {where_sql}
     """
     cursor.execute(
         query,
@@ -461,6 +460,7 @@ def _assemble_items(
     first_listing_dates: dict[tuple[str, str], Any] | None = None,
     inventory_ages: dict[tuple[str, str], Decimal] | None = None,
     forecast_rules: PreparedRules | None = None,
+    level_rules=None,
 ) -> list[dict[str, Any]]:
     lead_time_days = lead_time_days or {}
     formula_configs = formula_configs or {}
@@ -475,6 +475,7 @@ def _assemble_items(
             raw_sales_qty = row.get(f"sales_qty_m{index}")
             raw_gross_profit_amount = row.get(f"gross_profit_amount_m{index}")
             raw_return_qty = row.get(f"return_qty_m{index}")
+            raw_quality_return_qty = row.get(f"quality_return_qty_m{index}")
             sales_qty = _quantity_text(raw_sales_qty)
             gross_profit_amount = _money_text(
                 raw_gross_profit_amount
@@ -487,6 +488,9 @@ def _assemble_items(
                     "gross_profit_amount": gross_profit_amount,
                     "return_qty": return_qty,
                     "return_amount": _money_text(row.get(f"return_amount_m{index}")),
+                    "quality_return_qty": _quantity_text(raw_quality_return_qty),
+                    "quality_return_rate": _ratio_text(raw_quality_return_qty, raw_sales_qty),
+                    "unclassified_return_qty": _quantity_text(row.get(f"unclassified_return_qty_m{index}")),
                 }
             )
         latest = monthly_metrics[0]
@@ -520,7 +524,21 @@ def _assemble_items(
         )
         profit_rate = _ratio_decimal(three_month_profit, three_month_paid_amount)
         return_rate = _ratio_decimal(three_month_return_qty, three_month_sales_qty)
-        product_level = _product_level(return_rate, profit_rate, sell_through_ratio)
+        # 独立观察指标，不替换总退货率，也不参与产品等级和补货量计算。
+        quality_return_qty = sum(
+            (_decimal(row.get(f"quality_return_qty_m{index}")) for index in range(1, 4)),
+            Decimal("0"),
+        )
+        quality_return_summary = {
+            "return_qty": _quantity_text(three_month_return_qty),
+            "quality_return_qty": _quantity_text(quality_return_qty),
+            "quality_return_rate": _ratio_text(quality_return_qty, three_month_sales_qty),
+            "unclassified_return_qty": _quantity_text(sum(
+                (_decimal(row.get(f"unclassified_return_qty_m{index}")) for index in range(1, 4)),
+                Decimal("0"),
+            )),
+        }
+        product_level = _product_level(return_rate, profit_rate, sell_through_ratio, level_rules)
         product_nature = _product_nature(
             first_listing_dates.get(
                 (
@@ -543,6 +561,7 @@ def _assemble_items(
             sales_30d=_decimal(row.get("sales_qty_30d")),
             age_days=overseas_inventory_age,
             rules=forecast_rules,
+            round_result=False,
         )
         safety_stock_quantity, suggested_replenishment_quantity = (
             _replenishment_quantities(
@@ -563,10 +582,21 @@ def _assemble_items(
                 formula_configs=formula_configs,
             )
         )
+        safety_stock_quantity_2, suggested_replenishment_quantity_2 = (None, None)
+        if forecast_sales_quantity_2 is not None:
+            safety_stock_quantity_2, suggested_replenishment_quantity_2 = _replenishment_quantities(
+                site=str(row.get("site") or "其他").strip(), sku=str(row.get("sku") or "").strip(),
+                average_monthly_sales=forecast_sales_quantity_2, product_level=product_level,
+                inventory_total=sum((_decimal(row.get(key)) for key in (
+                    "chengdu_in_transit_quantity", "chengdu_sellable_quantity",
+                    "overseas_in_transit_quantity", "overseas_sellable_quantity")), Decimal(0)),
+                lead_time_days=lead_time_days, formula_configs=formula_configs,
+            )
         result.append(
             {
                 "site": row.get("site") or "其他",
                 "sku": row.get("sku") or "",
+                "sales_type": row.get("sales_type"),
                 "product_name": row.get("product_name") or "",
                 "sales_qty_7d": _quantity_text(row.get("sales_qty_7d")),
                 "sales_qty_15d": _quantity_text(row.get("sales_qty_15d")),
@@ -591,6 +621,8 @@ def _assemble_items(
                 "forecast_return_amount": forecast_return_amount,
                 "sell_through_ratio": _ratio_decimal_text(sell_through_ratio),
                 "product_level": product_level,
+                "safety_stock_quantity_2": safety_stock_quantity_2,
+                "suggested_replenishment_quantity_2": suggested_replenishment_quantity_2,
                 "product_nature": product_nature,
                 "chengdu_in_transit_quantity": _quantity_text(
                     row.get("chengdu_in_transit_quantity")
@@ -607,6 +639,7 @@ def _assemble_items(
                 "safety_stock_quantity": safety_stock_quantity,
                 "suggested_replenishment_quantity": suggested_replenishment_quantity,
                 "monthly_metrics": monthly_metrics,
+                "quality_return_summary": quality_return_summary,
             }
         )
     return result
@@ -631,29 +664,9 @@ def _ratio_decimal_text(value: Decimal | None) -> str | None:
     )
 
 
-def _product_level(
-    return_rate: Decimal | None,
-    profit_rate: Decimal | None,
-    monthly_turnover_rate: Decimal | None,
-) -> str | None:
-    """按用户给定的 1→9 优先级计算产品等级，所有比率均用小数值。"""
-
-    if return_rate is None:
-        return None
-    if return_rate > Decimal("0.06"):
-        return "C"
-    if profit_rate is None:
-        return None
-    if return_rate >= Decimal("0.03"):
-        # 长尾产品统一按 B 级展示与计算，不再单独输出「长尾产品-B」标签。
-        return "C" if profit_rate < Decimal("0.18") else "B"
-    if monthly_turnover_rate is None:
-        return None
-    if profit_rate < Decimal("0.12"):
-        return "C" if monthly_turnover_rate <= Decimal("0.12") else "B"
-    if profit_rate < Decimal("0.22"):
-        return "B" if monthly_turnover_rate < Decimal("0.12") else "A"
-    return "B" if monthly_turnover_rate < Decimal("0.15") else "S"
+def _product_level(return_rate, profit_rate, monthly_turnover_rate, level_rules=None):
+    """按数据库启用规则顺序匹配；缺配置不回退硬编码。"""
+    return level_service.calculate_level(return_rate, profit_rate, monthly_turnover_rate, level_rules)
 
 
 _NEW_PRODUCT_MAX_DAYS = 90

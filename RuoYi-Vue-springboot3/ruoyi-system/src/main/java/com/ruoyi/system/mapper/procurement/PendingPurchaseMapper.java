@@ -17,6 +17,10 @@ public interface PendingPurchaseMapper
 
     List<PendingPurchase> selectPendingByIdsForUpdate(@Param("ids") List<Long> ids);
 
+    List<PendingPurchase> selectDeletableByIdsForUpdate(@Param("ids") List<Long> ids);
+
+    int deletePendingByIds(@Param("ids") List<Long> ids);
+
     int markPurchased(@Param("ids") List<Long> ids,
                       @Param("operator") String operator);
 }

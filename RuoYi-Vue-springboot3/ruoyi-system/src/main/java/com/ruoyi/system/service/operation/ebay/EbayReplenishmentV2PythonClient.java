@@ -9,7 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 
-/** ERP 到 Python eBay补货2.0服务的只读内部客户端。 */
+/** ERP 到 Python eBay补货2.0服务的内部客户端。 */
 @Service
 public class EbayReplenishmentV2PythonClient extends PythonHttpSupport
 {
@@ -33,10 +33,30 @@ public class EbayReplenishmentV2PythonClient extends PythonHttpSupport
         return get(PREFIX + "/formula", Map.of(), requestId);
     }
 
+    public Map<String, Object> saveSalesType(Map<String, ?> body, String requestId)
+    {
+        return post(PREFIX + "/sales-type", body, requestId);
+    }
+
     public Map<String, Object> saveFormula(
             Map<String, ?> body, String requestId)
     {
         return post(PREFIX + "/formula", body, requestId);
+    }
+
+    public Map<String, Object> levelRules(String requestId)
+    {
+        return get(PREFIX + "/level-rule", Map.of(), requestId);
+    }
+
+    public Map<String, Object> saveLevelRules(Map<String, ?> body, String requestId)
+    {
+        return post(PREFIX + "/level-rule", body, requestId);
+    }
+
+    public Map<String, Object> validateLevelRules(Map<String, ?> body, String requestId)
+    {
+        return post(PREFIX + "/level-rule/validate", body, requestId);
     }
 
     public Map<String, Object> forecastRules(String requestId)

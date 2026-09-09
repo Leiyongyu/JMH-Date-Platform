@@ -89,7 +89,8 @@ class Expression:
     root: ast.expr
 
 
-def parse_expression(source: str, expected_type: str) -> Expression:
+def parse_expression(source: str, expected_type: str, allowed_variables=None) -> Expression:
+    allowed = VARIABLES if allowed_variables is None else frozenset(allowed_variables)
     if not source or len(source) > MAX_EXPRESSION_LENGTH:
         raise ValueError("表达式不能为空且不能超过500字符")
     try:
@@ -125,7 +126,7 @@ def parse_expression(source: str, expected_type: str) -> Expression:
         if isinstance(node, ast.Name):
             if node.id in BOOL_ALIASES:
                 return "bool"
-            if node.id in VARIABLES:
+            if node.id in allowed:
                 return "number"
             raise ValueError(f"未知变量 {node.id}")
         if isinstance(node, ast.BinOp) and type(node.op) in ARITHMETIC:
@@ -253,6 +254,7 @@ def calculate_forecast(
     *, product_nature: str | None, sales_7d: Decimal, sales_15d: Decimal,
     sales_30d: Decimal, age_days: Decimal | None, rules: PreparedRules,
     trace: dict[str, Any] | None = None,
+    round_result: bool = True,
 ) -> Decimal | None:
     # Optional diagnostics use the exact same execution path as the list.
     if trace is not None:
@@ -303,7 +305,9 @@ def calculate_forecast(
                 if trace is not None:
                     trace.update(status="matched", value=format(result, "f"),
                                  message=f"命中规则{rule.rule_no}")
-                return result
+                # Display/preview retains 2 decimals; downstream stock formulas can
+                # request the unrounded Decimal to avoid a second rounding boundary.
+                return result if round_result else value
     except (ValueError, DecimalException, ArithmeticError, TypeError) as exc:
         rule_no = active_rule.rule_no if active_rule else 0
         key = (rule_no, str(exc))

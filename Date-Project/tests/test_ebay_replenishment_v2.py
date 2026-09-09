@@ -18,7 +18,7 @@ def test_complete_months_crosses_year_boundary():
     assert months[-1]["end_date"] == date(2025, 11, 1)
 
 
-def test_assemble_items_uses_latest_complete_month_and_fills_missing_month():
+def test_assemble_items_uses_latest_complete_month_and_fills_missing_month(level_rules):
     months = service._complete_months(date(2026, 8, 31))
     rows = [
         {
@@ -47,7 +47,7 @@ def test_assemble_items_uses_latest_complete_month_and_fills_missing_month():
         }
     ]
 
-    item = service._assemble_items(rows, months)[0]
+    item = service._assemble_items(rows, months, level_rules=level_rules)[0]
 
     assert item["sales_qty"] == "26"
     assert item["gross_profit_amount"] == "3230.50"
@@ -66,6 +66,9 @@ def test_assemble_items_uses_latest_complete_month_and_fills_missing_month():
         "gross_profit_amount": "0.00",
         "return_qty": "0",
         "return_amount": "0.00",
+        "quality_return_qty": "0",
+        "quality_return_rate": None,
+        "unclassified_return_qty": "0",
     }
     assert item["chengdu_in_transit_quantity"] == "12"
     assert item["chengdu_sellable_quantity"] == "34"

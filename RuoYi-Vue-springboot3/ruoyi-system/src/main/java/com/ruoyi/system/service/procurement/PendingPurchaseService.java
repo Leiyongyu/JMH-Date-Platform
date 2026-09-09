@@ -100,6 +100,22 @@ public class PendingPurchaseService
         response.getOutputStream().write(workbookBytes);
     }
 
+    /** 待采购、已采购均可删除；独立查询加行锁，导出仍只允许待采购。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void deletePending(List<Long> rawIds)
+    {
+        List<Long> ids = normalizeIds(rawIds, "删除");
+        List<PendingPurchase> rows = mapper.selectDeletableByIdsForUpdate(ids);
+        if (rows.size() != ids.size())
+        {
+            throw new ServiceException("部分记录不存在或状态异常，未删除任何记录，请刷新后重新选择");
+        }
+        if (mapper.deletePendingByIds(ids) != ids.size())
+        {
+            throw new ServiceException("删除数量不一致，已回滚，请刷新后重试");
+        }
+    }
+
     private byte[] buildWorkbook(List<PendingPurchase> rows) throws IOException
     {
         try (Workbook workbook = new XSSFWorkbook();
@@ -147,22 +163,27 @@ public class PendingPurchaseService
 
     private List<Long> normalizeIds(List<Long> rawIds)
     {
+        return normalizeIds(rawIds, "导出");
+    }
+
+    private List<Long> normalizeIds(List<Long> rawIds, String operation)
+    {
         if (rawIds == null || rawIds.isEmpty())
         {
-            throw new ServiceException("请选择需要导出的待采购记录");
+            throw new ServiceException("请选择需要" + operation + "的待采购记录");
         }
         Set<Long> unique = new LinkedHashSet<>();
         for (Long id : rawIds)
         {
             if (id == null || id <= 0)
             {
-                throw new ServiceException("导出记录ID不正确");
+                throw new ServiceException(operation + "记录ID不正确");
             }
             unique.add(id);
         }
         if (unique.size() > 5000)
         {
-            throw new ServiceException("单次最多导出5000条待采购记录");
+            throw new ServiceException("单次最多" + operation + "5000条待采购记录");
         }
         return List.copyOf(unique);
     }

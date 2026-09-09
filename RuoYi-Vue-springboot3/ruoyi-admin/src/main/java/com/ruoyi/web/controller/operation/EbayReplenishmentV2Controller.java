@@ -52,6 +52,7 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestParam(required = false) String sku,
             @RequestParam(required = false) String productLevel,
             @RequestParam(required = false) String productNature,
+            @RequestParam(required = false) String salesType,
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "50") int pageSize,
             @RequestParam(required = false) String sortField,
@@ -64,6 +65,7 @@ public class EbayReplenishmentV2Controller extends BaseController
         params.put("sku", trimToNull(sku));
         params.put("product_level", trimToNull(productLevel));
         params.put("product_nature", trimToNull(productNature));
+        params.put("sales_type", trimToNull(salesType));
         params.put("page", Math.max(pageNum, 1));
         params.put("page_size", Math.min(
                 Math.max(pageSize, 1), MAX_PAGE_SIZE));
@@ -161,6 +163,44 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
         return success(data(client.forecastRuleSku(Map.of("site", site, "sku", sku), requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
+    @GetMapping("/level-rule")
+    public AjaxResult levelRules(
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        return success(data(client.levelRules(requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
+    @Log(title = "eBay补货2.0产品等级规则", businessType = BusinessType.UPDATE)
+    @PostMapping("/level-rule")
+    public AjaxResult saveLevelRules(@RequestBody Map<String, Object> body,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        Map<String, Object> payload = new LinkedHashMap<>(body);
+        payload.put("operator", getUsername());
+        return success(data(client.saveLevelRules(payload, requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
+    @PostMapping("/level-rule/validate")
+    public AjaxResult validateLevelRules(@RequestBody Map<String, Object> body,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        return success(data(client.validateLevelRules(body, requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:editSalesType')")
+    @Log(title = "eBay补货2.0销售类型", businessType = BusinessType.UPDATE)
+    @PostMapping("/sales-type")
+    public AjaxResult saveSalesType(@RequestBody Map<String, Object> body,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        Map<String, Object> payload = new LinkedHashMap<>(body);
+        payload.put("operator", getUsername());
+        return success(data(client.saveSalesType(payload, requestId)));
     }
 
     private Object data(Map<String, Object> response)

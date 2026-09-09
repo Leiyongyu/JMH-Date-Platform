@@ -7,7 +7,7 @@
   >
     <el-alert type="warning" :closable="false" show-icon
       title="保存后影响全部SKU的预估销量2；试算只使用当前草稿，不会保存"
-      description="语法正确不代表所有输入都能计算，请试算核对。新品缺库龄显示--；安全库存与建议补货量的配置不受影响。"
+      description="语法正确不代表所有输入都能计算，请试算核对。新品缺库龄显示--；改动会影响安全库存2和建议补货量2，原安全库存及建议补货量保持原口径。"
     />
     <div class="rule-help">
       <div>变量：<code>s7 / s15 / s30</code> 近7/15/30天销量；<code>r7 / r15 / r30</code> 对应日均；<code>age</code> 最老批次库龄（缺失按0表示）。</div>
