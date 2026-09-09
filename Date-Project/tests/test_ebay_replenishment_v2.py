@@ -91,5 +91,5 @@ def test_assemble_items_leaves_three_month_rates_empty_when_denominators_are_zer
 
     assert item["profit_rate"] is None
     assert item["return_rate"] is None
-    assert item["sell_through_ratio"] is None
+    assert item["sell_through_ratio"] == "0.000000"
     assert item["product_level"] is None

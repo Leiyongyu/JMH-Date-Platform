@@ -586,7 +586,7 @@ const columnDefs = [
     key: 'forecastReturnAmount', label: '预估退货金额', align: 'right', width: 140, format: 'money',
     tip: '预估退货金额 = 最近3个完整自然月的退货金额合计 ÷ 3；缺失月份按0计算。'
   },
-  { key: 'sellThroughRatio', label: '动销比', align: 'right', width: 105, format: 'percentage', tip: '动销比 = 预估销量 ÷ 海外可售 × 100%；海外可售为0时不计算。' },
+  { key: 'sellThroughRatio', label: '动销比', align: 'right', width: 105, format: 'percentage', tip: '动销比 = 预估销量 ÷ 海外可售 × 100%；海外可售为0时仅计算分母按1，库存原值不变；产品等级使用此动销比。' },
   { key: 'productLevel', label: '产品等级', align: 'center', width: 125, tip: '按数据库启用规则顺序取第一条命中。利润率、退货率使用近3个完整自然月汇总口径；数据或配置缺失时显示--。有权限可点击表头编辑全局规则。' },
   { key: 'productNature', label: '产品性质', align: 'center', width: 105, tip: '按站点和完整MSKU精确匹配最早刊登时间；距今天数>90天为老品，≤90天为新品，查不到刊登记录时显示--。' },
   { key: 'salesType', label: '销售类型', align: 'center', width: 125,

@@ -503,7 +503,7 @@ def _assemble_items(
         )
         forecast_return_quantity = _average_metric(monthly_metrics, "return_qty")
         forecast_return_amount = _average_metric(monthly_metrics, "return_amount")
-        sell_through_ratio = _ratio_decimal(
+        sell_through_ratio = _sell_through_ratio(
             raw_forecast_sales_quantity, row.get("overseas_sellable_quantity")
         )
         three_month_profit = sum(
@@ -643,6 +643,19 @@ def _assemble_items(
             }
         )
     return result
+
+
+def _sell_through_ratio(forecast: Any, overseas_sellable: Any) -> Decimal | None:
+    """仅动销比将零海外可售按1作分母；不修改库存原值或其他比率。"""
+    if overseas_sellable is None:
+        return None
+    try:
+        denominator = Decimal(str(overseas_sellable))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+    if not denominator.is_finite():
+        return None
+    return _ratio_decimal(forecast, Decimal("1") if denominator == 0 else denominator)
 
 
 def _ratio_decimal(numerator: Any, denominator: Any) -> Decimal | None:
