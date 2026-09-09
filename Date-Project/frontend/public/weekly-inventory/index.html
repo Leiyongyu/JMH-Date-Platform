@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>仓位库存明细周报</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#24334c;font:15px/1.6 system-ui,"Microsoft YaHei",sans-serif}main{max-width:1320px;margin:40px auto;padding:0 24px}h1{font-size:28px;margin:0}p{color:#68758a}.toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:24px 0}button{border:1px solid #cbd5e1;border-radius:7px;padding:9px 18px;background:white;color:#233a58;cursor:pointer}button.primary{background:#2563eb;color:white;border-color:#2563eb}button:disabled{opacity:.45;cursor:not-allowed}.panel{background:white;border:1px solid #e0e6ef;border-radius:12px;overflow:auto}table{border-collapse:collapse;width:100%;min-width:920px}th,td{padding:15px;text-align:left;border-bottom:1px solid #edf0f5}th{background:#f8fafc;white-space:nowrap}.status{font-weight:600}.SUCCESS{color:#168248}.FAILED,.INTERRUPTED{color:#c24135}.RUNNING{color:#b77900}#message{white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0;color:#536887}.error{color:#b42318!important}small{display:block;color:#788499;max-width:550px;overflow-wrap:anywhere}.pager{display:flex;justify-content:flex-end;gap:12px;align-items:center;margin:20px 0}
+</style>
+</head>
+<body><main>
+<h1>仓位库存明细周报</h1>
+<p>每周一 07:30 自动拉取全仓快照。历史 Excel 按批次永久留底，同日再次生成不会覆盖旧文件。</p>
+<div class="toolbar"><button id="generate" class="primary">生成当前快照</button><button id="refresh">刷新列表</button><span>全量生成可能需要十几分钟，可关闭页面后回来下载。</span></div>
+<div id="message" role="status" aria-live="polite"></div>
+<section class="panel"><table><thead><tr><th>快照日期 / 文件</th><th>状态</th><th>行 / 列</th><th>文件大小</th><th>完成 / 开始时间</th><th>操作</th></tr></thead><tbody id="rows"></tbody></table></section>
+<div class="pager"><button id="previous">上一页</button><span id="pageLabel"></span><button id="next">下一页</button></div>
+<small>快照记录的是拉取时的实时库存，不支持补拉历史日期。失败时已有文件和快照不会删除；缺失测量值保留空白，0 仍显示为 0。</small>
+</main>
+<script>
+'use strict';
+const params = new URLSearchParams(location.search);
+const session = params.get('erp_session') || '';
+// Same-origin, observed proxy directory only. Never send the session to a supplied host.
+const base = new URL('.', location.href);
+history.replaceState(null, '', location.pathname);
+const $ = id => document.getElementById(id);
+let page = 1, total = 0, loading = false, submitting = false, alive = true, generation = 0;
+function url(path) { const target = new URL(path.replace(/^\//,''), base); target.searchParams.set('erp_session', session); return target; }
+function message(text, error=false) { $('message').textContent=text; $('message').className=error?'error':''; }
+async function request(path, options={}) {
+ const response=await fetch(url(path), {cache:'no-store',...options});
+ if (!response.ok) { let data={}; try {data=await response.json();} catch {} throw new Error(typeof data.detail==='string'?data.detail:`请求失败（HTTP ${response.status}）`); }
+ return response;
+}
+function cell(row, text) { const td=document.createElement('td');td.textContent=text ?? '--';row.append(td);return td; }
+async function load() {
+ if (loading || !alive) return;
+ loading=true; const version=++generation;
+ try {
+  const response=await request(`files?page=${page}&limit=20`), data=await response.json();
+  if (!alive || version!==generation) return;
+  total=data.total; $('rows').replaceChildren();
+  const labels={SUCCESS:'已生成',RUNNING:'生成中',FAILED:'失败',INTERRUPTED:'执行中断'};
+  for (const item of data.items) {
+   const tr=document.createElement('tr');
+   const title=cell(tr,item.snapshot_date); const name=document.createElement('small');name.textContent=item.file_name;title.append(name);
+   if(item.error_message){const error=document.createElement('small');error.textContent=item.error_message;title.append(error);}
+   const status=cell(tr,labels[item.status]||item.status);status.className='status '+(Object.hasOwn(labels,item.status)?item.status:'');
+   cell(tr,`${item.row_count??'--'} / ${item.column_count??'--'}`);cell(tr,item.file_size==null?'--':(item.file_size/1024).toFixed(1)+' KB');cell(tr,item.generated_at?.replace('T',' '));
+   const action=cell(tr,'');const button=document.createElement('button');button.textContent='下载 Excel';button.disabled=item.status!=='SUCCESS';
+   button.onclick=async()=>{button.disabled=true;try{const r=await request(`files/${item.id}/download`);const blob=await r.blob();const href=URL.createObjectURL(blob);const a=document.createElement('a');a.href=href;a.download=item.file_name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),1000);}catch(e){message(e.message,true);}finally{button.disabled=false;}};
+   action.append(button);$('rows').append(tr);
+  }
+  if(!data.items.length){const row=document.createElement('tr');const empty=cell(row,'暂无周报，请等待定时生成或点击“生成当前快照”。');empty.colSpan=6;$('rows').append(row);}
+  $('pageLabel').textContent=`第 ${page} 页 · 共 ${total} 份`;
+  $('previous').disabled=page<=1;$('next').disabled=page*20>=total;
+ } catch(e){message(e.message,true);}finally{loading=false;}
+}
+$('generate').onclick=async()=>{
+ if(submitting||!confirm('将拉取全仓当前库存并生成一个新批次，通常需要十几分钟。确定执行？'))return;
+ submitting=true;$('generate').disabled=true;
+ try{const r=await request('run',{method:'POST'});const data=await r.json();message(`${data.message}\n请求编号：${data.request_id}`);page=1;await load();}
+ catch(e){message(e.message,true);}finally{submitting=false;$('generate').disabled=false;}
+};
+$('refresh').onclick=load;
+$('previous').onclick=()=>{if(!loading&&page>1){page--;load();}};
+$('next').onclick=()=>{if(!loading&&page*20<total){page++;load();}};
+const timer=setInterval(load,5000);
+window.addEventListener('pagehide',()=>{alive=false;generation++;clearInterval(timer);});
+if(!session){message('缺少 ERP 会话，请从系统“脚本中心”重新打开。',true);$('generate').disabled=true;clearInterval(timer);}else load();
+</script></body></html>

@@ -38,6 +38,8 @@ outputs/
 docs/
 !Date-Project/docs/
 Date-Project/docs/*
+!Date-Project/docs/仓位库存明细周报-实现方案.md
+!Date-Project/docs/脚本菜单-新增脚本指南.md
 !Date-Project/docs/Amazon主图批量上传内嵌说明.md
 !RuoYi-Vue-springboot3/docs/
 RuoYi-Vue-springboot3/docs/*

@@ -46,4 +46,17 @@ export default [
     devBase: '/ebay-tool',
     needSession: true,
   },
+  {
+    code: 'weekly-inventory-export',
+    name: '仓位库存明细周报',
+    description: '全仓库存、仓位与库龄周快照，后台生成并永久留底 Excel。',
+    icon: 'WI',
+    category: '库存工具',
+    tags: ['库存', '周报', 'Excel 导出'],
+    permission: 'sop:weeklyInventory:use',
+    transport: 'proxy',
+    page: '/index.html',
+    proxyBase: '/sop/weekly-inventory/proxy',
+    needSession: true,
+  },
 ]

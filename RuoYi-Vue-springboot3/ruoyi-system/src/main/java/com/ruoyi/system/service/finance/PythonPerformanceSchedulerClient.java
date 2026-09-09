@@ -43,6 +43,11 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run(PERFORMANCE_TASK, null, requestId);
     }
 
+    public Map<String, Object> runWeeklyInventory(String requestId)
+    {
+        return run("weekly_inventory_bin_export", null, requestId);
+    }
+
     public Map<String, Object> run(String statMonth, String requestId)
     {
         return run(PERFORMANCE_TASK, statMonth, requestId);

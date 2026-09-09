@@ -38,12 +38,18 @@ from backend.services.inventory_report_etl_service import (
 )
 
 
+from backend.services.weekly_inventory_sync_service import (
+    TASK_CODE as WEEKLY_INVENTORY_TASK_CODE,
+    sync_weekly_inventory,
+)
+
 AMZ_TASK_CODE = "amz_monthly_order_profit_sync"
 OPENING_INVENTORY_TASK_CODE = (
     "monthly_inventory_report_opening_inventory_fill"
 )
 OPENING_INVENTORY_TASK_NAME = "月度库存次月月初库存填充"
 TASK_CODES = {
+    WEEKLY_INVENTORY_TASK_CODE,
     AMZ_TASK_CODE,
     CLEARANCE_TASK_CODE,
     AMZ_SOP_TASK_CODE,
@@ -84,6 +90,8 @@ def run_scheduler_task(
     if task_code not in TASK_CODES:
         raise ValueError("未知任务编码")
     # Keep this before run_id/log creation: rejected month labels must have no side effects.
+    if task_code == WEEKLY_INVENTORY_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
+        raise ValueError("仓位库存周报仅拉取当前实时快照，不接受历史月份或日期")
     if task_code == CLEARANCE_TASK_CODE:
         stat_month = resolve_fba_inventory_pull_month(stat_month)
     month = stat_month or (
@@ -113,7 +121,9 @@ def run_scheduler_task(
                 trigger_type=trigger_type,
             )
         else:
-            if task_code == AMZ_SOP_TASK_CODE:
+            if task_code == WEEKLY_INVENTORY_TASK_CODE:
+                lock_name = "inventory:weekly-export"
+            elif task_code == AMZ_SOP_TASK_CODE:
                 lock_name = "sop:amz-after-sales-chain"
             elif task_code == INVENTORY_REPORT_TASK_CODE:
                 lock_name = f"inventory:monthly-report-source:{month}"
@@ -128,6 +138,9 @@ def run_scheduler_task(
             with repo.named_lock(lock_name) as acquired:
                 if not acquired:
                     task_name = (
+                        "仓位库存明细周报"
+                        if task_code == WEEKLY_INVENTORY_TASK_CODE
+                        else
                         AMZ_SOP_TASK_NAME
                         if task_code == AMZ_SOP_TASK_CODE
                         else INVENTORY_REPORT_TASK_NAME
@@ -143,7 +156,9 @@ def run_scheduler_task(
                     raise SchedulerTaskAlreadyRunning(
                         f"{task_name}正在执行"
                     )
-                if task_code == CLEARANCE_TASK_CODE:
+                if task_code == WEEKLY_INVENTORY_TASK_CODE:
+                    result = sync_weekly_inventory(trigger_type)
+                elif task_code == CLEARANCE_TASK_CODE:
                     result = sync_fba_inventory(month)
                 elif task_code == INVENTORY_REPORT_TASK_CODE:
                     result = sync_monthly_inventory_report_sources(month)
