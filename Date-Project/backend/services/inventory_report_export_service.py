@@ -95,7 +95,7 @@ def _group_headers(report_month: str | None) -> list[Header]:
 
 def _dimension_headers(dimension: str) -> list[Header]:
     first_title = "店铺" if dimension == "STORE" else "负责人"
-    return [
+    headers = [
         (first_title, _dimension_name(dimension), "text"),
         ("平台", _platform_name, "text"),
         ("组别", _field("department_code"), "text"),
@@ -110,6 +110,12 @@ def _dimension_headers(dimension: str) -> list[Header]:
         ("实际达成（USD）", _field("actual_achievement_amount_usd"), "money"),
         ("目标达成率", _field("target_achievement_rate"), "percent"),
     ]
+    if dimension == "OWNER":
+        headers.extend([
+            ("90-180库龄成本", _field("inventory_age_90_180_cost"), "money"),
+            ("180+库龄成本", _field("inventory_age_180_plus_cost"), "money"),
+        ])
+    return headers
 
 
 def _append_sheet(
@@ -168,8 +174,9 @@ def _combined(
     left_key: str,
     right_key: str,
 ) -> Callable[[dict[str, Any]], Any]:
-    return lambda row: _decimal(row.get(left_key)) + _decimal(
-        row.get(right_key)
+    return lambda row: (
+        None if row.get("is_age_cost_only")
+        else _decimal(row.get(left_key)) + _decimal(row.get(right_key))
     )
 
 
@@ -179,7 +186,8 @@ def _dimension_name(
     def value(row: dict[str, Any]) -> str:
         if int(row.get("is_dimension_total") or 0) == 1:
             return "合计（仅Amazon FBA）" if dimension == "STORE" else "合计"
-        return str(row.get("dimension_value") or "")
+        name = str(row.get("dimension_value") or "")
+        return name + "（仅库龄成本）" if row.get("is_age_cost_only") else name
 
     return value
 

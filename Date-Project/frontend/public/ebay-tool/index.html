@@ -18,6 +18,9 @@
             width: 145px; padding: 8px; border: 1px solid #d0d5dd; border-radius: 6px; background: #fff;
         }
         .filter-hint { font-size: 12px; color: #667085; }
+        .filter-fields input:disabled, .filter-fields option:disabled {
+            color: #98a2b3; background: #f2f4f7; cursor: not-allowed;
+        }
         #filter-error { color: #b42318; margin-left: 12px; }
 
         /* ── 卡片基础 ── */
@@ -831,7 +834,31 @@ function optionalNumber(value) {
     return Number.isFinite(number) ? number : null;
 }
 
+function hasSoldData(results) {
+    // Check the complete response across all OE groups, not the filtered view.
+    // A reported zero is valid data; missing/invalid values are not zero.
+    return results.some(group => (group.items || []).some(item => optionalNumber(item.estimatedSold) !== null));
+}
+
+function syncSoldFilterAvailability() {
+    const available = hasSoldData(rawResultsData?.results || []);
+    const input = document.getElementById('filter-sold');
+    const option = document.getElementById('filter-sort-sold');
+    const sort = document.getElementById('filter-sort');
+    const hint = document.getElementById('filter-sold-hint');
+    if (input) {
+        input.disabled = !available;
+        if (!available) input.value = '';
+    }
+    if (option) option.disabled = !available;
+    if (!available && sort?.value === 'sold_desc') sort.value = 'price_asc';
+    if (hint) hint.textContent = available ? '' : '本次查询无销量数据，已禁用销量筛选和排序';
+}
+
 function filterResultGroups(results, filters) {
+    if (!hasSoldData(results)) {
+        filters = { ...filters, sold: null, sort: filters.sort === 'sold_desc' ? 'price_asc' : filters.sort };
+    }
     return results.map(group => {
         const items = (group.items || []).filter(item => {
             const price = optionalNumber(item.pf);
@@ -876,12 +903,12 @@ function buildResultFilters() {
             <label>最低价格<input id="filter-min" type="number" min="0" step="any"></label>
             <label>最高价格<input id="filter-max" type="number" min="0" step="any"></label>
             <label>好评率下限（%）<input id="filter-feedback" type="number" min="0" max="100" step="any"></label>
-            <label>已售数量下限<input id="filter-sold" type="number" min="0" step="1"></label>
+            <label>已售数量下限<input id="filter-sold" type="number" min="0" step="1" aria-describedby="filter-sold-hint"><span id="filter-sold-hint" class="filter-hint" role="status"></span></label>
             <label>标题包含<input id="filter-include" type="text" placeholder="不区分大小写"></label>
             <label>标题排除<input id="filter-exclude" type="text" placeholder="不区分大小写"></label>
             <label>排序<select id="filter-sort">
                 <option value="price_asc">价格从低到高</option><option value="price_desc">价格从高到低</option>
-                <option value="sold_desc">已售数量从高到低</option><option value="feedback_desc">好评率从高到低</option>
+                <option id="filter-sort-sold" value="sold_desc">已售数量从高到低</option><option value="feedback_desc">好评率从高到低</option>
             </select></label>
             <label><span><input id="filter-free" type="checkbox"> 仅免运费</span></label>
             <button class="btn-secondary" onclick="resetResultFilters()">重置筛选</button>
@@ -893,6 +920,7 @@ function buildResultFilters() {
 
 function applyResultFilters() {
     if (!rawResultsData) return;
+    syncSoldFilterAvailability();
     const value = id => document.getElementById(id).value.trim();
     const filters = {
         minPrice: optionalNumber(value('filter-min')), maxPrice: optionalNumber(value('filter-max')),
@@ -1263,6 +1291,7 @@ function renderResults(results, skuMapping = {}) {
     </div>`;
 
     container.innerHTML = html;
+    syncSoldFilterAvailability();
     showOe(0);
 }
 

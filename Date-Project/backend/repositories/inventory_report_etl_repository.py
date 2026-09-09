@@ -544,6 +544,39 @@ def inventory_age_group_costs(pull_month: str) -> dict[str, dict[str, Any]]:
         }
 
 
+def inventory_age_cost_rows(pull_month: str) -> list[dict[str, Any]]:
+    """读取非零分档成本，按SKU精确归属负责人；不丢弃负数调整或空SKU。
+
+    与组别汇总直接累加同一成本字段，不额外乘库存数量或过滤匹配状态。
+    快照是否存在由既有健康度全量读取判断，不能用本查询空结果判断。
+    """
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT 'AMZ' AS platform_code,group_code,store_name,
+                   COALESCE(NULLIF(sku,''),seller_sku) AS sku,
+                   COALESCE(inventory_91_180_cost,0) AS cost_91_180,
+                   COALESCE(inventory_181_plus_cost,0) AS cost_181_plus
+            FROM dwd_amz_fba_inventory_monthly_snapshot
+            WHERE pull_month=%s
+              AND (inventory_91_180_cost<>0 OR inventory_181_plus_cost<>0)
+            UNION ALL
+            SELECT 'EBAY' AS platform_code,'EBAY-1' AS group_code,
+                   NULL AS store_name,COALESCE(NULLIF(sku,''),sku_middle) AS sku,
+                   CASE WHEN inventory_age_bucket='91_180'
+                        THEN inventory_age_cost ELSE 0 END AS cost_91_180,
+                   CASE WHEN inventory_age_bucket='181_PLUS'
+                        THEN inventory_age_cost ELSE 0 END AS cost_181_plus
+            FROM dwd_ebay_inventory_age_cost_snapshot
+            WHERE pull_month=%s
+              AND inventory_age_bucket IN ('91_180','181_PLUS')
+              AND inventory_age_cost<>0
+            """,
+            (pull_month, pull_month),
+        )
+        return list(cursor.fetchall())
+
+
 def inventory_age_health_rows(pull_month: str) -> list[dict[str, Any]]:
     """读取Amazon FBA与eBay海外仓SKU库龄明细，用于统计181天以上SKU数。"""
     with db_connection() as connection, connection.cursor() as cursor:

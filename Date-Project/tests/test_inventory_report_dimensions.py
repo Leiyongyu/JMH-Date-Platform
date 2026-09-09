@@ -88,6 +88,7 @@ def test_dimension_summaries_build_store_and_owner_with_consistent_local_transit
 
 
 def test_inventory_health_counts_each_aged_sku_only_once(monkeypatch):
+    monkeypatch.setattr(service.repo, "ebay_product_sku_map", lambda _month: {})
     monkeypatch.setattr(
         service.repo,
         "inventory_age_health_rows",

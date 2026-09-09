@@ -55,6 +55,67 @@ test('four sorts are numeric and missing metrics sort last', () => {
     assert.equal(context.filterResultGroups(groups, { sort: 'price_asc', sold: 0 })[0].items.length, 2);
 });
 
+test('all-missing sales disables controls, clears stale limits and restores price sort', () => {
+    const { context, run, element } = page();
+    context.inputGroups = [{ oe: 'a', items: [
+        { _selectionKey: 0, pf: 20, estimatedSold: null },
+        { _selectionKey: 1, pf: 10, estimatedSold: '' }
+    ] }];
+    run('rawResultsData = {results: inputGroups};');
+    element('filter-sold').value = '5';
+    element('filter-sort').value = 'sold_desc';
+    context.syncSoldFilterAvailability();
+    assert.equal(element('filter-sold').disabled, true);
+    assert.equal(element('filter-sort-sold').disabled, true);
+    assert.equal(element('filter-sold').value, '');
+    assert.equal(element('filter-sort').value, 'price_asc');
+    assert.match(element('filter-sold-hint').textContent, /本次查询无销量数据/);
+    assert.deepEqual(plain(context.filterResultGroups(context.inputGroups, { sold: 5, sort: 'sold_desc' })[0].items.map(i => i.pf)), [10, 20]);
+});
+
+test('availability uses all raw OE groups, zero is valid and new results re-enable controls', () => {
+    const { context, run, element } = page();
+    run('rawResultsData = {results: []};');
+    context.syncSoldFilterAvailability();
+    assert.equal(element('filter-sold').disabled, true);
+    context.inputGroups = [{ oe: 'a', items: [{ estimatedSold: null }] },
+        { oe: 'b', items: [{ estimatedSold: '0' }] }];
+    run('rawResultsData = {results: inputGroups}; allResultsData = {results: []};');
+    context.syncSoldFilterAvailability();
+    assert.equal(element('filter-sold').disabled, false);
+    assert.equal(element('filter-sort-sold').disabled, false);
+    assert.equal(element('filter-sold-hint').textContent, '');
+    assert.deepEqual(plain(context.filterResultGroups(context.inputGroups, { sold: 0, sort: 'sold_desc' }).map(g => g.items.length)), [0, 1]);
+    for (const estimatedSold of [null, undefined, '', ' ', 'invalid', Infinity, NaN]) {
+        assert.equal(context.hasSoldData([{ items: [{ estimatedSold }] }]), false);
+    }
+});
+
+test('missing sales never removes visible export selections when another filter changes', () => {
+    const { context, run, element, state } = page();
+    context.inputGroups = groups.map(group => ({ ...group,
+        items: group.items.map(item => ({ ...item, estimatedSold: null })) }));
+    run('rawResultsData = {results: inputGroups}; allResultsData = rawResultsData; oeSelections = {a:[0,1,2], b:[0]};');
+    state.boxes = [0, 1, 2].map(idx => ({ checked: true, dataset: { idx: String(idx) } }));
+    context.showOe = () => { state.boxes = []; };
+    element('filter-sold').value = '50';
+    element('filter-sort').value = 'sold_desc';
+    context.applyResultFilters();
+    assert.deepEqual(plain(run('oeSelections')), { a: [0, 1, 2], b: [0] });
+    // The real renderer recreates the selected checkboxes before export reads them.
+    state.boxes = [1, 2, 0].map(idx => ({ checked: true, dataset: { idx: String(idx) } }));
+    assert.deepEqual(plain(context.getCheckedItems().map(item => item.itemId)), ['a1', 'a2', 'a0', 'b0']);
+});
+
+test('render initializes sales availability for every new response', () => {
+    const { context, element } = page();
+    context.showOe = () => {};
+    context.renderResults([{ oe: 'a', items: [{ pf: 10, estimatedSold: null }] }]);
+    assert.equal(element('filter-sold').disabled, true);
+    context.renderResults([{ oe: 'a', items: [{ pf: 10, estimatedSold: 0 }] }]);
+    assert.equal(element('filter-sold').disabled, false);
+});
+
 test('selected identity survives sort and export follows visible order across OE groups', () => {
     const { context, run, state } = page();
     context.inputGroups = groups;

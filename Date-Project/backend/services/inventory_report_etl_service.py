@@ -577,11 +577,26 @@ def get_dimension_summary(
                     volume_row.get("sales_volume")
                 )
 
-    health_groups, health_stores, health_owners, health_platforms = (
-        _inventory_health_maps(report_month)
-        if report_month
-        else ({}, {}, {}, set())
-    )
+    age_cost_departments: set[str] = set()
+    owner_90_180, owner_180_plus = {}, {}
+    if dimension == "OWNER" and report_month:
+        # Both traversals share request-local rule maps; no extra rule/map queries.
+        owner_context = _inventory_owner_context(report_month)
+        health_groups, health_stores, health_owners, health_platforms = (
+            _inventory_health_maps(
+                report_month, owner_context=owner_context,
+                snapshot_departments=age_cost_departments,
+            )
+        )
+        owner_90_180, owner_180_plus = _inventory_age_cost_by_owner(
+            report_month, owner_context=owner_context,
+        )
+    else:
+        health_groups, health_stores, health_owners, health_platforms = (
+            _inventory_health_maps(report_month)
+            if report_month
+            else ({}, {}, {}, set())
+        )
     items: list[dict[str, Any]] = []
     for source in data["items"]:
         item = dict(source)
@@ -663,6 +678,11 @@ def get_dimension_summary(
         if items
         else None
     )
+    if dimension == "OWNER":
+        total = _attach_owner_age_costs(
+            items, total, data["stat_month"], report_month,
+            owner_90_180, owner_180_plus, age_cost_departments,
+        )
     return {
         "stat_month": data["stat_month"],
         "source_stat_month": data["stat_month"],
@@ -1507,7 +1527,113 @@ def _usd_amount(
     return _num(amount) / usd_rate
 
 
-def _inventory_health_maps(pull_month: str):
+def _inventory_owner_context(pull_month: str):
+    """库存归属用源月负责人规则，产品映射用库龄快照月。仅在本次请求复用。"""
+    rule_month = _previous_month(pull_month)
+    return (
+        _amazon_rule_maps(repo.owner_rules(rule_month, "amazon")),
+        _ebay_rule_map(repo.owner_rules(rule_month, "ebay")),
+        _ebay_product_sku_map(pull_month, include_next=False),
+    )
+
+
+def _inventory_age_cost_by_owner(pull_month: str, *, owner_context=None):
+    """按既有归属规则累加每条分档成本，不按比例分摊、不按SKU去重金额。"""
+    rows = repo.inventory_age_cost_rows(pull_month)
+    owner_90_180 = defaultdict(lambda: ZERO)
+    owner_180_plus = defaultdict(lambda: ZERO)
+    if not rows:
+        return owner_90_180, owner_180_plus
+    amazon_rules, ebay_rules, ebay_sku_map = (
+        owner_context if owner_context is not None else _inventory_owner_context(pull_month)
+    )
+    for row in rows:
+        platform = normalize_text(row.get("platform_code")).upper()
+        sku = normalize_text(row.get("sku"))
+        if platform == "EBAY":
+            department = "EBAY-1"
+            principal, _ = _ebay_assignment(sku, ebay_rules, ebay_sku_map)
+        elif platform == "AMZ":
+            department = _department(normalize_text(row.get("group_code")).upper())
+            principal, _, _ = _amazon_assignment(
+                normalize_text(row.get("store_name")), sku, amazon_rules
+            )
+        else:
+            continue
+        if not department:
+            logger.warning("月度库存库龄成本组别无法映射: month=%s platform=%s group=%s",
+                           pull_month, platform, row.get("group_code"))
+            continue
+        key = (platform, department, _principal(principal))
+        owner_90_180[key] += _num(row.get("cost_91_180"))
+        owner_180_plus[key] += _num(row.get("cost_181_plus"))
+    return owner_90_180, owner_180_plus
+
+
+def _attach_owner_age_costs(
+    items, total, stat_month, age_cost_month,
+    owner_90_180, owner_180_plus, snapshot_departments,
+):
+    """补充成本归属行，但不重算或污染既有库存/销量/健康度合计。"""
+    keys = {
+        (normalize_text(row.get("platform_code")).upper(),
+         normalize_text(row.get("department_code")).upper(),
+         _principal(row.get("dimension_value")))
+        for row in items
+    }
+    for platform, department, principal in sorted(
+        (set(owner_90_180) | set(owner_180_plus)) - keys
+    ):
+        items.append({
+            "stat_month": stat_month, "dimension_type": "OWNER",
+            "platform_code": platform, "department_code": department,
+            "dimension_value": principal, "is_age_cost_only": 1,
+        })
+    # Health and cost SELECTs can straddle a just-completed sync. Cost rows also
+    # prove snapshot existence; a zero-cost month is proved by health rows.
+    available = set(snapshot_departments) | {
+        key[1] for key in set(owner_90_180) | set(owner_180_plus)
+    }
+    for item in items:
+        key = (
+            normalize_text(item.get("platform_code")).upper(),
+            normalize_text(item.get("department_code")).upper(),
+            _principal(item.get("dimension_value")),
+        )
+        item["inventory_age_90_180_cost"] = (
+            owner_90_180.get(key, ZERO) if key[1] in available else None
+        )
+        item["inventory_age_180_plus_cost"] = (
+            owner_180_plus.get(key, ZERO) if key[1] in available else None
+        )
+        item["inventory_age_cost_month"] = age_cost_month
+    if items:
+        if total is None:
+            total = {
+                "is_dimension_total": 1, "dimension_type": "OWNER",
+                "dimension_value": "合计", "platform_code": "", "department_code": "",
+                "is_age_cost_only": 1,
+            }
+        # Match GROUP's full-department completeness requirement.
+        complete = VALID_DEPARTMENTS.issubset(available)
+        total["inventory_age_90_180_cost"] = (
+            sum(owner_90_180.values(), ZERO) if complete else None
+        )
+        total["inventory_age_180_plus_cost"] = (
+            sum(owner_180_plus.values(), ZERO) if complete else None
+        )
+        total["inventory_age_cost_month"] = age_cost_month
+    order = {code: position for code, _name, position in DEPARTMENTS}
+    items.sort(key=lambda row: (
+        order.get(row.get("department_code"), 99),
+        row.get("platform_code") or "", row.get("dimension_value") or "",
+    ))
+    return total
+
+
+def _inventory_health_maps(
+    pull_month: str, *, owner_context=None, snapshot_departments=None,
+):
     """按组别、店铺和负责人分别统计181天以上去重SKU数。"""
     rows = repo.inventory_age_health_rows(pull_month)
     group_skus: dict[str, set[str]] = defaultdict(set)
@@ -1515,10 +1641,9 @@ def _inventory_health_maps(pull_month: str):
     owner_skus: dict[tuple[str, str, str], set[str]] = defaultdict(set)
     platforms: set[str] = set()
     # 库龄快照使用页面展示月，库存负责人规则使用其对应的源数据月。
-    rule_month = _previous_month(pull_month)
-    amazon_rules = _amazon_rule_maps(repo.owner_rules(rule_month, "amazon"))
-    ebay_rules = _ebay_rule_map(repo.owner_rules(rule_month, "ebay"))
-    ebay_sku_map = _ebay_product_sku_map(pull_month, include_next=False)
+    amazon_rules, ebay_rules, ebay_sku_map = (
+        owner_context if owner_context is not None else _inventory_owner_context(pull_month)
+    )
     for row in rows:
         platform = normalize_text(row.get("platform_code")).upper()
         platforms.add(platform)
@@ -1536,6 +1661,8 @@ def _inventory_health_maps(pull_month: str):
             principal, _match_source, _matched_group = _amazon_assignment(
                 store_name, sku, amazon_rules
             )
+        if snapshot_departments is not None and department:
+            snapshot_departments.add(department)
         if not department or not sku or not is_aged_sku:
             continue
         group_skus[department].add(sku)

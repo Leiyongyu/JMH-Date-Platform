@@ -272,28 +272,28 @@
         </el-table-column>
         <el-table-column prop="department_code" label="组别" width="130" fixed="left" />
         <el-table-column label="总货值" min-width="150" align="right">
-          <template #default="{ row }">{{ money(row.total_goods_value) }}</template>
+          <template #default="{ row }">{{ row.is_age_cost_only ? '--' : money(row.total_goods_value) }}</template>
         </el-table-column>
 
         <el-table-column label="海外仓/FBA仓" align="center">
           <el-table-column label="期末在途数量" min-width="125" align="right">
             <template #default="{ row }">
-              {{ qty(combinedWarehouseValue(row, 'overseas_end_in_transit_qty', 'fba_end_in_transit_qty')) }}
+              {{ row.is_age_cost_only ? '--' : qty(combinedWarehouseValue(row, 'overseas_end_in_transit_qty', 'fba_end_in_transit_qty')) }}
             </template>
           </el-table-column>
           <el-table-column label="期末在途总成本" min-width="145" align="right">
             <template #default="{ row }">
-              {{ money(combinedWarehouseValue(row, 'overseas_end_in_transit_total_cost', 'fba_end_in_transit_total_cost')) }}
+              {{ row.is_age_cost_only ? '--' : money(combinedWarehouseValue(row, 'overseas_end_in_transit_total_cost', 'fba_end_in_transit_total_cost')) }}
             </template>
           </el-table-column>
           <el-table-column label="期末库存数量" min-width="125" align="right">
             <template #default="{ row }">
-              {{ qty(combinedWarehouseValue(row, 'overseas_end_inventory_qty', 'fba_end_inventory_qty')) }}
+              {{ row.is_age_cost_only ? '--' : qty(combinedWarehouseValue(row, 'overseas_end_inventory_qty', 'fba_end_inventory_qty')) }}
             </template>
           </el-table-column>
           <el-table-column label="期末库存总成本" min-width="145" align="right">
             <template #default="{ row }">
-              {{ money(combinedWarehouseValue(row, 'overseas_end_inventory_total_cost', 'fba_end_inventory_total_cost')) }}
+              {{ row.is_age_cost_only ? '--' : money(combinedWarehouseValue(row, 'overseas_end_inventory_total_cost', 'fba_end_inventory_total_cost')) }}
             </template>
           </el-table-column>
         </el-table-column>
@@ -303,7 +303,7 @@
           min-width="210"
           align="right"
         >
-          <template #default="{ row }">{{ money(row.fba_transit_inventory_amount) }}</template>
+          <template #default="{ row }">{{ row.is_age_cost_only ? '--' : money(row.fba_transit_inventory_amount) }}</template>
         </el-table-column>
         <el-table-column min-width="145" align="right">
           <template #header>
@@ -345,6 +345,24 @@
         >
           <template #default="{ row }">{{ optionalPercent(row.target_achievement_rate) }}</template>
         </el-table-column>
+        <template v-if="activeDimension === 'owner'">
+          <el-table-column prop="inventory_age_90_180_cost" min-width="165" align="right">
+            <template #header>
+              <el-tooltip content="与组别使用同一库龄快照月的91-180天成本，按SKU精确归属负责人，包含未分配；快照缺失显示--" placement="top">
+                <span class="report-column-tip">90-180库龄成本</span>
+              </el-tooltip>
+            </template>
+            <template #default="{ row }">{{ row.inventory_age_90_180_cost == null ? '--' : optionalMoney(row.inventory_age_90_180_cost) }}</template>
+          </el-table-column>
+          <el-table-column prop="inventory_age_180_plus_cost" min-width="155" align="right">
+            <template #header>
+              <el-tooltip content="与组别使用同一库龄快照月的181天及以上成本，按SKU精确归属负责人，包含未分配；快照缺失显示--" placement="top">
+                <span class="report-column-tip">180+库龄成本</span>
+              </el-tooltip>
+            </template>
+            <template #default="{ row }">{{ row.inventory_age_180_plus_cost == null ? '--' : optionalMoney(row.inventory_age_180_plus_cost) }}</template>
+          </el-table-column>
+        </template>
       </el-table>
     </el-card>
 
@@ -533,7 +551,8 @@ function dimensionName(row) {
       ? '合计（仅Amazon FBA）'
       : '合计'
   }
-  return row?.dimension_value || ''
+  const name = row?.dimension_value || ''
+  return row?.is_age_cost_only ? `${name}（仅库龄成本）` : name
 }
 
 function dimensionSummaryRowClass({ row }) {
