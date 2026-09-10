@@ -346,6 +346,14 @@
           <template #default="{ row }">{{ optionalPercent(row.target_achievement_rate) }}</template>
         </el-table-column>
         <template v-if="activeDimension === 'owner'">
+          <el-table-column prop="ctu_over_30_cost" min-width="220" align="right">
+            <template #header>
+              <el-tooltip content="仅eBay成都仓31天及以上货值，使用与组别相同的快照月，按源月eBay负责人规则归属；包含未分配，合计仅eBay。Amazon不参与；快照缺失显示--" placement="top">
+                <span class="report-column-tip">成都仓30天以上货值（仅eBay）</span>
+              </el-tooltip>
+            </template>
+            <template #default="{ row }">{{ row.ctu_over_30_cost == null ? '--' : optionalMoney(row.ctu_over_30_cost) }}</template>
+          </el-table-column>
           <el-table-column prop="inventory_age_90_180_cost" min-width="165" align="right">
             <template #header>
               <el-tooltip content="与组别使用同一库龄快照月的91-180天成本，按SKU精确归属负责人，包含未分配；快照缺失显示--" placement="top">

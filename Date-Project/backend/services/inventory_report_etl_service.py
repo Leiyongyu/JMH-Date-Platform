@@ -579,6 +579,7 @@ def get_dimension_summary(
 
     age_cost_departments: set[str] = set()
     owner_90_180, owner_180_plus = {}, {}
+    ctu_owner_costs, ctu_available = {}, False
     if dimension == "OWNER" and report_month:
         # Both traversals share request-local rule maps; no extra rule/map queries.
         owner_context = _inventory_owner_context(report_month)
@@ -589,6 +590,9 @@ def get_dimension_summary(
             )
         )
         owner_90_180, owner_180_plus = _inventory_age_cost_by_owner(
+            report_month, owner_context=owner_context,
+        )
+        ctu_owner_costs, ctu_available = _ctu_ebay_cost_by_owner(
             report_month, owner_context=owner_context,
         )
     else:
@@ -682,6 +686,10 @@ def get_dimension_summary(
         total = _attach_owner_age_costs(
             items, total, data["stat_month"], report_month,
             owner_90_180, owner_180_plus, age_cost_departments,
+        )
+        total = _attach_owner_ctu_costs(
+            items, total, data["stat_month"], report_month,
+            ctu_owner_costs, ctu_available,
         )
     return {
         "stat_month": data["stat_month"],
@@ -1535,6 +1543,54 @@ def _inventory_owner_context(pull_month: str):
         _ebay_rule_map(repo.owner_rules(rule_month, "ebay")),
         _ebay_product_sku_map(pull_month, include_next=False),
     )
+
+
+def _ctu_ebay_cost_by_owner(pull_month: str, *, owner_context):
+    """按源月eBay负责人规则归属快照成本；保留所有批次金额及未分配。"""
+    rows = clearance_repo.ctu_ebay_owner_cost_rows(pull_month)
+    costs = defaultdict(lambda: ZERO)
+    _, ebay_rules, ebay_sku_map = owner_context
+    for row in rows:
+        if row.get("over_30_cost") is None:
+            continue  # LEFT JOIN占位仅证明快照存在，不是无SKU的真实成本。
+        principal, _ = _ebay_assignment(row.get("sku"), ebay_rules, ebay_sku_map)
+        costs[("EBAY", "EBAY-1", _principal(principal))] += _num(row["over_30_cost"])
+    return costs, bool(rows)
+
+
+def _attach_owner_ctu_costs(items, total, stat_month, cost_month, costs, available):
+    """仅eBay个人展示成都仓货值；独立合计，不污染原库存/销量合计。"""
+    keys = {
+        (normalize_text(row.get("platform_code")).upper(),
+         normalize_text(row.get("department_code")).upper(),
+         _principal(row.get("dimension_value")))
+        for row in items
+    }
+    for platform, department, principal in sorted(set(costs) - keys):
+        items.append({
+            "stat_month": stat_month, "dimension_type": "OWNER",
+            "platform_code": platform, "department_code": department,
+            "dimension_value": principal, "is_age_cost_only": 1,
+        })
+    for item in items:
+        key = (normalize_text(item.get("platform_code")).upper(),
+               normalize_text(item.get("department_code")).upper(),
+               _principal(item.get("dimension_value")))
+        item["ctu_over_30_cost"] = (
+            costs.get(key, ZERO) if available and key[:2] == ("EBAY", "EBAY-1") else None
+        )
+        item["ctu_cost_month"] = cost_month
+    if items:
+        if total is None:
+            total = {"is_dimension_total": 1, "dimension_type": "OWNER",
+                     "dimension_value": "合计", "platform_code": "", "department_code": "",
+                     "is_age_cost_only": 1}
+        total["ctu_over_30_cost"] = sum(costs.values(), ZERO) if available else None
+        total["ctu_cost_month"] = cost_month
+    order = {code: position for code, _name, position in DEPARTMENTS}
+    items.sort(key=lambda row: (order.get(row.get("department_code"), 99),
+                               row.get("platform_code") or "", row.get("dimension_value") or ""))
+    return total
 
 
 def _inventory_age_cost_by_owner(pull_month: str, *, owner_context=None):

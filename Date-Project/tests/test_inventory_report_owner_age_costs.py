@@ -43,6 +43,9 @@ def env(monkeypatch):
     monkeypatch.setattr(service.repo, "sales_amount_by_owner", lambda *args: {})
     monkeypatch.setattr(service.repo, "amz_sales_amount_by_store", lambda *args: [])
     monkeypatch.setattr(service.clearance_repo, "ctu_over_30_costs", lambda month: {})
+    state["ctu"] = []
+    monkeypatch.setattr(service.clearance_repo, "ctu_ebay_owner_cost_rows", lambda month: (
+        state["calls"].append(("ctu", month)) or deepcopy(state["ctu"])))
     monkeypatch.setattr(service.repo, "inventory_age_group_costs", lambda month: state["group_costs"])
     monkeypatch.setattr(service.repo, "department_summary", lambda month: {
         "stat_month": state["stat_month"],

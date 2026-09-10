@@ -112,6 +112,7 @@ def _dimension_headers(dimension: str) -> list[Header]:
     ]
     if dimension == "OWNER":
         headers.extend([
+            ("成都仓30天以上货值（仅eBay）", _field("ctu_over_30_cost"), "money"),
             ("90-180库龄成本", _field("inventory_age_90_180_cost"), "money"),
             ("180+库龄成本", _field("inventory_age_180_plus_cost"), "money"),
         ])

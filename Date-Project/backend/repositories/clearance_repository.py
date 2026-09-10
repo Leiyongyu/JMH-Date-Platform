@@ -473,6 +473,23 @@ def ctu_over_30_costs(pull_month: str) -> dict[str, Decimal]:
             for row in cur.fetchall()
         }
 
+def ctu_ebay_owner_cost_rows(pull_month: str) -> list[dict[str, Any]]:
+    """仅eBay成都仓成本明细；空快照返回[]，有快照但无成本返回NULL占位行。"""
+    with db_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT d.sku,d.over_30_cost
+            FROM dws_ctu_inventory_age_group g
+            LEFT JOIN ods_lingxing_ctu_inventory_detail d
+              ON d.pull_month=g.pull_month AND d.group_code=g.group_code
+             AND d.over_30_cost<>0
+            WHERE g.pull_month=%s AND g.group_code='EBAY-1'
+            """,
+            (pull_month,),
+        )
+        return list(cur.fetchall())
+
+
 def ctu_inventory_age_details(month: str | None) -> dict[str, Any]:
     """Return current-batch CTU SKU rows that actually contain over-30 stock."""
     with db_connection() as conn, conn.cursor() as cur:
