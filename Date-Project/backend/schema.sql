@@ -971,6 +971,11 @@ CREATE TABLE IF NOT EXISTS `ods_lingxing_inventory_bin_detail_weekly` (
   `msku` VARCHAR(255) NULL COMMENT 'MSKU；接口文档未列出的实际返回字段',
   `store_id` VARCHAR(64) NULL COMMENT '店铺ID；接口文档写的是seller_id，实际返回键名为store_id',
   `fnsku` VARCHAR(64) NULL COMMENT 'FNSKU',
+  `bin_identity_key` VARBINARY(1600) GENERATED ALWAYS AS (CONCAT(
+    CHAR_LENGTH(COALESCE(NULLIF(TRIM(`store_id`),''),'0')),':',COALESCE(NULLIF(TRIM(`store_id`),''),'0'),
+    CHAR_LENGTH(COALESCE(`msku`,'')),':',COALESCE(`msku`,''),
+    CHAR_LENGTH(COALESCE(`fnsku`,'')),':',COALESCE(`fnsku`,''))) STORED
+    COMMENT 'weekly-bin-identity-v1: store_id,msku,fnsku; byte-exact length framing',
   `total` DECIMAL(24,6) NULL COMMENT '总量',
   `lock_num` DECIMAL(24,6) NULL COMMENT '锁定量；接口字段名 lockNum',
   `valid_num` DECIMAL(24,6) NULL COMMENT '未锁定量；接口字段名 validNum',
@@ -979,7 +984,7 @@ CREATE TABLE IF NOT EXISTS `ods_lingxing_inventory_bin_detail_weekly` (
   `pulled_at` DATETIME NOT NULL COMMENT '实际拉取时间',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_bin_week` (`snapshot_date`,`sync_batch_id`,`wid`,`whb_id`,`product_id`),
+  UNIQUE KEY `uk_bin_week` (`snapshot_date`,`sync_batch_id`,`wid`,`whb_id`,`product_id`,`bin_identity_key`),
   KEY `idx_bin_week_date_wid_pid` (`snapshot_date`,`wid`,`product_id`),
   KEY `idx_bin_week_date_sku` (`snapshot_date`,`sku`),
   KEY `idx_bin_week_batch` (`sync_batch_id`)

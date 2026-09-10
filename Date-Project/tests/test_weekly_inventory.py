@@ -35,8 +35,28 @@ def test_representative_whole_row_and_age_not_double_counted():
     assert row["锁定量(仓位)"] == 3
     assert row["未锁定量(仓位)"] == 7
     assert row["库存金额"] == Decimal("12.345670")
-    assert row["第三方-可用量-三方仓"] == 8
-    assert len(headers) == 35  # 34 static + 1 dynamic
+    assert not any(label.startswith("第三方-") for label in headers)
+    assert len(headers) == 26  # 25 static + 1 dynamic
+    assert len(rows[0]) == len(headers)
+
+
+@pytest.mark.parametrize('grams,kilograms', [
+    (None, None), (Decimal('0'), Decimal('0')),
+    (Decimal('1500'), Decimal('1.5')), (Decimal('1000'), Decimal('1')),
+    (Decimal('25.5'), Decimal('0.0255')),
+])
+def test_only_exported_gross_weight_converts_to_kg(grams, kilograms):
+    groups = sample()
+    product = groups['products'][0]
+    product.update(cg_product_gross_weight=grams, cg_product_net_weight=Decimal('900'),
+                   cg_box_weight=Decimal('8.5'))
+    headers, rows = export.build_rows(groups, {1: '仓库'})
+    row = dict(zip(headers, rows[0]))
+    assert '采购-产品毛重(G)' not in headers
+    assert row['采购-产品毛重(KG)'] == kilograms
+    assert row['采购-产品净重(G)'] == Decimal('900')
+    assert row['采购-外箱实重(KG)'] == Decimal('8.5')
+    assert product['cg_product_gross_weight'] == grams
 
 
 def test_missing_is_not_zero():
@@ -49,7 +69,7 @@ def test_missing_is_not_zero():
     row=dict(zip(headers,rows[0]))
     assert row["次品量"] == 0
     assert row["锁定量(仓位)"] is None
-    assert row["第三方-锁定量-系统"] is None
+    assert row["采购-产品净重(G)"] is None
 
 
 def test_xlsx_is_safe_and_archive_never_replaced(tmp_path):
@@ -65,6 +85,38 @@ def test_xlsx_is_safe_and_archive_never_replaced(tmp_path):
         export.write_export(sample(),{1:"仓库"},path)
     assert path.read_bytes()==original
     assert not list(tmp_path.glob(".weekly-*"))
+
+
+def test_xlsx_numeric_format_and_removed_columns(tmp_path):
+    groups = sample()
+    groups["inventory"][0]["product_bad_num"] = Decimal("0.000000")
+    groups["products"][0].update(cg_product_length=Decimal("75.000000"),
+                                cg_product_width=Decimal("25.500000"),
+                                cg_product_height=Decimal("-2.000000"))
+    path = tmp_path / "format.xlsx"
+    export.write_export(groups, {1: "仓库"}, path)
+    with_source = groups["inventory"][0]["third_inventory"]
+    assert with_source["third_inventory_data"][0]["third"] == 8
+    wb = load_workbook(path)
+    try:
+        sheet = wb.active
+        cells = dict(zip([c.value for c in sheet[1]], sheet[2]))
+        assert not any(name.startswith("第三方-") for name in cells)
+        assert sheet.max_column == 26
+        assert sheet.freeze_panes == "E2"
+        for name, expected, fmt in [
+            ("实际库存总量", 10, "0"), ("次品量", 0, "0"),
+            ("采购-产品规格-长(CM)", 75, "0"),
+            ("采购-产品规格-宽(CM)", 25.5, "0.0#####"),
+            ("采购-产品规格-高(CM)", -2, "0"),
+            ("采购单价", 1.234567, "0.0#####"),
+            ("库存金额", 12.34567, "0.0#####"),
+        ]:
+            assert cells[name].value == expected
+            assert cells[name].data_type == "n"
+            assert cells[name].number_format == fmt
+    finally:
+        wb.close()
 
 
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "nonsense", True])
@@ -146,19 +198,20 @@ def test_schema_matches_every_normalized_column():
     for group, table in repo.TABLES.items():
         definition=re.search(r'CREATE TABLE IF NOT EXISTS `'+table+r'` \((.*?)\) ENGINE',schema,re.S).group(1)
         columns=set(re.findall(r'^  `([^`]+)`',definition,re.M))
-        assert set(sample()[group][0]) == columns-{'id','create_time'}
+        assert set(sample()[group][0]) == columns-{'id','create_time','bin_identity_key'}
         assert 'snapshot_date`,`sync_batch_id`' in definition
 
 
 @pytest.mark.parametrize('missing_product,registration_failure', [(False,False),(True,False),(False,True)])
 def test_whole_chain_without_real_io(monkeypatch,tmp_path,missing_product,registration_failure):
+    monkeypatch.setattr(repo,'require_bin_identity_schema',MagicMock())
     client=MagicMock()
     client.post_signed_query_auth.side_effect=[
         dict(code=0,total=1,data=[dict(wid=1,product_id=2,sku='SKU',product_total=3,purchase_price='1.25',extra={'keep':'raw'})]),
         dict(code=0,total=0,data=[]),
         dict(code=0,data=[] if missing_product else [dict(id=2,sku='SKU',product_name='产品')]),
     ]
-    monkeypatch.setattr(sync,'LingXingClient',lambda:client)
+    monkeypatch.setattr(sync,'LingXingClient',lambda **kwargs:client)
     monkeypatch.setattr(export,'export_root',lambda:tmp_path)
     begin=MagicMock();monkeypatch.setattr(repo,'begin_export',begin)
     stored={}
@@ -183,7 +236,7 @@ def test_whole_chain_without_real_io(monkeypatch,tmp_path,missing_product,regist
         assert finish.call_args.kwargs['error']
     else:
         result=sync.sync_weekly_inventory('manual')
-        assert result['row_count']==1 and result['column_count']==34
+        assert result['row_count']==1 and result['column_count']==25
         assert len(list(tmp_path.glob('*.xlsx')))==1
         assert stored['inventory'][0]['raw_json']['extra']=={'keep':'raw'}
         assert stored['inventory'][0]['sync_batch_id']==result['sync_batch_id']

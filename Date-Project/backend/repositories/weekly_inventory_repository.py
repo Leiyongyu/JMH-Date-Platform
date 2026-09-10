@@ -17,6 +17,35 @@ TABLES = {
 }
 JSON_FIELDS = {"raw_json", "stock_age_list", "third_inventory"}
 
+BIN_IDENTITY_COMMENT = "weekly-bin-identity-v1: store_id,msku,fnsku; byte-exact length framing"
+BIN_INDEX_COLUMNS = "snapshot_date,sync_batch_id,wid,whb_id,product_id,bin_identity_key"
+
+
+def require_bin_identity_schema():
+    """Fail before external extraction if the schema migration was skipped."""
+    message = "周报仓位业务键未升级，请先执行10_周报仓位业务键修复.sql，再执行11只读验证；本次未调用领星"
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT COLUMN_TYPE,EXTRA,COLUMN_COMMENT FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ods_lingxing_inventory_bin_detail_weekly' "
+            "AND COLUMN_NAME='bin_identity_key'"
+        )
+        column = cursor.fetchone()
+        if (not column or str(column.get("COLUMN_TYPE")).lower() != "varbinary(1600)"
+                or "STORED GENERATED" not in str(column.get("EXTRA")).upper()
+                or column.get("COLUMN_COMMENT") != BIN_IDENTITY_COMMENT):
+            raise ValueError(message)
+        cursor.execute(
+            "SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS index_columns, "
+            "MAX(NON_UNIQUE) AS non_unique,SUM(SUB_PART IS NOT NULL) AS prefix_parts "
+            "FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() "
+            "AND TABLE_NAME='ods_lingxing_inventory_bin_detail_weekly' AND INDEX_NAME='uk_bin_week'"
+        )
+        index = cursor.fetchone()
+        if (not index or index.get("index_columns") != BIN_INDEX_COLUMNS
+                or index.get("non_unique") != 0 or index.get("prefix_parts") != 0):
+            raise ValueError(message)
+
 
 def insert_snapshot(groups: dict[str, list[dict[str, Any]]]) -> int:
     count = 0
@@ -54,6 +83,26 @@ def snapshot(batch: str) -> dict[str, list[dict]]:
         return result
 
 
+def latest_completed_snapshot():
+    """Reuse only a committed batch with a successful export, ordered by pull time.
+
+    Re-export time must not make older inventory appear to be a newer snapshot.
+    Empty bin/age tables can be legitimate, so inventory is the batch anchor.
+    """
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT i.sync_batch_id,i.snapshot_date,MAX(i.pulled_at) AS pulled_at "
+            "FROM ods_lingxing_inventory_detail_weekly i "
+            "WHERE EXISTS (SELECT 1 FROM ops_weekly_export_file f "
+            "WHERE f.export_code=%s AND f.sync_batch_id=i.sync_batch_id "
+            "AND f.snapshot_date=i.snapshot_date AND f.status='SUCCESS') "
+            "GROUP BY i.sync_batch_id,i.snapshot_date "
+            "ORDER BY pulled_at DESC,i.snapshot_date DESC,i.sync_batch_id DESC LIMIT 1",
+            (EXPORT_CODE,),
+        )
+        return cursor.fetchone()
+
+
 def warehouse_names() -> dict[int, str]:
     database = settings.shop_source_database
     if not re.fullmatch(r"[A-Za-z0-9_-]+", database):
@@ -77,13 +126,13 @@ def begin_export(batch, day, filename, path, trigger):
         connection.commit()
 
 
-def finish_export(batch, *, error=None, row_count=None, column_count=None, file_size=None):
+def finish_export(batch, *, file_name, error=None, row_count=None, column_count=None, file_size=None):
     with db_connection() as connection, connection.cursor() as cursor:
         cursor.execute("UPDATE ops_weekly_export_file SET status=%s,error_message=%s,"
                        "row_count=%s,column_count=%s,file_size=%s,generated_at=NOW() "
-                       "WHERE export_code=%s AND sync_batch_id=%s",
+                       "WHERE export_code=%s AND sync_batch_id=%s AND file_name=%s",
                        ("FAILED" if error else "SUCCESS", error, row_count, column_count,
-                        file_size, EXPORT_CODE, batch))
+                        file_size, EXPORT_CODE, batch, file_name))
         if cursor.rowcount != 1:
             raise RuntimeError("周报文件登记缺失或批次重复")
         connection.commit()

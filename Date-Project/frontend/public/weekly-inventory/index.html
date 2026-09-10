@@ -9,12 +9,12 @@
 </head>
 <body><main>
 <h1>仓位库存明细周报</h1>
-<p>每周一 07:30 自动拉取全仓快照。历史 Excel 按批次永久留底，同日再次生成不会覆盖旧文件。</p>
-<div class="toolbar"><button id="generate" class="primary">生成当前快照</button><button id="refresh">刷新列表</button><span>全量生成可能需要十几分钟，可关闭页面后回来下载。</span></div>
+<p>每周一 07:30 定时拉取全仓快照，完成后自动生成 Excel。页面生成仅使用最近一次成功快照，不调用领星接口。</p>
+<div class="toolbar"><button id="generate" class="primary" disabled>使用现有数据生成 Excel</button><button id="refresh">刷新列表</button><span id="snapshotInfo">正在读取可用快照…</span></div>
 <div id="message" role="status" aria-live="polite"></div>
 <section class="panel"><table><thead><tr><th>快照日期 / 文件</th><th>状态</th><th>行 / 列</th><th>文件大小</th><th>完成 / 开始时间</th><th>操作</th></tr></thead><tbody id="rows"></tbody></table></section>
 <div class="pager"><button id="previous">上一页</button><span id="pageLabel"></span><button id="next">下一页</button></div>
-<small>快照记录的是拉取时的实时库存，不支持补拉历史日期。失败时已有文件和快照不会删除；缺失测量值保留空白，0 仍显示为 0。</small>
+<small>快照日期是原数据拉取日期，不是本次生成时间。每次生成独立新文件，不重复写入库存明细，不覆盖历史文件；缺失值保留空白，0 仍显示为 0。</small>
 </main>
 <script>
 'use strict';
@@ -25,6 +25,7 @@ const base = new URL('.', location.href);
 history.replaceState(null, '', location.pathname);
 const $ = id => document.getElementById(id);
 let page = 1, total = 0, loading = false, submitting = false, alive = true, generation = 0;
+let snapshotAvailable = false;
 function url(path) { const target = new URL(path.replace(/^\//,''), base); target.searchParams.set('erp_session', session); return target; }
 function message(text, error=false) { $('message').textContent=text; $('message').className=error?'error':''; }
 async function request(path, options={}) {
@@ -40,10 +41,17 @@ async function load() {
   const response=await request(`files?page=${page}&limit=20`), data=await response.json();
   if (!alive || version!==generation) return;
   total=data.total; $('rows').replaceChildren();
+  snapshotAvailable=Boolean(data.latest_snapshot);
+  $('snapshotInfo').textContent=snapshotAvailable
+   ?`当前可用快照：${data.latest_snapshot.snapshot_date}（拉取时间：${data.latest_snapshot.pulled_at?.replace('T',' ')||'--'}）`
+   :'暂无成功快照，请先等待定时任务完成拉取。';
+  $('generate').disabled=submitting||!snapshotAvailable;
+  if(data.generation_error)message(data.generation_error,true);
   const labels={SUCCESS:'已生成',RUNNING:'生成中',FAILED:'失败',INTERRUPTED:'执行中断'};
   for (const item of data.items) {
    const tr=document.createElement('tr');
    const title=cell(tr,item.snapshot_date); const name=document.createElement('small');name.textContent=item.file_name;title.append(name);
+   const source=document.createElement('small');source.textContent=item.trigger_type==='manual_snapshot'?'已有快照重新生成':'拉取后生成';title.append(source);
    if(item.error_message){const error=document.createElement('small');error.textContent=item.error_message;title.append(error);}
    const status=cell(tr,labels[item.status]||item.status);status.className='status '+(Object.hasOwn(labels,item.status)?item.status:'');
    cell(tr,`${item.row_count??'--'} / ${item.column_count??'--'}`);cell(tr,item.file_size==null?'--':(item.file_size/1024).toFixed(1)+' KB');cell(tr,item.generated_at?.replace('T',' '));
@@ -51,16 +59,16 @@ async function load() {
    button.onclick=async()=>{button.disabled=true;try{const r=await request(`files/${item.id}/download`);const blob=await r.blob();const href=URL.createObjectURL(blob);const a=document.createElement('a');a.href=href;a.download=item.file_name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),1000);}catch(e){message(e.message,true);}finally{button.disabled=false;}};
    action.append(button);$('rows').append(tr);
   }
-  if(!data.items.length){const row=document.createElement('tr');const empty=cell(row,'暂无周报，请等待定时生成或点击“生成当前快照”。');empty.colSpan=6;$('rows').append(row);}
+  if(!data.items.length){const row=document.createElement('tr');const empty=cell(row,'暂无周报，请先等待定时任务完成拉取并生成文件。');empty.colSpan=6;$('rows').append(row);}
   $('pageLabel').textContent=`第 ${page} 页 · 共 ${total} 份`;
   $('previous').disabled=page<=1;$('next').disabled=page*20>=total;
  } catch(e){message(e.message,true);}finally{loading=false;}
 }
 $('generate').onclick=async()=>{
- if(submitting||!confirm('将拉取全仓当前库存并生成一个新批次，通常需要十几分钟。确定执行？'))return;
+ if(submitting||!snapshotAvailable||!confirm('使用最近一次成功快照生成新 Excel，不拉取数据、不覆盖历史文件。确定生成？'))return;
  submitting=true;$('generate').disabled=true;
  try{const r=await request('run',{method:'POST'});const data=await r.json();message(`${data.message}\n请求编号：${data.request_id}`);page=1;await load();}
- catch(e){message(e.message,true);}finally{submitting=false;$('generate').disabled=false;}
+ catch(e){message(e.message,true);}finally{submitting=false;$('generate').disabled=!snapshotAvailable;}
 };
 $('refresh').onclick=load;
 $('previous').onclick=()=>{if(!loading&&page>1){page--;load();}};

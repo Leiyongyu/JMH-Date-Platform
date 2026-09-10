@@ -19,6 +19,16 @@ from backend.integrations.lingxing.token_store import load_token, save_token
 LOG = logging.getLogger(__name__)
 
 
+class LingXingHttpError(ValueError):
+    """Preserve HTTP metadata for callers; existing ValueError handling stays valid."""
+
+    def __init__(self, status: int, payload: str, retry_after: str | None = None):
+        super().__init__(f"领星 HTTP {status}: {payload}")
+        self.status = status
+        self.payload = payload
+        self.retry_after = retry_after
+
+
 class LingXingClient:
     def __init__(
         self,
@@ -204,9 +214,10 @@ class LingXingClient:
                     return json.loads(payload) if payload else {}
             except HTTPError as exc:
                 payload = exc.read().decode("utf-8", errors="replace")
+                failure = LingXingHttpError(exc.code, payload, exc.headers.get("Retry-After") if exc.headers else None)
                 if 400 <= exc.code < 500:
-                    raise ValueError(f"领星 HTTP {exc.code}: {payload}") from exc
-                last_error = ValueError(f"领星 HTTP {exc.code}: {payload}")
+                    raise failure from exc
+                last_error = failure
             except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
                 last_error = exc
         raise RuntimeError(f"领星 API 请求失败: {last_error}") from last_error

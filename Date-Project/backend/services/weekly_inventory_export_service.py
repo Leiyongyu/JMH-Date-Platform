@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import tempfile
 from collections import defaultdict
@@ -18,7 +17,7 @@ BASE_COLUMNS = [("仓库名称", "warehouse_name"), ("SKU", "sku"), ("产品名�
 SPEC_COLUMNS = [(f"采购-{label}规格-{direction}(CM)", f"cg_{key}_{axis}")
                 for label, key in (("产品", "product"), ("包装", "package"), ("外箱", "box"))
                 for direction, axis in (("长", "length"), ("宽", "width"), ("高", "height"))]
-SPEC_COLUMNS += [("采购-产品净重(G)", "cg_product_net_weight"), ("采购-产品毛重(G)", "cg_product_gross_weight"),
+SPEC_COLUMNS += [("采购-产品净重(G)", "cg_product_net_weight"), ("采购-产品毛重(KG)", "cg_product_gross_weight"),
                  ("采购-外箱实重(KG)", "cg_box_weight")]
 
 
@@ -39,7 +38,8 @@ def download_path(record):
 
 def build_rows(groups, names):
     # Select an entire representative row, not independent MAXs. Its seller's
-    # buckets and third-party inventory must follow the same representative.
+    # buckets must follow the same representative. Third-party data stays in ODS,
+    # but is deliberately excluded from this export.
     inventory = {}
     def rank(row):
         qty = number(row.get("product_total"))
@@ -62,7 +62,6 @@ def build_rows(groups, names):
         label_order[row["bucket_name"]] = min(label_order.get(row["bucket_name"], row["bucket_index"]), row["bucket_index"])
     labels = sorted(label_order, key=lambda name: (label_order[name], name))
     headers = [label for label, _ in BASE_COLUMNS] + labels + ["锁定量(仓位)", "未锁定量(仓位)"]
-    headers += [f"第三方-{name}-{field}" for name in ("可用量", "调拨在途", "锁定量") for field in ("系统", "三方仓", "差异")]
     headers += [label for label, _ in SPEC_COLUMNS] + ["采购单价", "库存金额"]
     output = []
     for key, source in sorted(inventory.items(), key=lambda pair: (str(names.get(pair[0][0]) or ""), str(pair[1].get("sku") or ""), pair[0])):
@@ -78,12 +77,13 @@ def build_rows(groups, names):
         for field in ("lock_num", "valid_num"):
             quantities = [number(b.get(field)) for b in bin_rows]
             values.append(sum(quantities, Decimal(0)) if quantities and all(q is not None for q in quantities) else None)
-        third = source.get("third_inventory") or {}
-        if isinstance(third, str):
-            third = json.loads(third)
-        third_by_name = {item["name"]: item for item in third.get("third_inventory_data") or []}
-        values += [number(third_by_name.get(name, {}).get(field)) for name in ("可用量", "调拨在途", "锁定量") for field in ("local", "third", "diff")]
-        values += [product.get(field) for _, field in SPEC_COLUMNS]
+        for _, field in SPEC_COLUMNS:
+            value = product.get(field)
+            if field == "cg_product_gross_weight":
+                # Source/ODS remains grams; only the exported gross weight is kg.
+                value = number(value)
+                value = value / Decimal("1000") if value is not None else None
+            values.append(value)
         price, qty = number(source.get("purchase_price")), number(source.get("product_total"))
         values += [price, price * qty if price is not None and qty is not None else None]
         output.append(values)
@@ -105,7 +105,9 @@ def write_export(groups, names, path: Path):
             if isinstance(value, str):
                 cell.data_type = "s"  # Never execute an imported SKU/name as a formula.
             if isinstance(value, Decimal):
-                cell.number_format = "0.######"
+                # Optional decimals alone leave a trailing dot for integers in Excel.
+                # Keep numeric values intact (including fractional dimensions/costs).
+                cell.number_format = "0" if value == value.to_integral_value() else "0.0#####"
             cells.append(cell)
         return cells
     sheet.append(safe(headers))

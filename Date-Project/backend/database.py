@@ -10,6 +10,7 @@ from dbutils.pooled_db import PooledDB
 from pymysql.connections import Connection
 
 from backend.config import settings
+from backend.sql_statements import split_sql_statements
 
 
 def _ensure_customs_declaration_columns(cursor) -> None:
@@ -555,7 +556,7 @@ def init_database() -> None:
     connection = _connect(settings.mysql_database)
     try:
         with connection.cursor() as cursor:
-            for statement in schema.split(";"):
+            for statement in split_sql_statements(schema):
                 if statement.strip():
                     cursor.execute(statement)
             _remove_inventory_report_chengdu_columns(cursor)

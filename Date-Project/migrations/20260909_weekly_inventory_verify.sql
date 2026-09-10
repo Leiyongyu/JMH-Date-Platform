@@ -1,6 +1,6 @@
 -- 只读验收；本脚本不拉取、不修改任何业务数据。
 USE `date-project`;
--- 1. 五张表、列数：34 / 10 / 22 / 39 / 14（按表名识别）。
+-- 1. 五张表、列数：34 / 10 / 23 / 39 / 14（执行10后仓位由22变23；含自动生成辅助键）。
 SELECT TABLE_NAME,COUNT(*) column_count FROM information_schema.COLUMNS
 WHERE TABLE_SCHEMA='date-project' AND TABLE_NAME IN
  ('ods_lingxing_inventory_detail_weekly','ods_lingxing_inventory_age_bucket_weekly',

@@ -9,13 +9,13 @@ const html=fs.readFileSync(new URL('../public/weekly-inventory/index.html',impor
 const source=html.match(/<script>([\s\S]*?)<\/script>/)[1]
 const flush=()=>new Promise(resolve=>setImmediate(resolve))
 
-function environment(session='token') {
+function environment(session='token', snapshot={snapshot_date:'2026-09-10',pulled_at:'2026-09-10T10:00:00'}) {
  const elements=new Map(),calls=[]
  function element(){return {children:[],textContent:'',className:'',disabled:false,append(...values){this.children.push(...values)},replaceChildren(){this.children=[]}}}
  const document={getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id)},createElement:element}
  const sandbox={document,URL,URLSearchParams,console,location:{href:`https://erp.example/prod-api/sop/weekly-inventory/proxy/index.html?erp_session=${session}&api_base=https://evil.example/`,pathname:'/prod-api/sop/weekly-inventory/proxy/index.html',search:`?erp_session=${session}&api_base=https://evil.example/`},
  history:{replaceState(){}},window:{addEventListener(){}},confirm:()=>true,setInterval:()=>1,clearInterval(){},setTimeout,
- fetch:async(url,options)=>{calls.push({url:String(url),options});return {ok:true,json:async()=>options.method==='POST'?{request_id:'test',message:'accepted'}:{items:[],total:0}}}}
+ fetch:async(url,options)=>{calls.push({url:String(url),options});return {ok:true,json:async()=>options.method==='POST'?{request_id:'test',message:'accepted'}:{items:[],total:0,latest_snapshot:snapshot}}}}
  vm.runInNewContext(source,sandbox)
  return {elements,calls,sandbox}
 }
@@ -50,11 +50,20 @@ test('missing session never calls backend',async()=>{
  assert.equal(env.elements.get('generate').disabled,true)
 })
 
-test('manual generation posts one background command, never source dates',async()=>{
+test('manual generation posts one snapshot-only command, never source dates',async()=>{
  const env=environment();await flush()
  await env.elements.get('generate').onclick()
  const requests=env.calls.filter(c=>c.options.method==='POST')
  assert.equal(requests.length,1)
  assert.equal(new URL(requests[0].url).pathname,'/prod-api/sop/weekly-inventory/proxy/run')
  assert.equal(requests[0].options.body,undefined)
+ assert.match(env.elements.get('snapshotInfo').textContent,/2026-09-10/)
+})
+
+test('no successful snapshot disables generation without posting',async()=>{
+ const env=environment('token',null);await flush()
+ assert.equal(env.elements.get('generate').disabled,true)
+ await env.elements.get('generate').onclick()
+ assert.equal(env.calls.filter(c=>c.options.method==='POST').length,0)
+ assert.match(env.elements.get('snapshotInfo').textContent,/暂无成功快照/)
 })
