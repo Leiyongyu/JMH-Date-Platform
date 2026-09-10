@@ -39,15 +39,18 @@ test('page requests stay on same origin and preserve list pagination',async()=>{
  const url=new URL(env.calls[0].url)
  assert.equal(url.origin,'https://erp.example')
  assert.equal(url.pathname,'/prod-api/sop/weekly-inventory/proxy/files')
- assert.equal(url.searchParams.get('erp_session'),'token')
+ assert.equal(url.searchParams.has('erp_session'),false)
+ assert.equal(env.calls[0].options.credentials,'same-origin')
  assert.equal(url.searchParams.get('page'),'1')
  assert.equal(env.elements.get('next').disabled,true)
 })
 
-test('missing session never calls backend',async()=>{
+test('refresh without URL session still uses authenticated cookie requests',async()=>{
  const env=environment('');await flush()
- assert.equal(env.calls.length,0)
- assert.equal(env.elements.get('generate').disabled,true)
+ assert.equal(env.calls.length,1)
+ assert.equal(new URL(env.calls[0].url).searchParams.has('erp_session'),false)
+ assert.equal(env.calls[0].options.credentials,'same-origin')
+ assert.equal(env.elements.get('generate').disabled,false)
 })
 
 test('manual generation posts one snapshot-only command, never source dates',async()=>{
@@ -57,6 +60,7 @@ test('manual generation posts one snapshot-only command, never source dates',asy
  assert.equal(requests.length,1)
  assert.equal(new URL(requests[0].url).pathname,'/prod-api/sop/weekly-inventory/proxy/run')
  assert.equal(requests[0].options.body,undefined)
+ assert.equal(requests[0].options.headers['X-Weekly-Request'],'1')
  assert.match(env.elements.get('snapshotInfo').textContent,/2026-09-10/)
 })
 

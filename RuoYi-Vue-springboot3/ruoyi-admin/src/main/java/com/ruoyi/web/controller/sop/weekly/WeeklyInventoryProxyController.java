@@ -3,6 +3,7 @@ package com.ruoyi.web.controller.sop.weekly;
 import com.ruoyi.common.annotation.Anonymous;
 import com.ruoyi.system.service.finance.PythonPerformanceTaskProperties;
 import com.ruoyi.web.controller.sop.image.ImageSopSessionService;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -14,6 +15,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,17 +27,25 @@ public class WeeklyInventoryProxyController
 {
     static final String PREFIX = "/sop/weekly-inventory/proxy";
     static final String PERMISSION = "sop:weeklyInventory:use";
+    static final String SESSION_COOKIE = "jmh_weekly_inventory_session";
     private final ImageSopSessionService sessions;
     private final PythonPerformanceTaskProperties properties;
     private final HttpClient client;
 
+    @Autowired
     public WeeklyInventoryProxyController(ImageSopSessionService sessions,
             PythonPerformanceTaskProperties properties)
     {
+        this(sessions, properties, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
+                .followRedirects(HttpClient.Redirect.NEVER).build());
+    }
+
+    WeeklyInventoryProxyController(ImageSopSessionService sessions,
+            PythonPerformanceTaskProperties properties, HttpClient client)
+    {
         this.sessions = sessions;
         this.properties = properties;
-        this.client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
-                .followRedirects(HttpClient.Redirect.NEVER).build();
+        this.client = client;
     }
 
     @RequestMapping({"", "/", "/**"})
@@ -43,8 +53,13 @@ public class WeeklyInventoryProxyController
     {
         response.setHeader("Cache-Control", "no-store");
         response.setHeader("Referrer-Policy", "no-referrer");
+        String queryToken;
         String token;
-        try { token = query(request.getQueryString(), "erp_session"); }
+        try {
+            queryToken = query(request.getQueryString(), "erp_session");
+            // An explicit invalid query token must not silently fall back to a cookie.
+            token = queryToken != null ? queryToken : sessionCookie(request);
+        }
         catch (IllegalArgumentException e) { response.sendError(400); return; }
         // Never use getParameter(): it can consume form bodies before forwarding.
         if (sessions.validateAndTouch(token, PERMISSION) == null)
@@ -60,6 +75,22 @@ public class WeeklyInventoryProxyController
         String path = uri.substring(root.length());
         if (path.isEmpty() || path.equals("/")) path = "/index.html";
         if (!allowed(request.getMethod(), path)) { response.sendError(404); return; }
+        if ("POST".equals(request.getMethod()) && queryToken == null)
+        {
+            String fetchSite = request.getHeader("Sec-Fetch-Site");
+            if (!"1".equals(request.getHeader("X-Weekly-Request"))
+                    || (fetchSite != null && !fetchSite.equals("same-origin") && !fetchSite.equals("none")))
+            { response.sendError(403); return; }
+        }
+        if (queryToken != null && path.equals("/index.html"))
+        {
+            // Omit Path: browser scopes it to the external proxy directory, including
+            // any nginx /prod-api prefix. No Domain/Max-Age: host-only session cookie.
+            String cookie = SESSION_COOKIE + "=" + token + "; HttpOnly; SameSite=Strict";
+            if (request.isSecure() || "https".equalsIgnoreCase(request.getHeader("X-Forwarded-Proto")))
+                cookie += "; Secure";
+            response.addHeader("Set-Cookie", cookie);
+        }
         String target = path.equals("/index.html") ? "/page" : path;
         try
         {
@@ -122,6 +153,21 @@ public class WeeklyInventoryProxyController
                 if (found != null) throw new IllegalArgumentException("Duplicate parameter");
                 found = pair.length == 2 ? URLDecoder.decode(pair[1], StandardCharsets.UTF_8) : "";
             }
+        }
+        return found;
+    }
+
+    static String sessionCookie(HttpServletRequest request)
+    {
+        String found = null;
+        Cookie[] cookies = request.getCookies();
+        if (cookies == null) return null;
+        for (Cookie cookie : cookies)
+        {
+            if (!SESSION_COOKIE.equals(cookie.getName())) continue;
+            if (found != null && !found.equals(cookie.getValue()))
+                throw new IllegalArgumentException("Conflicting weekly session cookies");
+            found = cookie.getValue();
         }
         return found;
     }

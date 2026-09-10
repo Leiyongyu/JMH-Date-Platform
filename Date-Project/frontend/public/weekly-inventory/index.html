@@ -18,19 +18,22 @@
 </main>
 <script>
 'use strict';
-const params = new URLSearchParams(location.search);
-const session = params.get('erp_session') || '';
-// Same-origin, observed proxy directory only. Never send the session to a supplied host.
+// Java validates the launch ticket and sets a scoped HttpOnly cookie before serving
+// this page. Refresh and API calls use that cookie, not tokens in URLs/storage.
 const base = new URL('.', location.href);
 history.replaceState(null, '', location.pathname);
 const $ = id => document.getElementById(id);
 let page = 1, total = 0, loading = false, submitting = false, alive = true, generation = 0;
 let snapshotAvailable = false;
-function url(path) { const target = new URL(path.replace(/^\//,''), base); target.searchParams.set('erp_session', session); return target; }
+function url(path) { return new URL(path.replace(/^\//,''), base); }
 function message(text, error=false) { $('message').textContent=text; $('message').className=error?'error':''; }
 async function request(path, options={}) {
- const response=await fetch(url(path), {cache:'no-store',...options});
- if (!response.ok) { let data={}; try {data=await response.json();} catch {} throw new Error(typeof data.detail==='string'?data.detail:`请求失败（HTTP ${response.status}）`); }
+ const response=await fetch(url(path), {cache:'no-store',credentials:'same-origin',...options,headers:{...options.headers,'X-Weekly-Request':'1'}});
+ if (!response.ok) {
+  if(response.status===401||response.status===403){snapshotAvailable=false;$('generate').disabled=true;clearInterval(timer);}
+  let data={}; try {data=await response.json();} catch {}
+  throw new Error(typeof data.detail==='string'?data.detail:`请求失败（HTTP ${response.status}）`);
+ }
  return response;
 }
 function cell(row, text) { const td=document.createElement('td');td.textContent=text ?? '--';row.append(td);return td; }
@@ -75,5 +78,5 @@ $('previous').onclick=()=>{if(!loading&&page>1){page--;load();}};
 $('next').onclick=()=>{if(!loading&&page*20<total){page++;load();}};
 const timer=setInterval(load,5000);
 window.addEventListener('pagehide',()=>{alive=false;generation++;clearInterval(timer);});
-if(!session){message('缺少 ERP 会话，请从系统“脚本中心”重新打开。',true);$('generate').disabled=true;clearInterval(timer);}else load();
+load();
 </script></body></html>
