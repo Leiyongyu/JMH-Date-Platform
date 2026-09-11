@@ -198,6 +198,32 @@ def list_replenishment(
         ) from exc
 
 
+@router.get("/export-data")
+def export_replenishment_data(
+    request: Request,
+    site: str | None = None,
+    sku: str | None = None,
+    product_level: str | None = None,
+    product_nature: str | None = None,
+    sales_type: Literal["NORMAL", "BRUSH"] | None = None,
+    sort_field: str | None = None,
+    sort_order: str | None = None,
+):
+    """仅供内部Java导出：同一查询计算全部行，不接受分页参数。"""
+    try:
+        data = service.list_replenishment(
+            site=site, sku=sku, product_level=product_level,
+            product_nature=product_nature, sales_type=sales_type,
+            sort_field=sort_field, sort_order=sort_order, paginate=False,
+        )
+        return success_response(data, request_id=request.state.request_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        level_service.LOG.exception("eBay补货2.0导出查询失败")
+        raise HTTPException(status_code=500, detail="eBay补货2.0导出查询失败，请检查服务日志") from exc
+
+
 @router.get("/formula")
 def list_formula_configs(request: Request):
     try:

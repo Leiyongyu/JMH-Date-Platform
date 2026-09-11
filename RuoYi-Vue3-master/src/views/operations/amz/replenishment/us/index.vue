@@ -112,7 +112,7 @@
       </el-form-item>
     </el-form>
 
-    <el-row :gutter="10" class="mb8">
+    <el-row :gutter="10" class="mb8 amz-action-toolbar">
       <el-col :span="1.5">
         <el-button type="primary" plain icon="RefreshRight" @click="handleSyncAll"
           :loading="syncing" v-hasPermi="['operations:amzReplenishment:sync']">拉取AMZ最新数据</el-button>
@@ -120,6 +120,9 @@
       <el-col :span="1.5">
         <el-button type="warning" plain icon="Download" @click="handleExport"
           v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
+      </el-col>
+      <el-col :span="1.5" class="profit-source-note">
+        毛利润、利润率数据来源领星订单利润数据，筛选近天数，如：今天：9.11，同步筛选30天参数为：8.11-9.10。
       </el-col>
       <right-toolbar
         v-model:showSearch="showSearch"
@@ -149,6 +152,13 @@
           sortable="custom" :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">{{ formatPercentNumber(scope.row[col.key]) }}</template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'money'"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          sortable="custom"
+        >
+          <template #default="scope">{{ formatGrossProfit(scope.row[col.key]) }}</template>
         </el-table-column>
         <el-table-column
           v-else-if="col.format === 'number'"
@@ -453,6 +463,8 @@ const columnDefs = [
   { key: 'reviewCount', label: '评论数', align: 'right', width: 100, sortable: true, filterType: 'number' },
   { key: 'adRate', label: '广告费率', align: 'right', width: 105, sortable: true, format: 'percentNumber', filterType: 'number' },
   { key: 'profitRate30d', label: '30天利润率', align: 'right', width: 120, sortable: true, format: 'percentNumber', filterType: 'number' },
+  { key: 'grossProfit30d', label: '30天毛利润（元）', align: 'right', width: 155, sortable: true, format: 'money' },
+  { key: 'grossProfit90d', label: '90天毛利润（元）', align: 'right', width: 155, sortable: true, format: 'money' },
   { key: 'refundRate90d', label: '90天退款率', align: 'right', width: 120, sortable: true, format: 'percentNumber', filterType: 'number' },
   { key: 'purchasedQty', label: '已采购数量', align: 'right', width: 120, sortable: true, format: 'purchasedQty', filterType: 'number' },
   { key: 'domesticStock', label: '国内仓库存', align: 'right', width: 120, sortable: true, filterType: 'number' },
@@ -714,6 +726,12 @@ function formatPercentNumber(value) {
   return Number.isFinite(num) ? `${num.toFixed(1)}%` : '0.0%'
 }
 
+function formatGrossProfit(value) {
+  if (value === null || value === undefined || value === '') return '--'
+  const num = Number(value)
+  return Number.isFinite(num) ? num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--'
+}
+
 function formatNumber(value) {
   if (value === null || value === undefined || value === '') return '0'
   const num = Number(value)
@@ -731,6 +749,22 @@ initPage()
 </script>
 
 <style scoped>
+.amz-action-toolbar {
+  align-items: center;
+  row-gap: 8px;
+}
+
+.profit-source-note {
+  flex: 1;
+  min-width: 260px;
+  max-width: 100%;
+  color: #f56c6c;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+
 .amz-replenishment-page { background: #f5f7fa; }
 
 .sales-cell { cursor: pointer; color: #409eff; border-bottom: 1.5px dashed #409eff; padding-bottom: 1px; }

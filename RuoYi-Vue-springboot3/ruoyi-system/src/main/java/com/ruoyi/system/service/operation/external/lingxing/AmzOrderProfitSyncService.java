@@ -52,6 +52,7 @@ public class AmzOrderProfitSyncService
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("offset", offset); body.put("length", PAGE_SIZE);
                 body.put("startDate", startDate.toString()); body.put("endDate", end.toString());
+                body.put("currencyCode", "CNY");
                 body.put("sids", batch.stream().map(Integer::parseInt).collect(java.util.stream.Collectors.toList()));
                 Map<String, Object> resp = gw.post(API, body);
                 List<Map<String, Object>> data = getList(resp, "data");
@@ -67,6 +68,7 @@ public class AmzOrderProfitSyncService
                     e.setSid(intVal(pl, "sid"));
                     e.setSellerSku(str(pl, "seller_sku"));
                     e.setGrossMargin(bd(item, "gross_margin"));
+                    e.setGrossProfit(AmzOrderProfitAmountParser.grossProfitCny(item));
                     e.setSpendRate(bd(item, "spend_rate"));
                     e.setRefundAmountRate(bd(item, "refund_amount_rate"));
                     list.add(e);

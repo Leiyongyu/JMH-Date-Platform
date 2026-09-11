@@ -24,7 +24,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
 
     private static final Set<String> SORT_FIELDS = Set.of(
         "storeName", "sellerSku", "warehouseSku", "asin", "price", "rating", "reviewCount",
-        "adRate", "profitRate30d", "profitRate90d", "refundRate90d", "domesticStock", "pendingShipQty",
+        "adRate", "profitRate30d", "profitRate90d", "grossProfit30d", "grossProfit90d", "refundRate90d", "domesticStock", "pendingShipQty",
         "fbaStock", "fbaInbound", "fbaInboundWorking", "totalInventory", "sales7d", "sales14d",
         "sales30d", "sales60d", "salesSpeed14d", "salesSpeed30d", "salesSpeed60d",
         "avgMonthlySales", "safetyStock", "shipQty", "replenishQty", "restockDays", "productNature"

@@ -66,6 +66,19 @@
 
     <el-row :gutter="10" class="mb8 table-toolbar">
       <el-col :span="1.5">
+        <el-tooltip content="导出当前筛选下全部记录和所有字段，不受分页或隐藏列限制；不筛选即导出全部数据" placement="top">
+          <el-button
+            type="warning"
+            plain
+            icon="Download"
+            :loading="exporting"
+            :disabled="loading || savingLeadTimeKeys.size > 0 || salesTypeSaving.size > 0"
+            v-hasPermi="['operations:ebayReplenishmentV2:list']"
+            @click="handleExport"
+          >导出全部数据</el-button>
+        </el-tooltip>
+      </el-col>
+      <el-col :span="1.5">
         <el-button
           type="primary"
           plain
@@ -75,6 +88,9 @@
         >
           上传仓租
         </el-button>
+      </el-col>
+      <el-col :span="1.5" class="data-source-note">
+        数据均来自酋长订单维度
       </el-col>
       <right-toolbar
         v-model:showSearch="showSearch"
@@ -434,6 +450,7 @@ import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { QuestionFilled, UploadFilled } from '@element-plus/icons-vue'
 import {
+  exportEbayReplenishmentV2,
   getEbayReplenishmentV2Formula,
   importEbayReplenishmentV2WarehouseRent,
   listEbayReplenishmentV2,
@@ -452,6 +469,7 @@ const showSearch = ref(true)
 const queryRef = ref(null)
 const tableRef = ref(null)
 const loading = ref(false)
+const exporting = ref(false)
 const rows = ref([])
 const total = ref(0)
 const siteOptions = ref([])
@@ -1179,6 +1197,21 @@ function formatMonthlyValue(value, column) {
   return formatCell(value ?? 0, column)
 }
 
+async function handleExport() {
+  if (exporting.value) return
+  if (leadTimeSaveTimers.size || leadTimeSaveChains.size || salesTypeSaving.size) {
+    ElMessage.warning('请等待人工时效或销售类型保存完成后再导出')
+    return
+  }
+  exporting.value = true
+  try {
+    const { pageNum, pageSize, ...params } = buildRequestParams()
+    await exportEbayReplenishmentV2(params)
+  } finally {
+    exporting.value = false
+  }
+}
+
 function formatQualityReturn(value, percentage = false) {
   const number = numberOrNull(value)
   if (number === null || number <= 0) return '--'
@@ -1241,6 +1274,11 @@ onBeforeUnmount(() => {
 
 .table-toolbar {
   align-items: center;
+}
+
+.data-source-note {
+  color: #f56c6c;
+  font-size: 14px;
 }
 
 .column-header {

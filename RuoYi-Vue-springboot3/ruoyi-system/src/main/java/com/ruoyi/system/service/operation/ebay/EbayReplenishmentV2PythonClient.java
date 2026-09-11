@@ -28,6 +28,11 @@ public class EbayReplenishmentV2PythonClient extends PythonHttpSupport
         return get(PREFIX + "/list", params, requestId);
     }
 
+    public Map<String, Object> exportData(Map<String, ?> params, String requestId)
+    {
+        return get(PREFIX + "/export-data", params, requestId);
+    }
+
     public Map<String, Object> formula(String requestId)
     {
         return get(PREFIX + "/formula", Map.of(), requestId);

@@ -69,6 +69,8 @@ def list_replenishment(
     sort_field: str | None = None,
     sort_order: str | None = None,
     sales_type: str | None = None,
+    *,
+    paginate: bool = True,
 ) -> dict[str, Any]:
     """Return the latest three complete natural months by site and SKU.
 
@@ -101,7 +103,8 @@ def list_replenishment(
     level_filter = (product_level or "").strip().upper() or None
     nature_filter = (product_nature or "").strip() or None
     paginate_in_sql = (
-        level_filter is None
+        paginate
+        and level_filter is None
         and nature_filter is None
         and not forecast_sort_requested
     )
@@ -279,7 +282,7 @@ def list_replenishment(
             cursor.execute(query, params)
         rows = cursor.fetchall()
         total = int(rows[0].get("total_count") or 0) if rows else 0
-        if not rows and page > 1:
+        if paginate and not rows and page > 1:
             total = _count_filtered(
                 cursor,
                 range_start,
@@ -335,15 +338,20 @@ def list_replenishment(
         items = _sort_forecast_sales_2(items, sort_direction)
     if not paginate_in_sql:
         total = len(items)
-        offset = (page - 1) * page_size
-        items = items[offset:offset + page_size]
+        if paginate:
+            offset = (page - 1) * page_size
+            items = items[offset:offset + page_size]
     return {
         "items": items,
         "sales_type_available": sales_type_available,
         "months": [month["month"] for month in months],
         "latest_complete_month": months[0]["month"],
         "sites": sites,
-        "pagination": {"page": page, "page_size": page_size, "total": total},
+        "pagination": {
+            "page": page if paginate else 1,
+            "page_size": page_size if paginate else total,
+            "total": total,
+        },
     }
 
 

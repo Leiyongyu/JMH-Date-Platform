@@ -21,6 +21,8 @@
         <result property="adRate" column="ad_rate" />
         <result property="profitRate30d" column="profit_rate_30d" />
         <result property="profitRate90d" column="profit_rate_90d" />
+        <result property="grossProfit30d" column="gross_profit_30d" />
+        <result property="grossProfit90d" column="gross_profit_90d" />
         <result property="refundRate90d" column="refund_rate_90d" />
         <result property="purchasedQty" column="purchased_qty" />
         <result property="domesticStock" column="domestic_stock" />
@@ -177,6 +179,7 @@
         INSERT INTO ${snapshotTable} (
             sid, seller_sku, warehouse_sku, warehouse_name, asin, tag_name, principal_name, store_name,
             price, product_category, product_nature, rating, review_count, ad_rate, profit_rate_30d, refund_rate_90d,
+            gross_profit_30d, gross_profit_90d,
             purchased_qty, domestic_stock, pending_ship_qty, fba_stock, fba_inbound, fba_inbound_working, total_inventory,
             sales_7d, sales_14d, sales_30d, sales_60d,
             sales_speed_14d, sales_speed_30d, sales_speed_60d,
@@ -187,6 +190,7 @@
             final.sid, final.seller_sku, final.warehouse_sku, final.warehouse_name, final.asin,
             final.tag_name, final.principal_name, final.store_name, final.price,
             final.product_category, final.product_nature, final.rating, final.review_count, final.ad_rate, final.profit_rate_30d, final.refund_rate_90d,
+            final.gross_profit_30d, final.gross_profit_90d,
             final.purchased_qty, final.domestic_stock, final.pending_ship_qty, final.fba_stock,
             final.fba_inbound, final.fba_inbound_working, final.total_inventory,
             final.sales_7d, final.sales_14d, final.sales_30d, final.sales_60d,
@@ -250,6 +254,8 @@
                                 ANY_VALUE(pl.review_num) AS review_count,
                                 ANY_VALUE(op.spend_rate * 100) AS ad_rate,
                                 ANY_VALUE(op.gross_margin * 100) AS profit_rate_30d,
+                                ANY_VALUE(op.gross_profit) AS gross_profit_30d,
+                                ANY_VALUE(op90.gross_profit) AS gross_profit_90d,
                                 ANY_VALUE(op.refund_amount_rate * 100) AS refund_rate_90d,
                                 COALESCE(MAX(CAST(wd.quantity_receive AS SIGNED)), 0) + COALESCE(MAX(wd.product_qc_num), 0) AS purchased_qty,
                                 COALESCE(MAX(wd.product_valid_num), 0) AS domestic_stock,
@@ -295,6 +301,7 @@
                                AND wd.wid = store_wh.wid
                             LEFT JOIN amz_product_category pc ON pc.sid = pl.sid AND pc.seller_sku = pl.seller_sku
                             LEFT JOIN amz_order_profit op ON op.sid = pl.sid AND op.seller_sku = pl.seller_sku
+                            LEFT JOIN amz_order_profit_90d op90 ON op90.sid = pl.sid AND op90.seller_sku = pl.seller_sku
                             LEFT JOIN amz_restock_summary rs ON rs.sid = pl.sid AND rs.msku = pl.seller_sku
                             LEFT JOIN amz_product_performance_inventory pi ON pi.sid = pl.sid AND pi.seller_sku = pl.seller_sku
                             LEFT JOIN warehouse wh ON wh.wid = wd.wid
@@ -342,6 +349,7 @@
     <!-- ==================================================================== -->
     <select id="search" parameterType="map" resultMap="AmzReplenishmentSnapshotResult">
         SELECT s.id, s.sid, s.seller_sku, s.warehouse_sku, s.warehouse_name, s.asin, s.price, s.principal_name,
+               s.gross_profit_30d, s.gross_profit_90d,
                s.store_name, s.image_url,
                COALESCE(o.product_category, s.product_category) AS product_category,
                COALESCE(o.remark, '') AS remark,
@@ -795,6 +803,7 @@
     <!-- ==================================================================== -->
     <select id="selectAmzReplenishmentSnapshotList" parameterType="com.ruoyi.system.domain.operation.AmzReplenishmentSnapshot" resultMap="AmzReplenishmentSnapshotResult">
         SELECT s.id, s.sid, s.seller_sku, s.warehouse_sku, s.warehouse_name, s.asin, s.price, s.principal_name,
+               s.gross_profit_30d, s.gross_profit_90d,
                s.store_name, s.image_url,
                COALESCE(o.product_category, s.product_category) AS product_category,
                COALESCE(o.remark, '') AS remark,
@@ -835,6 +844,8 @@
             <when test="sortField == 'adRate'">order by ad_rate</when>
             <when test="sortField == 'profitRate30d'">order by profit_rate_30d</when>
             <when test="sortField == 'profitRate90d'">order by profit_rate_90d</when>
+            <when test="sortField == 'grossProfit30d'">order by s.gross_profit_30d</when>
+            <when test="sortField == 'grossProfit90d'">order by s.gross_profit_90d</when>
             <when test="sortField == 'refundRate90d'">order by refund_rate_90d</when>
             <when test="sortField == 'productNature'">order by product_nature</when>
             <when test="sortField == 'domesticStock'">order by domestic_stock</when>

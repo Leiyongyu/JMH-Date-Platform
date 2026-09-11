@@ -6,6 +6,7 @@
         <result property="sid" column="sid"/>
         <result property="sellerSku" column="seller_sku"/>
         <result property="grossMargin" column="gross_margin"/>
+        <result property="grossProfit" column="gross_profit"/>
         <result property="spendRate" column="spend_rate"/>
         <result property="refundAmountRate" column="refund_amount_rate"/>
     </resultMap>
@@ -14,17 +15,17 @@
         SELECT * FROM amz_order_profit WHERE sid=#{sid} AND seller_sku=#{sellerSku}
     </select>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO amz_order_profit (sid,seller_sku,gross_margin,spend_rate,refund_amount_rate,sync_time)
-        VALUES (#{sid},#{sellerSku},#{grossMargin},#{spendRate},#{refundAmountRate},NOW())
+        INSERT INTO amz_order_profit (sid,seller_sku,gross_margin,gross_profit,spend_rate,refund_amount_rate,sync_time)
+        VALUES (#{sid},#{sellerSku},#{grossMargin},#{grossProfit},#{spendRate},#{refundAmountRate},NOW())
     </insert>
     <update id="updateById">
-        UPDATE amz_order_profit SET gross_margin=#{grossMargin},spend_rate=#{spendRate},refund_amount_rate=#{refundAmountRate},sync_time=NOW()
+        UPDATE amz_order_profit SET gross_margin=#{grossMargin},gross_profit=#{grossProfit},spend_rate=#{spendRate},refund_amount_rate=#{refundAmountRate},sync_time=NOW()
         WHERE id=#{id}
     </update>
     <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO amz_order_profit (sid,seller_sku,gross_margin,spend_rate,refund_amount_rate,sync_time) VALUES
+        INSERT INTO amz_order_profit (sid,seller_sku,gross_margin,gross_profit,spend_rate,refund_amount_rate,sync_time) VALUES
         <foreach collection="list" item="e" separator=",">
-        (#{e.sid},#{e.sellerSku},#{e.grossMargin},#{e.spendRate},#{e.refundAmountRate},NOW())
+        (#{e.sid},#{e.sellerSku},#{e.grossMargin},#{e.grossProfit},#{e.spendRate},#{e.refundAmountRate},NOW())
         </foreach>
     </insert>
     <delete id="deleteAll">DELETE FROM amz_order_profit</delete>

@@ -49,6 +49,7 @@ public class UnifiedExportService
     {
         List<String> allowed = new ArrayList<>(Arrays.asList("sid","sellerSku","warehouseSku","warehouseName","asin","principalName",
             "price","storeName","productCategory","rating","reviewCount","adRate","profitRate30d","refundRate90d",
+            "grossProfit30d","grossProfit90d",
             "productNature","purchasedQty","domesticStock","pendingShipQty","fbaStock","fbaInbound","fbaInboundWorking","totalInventory",
             "sales7d","sales14d","sales30d","sales60d","salesSpeed14d","salesSpeed30d","salesSpeed60d",
             "avgMonthlySales","safetyStock","shipQty","replenishQty","restockDays","calcTime"));
@@ -262,6 +263,8 @@ public class UnifiedExportService
         m.put("rating", zeroIfNull(s.getRating())); m.put("reviewCount", zeroIfNull(s.getReviewCount()));
         m.put("adRate", formatPercentText(s.getAdRate()));
         m.put("profitRate30d", formatPercentText(s.getProfitRate30d()));
+        m.put("grossProfit30d", formatGrossProfit(s.getGrossProfit30d()));
+        m.put("grossProfit90d", formatGrossProfit(s.getGrossProfit90d()));
         m.put("refundRate90d", formatPercentText(s.getRefundRate90d()));
         m.put("purchasedQty", s.getPurchasedQty()); m.put("domesticStock", s.getDomesticStock());
         m.put("pendingShipQty", s.getPendingShipQty()); m.put("fbaStock", s.getFbaStock()); m.put("fbaInbound", s.getFbaInbound());
@@ -280,6 +283,11 @@ public class UnifiedExportService
     {
         if (value == null) return "";
         return value == 2 ? "新品" : "老品";
+    }
+
+    private String formatGrossProfit(BigDecimal value)
+    {
+        return value == null ? "--" : value.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
     }
 
     private Map<String, Object> filterMap(Map<String, Object> m, List<String> keys)
@@ -342,6 +350,7 @@ public class UnifiedExportService
         t.put("warehouseName","仓库"); t.put("asin","ASIN"); t.put("price","价格"); t.put("principalName","负责人"); t.put("storeName","店铺");
         t.put("productCategory","产品分类"); t.put("productNature","产品性质"); t.put("rating","评分"); t.put("reviewCount","评论数");
         t.put("adRate","广告费率"); t.put("profitRate30d","30天利润率"); t.put("refundRate90d","90天退款率");
+        t.put("grossProfit30d","30天毛利润（元）"); t.put("grossProfit90d","90天毛利润（元）");
         t.put("purchasedQty","已采购"); t.put("domesticStock","国内仓库存"); t.put("pendingShipQty","待出库");
         t.put("fbaStock","FBA在库"); t.put("fbaInbound","FBA在途"); t.put("fbaInboundWorking","FBA计划入库"); t.put("totalInventory","总库存");
         t.put("sales7d","7天销量"); t.put("sales14d","14天销量"); t.put("sales30d","30天销量"); t.put("sales60d","60天销量");

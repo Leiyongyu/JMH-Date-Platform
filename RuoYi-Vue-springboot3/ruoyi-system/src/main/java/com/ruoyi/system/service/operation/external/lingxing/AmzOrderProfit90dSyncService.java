@@ -66,6 +66,7 @@ public class AmzOrderProfit90dSyncService
                 body.put("length", PAGE_SIZE);
                 body.put("startDate", startDate.toString());
                 body.put("endDate", endDate.toString());
+                body.put("currencyCode", "CNY");
                 body.put("sids", sidBatch.stream().map(Integer::parseInt).collect(Collectors.toList()));
 
                 Map<String, Object> response = gateway.post(API, body);
@@ -85,6 +86,7 @@ public class AmzOrderProfit90dSyncService
                     row.setSid(integerValue(price, "sid"));
                     row.setSellerSku(sellerSku);
                     row.setGrossMargin(decimalValue(item, "gross_margin"));
+                    row.setGrossProfit(AmzOrderProfitAmountParser.grossProfitCny(item));
                     rows.add(row);
                 }
                 if (!rows.isEmpty())

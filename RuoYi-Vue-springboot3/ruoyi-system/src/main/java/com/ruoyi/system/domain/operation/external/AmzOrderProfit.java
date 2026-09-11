@@ -10,6 +10,7 @@ public class AmzOrderProfit implements Serializable
     private Integer sid;
     private String sellerSku;
     private BigDecimal grossMargin;
+    private BigDecimal grossProfit;
     private BigDecimal spendRate;
     private BigDecimal refundAmountRate;
 
@@ -20,6 +21,8 @@ public class AmzOrderProfit implements Serializable
     public String getSellerSku() { return sellerSku; }
     public void setSellerSku(String sellerSku) { this.sellerSku = sellerSku; }
     public BigDecimal getGrossMargin() { return grossMargin; }
+    public BigDecimal getGrossProfit() { return grossProfit; }
+    public void setGrossProfit(BigDecimal grossProfit) { this.grossProfit = grossProfit; }
     public void setGrossMargin(BigDecimal grossMargin) { this.grossMargin = grossMargin; }
     public BigDecimal getSpendRate() { return spendRate; }
     public void setSpendRate(BigDecimal spendRate) { this.spendRate = spendRate; }

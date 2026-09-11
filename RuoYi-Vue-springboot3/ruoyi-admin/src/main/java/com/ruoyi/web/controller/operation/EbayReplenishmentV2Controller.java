@@ -8,9 +8,12 @@ import com.ruoyi.system.domain.operation.ebay.EbayReplenishmentV2LeadTimeSaveReq
 import com.ruoyi.system.service.operation.ebay.EbayReplenishmentV2LeadTimeService;
 import com.ruoyi.system.service.operation.ebay.EbayReplenishmentV2PythonClient;
 import com.ruoyi.system.service.operation.ebay.EbayWarehouseRentService;
+import com.ruoyi.system.service.operation.ebay.EbayReplenishmentV2ExportService;
+import jakarta.servlet.http.HttpServletResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,15 +37,18 @@ public class EbayReplenishmentV2Controller extends BaseController
     private final EbayReplenishmentV2PythonClient client;
     private final EbayReplenishmentV2LeadTimeService leadTimeService;
     private final EbayWarehouseRentService warehouseRentService;
+    private final EbayReplenishmentV2ExportService exportService;
 
     public EbayReplenishmentV2Controller(
             EbayReplenishmentV2PythonClient client,
             EbayReplenishmentV2LeadTimeService leadTimeService,
-            EbayWarehouseRentService warehouseRentService)
+            EbayWarehouseRentService warehouseRentService,
+            EbayReplenishmentV2ExportService exportService)
     {
         this.client = client;
         this.leadTimeService = leadTimeService;
         this.warehouseRentService = warehouseRentService;
+        this.exportService = exportService;
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list')")
@@ -60,20 +66,63 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestHeader(value = "X-Request-ID", required = false)
                     String requestId)
     {
+        Map<String, Object> params = queryParameters(
+                site, sku, productLevel, productNature, salesType, sortField, sortOrder);
+        params.put("page", Math.max(pageNum, 1));
+        params.put("page_size", Math.min(
+                Math.max(pageSize, 1), MAX_PAGE_SIZE));
+        Object result = data(client.list(params, requestId));
+        return success(enrich(result));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list')")
+    @Log(title = "eBay补货2.0导出", businessType = BusinessType.EXPORT)
+    @PostMapping("/export")
+    public void export(
+            @RequestParam(required = false) String site,
+            @RequestParam(required = false) String sku,
+            @RequestParam(required = false) String productLevel,
+            @RequestParam(required = false) String productNature,
+            @RequestParam(required = false) String salesType,
+            @RequestParam(required = false) String sortField,
+            @RequestParam(required = false) String sortOrder,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId,
+            HttpServletResponse response)
+    {
+        Map<String, Object> params = queryParameters(
+                site, sku, productLevel, productNature, salesType, sortField, sortOrder);
+        Object result = enrich(data(client.exportData(params, requestId)));
+        exportService.export(result, params, response);
+    }
+
+    private Map<String, Object> queryParameters(String site, String sku, String productLevel,
+            String productNature, String salesType, String sortField, String sortOrder)
+    {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("site", trimToNull(site));
         params.put("sku", trimToNull(sku));
         params.put("product_level", trimToNull(productLevel));
         params.put("product_nature", trimToNull(productNature));
         params.put("sales_type", trimToNull(salesType));
-        params.put("page", Math.max(pageNum, 1));
-        params.put("page_size", Math.min(
-                Math.max(pageSize, 1), MAX_PAGE_SIZE));
         params.put("sort_field", trimToNull(sortField));
         params.put("sort_order", normalizeSortOrder(sortOrder));
-        Object result = data(client.list(params, requestId));
-        result = leadTimeService.enrich(result);
-        return success(warehouseRentService.enrich(result));
+        return params;
+    }
+
+    /** 列表和导出复用同一补充逻辑；批量限制IN长度，不逐SKU查库。 */
+    private Object enrich(Object result)
+    {
+        if (result instanceof Map<?, ?> dataMap && dataMap.get("items") instanceof List<?> items)
+        {
+            for (int start = 0; start < items.size(); start += MAX_PAGE_SIZE)
+            {
+                Map<String, Object> batch = new LinkedHashMap<>();
+                batch.put("items", items.subList(start, Math.min(start + MAX_PAGE_SIZE, items.size())));
+                leadTimeService.enrich(batch);
+                warehouseRentService.enrich(batch);
+            }
+        }
+        return result;
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")

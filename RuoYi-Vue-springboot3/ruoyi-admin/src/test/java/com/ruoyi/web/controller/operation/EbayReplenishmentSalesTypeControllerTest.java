@@ -18,7 +18,7 @@ class EbayReplenishmentSalesTypeControllerTest
         assertEquals("@ss.hasPermi('operations:ebayReplenishmentV2:editSalesType')", annotation.value());
         var client = mock(EbayReplenishmentV2PythonClient.class);
         when(client.saveSalesType(anyMap(), any())).thenReturn(Map.of("data", Map.of()));
-        var controller = new EbayReplenishmentV2Controller(client, null, null)
+        var controller = new EbayReplenishmentV2Controller(client, null, null, null)
         {
             @Override public String getUsername() { return "actual-user"; }
         };

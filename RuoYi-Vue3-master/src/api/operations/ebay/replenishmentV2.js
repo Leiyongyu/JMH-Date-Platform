@@ -1,6 +1,13 @@
-import request from '@/utils/request'
+import request, { download } from '@/utils/request'
 
 const base = '/operations/ebay/replenishment-v2'
+
+export function exportEbayReplenishmentV2(params) {
+  const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+  return download(`${base}/export`, params, `eBay补货2.0-${timestamp}.xlsx`, {
+    timeout: 120000
+  })
+}
 
 export function saveEbayReplenishmentV2SalesType(data) {
   return request({ url: `${base}/sales-type`, method: 'post', data })
