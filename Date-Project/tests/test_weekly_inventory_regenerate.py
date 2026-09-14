@@ -17,11 +17,12 @@ def prepared(monkeypatch, tmp_path):
     day = date(2026, 9, 1)
     source = dict(sync_batch_id='existing-batch', snapshot_date=day, pulled_at=datetime(2026, 9, 1))
     groups = sync.normalize(
-        [dict(wid=1,product_id=2,sku='SKU',product_total=10,purchase_price=2)], [],
+        [dict(wid=18677,product_id=2,sku='SKU',product_total=10,purchase_price=2),
+         dict(wid=18678,product_id=2,sku='SKU',product_total=99,purchase_price=2)], [],
         [dict(id=2,product_name='Product')],day,'existing-batch',datetime(2026,9,1))
     monkeypatch.setattr(repo, 'latest_completed_snapshot', lambda: source)
     monkeypatch.setattr(repo, 'snapshot', lambda batch: groups)
-    monkeypatch.setattr(repo, 'warehouse_names', lambda: {1:'Warehouse'})
+    monkeypatch.setattr(repo, 'warehouse_names', lambda: {18677:'Warehouse'})
     monkeypatch.setattr(regenerate, 'export_root', lambda: tmp_path)
     begin, finish, insert, client = MagicMock(), MagicMock(), MagicMock(), MagicMock()
     monkeypatch.setattr(repo, 'begin_export', begin)
@@ -41,6 +42,8 @@ def test_repeat_export_keeps_source_date_and_does_not_extract_or_write_ods(prepa
     assert first['file_name'] != second['file_name']
     assert first['extract_rows'] == first['ods_rows'] == 0
     assert first['column_count'] == 25
+    assert first['row_count'] == second['row_count'] == 1
+    assert {row['wid'] for row in groups['inventory']} == {18677, 18678}
     assert len(list(root.glob('*.xlsx'))) == 2
     assert (root/first['file_name']).read_bytes() == original
     client.assert_not_called()

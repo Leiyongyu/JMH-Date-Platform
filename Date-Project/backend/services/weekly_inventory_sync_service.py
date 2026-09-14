@@ -208,7 +208,10 @@ def sync_weekly_inventory(trigger_type="JOB"):
         repo.finish_export(batch, file_name=filename, **metrics)
         return {"sync_batch_id": batch, "snapshot_date": str(day), "extract_rows": len(inventory) + len(bins) + len(products),
                 "ods_rows": ods_rows, "file_name": filename, **metrics,
-                "deduplicated_inventory_rows": len(inventory) - metrics["row_count"]}
+                # Warehouse export exclusions are not duplicate source rows.
+                "deduplicated_inventory_rows": len(groups["inventory"]) - len({
+                    (row["wid"], row["product_id"]) for row in groups["inventory"]
+                })}
     except Exception as exc:
         LOG.exception("Weekly inventory failed, batch=%s", batch)
         try:

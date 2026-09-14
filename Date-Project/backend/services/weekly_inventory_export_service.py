@@ -11,6 +11,10 @@ from openpyxl.cell import WriteOnlyCell
 from backend.config import settings
 from backend.services.weekly_inventory_sync_service import number
 
+# Export scope only. Keep extraction and ODS snapshots complete; warehouse names
+# are display labels and must not determine inclusion (names can change).
+EXPORT_WAREHOUSE_IDS = frozenset({18677, 19561})  # CTUAMZ-EU / CTUAMZ-UK 中转仓
+
 BASE_COLUMNS = [("仓库名称", "warehouse_name"), ("SKU", "sku"), ("产品名称", "product_name"),
                 ("本地产品id", "product_id"), ("实际库存总量", "product_total"), ("可用量", "product_valid_num"),
                 ("次品量", "product_bad_num"), ("待检待上架量", "product_qc_num"), ("锁定量", "product_lock_num")]
@@ -91,9 +95,18 @@ def build_rows(groups, names):
 
 
 def write_export(groups, names, path: Path):
-    headers, rows = build_rows(groups, names)
+    # Both scheduled generation and manual snapshot generation use this entry.
+    # Filter before aggregation, including dynamic age headers, without mutating
+    # the original snapshot or mixing another warehouse's bin quantities.
+    selected = {
+        group: [row for row in groups[group] if row["wid"] in EXPORT_WAREHOUSE_IDS]
+        for group in ("inventory", "bins", "age")
+    }
+    product_ids = {row["product_id"] for row in selected["inventory"]}
+    selected["products"] = [row for row in groups["products"] if row["product_id"] in product_ids]
+    headers, rows = build_rows(selected, names)
     if not rows:
-        raise ValueError("没有可导出的周报数据")
+        raise ValueError("CTUAMZ-EU中转仓(18677)、CTUAMZ-UK中转仓(19561)没有可导出的周报数据")
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook(write_only=True)
     sheet = workbook.create_sheet("仓位库存明细")

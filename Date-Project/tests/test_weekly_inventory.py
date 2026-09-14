@@ -14,7 +14,7 @@ from backend.repositories import weekly_inventory_repository as repo
 from backend.api.v1 import weekly_inventory as api
 
 
-def sample():
+def sample(wid=1):
     inventory = [dict(wid=1, product_id=2, seller_id="a", sku="=SKU", product_total="10", purchase_price="1.234567",
                       product_valid_num="9", stock_age_list=[dict(name="0-29天", qty=10)],
                       third_inventory={"third_inventory_data": [dict(name="可用量", local=9, third=8, diff=1)]}),
@@ -22,6 +22,8 @@ def sample():
                       product_valid_num="20", stock_age_list=[dict(name="0-29天", qty=5)])]
     bins = [dict(wid=1, whb_id=3, product_id=2, lockNum=1, validNum=3, whb_type=9),
             dict(wid=1, whb_id=4, product_id=2, lockNum=2, validNum=4)]
+    for row in inventory + bins:
+        row["wid"] = wid
     return sync.normalize(inventory, bins, [dict(id=2, product_name="产品", model="X"*222)], date(2026,9,9), "batch", datetime.now())
 
 
@@ -74,7 +76,7 @@ def test_missing_is_not_zero():
 
 def test_xlsx_is_safe_and_archive_never_replaced(tmp_path):
     path=tmp_path/"中文.xlsx"
-    metrics=export.write_export(sample(),{1:"仓库"},path)
+    metrics=export.write_export(sample(18677),{18677:"仓库"},path)
     original=path.read_bytes()
     wb=load_workbook(path)
     assert wb.active["B2"].value == "=SKU"
@@ -82,19 +84,19 @@ def test_xlsx_is_safe_and_archive_never_replaced(tmp_path):
     assert wb.active.max_column == metrics["column_count"]
     wb.close()
     with pytest.raises(FileExistsError):
-        export.write_export(sample(),{1:"仓库"},path)
+        export.write_export(sample(18677),{18677:"仓库"},path)
     assert path.read_bytes()==original
     assert not list(tmp_path.glob(".weekly-*"))
 
 
 def test_xlsx_numeric_format_and_removed_columns(tmp_path):
-    groups = sample()
+    groups = sample(18677)
     groups["inventory"][0]["product_bad_num"] = Decimal("0.000000")
     groups["products"][0].update(cg_product_length=Decimal("75.000000"),
                                 cg_product_width=Decimal("25.500000"),
                                 cg_product_height=Decimal("-2.000000"))
     path = tmp_path / "format.xlsx"
-    export.write_export(groups, {1: "仓库"}, path)
+    export.write_export(groups, {18677: "仓库"}, path)
     with_source = groups["inventory"][0]["third_inventory"]
     assert with_source["third_inventory_data"][0]["third"] == 8
     wb = load_workbook(path)
@@ -207,7 +209,10 @@ def test_whole_chain_without_real_io(monkeypatch,tmp_path,missing_product,regist
     monkeypatch.setattr(repo,'require_bin_identity_schema',MagicMock())
     client=MagicMock()
     client.post_signed_query_auth.side_effect=[
-        dict(code=0,total=1,data=[dict(wid=1,product_id=2,sku='SKU',product_total=3,purchase_price='1.25',extra={'keep':'raw'})]),
+        dict(code=0,total=2,data=[
+            dict(wid=18677,product_id=2,sku='SKU',product_total=3,purchase_price='1.25',extra={'keep':'raw'}),
+            dict(wid=18678,product_id=2,sku='SKU',product_total=99,purchase_price='1.25'),
+        ]),
         dict(code=0,total=0,data=[]),
         dict(code=0,data=[] if missing_product else [dict(id=2,sku='SKU',product_name='产品')]),
     ]
@@ -221,7 +226,7 @@ def test_whole_chain_without_real_io(monkeypatch,tmp_path,missing_product,regist
     insert_mock=MagicMock(side_effect=insert)
     monkeypatch.setattr(repo,'insert_snapshot',insert_mock)
     monkeypatch.setattr(repo,'snapshot',lambda batch:stored)
-    monkeypatch.setattr(repo,'warehouse_names',lambda:{1:'仓库'})
+    monkeypatch.setattr(repo,'warehouse_names',lambda:{18677:'仓库'})
     finish=MagicMock(side_effect=[RuntimeError('registration failure'),None] if registration_failure else None)
     monkeypatch.setattr(repo,'finish_export',finish)
     if missing_product:
@@ -237,6 +242,8 @@ def test_whole_chain_without_real_io(monkeypatch,tmp_path,missing_product,regist
     else:
         result=sync.sync_weekly_inventory('manual')
         assert result['row_count']==1 and result['column_count']==25
+        assert result['deduplicated_inventory_rows'] == 0
+        assert {row['wid'] for row in stored['inventory']} == {18677, 18678}
         assert len(list(tmp_path.glob('*.xlsx')))==1
         assert stored['inventory'][0]['raw_json']['extra']=={'keep':'raw'}
         assert stored['inventory'][0]['sync_batch_id']==result['sync_batch_id']
