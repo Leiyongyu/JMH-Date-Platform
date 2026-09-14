@@ -1,10 +1,13 @@
+import errno
 import io
 import json
 import logging
 import socket
+import ssl
 import traceback
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
+from http.client import IncompleteRead, RemoteDisconnected
 from unittest.mock import MagicMock
 from urllib.error import HTTPError, URLError
 
@@ -81,7 +84,7 @@ def test_temporary_connection_failures(exc, no_sleep):
     dict(code=0, data={}), dict(code=0, data=[None]), [],
     transport.LingXingHttpError(401, '{}'), transport.LingXingHttpError(403, '{}'),
     transport.LingXingHttpError(400, '{}'), transport.LingXingHttpError(501, '{}'),
-    wrapped(json.JSONDecodeError('invalid', '', 0)),
+    wrapped(json.JSONDecodeError('invalid', 'not-json', 0)),
     URLError(socket.gaierror(socket.EAI_NONAME, 'invalid hostname')),
     ValueError('bad configuration access_token=SECRET'),
 ])
@@ -239,3 +242,300 @@ def test_product_batch_retries_same_ids_without_logging_them(no_sleep, caplog):
     assert calls[0].args == calls[1].args
     assert 'product_count=1' in caplog.text and 'page=3' in caplog.text
     assert '123456789' not in caplog.text
+
+
+# --------------------------------------------------------------------------
+# 异常链诊断与扩充后的临时错误分类（2026-09-14）
+# 背景：两次真实失败只记下 transport=RuntimeError，底层类型和错误码全部丢失。
+# --------------------------------------------------------------------------
+
+
+def bare_oserror(winerror=None, errno_value=None):
+    """构造 errno 为空、只带 winerror 的裸 OSError。
+
+    Windows 上 OSError(0, msg, None, 10054) 会自动变成 ConnectionResetError，
+    走不到补丁要修的分支，所以这里显式赋值。
+    """
+    exc = OSError()
+    if winerror is not None:
+        exc.winerror = winerror
+    if errno_value is not None:
+        exc.errno = errno_value
+    return exc
+
+
+def context_wrapped(inner, suppress=False):
+    """只通过 __context__ 关联（raise 时不写 from），可选 from None 抑制。"""
+    try:
+        try:
+            raise inner
+        except type(inner):
+            if suppress:
+                raise RuntimeError("RAW access_token=do-not-log") from None
+            raise RuntimeError("RAW access_token=do-not-log")
+    except RuntimeError as exc:
+        return exc
+
+
+@pytest.mark.parametrize("winerror", [10053, 10054, 10060])
+def test_windows_bare_oserror_winerror_retried(winerror, no_sleep):
+    """errno 为空、只有 Winsock 码的裸 OSError 必须重试。补丁前会被判为不可重试。"""
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = [wrapped(bare_oserror(winerror=winerror)), ok()]
+    assert call(client)["code"] == 0
+    assert client.post_signed_query_auth.call_count == 2
+
+
+def test_urlerror_wrapping_oserror_is_walked_and_retried(no_sleep, caplog):
+    """RuntimeError -> URLError -> OSError(10054)：整条链要被走出来并重试。"""
+    caplog.set_level(logging.WARNING)
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = [
+        wrapped(URLError(bare_oserror(winerror=10054))), ok(),
+    ]
+    assert call(client)["code"] == 0
+    assert "exception_chain=RuntimeError->URLError->OSError" in caplog.text
+    assert "winerror=10054" in caplog.text
+
+
+@pytest.mark.parametrize("exc", [
+    ssl.SSLEOFError(), ssl.SSLZeroReturnError(), RemoteDisconnected("closed"),
+])
+def test_tls_and_disconnect_failures_retried(exc, no_sleep):
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = [wrapped(exc), ok()]
+    assert call(client)["code"] == 0
+    assert client.post_signed_query_auth.call_count == 2
+
+
+def test_incomplete_read_retried_and_partial_body_never_logged(no_sleep, caplog):
+    """半截响应要重试，且只记字节数，绝不记 partial 内容。"""
+    caplog.set_level(logging.WARNING)
+    partial = b"<html>access_token=leak-me-please</html>"
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = [wrapped(IncompleteRead(partial, 4096)), ok()]
+    assert call(client)["code"] == 0
+    assert f"partial_bytes={len(partial)}" in caplog.text
+    assert "expected_remaining_bytes=4096" in caplog.text
+    assert "leak-me-please" not in caplog.text
+
+
+def test_context_only_chain_is_readable(no_sleep, caplog):
+    """没写 from、仅靠 __context__ 关联时也要能读出底层类型。"""
+    caplog.set_level(logging.WARNING)
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = [
+        context_wrapped(ConnectionResetError("reset")), ok(),
+    ]
+    assert call(client)["code"] == 0
+    assert "exception_chain=RuntimeError->ConnectionResetError" in caplog.text
+
+
+def test_suppressed_context_is_not_dug_out(no_sleep):
+    """raise ... from None 明确抑制了上下文，不能绕过去把它挖出来。"""
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = context_wrapped(
+        ConnectionResetError("reset"), suppress=True)
+    with pytest.raises(api.WeeklyRequestError) as excinfo:
+        call(client)
+    assert client.post_signed_query_auth.call_count == 1
+    assert "exception_chain=RuntimeError" in str(excinfo.value)
+    assert "ConnectionResetError" not in str(excinfo.value)
+
+
+def test_certificate_failure_never_retried(no_sleep):
+    """证书校验失败不能靠重试掩盖。"""
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = wrapped(
+        ssl.SSLCertVerificationError("bad cert"))
+    with pytest.raises(api.WeeklyRequestError) as excinfo:
+        call(client)
+    assert client.post_signed_query_auth.call_count == 1
+    assert "TLS证书校验失败" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("exc", [
+    bare_oserror(errno_value=errno.ENOSPC),
+    bare_oserror(winerror=1),
+    RuntimeError("plain"),
+    ssl.SSLError("generic"),
+])
+def test_unknown_failures_still_not_retried(exc, no_sleep):
+    """没有证据证明是临时错误的，仍然一次就停。"""
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = exc if isinstance(exc, RuntimeError) else wrapped(exc)
+    with pytest.raises(api.WeeklyRequestError) as excinfo:
+        call(client)
+    assert client.post_signed_query_auth.call_count == 1
+    assert "非明确临时错误" in str(excinfo.value)
+
+
+def test_json_decode_reports_position_not_body(no_sleep, caplog):
+    """解析失败要能定位，但不能输出响应正文。"""
+    caplog.set_level(logging.ERROR)
+    body = '<html>Bearer secret-token-value</html>'
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = wrapped(
+        json.JSONDecodeError("Expecting value", body, 0))
+    with pytest.raises(api.WeeklyRequestError) as excinfo:
+        call(client)
+    message = str(excinfo.value)
+    assert client.post_signed_query_auth.call_count == 1
+    assert "json_line=1" in message and "json_position=0" in message
+    assert f"response_chars={len(body)}" in message
+    assert "secret-token-value" not in message and "secret-token-value" not in caplog.text
+    assert "<html>" not in message
+
+
+def test_cyclic_chain_terminates(no_sleep):
+    first = RuntimeError("a")
+    second = RuntimeError("b")
+    first.__cause__ = second
+    second.__cause__ = first
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = first
+    with pytest.raises(api.WeeklyRequestError) as excinfo:
+        call(client)
+    assert "exception_chain=RuntimeError->RuntimeError" in str(excinfo.value)
+
+
+def test_chain_depth_is_bounded(no_sleep):
+    deepest = ConnectionResetError("reset")
+    current = deepest
+    for _ in range(12):
+        wrapper = RuntimeError("layer")
+        wrapper.__cause__ = current
+        current = wrapper
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = current
+    with pytest.raises(api.WeeklyRequestError) as excinfo:
+        call(client)
+    # 深度封顶 8 层，走不到最里面那个 ConnectionResetError，所以不重试。
+    chain = [p for p in str(excinfo.value).split() if p.startswith("exception_chain=")][0]
+    assert len(chain.split("->")) == api.MAX_CHAIN_DEPTH
+    assert client.post_signed_query_auth.call_count == 1
+
+
+def test_repeated_temporary_failures_still_bounded(no_sleep):
+    """连续临时错误，总请求数仍受 MAX_ATTEMPTS 限制。"""
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = [
+        wrapped(bare_oserror(winerror=10054)) for _ in range(api.MAX_ATTEMPTS)
+    ]
+    with pytest.raises(api.WeeklyRequestError) as excinfo:
+        call(client)
+    assert client.post_signed_query_auth.call_count == api.MAX_ATTEMPTS
+    assert "重试次数耗尽" in str(excinfo.value)
+
+
+def test_diagnostics_never_leak_secrets_from_raw_exception(no_sleep, caplog):
+    """底层异常原文含 token/签名URL/产品ID 时，日志和最终异常都不得出现。"""
+    caplog.set_level(logging.DEBUG)
+    inner = bare_oserror(winerror=1)
+    inner.strerror = "https://api.lingxing.com/x?access_token=SECRET&sku=BMW-30001-0001"
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = wrapped(inner)
+    with pytest.raises(api.WeeklyRequestError) as excinfo:
+        call(client)
+    combined = str(excinfo.value) + caplog.text
+    for leak in ("SECRET", "BMW-30001-0001", "api.lingxing.com", "do-not-log"):
+        assert leak not in combined
+
+
+@pytest.mark.parametrize("endpoint,body", [
+    ("inventoryDetails", {"offset": 4800, "length": 800}),
+    ("inventoryBinDetails", {"offset": 11000, "length": 500}),
+    ("batchGetProductInfo", {"productIds": [123456789]}),
+])
+def test_json_eof_retries_identical_page_or_batch(endpoint, body, no_sleep, caplog):
+    client = MagicMock()
+    document = '{"code":0,"data":['
+    client.post_signed_query_auth.side_effect = [
+        wrapped(json.JSONDecodeError("Expecting value", document, len(document))), ok(),
+    ]
+    assert api.request_response(client, endpoint, body, batch="eof-test", page=23)["code"] == 0
+    calls = client.post_signed_query_auth.call_args_list
+    assert len(calls) == 2 and calls[0].args == calls[1].args
+    assert calls[0].args[1] == body
+    no_sleep.assert_called_once_with(2)
+    assert "JSON响应末尾解析失败" in caplog.text
+    assert document not in caplog.text and "123456789" not in caplog.text
+
+
+def test_json_eof_exhaustion_stops_after_four_attempts(no_sleep):
+    client = MagicMock()
+    document = '{"code":'
+    client.post_signed_query_auth.side_effect = wrapped(
+        json.JSONDecodeError("Expecting value", document, len(document)))
+    with pytest.raises(api.WeeklyRequestError, match="attempt=4/4.*重试次数耗尽"):
+        call(client)
+    assert client.post_signed_query_auth.call_count == 4
+    assert [entry.args[0] for entry in no_sleep.call_args_list] == [2, 4, 8]
+
+
+@pytest.mark.parametrize("document,position", [
+    ("not-json", 0), ('{"a":1,}', 7), ('{"a":"incomplete', 5),
+])
+def test_json_non_eof_still_stops_immediately(document, position, no_sleep):
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = wrapped(
+        json.JSONDecodeError("invalid", document, position))
+    with pytest.raises(api.WeeklyRequestError, match="JSON非末尾解析失败"):
+        call(client)
+    assert client.post_signed_query_auth.call_count == 1
+    no_sleep.assert_not_called()
+
+
+@pytest.mark.parametrize("headers,expected_type,expected_length", [
+    ({"Content-Type": "application/json; secret=HEADER-SECRET", "Content-Length": "999"}, "application/json", 999),
+    ({"Content-Type": "HEADER-SECRET", "Content-Length": "TOKEN-SECRET"}, "other", None),
+    ({}, "unknown", None),
+])
+def test_json_parse_metadata_is_safe_and_preserves_client_behavior(
+    monkeypatch, no_sleep, headers, expected_type, expected_length,
+):
+    client = transport.LingXingClient(endpoint="https://example.invalid", max_retries=0)
+    document = '{"name":"产品-BODY-SECRET","data":['
+    body = document.encode("utf-8")
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.read.return_value = body
+    response.status = 200
+    response.headers = headers
+    request = MagicMock(return_value=response)
+    monkeypatch.setattr(transport, "urlopen", request)
+    with pytest.raises(RuntimeError) as caught:
+        client._execute("POST", "read-only", body={})
+    assert isinstance(caught.value.__cause__, json.JSONDecodeError)
+    metadata = caught.value.__cause__.lingxing_response_metadata
+    assert metadata["http_status"] == 200
+    assert metadata["response_bytes"] == len(body) > len(document)
+    assert metadata["content_type"] == expected_type
+    assert metadata.get("content_length") == expected_length
+    retryable, _, detail = api._transport_failure(caught.value, client)
+    assert retryable
+    assert "http_status=200" in detail and f"response_bytes={len(body)}" in detail
+    for secret in ("BODY-SECRET", "HEADER-SECRET", "TOKEN-SECRET", "产品"):
+        assert secret not in detail
+    request.assert_called_once()
+    no_sleep.assert_not_called()
+
+
+def test_json_eof_failure_never_writes_partial_snapshot(monkeypatch, tmp_path):
+    monkeypatch.setattr(sync.repo, "require_bin_identity_schema", MagicMock())
+    document = '{"data":['
+    client = MagicMock()
+    client.post_signed_query_auth.side_effect = wrapped(
+        json.JSONDecodeError("Expecting value", document, len(document)))
+    monkeypatch.setattr(sync, "LingXingClient", MagicMock(return_value=client))
+    monkeypatch.setattr(export, "export_root", lambda: tmp_path)
+    monkeypatch.setattr(sync.repo, "begin_export", MagicMock())
+    finish, insert = MagicMock(), MagicMock()
+    monkeypatch.setattr(sync.repo, "finish_export", finish)
+    monkeypatch.setattr(sync.repo, "insert_snapshot", insert)
+    with pytest.raises(api.WeeklyRequestError, match="重试次数耗尽"):
+        sync.sync_weekly_inventory()
+    assert client.post_signed_query_auth.call_count == 4
+    insert.assert_not_called()
+    assert not list(tmp_path.glob("*.xlsx"))
+    assert "JSON响应末尾解析失败" in finish.call_args.kwargs["error"]

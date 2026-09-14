@@ -210,8 +210,33 @@ class LingXingClient:
             try:
                 request = self._build_request(method, path, query=query, body=body)
                 with urlopen(request, timeout=self.timeout) as response:
-                    payload = response.read().decode("utf-8")
-                    return json.loads(payload) if payload else {}
+                    response_bytes = response.read()
+                    payload = response_bytes.decode("utf-8")
+                    try:
+                        return json.loads(payload) if payload else {}
+                    except json.JSONDecodeError as exc:
+                        # Metadata only; preserve exception type and the existing
+                        # retry behavior for all callers. Weekly retries inspect
+                        # these fields without logging bodies or arbitrary headers.
+                        metadata = {"response_bytes": len(response_bytes)}
+                        status = getattr(response, "status", None)
+                        if isinstance(status, int) and not isinstance(status, bool):
+                            metadata["http_status"] = status
+                        headers = getattr(response, "headers", None)
+                        length = headers.get("Content-Length") if headers is not None else None
+                        if isinstance(length, str) and len(length) <= 20 and length.isascii() and length.isdecimal():
+                            metadata["content_length"] = int(length)
+                        content_type = headers.get("Content-Type") if headers is not None else None
+                        if isinstance(content_type, str):
+                            mime = content_type.partition(";")[0].strip().lower()
+                            metadata["content_type"] = mime if mime in {
+                                "application/json", "text/html", "text/plain",
+                                "application/octet-stream",
+                            } else "other"
+                        else:
+                            metadata["content_type"] = "unknown"
+                        exc.lingxing_response_metadata = metadata
+                        raise
             except HTTPError as exc:
                 payload = exc.read().decode("utf-8", errors="replace")
                 failure = LingXingHttpError(exc.code, payload, exc.headers.get("Retry-After") if exc.headers else None)

@@ -8,9 +8,11 @@ import math
 import random
 import re
 import socket
+import ssl
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from http.client import IncompleteRead, RemoteDisconnected
 from urllib.error import URLError
 
 from backend.integrations.lingxing.client import LingXingHttpError
@@ -63,32 +65,132 @@ def _summary(response, client):
     )
 
 
-def _transport_failure(exc, client):
-    """Classify structured exceptions, never parse a raw exception string for retry."""
-    current, seen = exc, set()
-    while current is not None and id(current) not in seen:
+# Windows often surfaces a bare OSError whose errno is None while winerror holds
+# the Winsock code, so the POSIX errno whitelist alone silently misses resets.
+RETRY_ERRNO = {errno.ETIMEDOUT, errno.ECONNRESET, errno.ECONNABORTED, errno.EPIPE}
+RETRY_WINERROR = {10053, 10054, 10060}  # WSAECONNABORTED / WSAECONNRESET / WSAETIMEDOUT
+# Unambiguous "connection died or body never finished" cases. The three weekly
+# endpoints are read-only queries, so replaying the identical request is safe.
+RETRY_TRANSPORT = (
+    TimeoutError,
+    ConnectionResetError,
+    ConnectionAbortedError,
+    BrokenPipeError,
+    RemoteDisconnected,
+    IncompleteRead,
+    ssl.SSLEOFError,
+    ssl.SSLZeroReturnError,
+)
+MAX_CHAIN_DEPTH = 8
+
+
+def _exception_chain(exc):
+    """Walk the cause chain without reading or logging any raw exception text.
+
+    Prefers URLError.reason and an explicit __cause__; only falls back to
+    __context__ when the raiser did not suppress it with ``raise ... from None``.
+    Bounded depth and an identity guard keep cyclic chains from looping.
+    """
+    chain, seen, current = [], set(), exc
+    while (
+        isinstance(current, BaseException)
+        and id(current) not in seen
+        and len(chain) < MAX_CHAIN_DEPTH
+    ):
         seen.add(id(current))
+        chain.append(current)
+        if isinstance(current, URLError) and isinstance(current.reason, BaseException):
+            current = current.reason
+        elif current.__cause__ is not None:
+            current = current.__cause__
+        elif not current.__suppress_context__:
+            current = current.__context__
+        else:
+            break
+    return chain
+
+
+def _exception_diagnostics(chain):
+    """Structured diagnostics only: no response body, URL, token or exception text."""
+    parts = ["exception_chain=" + "->".join(type(item).__name__ for item in chain)]
+    for index, item in enumerate(chain):
+        for field in ("errno", "winerror"):
+            value = getattr(item, field, None)
+            if isinstance(value, int) and not isinstance(value, bool):
+                parts.append(f"cause{index}.{field}={value}")
+        if isinstance(item, json.JSONDecodeError):
+            # Position and size locate the parse failure; item.doc is the raw body.
+            parts.append(
+                f"json_line={item.lineno} json_column={item.colno} "
+                f"json_position={item.pos} response_chars={len(item.doc)}"
+            )
+            metadata = getattr(item, "lingxing_response_metadata", {})
+            if isinstance(metadata, dict):
+                for field in ("http_status", "response_bytes", "content_length"):
+                    value = metadata.get(field)
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        parts.append(f"{field}={value}")
+                if metadata.get("content_type") in {
+                    "application/json", "text/html", "text/plain",
+                    "application/octet-stream", "other", "unknown",
+                }:
+                    parts.append(f"content_type={metadata['content_type']}")
+        elif isinstance(item, UnicodeDecodeError):
+            parts.append(f"decode_start={item.start} decode_end={item.end}")
+        elif isinstance(item, IncompleteRead):
+            # item.partial is response bytes, so only its length is reported.
+            parts.append(f"partial_bytes={len(item.partial)}")
+            if isinstance(item.expected, int):
+                parts.append(f"expected_remaining_bytes={item.expected}")
+        elif isinstance(item, URLError) and isinstance(item.reason, str):
+            # A string reason ends the walk; report its shape, never its content.
+            parts.append(f"cause{index}.reason_type=str reason_chars={len(item.reason)}")
+    return " ".join(parts)
+
+
+def _transport_failure(exc, client):
+    """Retry known temporary failures and EOF JSON errors on read-only requests.
+
+    The previous version walked the same chain but reported ``type(exc).__name__``,
+    which is always the outermost RuntimeError wrapper from LingXingClient, so
+    every underlying cause was discarded. The diagnostics string fixes that.
+    """
+    chain = _exception_chain(exc)
+    diagnostics = _exception_diagnostics(chain)
+
+    # Certificate failures must never be retried away or silenced by disabling TLS.
+    if any(isinstance(item, ssl.SSLCertVerificationError) for item in chain):
+        return False, None, f"reason=TLS证书校验失败 {diagnostics}"
+
+    for current in chain:
         if isinstance(current, LingXingHttpError):
             try:
                 response = json.loads(current.payload)
             except (ValueError, TypeError):
                 response = None  # do not log raw HTML/body or request URLs
             return (current.status in RETRY_HTTP, current.retry_after,
-                    f"http_status={current.status} {_summary(response, client)}")
-        if isinstance(current, (TimeoutError, ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
-            return True, None, f"transport={type(current).__name__}"
+                    f"http_status={current.status} {_summary(response, client)} {diagnostics}")
+        if isinstance(current, json.JSONDecodeError):
+            # EOF is consistent with an incomplete response, not proof of its
+            # cause. Replay only this read-only page within the existing budget;
+            # never accept partial data or retry arbitrary JSON syntax errors.
+            at_eof = current.pos == len(current.doc)
+            reason = "JSON响应末尾解析失败" if at_eof else "JSON非末尾解析失败"
+            return at_eof, None, f"reason={reason} {diagnostics}"
+        if isinstance(current, RETRY_TRANSPORT):
+            return True, None, f"transport={type(current).__name__} {diagnostics}"
         if isinstance(current, socket.gaierror):
-            return current.errno == socket.EAI_AGAIN, None, "transport=DNS lookup failure"
-        if isinstance(current, OSError) and current.errno in {
-            errno.ETIMEDOUT, errno.ECONNRESET, errno.ECONNABORTED, errno.EPIPE,
-        }:
-            return True, None, f"transport={type(current).__name__}"
-        if isinstance(current, URLError) and isinstance(current.reason, BaseException):
-            current = current.reason
-        else:
-            current = current.__cause__
-    # No raw exception text: it can include signed URLs/tokens/configuration.
-    return False, None, f"transport={type(exc).__name__}（非明确临时错误，未输出原始异常文本）"
+            # Only a temporary resolver failure is worth replaying.
+            return (current.errno == socket.EAI_AGAIN, None,
+                    f"transport=DNS lookup failure {diagnostics}")
+        if isinstance(current, OSError) and (
+            current.errno in RETRY_ERRNO
+            or getattr(current, "winerror", None) in RETRY_WINERROR
+        ):
+            return True, None, f"transport={type(current).__name__} {diagnostics}"
+    # Unknown RuntimeError and unknown SSL/OSError: nothing
+    # proves these are temporary, so stop, but now with the chain recorded.
+    return False, None, f"transport={type(exc).__name__} reason=非明确临时错误 {diagnostics}"
 
 
 def _retry_delay(attempt, retry_after):
