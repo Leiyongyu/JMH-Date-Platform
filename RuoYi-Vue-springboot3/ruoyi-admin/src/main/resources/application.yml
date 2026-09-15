@@ -175,14 +175,7 @@ ebay:
   end-user-context: ${EBAY_END_USER_CONTEXT:}
   connect-timeout: ${EBAY_CONNECT_TIMEOUT:10s}
   request-timeout: ${EBAY_REQUEST_TIMEOUT:30s}
-  search-limit: ${EBAY_SEARCH_LIMIT:30}
-  search-top-n: ${EBAY_SEARCH_TOP_N:10}
-  search-max-keywords: ${EBAY_SEARCH_MAX_KEYWORDS:50}
-  search-max-workers: ${EBAY_SEARCH_MAX_WORKERS:8}
-  detail-max-workers: ${EBAY_DETAIL_MAX_WORKERS:8}
   detail-max-retries: ${EBAY_DETAIL_MAX_RETRIES:3}
-  audit-max-oes: ${EBAY_AUDIT_MAX_OES:2000}
-  audit-max-concurrent-tasks: ${EBAY_AUDIT_MAX_CONCURRENT_TASKS:3}
 
 # Goodcang WMS API configuration
 goodcang:

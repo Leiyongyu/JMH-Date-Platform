@@ -46,6 +46,7 @@ Date-Project/docs/*
 !Date-Project/docs/Amazon主图批量上传内嵌说明.md
 !Date-Project/docs/eBay补货2.0导出说明.md
 !Date-Project/docs/谷仓仓租概要同步-部署说明.md
+!Date-Project/docs/下线旧eBay价格审核-部署说明.md
 !RuoYi-Vue-springboot3/docs/
 RuoYi-Vue-springboot3/docs/*
 !RuoYi-Vue-springboot3/docs/OperationAssistant-ERP-Nginx.conf.example

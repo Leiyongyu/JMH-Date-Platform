@@ -1,4 +1,5 @@
 -- eBay SP 价格批量查询与人工审核任务
+-- 2026-09-15旧ERP页面已下线；本文件仅留作历史表结构归档，不恢复菜单/权限。
 -- 仅新增表，不修改或删除现有 eBay 数据。
 
 CREATE TABLE IF NOT EXISTS `ebay_price_audit_task` (
