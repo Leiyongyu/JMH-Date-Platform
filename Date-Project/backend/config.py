@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -70,6 +70,12 @@ class Settings:
     lingxing_max_retries: int = int(os.getenv("LINGXING_MAX_RETRIES", "3"))
     lingxing_page_size: int = int(os.getenv("LINGXING_PAGE_SIZE", "100"))
     lingxing_sign_key: str = os.getenv("LINGXING_SIGN_KEY", "app_id")
+    goodcang_endpoint: str = os.getenv("GOODCANG_ENDPOINT", "https://oms.goodcang.net/public_open")
+    goodcang_app_token: str = field(default_factory=lambda: os.getenv("GOODCANG_APP_TOKEN", ""), repr=False)
+    goodcang_app_key: str = field(default_factory=lambda: os.getenv("GOODCANG_APP_KEY", ""), repr=False)
+    goodcang_request_timeout_sec: int = int(os.getenv("GOODCANG_REQUEST_TIMEOUT_SEC", "30"))
+    goodcang_min_request_interval_sec: float = float(os.getenv("GOODCANG_MIN_REQUEST_INTERVAL_SEC", "1.2"))
+    goodcang_max_retries: int = int(os.getenv("GOODCANG_MAX_RETRIES", "3"))
     shop_source_database: str = os.getenv("SHOP_SOURCE_DATABASE", "jmh_data_platform")
     python_internal_api_token: str = os.getenv(
         "PYTHON_INTERNAL_API_TOKEN",

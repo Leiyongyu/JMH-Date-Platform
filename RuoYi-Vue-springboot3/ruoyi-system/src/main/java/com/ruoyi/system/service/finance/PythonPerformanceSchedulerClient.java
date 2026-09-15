@@ -48,6 +48,11 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run("weekly_inventory_bin_export", null, requestId);
     }
 
+    public Map<String, Object> runGoodcangStorage(String requestId)
+    {
+        return run("goodcang_wh_inventory_storage_sync", null, requestId);
+    }
+
     public Map<String, Object> run(String statMonth, String requestId)
     {
         return run(PERFORMANCE_TASK, statMonth, requestId);

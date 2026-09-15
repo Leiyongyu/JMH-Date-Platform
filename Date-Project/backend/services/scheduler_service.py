@@ -43,6 +43,12 @@ from backend.services.weekly_inventory_sync_service import (
     sync_weekly_inventory,
 )
 from backend.services.weekly_inventory_regenerate_service import regenerate_weekly_inventory
+from backend.services.goodcang_storage_sync_service import (
+    TASK_CODE as GOODCANG_STORAGE_TASK_CODE,
+    TASK_NAME as GOODCANG_STORAGE_TASK_NAME,
+    GoodcangStorageSyncError,
+    sync_goodcang_storage,
+)
 
 AMZ_TASK_CODE = "amz_monthly_order_profit_sync"
 OPENING_INVENTORY_TASK_CODE = (
@@ -50,6 +56,7 @@ OPENING_INVENTORY_TASK_CODE = (
 )
 OPENING_INVENTORY_TASK_NAME = "月度库存次月月初库存填充"
 TASK_CODES = {
+    GOODCANG_STORAGE_TASK_CODE,
     WEEKLY_INVENTORY_TASK_CODE,
     AMZ_TASK_CODE,
     CLEARANCE_TASK_CODE,
@@ -96,6 +103,8 @@ def run_scheduler_task(
     # Keep this before run_id/log creation: rejected month labels must have no side effects.
     if task_code == WEEKLY_INVENTORY_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
         raise ValueError("仓位库存周报仅拉取当前实时快照，不接受历史月份或日期")
+    if task_code == GOODCANG_STORAGE_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
+        raise ValueError("谷仓仓租概要固定同步包含当天的最近30天，不接受自定义月份或日期")
     if task_code == CLEARANCE_TASK_CODE:
         stat_month = resolve_fba_inventory_pull_month(stat_month)
     month = stat_month or (
@@ -127,6 +136,9 @@ def run_scheduler_task(
         else:
             if task_code == WEEKLY_INVENTORY_TASK_CODE:
                 lock_name = "inventory:weekly-export"
+            elif task_code == GOODCANG_STORAGE_TASK_CODE:
+                # Global table replacement: a month-qualified lock is not sufficient.
+                lock_name = "goodcang:warehouse-storage:replace"
             elif task_code == AMZ_SOP_TASK_CODE:
                 lock_name = "sop:amz-after-sales-chain"
             elif task_code == INVENTORY_REPORT_TASK_CODE:
@@ -144,6 +156,8 @@ def run_scheduler_task(
                     task_name = (
                         "仓位库存明细周报"
                         if task_code == WEEKLY_INVENTORY_TASK_CODE
+                        else GOODCANG_STORAGE_TASK_NAME
+                        if task_code == GOODCANG_STORAGE_TASK_CODE
                         else
                         AMZ_SOP_TASK_NAME
                         if task_code == AMZ_SOP_TASK_CODE
@@ -163,6 +177,8 @@ def run_scheduler_task(
                 if task_code == WEEKLY_INVENTORY_TASK_CODE:
                     result = (regenerate_weekly_inventory() if weekly_snapshot_only
                               else sync_weekly_inventory(trigger_type))
+                elif task_code == GOODCANG_STORAGE_TASK_CODE:
+                    result = sync_goodcang_storage()
                 elif task_code == CLEARANCE_TASK_CODE:
                     result = sync_fba_inventory(month)
                 elif task_code == INVENTORY_REPORT_TASK_CODE:
@@ -215,6 +231,7 @@ def run_scheduler_task(
                     AmazonProfitEtlError,
                     AmzSopEtlError,
                     InventoryReportSourceSyncError,
+                    GoodcangStorageSyncError,
                 ),
             )
             else "LOCK" if isinstance(exc, SchedulerTaskAlreadyRunning)
@@ -228,6 +245,7 @@ def run_scheduler_task(
                     AmazonProfitEtlError,
                     AmzSopEtlError,
                     InventoryReportSourceSyncError,
+                    GoodcangStorageSyncError,
                 ),
             )
             else {}
