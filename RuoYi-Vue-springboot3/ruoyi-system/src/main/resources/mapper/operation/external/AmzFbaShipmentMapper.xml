@@ -30,6 +30,30 @@
         <result property="confirmed" column="confirmed" />
     </resultMap>
 
+    <!-- 陈旧行判定：本次同步窗口内、属于本次确实返回过数据的店铺、
+         但 sync_time 早于本次开始时间的行。领星改本地SKU名后，
+         msku 不变而 sku 变了，唯一键含 sku 所以旧行会留下来变成重复行。
+         gmt_create 必须限定在同步窗口内：窗口外的货件接口本来就不返回。 -->
+    <sql id="staleCondition">
+        sid IN
+        <foreach collection="sids" item="s" open="(" separator="," close=")">#{s}</foreach>
+        AND (sync_time IS NULL OR sync_time &lt; #{runStart})
+        AND gmt_create &gt;= #{startDate}
+        AND gmt_create &lt; DATE_ADD(#{endDate}, INTERVAL 1 DAY)
+    </sql>
+
+    <select id="selectDatabaseNow" resultType="java.util.Date">
+        SELECT NOW()
+    </select>
+
+    <select id="countStaleBySids" resultType="int">
+        SELECT COUNT(1) FROM amz_fba_shipment WHERE <include refid="staleCondition" />
+    </select>
+
+    <delete id="deleteStaleBySids">
+        DELETE FROM amz_fba_shipment WHERE <include refid="staleCondition" />
+    </delete>
+
     <select id="selectAll" resultMap="Result">
         SELECT * FROM amz_fba_shipment ORDER BY sid, shipment_id, sku
     </select>

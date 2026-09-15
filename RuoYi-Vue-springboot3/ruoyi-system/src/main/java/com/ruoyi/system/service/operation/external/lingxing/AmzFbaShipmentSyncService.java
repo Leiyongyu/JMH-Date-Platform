@@ -59,6 +59,15 @@ public class AmzFbaShipmentSyncService
             return OperationSyncResult.success("amz_fba_shipment", "领星-FBA货件", API, 0, 0, System.currentTimeMillis() - start);
         }
 
+        // 在任何写入之前取时间戳：本次写入的行 sync_time = NOW() 必然大于它，
+        // 清理时用它区分"本次刷新过的"和"接口已不再返回的"。
+        // 取库时间而不是 new Date()：sync_time 写的是 MySQL 的 NOW()，
+        // 若 Java 与 MySQL 不同主机且库时钟偏慢，本次写入的行会被误判为陈旧行。
+        Date runStart = mapper.selectDatabaseNow();
+        // 只记录本次确实返回过数据的店铺。某个店铺接口异常返回空时，
+        // 它不会进这个集合，其历史数据一行都不会被清理。
+        Set<Integer> syncedSids = new LinkedHashSet<>();
+
         int total = 0, pageSize = 200;
         // 每批20个sid
         for (int i = 0; i < sids.size(); i += 20)
@@ -148,7 +157,12 @@ public class AmzFbaShipmentSyncService
                         rows.add(row);
                     }
                 }
-                if (!rows.isEmpty()) { mapper.batchUpsert(rows); total += rows.size(); }
+                if (!rows.isEmpty())
+                {
+                    mapper.batchUpsert(rows);
+                    total += rows.size();
+                    for (AmzFbaShipment r : rows) syncedSids.add(r.getSid());
+                }
 
                 int remoteTotal = getInt(resp, "total");
                 if (remoteTotal > 0 && offset + pageSize >= remoteTotal) break;
@@ -157,7 +171,54 @@ public class AmzFbaShipmentSyncService
             }
             if (i + 20 < sids.size()) Thread.sleep(1000);
         }
-        return OperationSyncResult.success("amz_fba_shipment", "领星-FBA货件", API, total, total, System.currentTimeMillis() - start);
+
+        // 走到这里说明所有店铺、所有分页都成功了：方法内没有 try/catch，
+        // 中途任何异常都会直接冒泡，根本到不了清理这一步。
+        int removed = cleanupStaleRows(syncedSids, runStart, startDate, endDate, total);
+
+        OperationSyncResult result = OperationSyncResult.success(
+                "amz_fba_shipment", "领星-FBA货件", API, total, total,
+                System.currentTimeMillis() - start);
+        result.setBusinessSummary("拉取" + total + "条；覆盖店铺" + syncedSids.size()
+                + "个；清理接口已不返回的陈旧行" + removed + "条");
+        return result;
+    }
+
+    /**
+     * 清理接口已不再返回的陈旧行。
+     *
+     * <p>领星改本地SKU名时，msku 不变而 sku 变了。唯一键是 (sid, shipment_id, sku)，
+     * 所以 upsert 会插入新行，旧行留在表里，同一条货件明细就存了两份，
+     * 按货件汇总申报量会翻倍。此方法在每次完整同步后清掉旧的那份。
+     *
+     * <p>四道安全闸：
+     * <ol>
+     *   <li>只清 syncedSids —— 本次确实返回过数据的店铺。某店铺接口异常返回空时，
+     *       它不在集合里，历史数据一行不动。</li>
+     *   <li>只清 gmt_create 落在本次同步窗口内的 —— 窗口外的货件接口本来就不返回，
+     *       不能当成陈旧行。</li>
+     *   <li>只在方法跑到最后才调用 —— 中途抛异常走不到这里。</li>
+     *   <li>sync_time 早于 runStart —— 本次写入的行 sync_time 更晚，不会误删。</li>
+     * </ol>
+     *
+     * <p>另有熔断：待清理量超过本次拉取量的 5% 时只告警不删，
+     * 防止接口大面积返回空 item_list 时造成灾难性误删。
+     */
+    private int cleanupStaleRows(Set<Integer> syncedSids, Date runStart,
+                                 LocalDate startDate, LocalDate endDate, int total)
+    {
+        if (syncedSids.isEmpty()) return 0;
+        int candidates = mapper.countStaleBySids(syncedSids, runStart, startDate, endDate);
+        if (candidates == 0) return 0;
+        if (total > 0 && candidates > total * 0.05)
+        {
+            LOG.error("FBA货件待清理陈旧行{}条，超过本次拉取{}条的5%，已跳过清理，请人工核查接口返回是否异常",
+                    candidates, total);
+            return 0;
+        }
+        int removed = mapper.deleteStaleBySids(syncedSids, runStart, startDate, endDate);
+        LOG.info("FBA货件清理接口已不返回的陈旧行{}条，覆盖店铺{}个", removed, syncedSids.size());
+        return removed;
     }
 
     @SuppressWarnings("unchecked")

@@ -1,6 +1,9 @@
 package com.ruoyi.system.mapper.operation.external;
 
 import com.ruoyi.system.domain.operation.external.AmzFbaShipment;
+import java.time.LocalDate;
+import java.util.Collection;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import org.apache.ibatis.annotations.Param;
@@ -38,4 +41,23 @@ public interface AmzFbaShipmentMapper
 
     /** 去重店铺名称 */
     List<String> selectDistinctStoreNames();
+
+    /**
+     * 取数据库当前时间作为本次同步的基准时刻。
+     * 必须用库时间而不是 Java 的 new Date()：sync_time 写的是 MySQL 的 NOW()，
+     * 两者若来自不同主机且库时钟偏慢，本次写入的行会被误判为陈旧行而遭清理。
+     */
+    Date selectDatabaseNow();
+
+    /** 统计本次同步窗口内、指定店铺下接口已不再返回的陈旧行数，用于清理前的熔断判断 */
+    int countStaleBySids(@Param("sids") Collection<Integer> sids,
+                         @Param("runStart") Date runStart,
+                         @Param("startDate") LocalDate startDate,
+                         @Param("endDate") LocalDate endDate);
+
+    /** 删除本次同步窗口内、指定店铺下接口已不再返回的陈旧行（SKU改名遗留的重复行） */
+    int deleteStaleBySids(@Param("sids") Collection<Integer> sids,
+                          @Param("runStart") Date runStart,
+                          @Param("startDate") LocalDate startDate,
+                          @Param("endDate") LocalDate endDate);
 }
