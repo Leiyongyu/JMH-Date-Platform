@@ -202,12 +202,13 @@ def sync_weekly_inventory(trigger_type="JOB"):
                 ) from None
             products.extend(data)
         groups = normalize(inventory, bins, products, day, batch, datetime.now())
-        ods_rows = repo.insert_snapshot(groups)
-        # Read exactly this committed batch, never today's latest rows.
-        metrics = write_export(repo.snapshot(batch), repo.warehouse_names(), path)
-        repo.finish_export(batch, file_name=filename, **metrics)
+        # Build the complete Excel from this validated batch before touching the
+        # retained snapshot. Then publish new ODS + SUCCESS and remove older ODS
+        # in one transaction; export/SQL failures keep the previous batch usable.
+        metrics = write_export(groups, repo.warehouse_names(), path)
+        snapshot_metrics = repo.replace_snapshot_and_finish_export(groups, file_name=filename, **metrics)
         return {"sync_batch_id": batch, "snapshot_date": str(day), "extract_rows": len(inventory) + len(bins) + len(products),
-                "ods_rows": ods_rows, "file_name": filename, **metrics,
+                **snapshot_metrics, "file_name": filename, **metrics,
                 # Warehouse export exclusions are not duplicate source rows.
                 "deduplicated_inventory_rows": len(groups["inventory"]) - len({
                     (row["wid"], row["product_id"]) for row in groups["inventory"]

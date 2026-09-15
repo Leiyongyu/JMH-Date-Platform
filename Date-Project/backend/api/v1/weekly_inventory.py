@@ -12,6 +12,7 @@ from backend.repositories import weekly_inventory_repository as repo
 from backend.services.weekly_inventory_export_service import download_path
 from backend.services.weekly_inventory_sync_service import TASK_CODE
 from backend.services.weekly_inventory_regenerate_service import NO_SNAPSHOT
+from backend.services.weekly_inventory_delete_service import delete_weekly_inventory_file, WeeklyFileDeleteConflict
 
 router = APIRouter(prefix="/api/v1/weekly-inventory", dependencies=[Depends(require_internal_access)])
 LOG = logging.getLogger(__name__)
@@ -49,6 +50,21 @@ def download(file_id: int):
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/files/{file_id}/delete")
+def delete_file(file_id: int):
+    try:
+        return delete_weekly_inventory_file(file_id)
+    except WeeklyFileDeleteConflict as exc:
+        raise HTTPException(409, str(exc)) from None
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except Exception:
+        LOG.error('Weekly file deletion failed, file_id=%s', file_id)
+        raise HTTPException(500, '删除未完成，请刷新列表重试；库存源数据未删除') from None
 
 
 def _run(request_id):

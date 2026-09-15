@@ -8,6 +8,8 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from backend.config import settings
 from backend.services.weekly_inventory_sync_service import number
 
@@ -15,14 +17,24 @@ from backend.services.weekly_inventory_sync_service import number
 # are display labels and must not determine inclusion (names can change).
 EXPORT_WAREHOUSE_IDS = frozenset({18677, 19561})  # CTUAMZ-EU / CTUAMZ-UK 中转仓
 
-BASE_COLUMNS = [("仓库名称", "warehouse_name"), ("SKU", "sku"), ("产品名称", "product_name"),
-                ("本地产品id", "product_id"), ("实际库存总量", "product_total"), ("可用量", "product_valid_num"),
+# Contiguous provenance blocks. Age buckets, purchase price and inventory value
+# belong to inventoryDetails, NOT the product-management purchase-price field.
+BASE_COLUMNS = [("仓库名称", "warehouse_name"), ("SKU", "sku"), ("本地产品id", "product_id"),
+                ("实际库存总量", "product_total"), ("可用量", "product_valid_num"),
                 ("次品量", "product_bad_num"), ("待检待上架量", "product_qc_num"), ("锁定量", "product_lock_num")]
+BIN_COLUMNS = [("仓位名称", "whb_name"), ("总量(仓位)", "total"),
+               ("锁定量(仓位)", "lock_num"), ("未锁定量(仓位)", "valid_num")]
 SPEC_COLUMNS = [(f"采购-{label}规格-{direction}(CM)", f"cg_{key}_{axis}")
-                for label, key in (("产品", "product"), ("包装", "package"), ("外箱", "box"))
+                for label, key in (("包装", "package"), ("外箱", "box"))
                 for direction, axis in (("长", "length"), ("宽", "width"), ("高", "height"))]
 SPEC_COLUMNS += [("采购-产品净重(G)", "cg_product_net_weight"), ("采购-产品毛重(KG)", "cg_product_gross_weight"),
                  ("采购-外箱实重(KG)", "cg_box_weight")]
+PRODUCT_COLUMNS = [("产品名称", "product_name"), *SPEC_COLUMNS]
+SOURCE_STYLES = {
+    "inventory": {"header": "285E91", "body": "EAF2FA"},
+    "bin": {"header": "286B52", "body": "E9F4EE"},
+    "product": {"header": "9B5B17", "body": "FFF2E1"},
+}
 
 
 def export_root():
@@ -65,32 +77,48 @@ def build_rows(groups, names):
         ages.setdefault(key, {})[row["bucket_name"]] = row["qty"]
         label_order[row["bucket_name"]] = min(label_order.get(row["bucket_name"], row["bucket_index"]), row["bucket_index"])
     labels = sorted(label_order, key=lambda name: (label_order[name], name))
-    headers = [label for label, _ in BASE_COLUMNS] + labels + ["锁定量(仓位)", "未锁定量(仓位)"]
-    headers += [label for label, _ in SPEC_COLUMNS] + ["采购单价", "库存金额"]
+    headers = [label for label, _ in BASE_COLUMNS] + labels + ["采购单价", "库存金额"]
+    headers += [label for label, _ in BIN_COLUMNS] + [label for label, _ in PRODUCT_COLUMNS]
     output = []
     for key, source in sorted(inventory.items(), key=lambda pair: (str(names.get(pair[0][0]) or ""), str(pair[1].get("sku") or ""), pair[0])):
         product = products.get(source["product_id"], {})
         bin_rows = bins[key]
+        # Export named bins only; the original ODS snapshot remains complete.
+        # Unnamed quantities must not be added to a different, named bin.
+        bins_by_name = defaultdict(list)
+        for bin_row in bin_rows:
+            bin_name = str(bin_row.get("whb_name") or "").strip()
+            if bin_name:
+                bins_by_name[bin_name].append(bin_row)
+        if not bins_by_name:
+            continue
         row = {**source, "warehouse_name": names.get(source["wid"]) or next((b.get("wh_name") for b in bin_rows if b.get("wh_name")), None),
                "product_name": product.get("product_name") or next((b.get("product_name") for b in bin_rows if b.get("product_name")), None)}
         if not row["warehouse_name"]:
             raise ValueError(f"仓库 {source['wid']} 缺少名称，请先同步仓库字典")
-        values = [row.get(field) for _, field in BASE_COLUMNS]
         buckets = ages.get((*key, str(source["seller_id"])), {})
-        values += [buckets.get(label) for label in labels]
-        for field in ("lock_num", "valid_num"):
-            quantities = [number(b.get(field)) for b in bin_rows]
-            values.append(sum(quantities, Decimal(0)) if quantities and all(q is not None for q in quantities) else None)
-        for _, field in SPEC_COLUMNS:
-            value = product.get(field)
+        inventory_values = [row.get(field) for _, field in BASE_COLUMNS]
+        inventory_values += [buckets.get(label) for label in labels]
+        price, qty = number(source.get("purchase_price")), number(source.get("product_total"))
+        inventory_values += [price, price * qty if price is not None and qty is not None else None]
+        product_values = []
+        for _, field in PRODUCT_COLUMNS:
+            value = row["product_name"] if field == "product_name" else product.get(field)
             if field == "cg_product_gross_weight":
                 # Source/ODS remains grams; only the exported gross weight is kg.
                 value = number(value)
                 value = value / Decimal("1000") if value is not None else None
-            values.append(value)
-        price, qty = number(source.get("purchase_price")), number(source.get("product_total"))
-        values += [price, price * qty if price is not None and qty is not None else None]
-        output.append(values)
+            product_values.append(value)
+        for bin_name in sorted(bins_by_name):
+            bin_values = [bin_name]
+            for _, field in BIN_COLUMNS[1:]:
+                quantities = [number(b.get(field)) for b in bins_by_name[bin_name]]
+                # Do not infer total from locked/valid or turn missing into zero.
+                bin_values.append(sum(quantities, Decimal(0))
+                                  if quantities and all(q is not None for q in quantities) else None)
+            # Inventory/product values still repeat across bins; only the three
+            # bin metrics may be summed across this SKU's expanded rows.
+            output.append(inventory_values + bin_values + product_values)
     return headers, output
 
 
@@ -106,15 +134,35 @@ def write_export(groups, names, path: Path):
     selected["products"] = [row for row in groups["products"] if row["product_id"] in product_ids]
     headers, rows = build_rows(selected, names)
     if not rows:
-        raise ValueError("CTUAMZ-EU中转仓(18677)、CTUAMZ-UK中转仓(19561)没有可导出的周报数据")
+        raise ValueError("CTUAMZ-EU中转仓(18677)、CTUAMZ-UK中转仓(19561)没有可导出的周报数据（仅导出仓位名称非空的明细）")
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook(write_only=True)
     sheet = workbook.create_sheet("仓位库存明细")
-    sheet.freeze_panes = "E2"
-    def safe(values):
+    sheet.freeze_panes = "D2"  # Keep warehouse, SKU and product ID visible.
+    sheet.sheet_view.showGridLines = False
+    sheet.row_dimensions[1].height = 48
+    sheet.sheet_format.defaultRowHeight = 24
+    sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(rows) + 1}"
+    inventory_columns = len(headers) - len(BIN_COLUMNS) - len(PRODUCT_COLUMNS)
+    sources = (["inventory"] * inventory_columns + ["bin"] * len(BIN_COLUMNS)
+               + ["product"] * len(PRODUCT_COLUMNS))
+    fills = {group: {kind: PatternFill(fill_type="solid", fgColor=color)
+                     for kind, color in colors.items()}
+             for group, colors in SOURCE_STYLES.items()}
+    header_font = Font(name="Microsoft YaHei", size=10, bold=True, color="FFFFFF")
+    body_font = Font(name="Microsoft YaHei", size=10, color="253344")
+    for column, label in enumerate(headers, 1):
+        width = {"仓库名称": 26, "SKU": 27, "本地产品id": 16, "产品名称": 42, "仓位名称": 27}.get(label, 19)
+        sheet.column_dimensions[get_column_letter(column)].width = width
+
+    def safe(values, *, header=False):
         cells = []
-        for value in values:
+        for value, source in zip(values, sources, strict=True):
             cell = WriteOnlyCell(sheet, value=value)
+            cell.fill = fills[source]["header" if header else "body"]
+            cell.font = header_font if header else body_font
+            cell.alignment = Alignment(horizontal="center" if header else "left" if isinstance(value, str) else "right",
+                                       vertical="center", wrap_text=header)
             if isinstance(value, str):
                 cell.data_type = "s"  # Never execute an imported SKU/name as a formula.
             if isinstance(value, Decimal):
@@ -123,7 +171,7 @@ def write_export(groups, names, path: Path):
                 cell.number_format = "0" if value == value.to_integral_value() else "0.0#####"
             cells.append(cell)
         return cells
-    sheet.append(safe(headers))
+    sheet.append(safe(headers, header=True))
     for row in rows:
         sheet.append(safe(row))
     fd, temporary = tempfile.mkstemp(prefix=".weekly-", suffix=".xlsx", dir=path.parent)

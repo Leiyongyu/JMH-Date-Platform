@@ -75,7 +75,8 @@ public class WeeklyInventoryProxyController
         String path = uri.substring(root.length());
         if (path.isEmpty() || path.equals("/")) path = "/index.html";
         if (!allowed(request.getMethod(), path)) { response.sendError(404); return; }
-        if ("POST".equals(request.getMethod()) && queryToken == null)
+        if ("POST".equals(request.getMethod())
+                && (queryToken == null || path.matches("/files/[1-9][0-9]{0,18}/delete")))
         {
             String fetchSite = request.getHeader("Sec-Fetch-Site");
             if (!"1".equals(request.getHeader("X-Weekly-Request"))
@@ -111,7 +112,7 @@ public class WeeklyInventoryProxyController
                     .header("X-Request-Id", "weekly-proxy-" + UUID.randomUUID());
             if (properties.getInternalToken() != null && !properties.getInternalToken().isBlank())
                 builder.header("X-Internal-Token", properties.getInternalToken());
-            // The only POST is a parameterless background command; no user body is forwarded.
+            // POST commands (generate/delete) use only the validated route; never forward user bodies.
             if (request.getMethod().equals("POST")) builder.POST(HttpRequest.BodyPublishers.noBody());
             else builder.GET();
             HttpResponse<java.io.InputStream> upstream = client.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream());
@@ -136,7 +137,8 @@ public class WeeklyInventoryProxyController
 
     static boolean allowed(String method, String path)
     {
-        return ("POST".equals(method) && "/run".equals(path))
+        return ("POST".equals(method) && ("/run".equals(path)
+                || path.matches("/files/[1-9][0-9]{0,18}/delete")))
                 || ("GET".equals(method) && ("/index.html".equals(path) || "/files".equals(path)
                 || path.matches("/files/[1-9][0-9]{0,18}/download")));
     }

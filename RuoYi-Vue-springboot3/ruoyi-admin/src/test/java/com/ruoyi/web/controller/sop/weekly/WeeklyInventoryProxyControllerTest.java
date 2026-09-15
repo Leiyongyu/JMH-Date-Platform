@@ -162,4 +162,56 @@ class WeeklyInventoryProxyControllerTest
         assertEquals("abc+123",WeeklyInventoryProxyController.query("api_base=x&erp_session=abc%2B123","erp_session"));
         assertThrows(IllegalArgumentException.class,()->WeeklyInventoryProxyController.query("erp_session=a&erp_session=b","erp_session"));
     }
+
+    @Test void deleteRouteIsStrictlyPostAndNumeric()
+    {
+        assertTrue(WeeklyInventoryProxyController.allowed("POST", "/files/7/delete"));
+        assertFalse(WeeklyInventoryProxyController.allowed("GET", "/files/7/delete"));
+        assertFalse(WeeklyInventoryProxyController.allowed("POST", "/files/0/delete"));
+        assertFalse(WeeklyInventoryProxyController.allowed("POST", "/files/../delete"));
+        assertFalse(WeeklyInventoryProxyController.allowed("POST", "/files/7/delete/extra"));
+        assertFalse(WeeklyInventoryProxyController.allowed("POST", "/files/%37/delete"));
+    }
+
+    @Test void deleteWithoutPermissionNeverReachesPython() throws Exception
+    {
+        HttpClient client = upstream();
+        ImageSopSessionService sessions = mock(ImageSopSessionService.class);
+        WeeklyInventoryProxyController controller = new WeeklyInventoryProxyController(
+            sessions, new PythonPerformanceTaskProperties(), client);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", WeeklyInventoryProxyController.PREFIX+"/files/7/delete");
+        request.setCookies(new Cookie(WeeklyInventoryProxyController.SESSION_COOKIE, TOKEN));
+        request.addHeader("X-Weekly-Request", "1");
+        request.addHeader("Sec-Fetch-Site", "same-origin");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        controller.proxy(request, response);
+        assertEquals(403, response.getStatus());
+        verify(sessions).validateAndTouch(TOKEN, WeeklyInventoryProxyController.PERMISSION);
+        verifyNoInteractions(client);
+    }
+
+    @Test void deleteRequiresSameOriginMarkerEvenWithQueryTicket() throws Exception
+    {
+        HttpClient client = upstream();
+        WeeklyInventoryProxyController controller = new WeeklyInventoryProxyController(
+            validSessions(), new PythonPerformanceTaskProperties(), client);
+        for (boolean queryTicket : new boolean[]{false, true})
+        {
+            for (String site : new String[]{"cross-site", "same-site", "same-origin", "missing-marker"})
+            {
+                MockHttpServletRequest request = new MockHttpServletRequest("POST", WeeklyInventoryProxyController.PREFIX+"/files/7/delete");
+                if (queryTicket) request.setQueryString("erp_session="+TOKEN);
+                else request.setCookies(new Cookie(WeeklyInventoryProxyController.SESSION_COOKIE, TOKEN));
+                if (!site.equals("missing-marker")) request.addHeader("X-Weekly-Request", "1");
+                request.addHeader("Sec-Fetch-Site", site.equals("missing-marker") ? "same-origin" : site);
+                MockHttpServletResponse response = new MockHttpServletResponse();
+                controller.proxy(request, response);
+                assertEquals(site.equals("same-origin") ? 200 : 403, response.getStatus());
+            }
+        }
+        verify(client, times(2)).send(argThat(r -> r.method().equals("POST")
+            && r.uri().getPath().endsWith("/api/v1/weekly-inventory/files/7/delete")
+            && r.uri().getRawQuery() == null && r.bodyPublisher().orElseThrow().contentLength() == 0),
+            any(HttpResponse.BodyHandler.class));
+    }
 }

@@ -223,7 +223,7 @@ def test_failed_api_does_not_write_snapshot_and_keeps_safe_error(monkeypatch, tm
     begin, finish, insert = MagicMock(), MagicMock(), MagicMock()
     monkeypatch.setattr(sync.repo, 'begin_export', begin)
     monkeypatch.setattr(sync.repo, 'finish_export', finish)
-    monkeypatch.setattr(sync.repo, 'insert_snapshot', insert)
+    monkeypatch.setattr(sync.repo, 'replace_snapshot_and_finish_export', insert)
     with pytest.raises(api.WeeklyRequestError):
         sync.sync_weekly_inventory()
     factory.assert_called_once_with(max_retries=0)
@@ -532,7 +532,7 @@ def test_json_eof_failure_never_writes_partial_snapshot(monkeypatch, tmp_path):
     monkeypatch.setattr(sync.repo, "begin_export", MagicMock())
     finish, insert = MagicMock(), MagicMock()
     monkeypatch.setattr(sync.repo, "finish_export", finish)
-    monkeypatch.setattr(sync.repo, "insert_snapshot", insert)
+    monkeypatch.setattr(sync.repo, "replace_snapshot_and_finish_export", insert)
     with pytest.raises(api.WeeklyRequestError, match="重试次数耗尽"):
         sync.sync_weekly_inventory()
     assert client.post_signed_query_auth.call_count == 4

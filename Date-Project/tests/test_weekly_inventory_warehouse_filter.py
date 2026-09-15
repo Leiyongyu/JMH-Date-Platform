@@ -34,6 +34,8 @@ def snapshot(warehouse_ids=(EU_WID, UK_WID, OTHER_WID)):
         ))
         bins.append(dict(
             wid=wid, whb_id=1, product_id=7, wh_name=NAMES[wid],
+            whb_name=f"BIN-{wid}",
+            total=quantities[wid] + 5,
             lockNum=locked[wid], validNum=quantities[wid] - locked[wid],
         ))
     products = [dict(id=7, sku="SHARED-SKU", product_name="共同产品")]
@@ -66,7 +68,7 @@ def test_export_keeps_only_target_ids_without_merging_shared_sku(tmp_path):
     headers, rows = read_export(path)
 
     assert metrics["row_count"] == len(rows) == 2
-    assert metrics["column_count"] == len(headers)
+    assert metrics["column_count"] == len(headers) == 26  # 24 fixed + 2 age buckets
     assert {row["仓库名称"] for row in rows} == {NAMES[EU_WID], NAMES[UK_WID]}
     assert [row["SKU"] for row in rows] == ["SHARED-SKU", "SHARED-SKU"]
     by_warehouse = {row["仓库名称"]: row for row in rows}
@@ -75,6 +77,9 @@ def test_export_keeps_only_target_ids_without_merging_shared_sku(tmp_path):
     assert (uk["实际库存总量"], uk["采购单价"], uk["库存金额"]) == (4, 3.25, 13)
     assert (eu["锁定量(仓位)"], eu["未锁定量(仓位)"]) == (2, 8)
     assert (uk["锁定量(仓位)"], uk["未锁定量(仓位)"]) == (1, 3)
+    assert (eu['总量(仓位)'], uk['总量(仓位)']) == (15, 9)
+    assert eu['仓位名称'] == f'BIN-{EU_WID}'
+    assert uk['仓位名称'] == f'BIN-{UK_WID}'
     assert eu["0-29天"] == 10 and eu["30-89天"] is None
     assert uk["0-29天"] is None and uk["30-89天"] == 4
     assert "其他仓独有库龄档" not in headers
@@ -87,6 +92,61 @@ def test_export_uses_id_even_when_target_names_change(tmp_path):
     _, rows = read_export(path)
     assert {row["仓库名称"] for row in rows} == {"EU仓新名称", "UK仓新名称"}
     assert len(rows) == 2
+
+
+def test_multiple_bin_rows_stay_with_their_warehouse_and_product(tmp_path):
+    groups = snapshot()
+    eu_bin = next(row for row in groups['bins'] if row['wid'] == EU_WID)
+    uk_bin = next(row for row in groups['bins'] if row['wid'] == UK_WID)
+    groups['bins'].extend([
+        {**eu_bin, 'whb_id': 2, 'whb_name': 'EU-SECOND'},
+        {**uk_bin, 'whb_id': 2, 'whb_name': 'UK-SECOND'},
+        {**eu_bin, 'whb_id': 3, 'product_id': 8, 'whb_name': 'UNRELATED-PRODUCT'},
+    ])
+    before = deepcopy(groups)
+    path = tmp_path / 'two-warehouses-multiple-bins.xlsx'
+    metrics = export.write_export(groups, NAMES, path)
+    _, rows = read_export(path)
+    assert metrics['row_count'] == len(rows) == 4
+    for wid, bin_name, quantity, cost, locked, unlocked in [
+        (EU_WID, 'EU-SECOND', 10, 25, 2, 8),
+        (UK_WID, 'UK-SECOND', 4, 13, 1, 3),
+    ]:
+        warehouse_rows = [row for row in rows if row['仓库名称'] == NAMES[wid]]
+        assert [row.pop('仓位名称') for row in warehouse_rows] == [f'BIN-{wid}', bin_name]
+        assert len(warehouse_rows) == 2 and warehouse_rows[0] == warehouse_rows[1]
+        row = warehouse_rows[0]
+        assert row['SKU'] == 'SHARED-SKU'
+        assert (row['实际库存总量'], row['库存金额']) == (quantity, cost)
+        assert (row['锁定量(仓位)'], row['未锁定量(仓位)']) == (locked, unlocked)
+        assert row['总量(仓位)'] == quantity + 5
+        assert row['0-29天'] == (10 if wid == EU_WID else None)
+        assert row['30-89天'] == (4 if wid == UK_WID else None)
+    assert groups == before
+
+
+def test_same_bin_name_is_aggregated_only_within_warehouse_and_product(tmp_path):
+    groups = snapshot()
+    for row in groups['bins']:
+        row['whb_name'] = ' SHARED-BIN '
+    eu_bin = next(row for row in groups['bins'] if row['wid'] == EU_WID)
+    groups['bins'].extend([
+        {**eu_bin, 'whb_id': 2, 'store_id': 'another-shop', 'whb_name': 'SHARED-BIN',
+         'total': 7, 'lock_num': 0, 'valid_num': 6},
+        {**eu_bin, 'whb_id': 3, 'product_id': 8, 'total': 999,
+         'lock_num': 999, 'valid_num': 999},
+    ])
+    before = deepcopy(groups)
+    path = tmp_path / 'same-bin-name.xlsx'
+    metrics = export.write_export(groups, NAMES, path)
+    _, rows = read_export(path)
+    assert metrics['row_count'] == len(rows) == 2
+    by_warehouse = {row['仓库名称']: row for row in rows}
+    for wid, total, locked, valid in [(EU_WID, 22, 2, 14), (UK_WID, 9, 1, 3)]:
+        row = by_warehouse[NAMES[wid]]
+        assert row['仓位名称'] == 'SHARED-BIN'
+        assert (row['总量(仓位)'], row['锁定量(仓位)'], row['未锁定量(仓位)']) == (total, locked, valid)
+    assert groups == before
 
 
 def test_export_does_not_modify_full_snapshot(tmp_path):

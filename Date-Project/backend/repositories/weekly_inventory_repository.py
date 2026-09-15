@@ -1,4 +1,4 @@
-"""Immutable, batch-scoped weekly snapshots. No day-level delete/replace."""
+"""Keep one complete weekly snapshot; replace all four ODS tables atomically."""
 from __future__ import annotations
 
 import json
@@ -47,11 +47,47 @@ def require_bin_identity_schema():
             raise ValueError(message)
 
 
-def insert_snapshot(groups: dict[str, list[dict[str, Any]]]) -> int:
+def replace_snapshot_and_finish_export(
+    groups: dict[str, list[dict[str, Any]]], *, file_name: str,
+    row_count: int, column_count: int, file_size: int,
+) -> dict[str, int]:
+    """Publish one ready snapshot and prune older batches in one transaction.
+
+    Caller holds inventory:weekly-export and has already generated the complete
+    Excel. A failed extraction/export/transaction must leave the previous usable
+    snapshot intact. Export records and physical Excel archives are never pruned.
+    """
+    if set(groups) != set(TABLES) or not groups['inventory'] or not groups['products']:
+        raise ValueError('新周报快照不完整，拒绝替换旧快照')
+    batch = groups['inventory'][0].get('sync_batch_id')
+    day = groups['inventory'][0].get('snapshot_date')
+    if not isinstance(batch, str) or not batch.strip() or day is None:
+        raise ValueError('新周报快照缺少批次或日期，拒绝替换旧快照')
+    if any(row.get('sync_batch_id') != batch or row.get('snapshot_date') != day
+           for rows in groups.values() for row in rows):
+        raise ValueError('新周报快照混入其他批次或日期，拒绝替换旧快照')
+    product_ids = {row.get('product_id') for row in groups['products']}
+    if None in product_ids or not {row.get('product_id') for row in groups['inventory']}.issubset(product_ids):
+        raise ValueError('新周报产品详情不完整，拒绝替换旧快照')
+    if not file_name or any(isinstance(value, bool) or not isinstance(value, int) or value <= 0
+                            for value in (row_count, column_count, file_size)):
+        raise ValueError('周报文件尚未完整生成，拒绝替换旧快照')
     count = 0
+    deleted = 0
     with db_connection() as connection:
         try:
+            # DBUtils only disables transparent reconnect/replay after begin();
+            # autocommit=False alone does not mark its wrapper as transactional.
+            connection.begin()
             with connection.cursor() as cursor:
+                cursor.execute(
+                    'SELECT status,snapshot_date FROM ops_weekly_export_file '
+                    'WHERE export_code=%s AND sync_batch_id=%s AND file_name=%s FOR UPDATE',
+                    (EXPORT_CODE, batch, file_name),
+                )
+                record = cursor.fetchone()
+                if not record or record['status'] != 'RUNNING' or record['snapshot_date'] != day:
+                    raise ValueError('周报生成记录不存在或状态已变化，拒绝替换旧快照')
                 for group, table in TABLES.items():
                     rows = groups[group]
                     if not rows:
@@ -67,11 +103,24 @@ def insert_snapshot(groups: dict[str, list[dict[str, Any]]]) -> int:
                                         for c in columns) for row in rows[start:start + 500]]
                         cursor.executemany(query, values)
                     count += len(rows)
+                # Insert first; never commit a deletion before the replacement.
+                # Static table allowlist only, no TRUNCATE/DDL or filesystem work.
+                for table in TABLES.values():
+                    cursor.execute(f'DELETE FROM `{table}` WHERE sync_batch_id<>%s', (batch,))
+                    deleted += cursor.rowcount
+                cursor.execute(
+                    "UPDATE ops_weekly_export_file SET status='SUCCESS',error_message=NULL,"
+                    'row_count=%s,column_count=%s,file_size=%s,generated_at=NOW() '
+                    "WHERE export_code=%s AND sync_batch_id=%s AND file_name=%s AND status='RUNNING'",
+                    (row_count, column_count, file_size, EXPORT_CODE, batch, file_name),
+                )
+                if cursor.rowcount != 1:
+                    raise RuntimeError('周报文件登记缺失或状态已变化，旧快照保留')
             connection.commit()
         except Exception:
             connection.rollback()
             raise
-    return count
+    return {'ods_rows': count, 'deleted_rows': deleted}
 
 
 def snapshot(batch: str) -> dict[str, list[dict]]:
@@ -84,7 +133,7 @@ def snapshot(batch: str) -> dict[str, list[dict]]:
 
 
 def latest_completed_snapshot():
-    """Reuse only a committed batch with a successful export, ordered by pull time.
+    """Reuse a committed batch that has had a successful export, even if deleted.
 
     Re-export time must not make older inventory appear to be a newer snapshot.
     Empty bin/age tables can be legitimate, so inventory is the batch anchor.
@@ -95,7 +144,7 @@ def latest_completed_snapshot():
             "FROM ods_lingxing_inventory_detail_weekly i "
             "WHERE EXISTS (SELECT 1 FROM ops_weekly_export_file f "
             "WHERE f.export_code=%s AND f.sync_batch_id=i.sync_batch_id "
-            "AND f.snapshot_date=i.snapshot_date AND f.status='SUCCESS') "
+            "AND f.snapshot_date=i.snapshot_date AND f.status IN ('SUCCESS','DELETE_PENDING','DELETED')) "
             "GROUP BY i.sync_batch_id,i.snapshot_date "
             "ORDER BY pulled_at DESC,i.snapshot_date DESC,i.sync_batch_id DESC LIMIT 1",
             (EXPORT_CODE,),
@@ -128,23 +177,31 @@ def begin_export(batch, day, filename, path, trigger):
 
 def finish_export(batch, *, file_name, error=None, row_count=None, column_count=None, file_size=None):
     with db_connection() as connection, connection.cursor() as cursor:
+        # A lost COMMIT response can make a successful atomic replacement look
+        # failed to the caller. Never downgrade that only usable snapshot.
+        guard = " AND status='RUNNING'" if error else ''
         cursor.execute("UPDATE ops_weekly_export_file SET status=%s,error_message=%s,"
                        "row_count=%s,column_count=%s,file_size=%s,generated_at=NOW() "
-                       "WHERE export_code=%s AND sync_batch_id=%s AND file_name=%s",
+                       "WHERE export_code=%s AND sync_batch_id=%s AND file_name=%s" + guard,
                        ("FAILED" if error else "SUCCESS", error, row_count, column_count,
                         file_size, EXPORT_CODE, batch, file_name))
         if cursor.rowcount != 1:
-            raise RuntimeError("周报文件登记缺失或批次重复")
+            cursor.execute('SELECT status FROM ops_weekly_export_file '
+                           'WHERE export_code=%s AND sync_batch_id=%s AND file_name=%s',
+                           (EXPORT_CODE, batch, file_name))
+            record = cursor.fetchone()
+            if not error or not record or record['status'] != 'SUCCESS':
+                raise RuntimeError("周报文件登记缺失或批次重复")
         connection.commit()
 
 
 def list_files(page: int, limit: int):
     with db_connection() as connection, connection.cursor() as cursor:
-        cursor.execute("SELECT COUNT(*) total FROM ops_weekly_export_file WHERE export_code=%s", (EXPORT_CODE,))
+        cursor.execute("SELECT COUNT(*) total FROM ops_weekly_export_file WHERE export_code=%s AND status<>'DELETED'", (EXPORT_CODE,))
         total = cursor.fetchone()["total"]
         cursor.execute("SELECT id,snapshot_date,sync_batch_id,file_name,file_size,row_count,column_count,"
                        "status,error_message,trigger_type,generated_at FROM ops_weekly_export_file "
-                       "WHERE export_code=%s ORDER BY id DESC LIMIT %s OFFSET %s",
+                       "WHERE export_code=%s AND status<>'DELETED' ORDER BY id DESC LIMIT %s OFFSET %s",
                        (EXPORT_CODE, limit, (page - 1) * limit))
         return {"items": list(cursor.fetchall()), "total": total}
 
@@ -153,3 +210,29 @@ def file_record(file_id: int):
     with db_connection() as connection, connection.cursor() as cursor:
         cursor.execute("SELECT * FROM ops_weekly_export_file WHERE export_code=%s AND id=%s", (EXPORT_CODE, file_id))
         return cursor.fetchone()
+
+
+def mark_file_delete_pending(file_id: int):
+    """Durably record intent before touching a file; never remove the audit row."""
+    _change_file_delete_status(file_id, 'SUCCESS', 'DELETE_PENDING', '永久删除请求已登记；等待文件清理完成')
+
+
+def mark_file_deleted(file_id: int):
+    _change_file_delete_status(file_id, 'DELETE_PENDING', 'DELETED', 'Excel文件已永久删除；库存快照保留')
+
+
+def _change_file_delete_status(file_id, previous, status, message):
+    with db_connection() as connection:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE ops_weekly_export_file SET status=%s,error_message=%s "
+                    "WHERE export_code=%s AND id=%s AND status=%s",
+                    (status, message, EXPORT_CODE, file_id, previous),
+                )
+                if cursor.rowcount != 1:
+                    raise ValueError('文件状态已变化，请刷新列表后重试')
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise

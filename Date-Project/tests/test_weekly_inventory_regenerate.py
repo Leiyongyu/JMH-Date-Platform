@@ -18,7 +18,8 @@ def prepared(monkeypatch, tmp_path):
     source = dict(sync_batch_id='existing-batch', snapshot_date=day, pulled_at=datetime(2026, 9, 1))
     groups = sync.normalize(
         [dict(wid=18677,product_id=2,sku='SKU',product_total=10,purchase_price=2),
-         dict(wid=18678,product_id=2,sku='SKU',product_total=99,purchase_price=2)], [],
+         dict(wid=18678,product_id=2,sku='SKU',product_total=99,purchase_price=2)],
+        [dict(wid=18677,whb_id=3,product_id=2,whb_name='A-01',total=10,lockNum=0,validNum=10)],
         [dict(id=2,product_name='Product')],day,'existing-batch',datetime(2026,9,1))
     monkeypatch.setattr(repo, 'latest_completed_snapshot', lambda: source)
     monkeypatch.setattr(repo, 'snapshot', lambda batch: groups)
@@ -27,7 +28,8 @@ def prepared(monkeypatch, tmp_path):
     begin, finish, insert, client = MagicMock(), MagicMock(), MagicMock(), MagicMock()
     monkeypatch.setattr(repo, 'begin_export', begin)
     monkeypatch.setattr(repo, 'finish_export', finish)
-    monkeypatch.setattr(repo, 'insert_snapshot', insert)
+    monkeypatch.setattr(repo, 'replace_snapshot_and_finish_export', insert)
+    monkeypatch.setattr(repo, 'db_connection', MagicMock(side_effect=AssertionError('manual export must not mutate ODS')))
     monkeypatch.setattr(sync, 'LingXingClient', client)
     return groups, begin, finish, insert, client, tmp_path
 
@@ -41,7 +43,7 @@ def test_repeat_export_keeps_source_date_and_does_not_extract_or_write_ods(prepa
     assert first['snapshot_date'] == second['snapshot_date'] == '2026-09-01'
     assert first['file_name'] != second['file_name']
     assert first['extract_rows'] == first['ods_rows'] == 0
-    assert first['column_count'] == 25
+    assert first['column_count'] == 24
     assert first['row_count'] == second['row_count'] == 1
     assert {row['wid'] for row in groups['inventory']} == {18677, 18678}
     assert len(list(root.glob('*.xlsx'))) == 2
@@ -101,7 +103,7 @@ def test_latest_snapshot_orders_by_original_pull_not_regeneration(monkeypatch):
     monkeypatch.setattr(repo, 'db_connection', connect)
     repo.latest_completed_snapshot()
     sql, params = cursor.execute.call_args.args
-    assert "f.status='SUCCESS'" in sql
+    assert "f.status IN ('SUCCESS','DELETE_PENDING','DELETED')" in sql
     assert 'MAX(i.pulled_at)' in sql and 'ORDER BY pulled_at DESC' in sql
     assert 'generated_at' not in sql
 

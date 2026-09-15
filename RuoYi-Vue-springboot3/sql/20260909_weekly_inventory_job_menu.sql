@@ -18,7 +18,7 @@ INSERT INTO sys_job
   create_by,create_time,remark)
 SELECT '仓位库存明细周报','DEFAULT','pythonWeeklyInventoryTask.runWeekly()',
  '0 30 7 ? * MON','2','1','0','SYSTEM',NOW(),
- '全仓实时周快照；周一07:30；旧文件及旧批次永久保留；运行可能超过十分钟'
+ '全仓实时周快照；周一07:30；源数据仅保留最新成功批次，旧Excel手动管理；运行可能超过十分钟'
 WHERE NOT EXISTS(SELECT 1 FROM sys_job WHERE invoke_target='pythonWeeklyInventoryTask.runWeekly()');
 COMMIT;
 SELECT IF(@weekly_parent IS NULL,'错误：未找到脚本菜单，需先部署脚本工作台再重跑本脚本','脚本菜单父级已找到') AS result;

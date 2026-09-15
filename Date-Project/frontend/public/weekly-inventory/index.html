@@ -5,6 +5,7 @@
 <meta name="referrer" content="no-referrer"><title>仓位库存明细周报</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#24334c;font:15px/1.6 system-ui,"Microsoft YaHei",sans-serif}main{max-width:1320px;margin:40px auto;padding:0 24px}h1{font-size:28px;margin:0}p{color:#68758a}.toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:24px 0}button{border:1px solid #cbd5e1;border-radius:7px;padding:9px 18px;background:white;color:#233a58;cursor:pointer}button.primary{background:#2563eb;color:white;border-color:#2563eb}button:disabled{opacity:.45;cursor:not-allowed}.panel{background:white;border:1px solid #e0e6ef;border-radius:12px;overflow:auto}table{border-collapse:collapse;width:100%;min-width:920px}th,td{padding:15px;text-align:left;border-bottom:1px solid #edf0f5}th{background:#f8fafc;white-space:nowrap}.status{font-weight:600}.SUCCESS{color:#168248}.FAILED,.INTERRUPTED{color:#c24135}.RUNNING{color:#b77900}#message{white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0;color:#536887}.error{color:#b42318!important}small{display:block;color:#788499;max-width:550px;overflow-wrap:anywhere}.pager{display:flex;justify-content:flex-end;gap:12px;align-items:center;margin:20px 0}
+button.danger{color:#b42318;border-color:#f0a6a0;margin-left:8px}.DELETE_PENDING{color:#b42318}
 </style>
 </head>
 <body><main>
@@ -14,7 +15,10 @@
 <div id="message" role="status" aria-live="polite"></div>
 <section class="panel"><table><thead><tr><th>快照日期 / 文件</th><th>状态</th><th>行 / 列</th><th>文件大小</th><th>完成 / 开始时间</th><th>操作</th></tr></thead><tbody id="rows"></tbody></table></section>
 <div class="pager"><button id="previous">上一页</button><span id="pageLabel"></span><button id="next">下一页</button></div>
-<small>快照日期是原数据拉取日期，不是本次生成时间。每次生成独立新文件，不重复写入库存明细，不覆盖历史文件；缺失值保留空白，0 仍显示为 0。</small>
+<small>库存源数据仅保留最近一份完整成功快照；新批次失败时保留上一份。快照日期是原数据拉取日期，不是本次生成时间。页面生成不重复写库存明细、不覆盖历史文件。旧 Excel 可下载或手动永久删除，但已替换的旧快照不能恢复。缺失值保留空白，0 仍显示为 0。</small>
+<small>仅导出 CTUAMZ-EU 与 CTUAMZ-UK 中转仓中仓位名称非空的明细。空名称、纯空白名称及无有效仓位名称的 SKU 不导出，源数据仍保留。三个仓位数量按同仓、同产品、当前仓位名称汇总，缺失数量不补0。</small>
+<small>库存及产品信息随仓位行重复。库存数量、库龄数量、库存金额不能跨仓位直接相加，须先按仓库＋本地产品id去重。</small>
+<small>Excel 来源图例：蓝色＝库存明细（含采购单价、库存金额），绿色＝仓位明细，橙色＝产品管理。产品规格长宽高已移除，包装/外箱规格与重量保留。使用现有快照重新生成即可应用新格式，旧文件不变。</small>
 </main>
 <script>
 'use strict';
@@ -25,6 +29,8 @@ history.replaceState(null, '', location.pathname);
 const $ = id => document.getElementById(id);
 let page = 1, total = 0, loading = false, submitting = false, alive = true, generation = 0;
 let snapshotAvailable = false;
+const deletingIds = new Set();
+let reloadRequested = false;
 function url(path) { return new URL(path.replace(/^\//,''), base); }
 function message(text, error=false) { $('message').textContent=text; $('message').className=error?'error':''; }
 async function request(path, options={}) {
@@ -38,19 +44,23 @@ async function request(path, options={}) {
 }
 function cell(row, text) { const td=document.createElement('td');td.textContent=text ?? '--';row.append(td);return td; }
 async function load() {
- if (loading || !alive) return;
+ if (!alive) return;
+ if (loading || deletingIds.size) {reloadRequested=true;return;}
+ reloadRequested=false;
  loading=true; const version=++generation;
  try {
   const response=await request(`files?page=${page}&limit=20`), data=await response.json();
   if (!alive || version!==generation) return;
-  total=data.total; $('rows').replaceChildren();
+  total=data.total;
+  if(page>1 && (page-1)*20>=total){page=Math.max(1,Math.ceil(total/20));reloadRequested=true;return;}
+  $('rows').replaceChildren();
   snapshotAvailable=Boolean(data.latest_snapshot);
   $('snapshotInfo').textContent=snapshotAvailable
    ?`当前可用快照：${data.latest_snapshot.snapshot_date}（拉取时间：${data.latest_snapshot.pulled_at?.replace('T',' ')||'--'}）`
    :'暂无成功快照，请先等待定时任务完成拉取。';
   $('generate').disabled=submitting||!snapshotAvailable;
   if(data.generation_error)message(data.generation_error,true);
-  const labels={SUCCESS:'已生成',RUNNING:'生成中',FAILED:'失败',INTERRUPTED:'执行中断'};
+  const labels={SUCCESS:'已生成',RUNNING:'生成中',FAILED:'失败',INTERRUPTED:'执行中断',DELETE_PENDING:'删除未完成'};
   for (const item of data.items) {
    const tr=document.createElement('tr');
    const title=cell(tr,item.snapshot_date); const name=document.createElement('small');name.textContent=item.file_name;title.append(name);
@@ -60,12 +70,29 @@ async function load() {
    cell(tr,`${item.row_count??'--'} / ${item.column_count??'--'}`);cell(tr,item.file_size==null?'--':(item.file_size/1024).toFixed(1)+' KB');cell(tr,item.generated_at?.replace('T',' '));
    const action=cell(tr,'');const button=document.createElement('button');button.textContent='下载 Excel';button.disabled=item.status!=='SUCCESS';
    button.onclick=async()=>{button.disabled=true;try{const r=await request(`files/${item.id}/download`);const blob=await r.blob();const href=URL.createObjectURL(blob);const a=document.createElement('a');a.href=href;a.download=item.file_name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),1000);}catch(e){message(e.message,true);}finally{button.disabled=false;}};
-   action.append(button);$('rows').append(tr);
+   action.append(button);
+   if(item.status==='SUCCESS'||item.status==='DELETE_PENDING'){
+    const remove=document.createElement('button');remove.className='danger';remove.textContent=item.status==='DELETE_PENDING'?'重试删除':'删除文件';
+    remove.disabled=deletingIds.has(item.id);remove.onclick=()=>deleteFile(item,remove,button);action.append(remove);
+   }
+   $('rows').append(tr);
   }
   if(!data.items.length){const row=document.createElement('tr');const empty=cell(row,'暂无周报，请先等待定时任务完成拉取并生成文件。');empty.colSpan=6;$('rows').append(row);}
   $('pageLabel').textContent=`第 ${page} 页 · 共 ${total} 份`;
   $('previous').disabled=page<=1;$('next').disabled=page*20>=total;
- } catch(e){message(e.message,true);}finally{loading=false;}
+ } catch(e){message(e.message,true);}finally{
+  loading=false;
+  if(reloadRequested&&alive&&!deletingIds.size){reloadRequested=false;void load();}
+ }
+}
+async function deleteFile(item,button,downloadButton){
+ if(deletingIds.has(item.id)||!confirm(`确定永久删除以下 Excel 文件？\n${item.file_name}\n\n将释放磁盘空间，旧文件无法直接恢复。删除不影响当前保留的最新快照，但不能保证重新生成此旧文件的数据。`))return;
+ deletingIds.add(item.id);generation++;button.disabled=true;downloadButton.disabled=true;
+ try{
+  const response=await request(`files/${item.id}/delete`,{method:'POST'});
+  const data=await response.json();message(data.message||'文件已永久删除，库存源数据保留。');
+ }catch(error){message(error.message,true);}
+ finally{deletingIds.delete(item.id);button.disabled=false;await load();}
 }
 $('generate').onclick=async()=>{
  if(submitting||!snapshotAvailable||!confirm('使用最近一次成功快照生成新 Excel，不拉取数据、不覆盖历史文件。确定生成？'))return;

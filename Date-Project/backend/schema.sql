@@ -1048,7 +1048,7 @@ CREATE TABLE IF NOT EXISTS `ops_weekly_export_file` (
   `file_size` BIGINT NULL COMMENT '文件字节数',
   `row_count` INT NULL COMMENT '数据行数（不含表头）',
   `column_count` INT NULL COMMENT '列数',
-  `status` VARCHAR(20) NOT NULL DEFAULT 'SUCCESS' COMMENT 'RUNNING / SUCCESS / FAILED / INTERRUPTED',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'SUCCESS' COMMENT 'RUNNING / SUCCESS / FAILED / INTERRUPTED / DELETE_PENDING / DELETED',
   `error_message` TEXT NULL COMMENT '失败原因',
   `trigger_type` VARCHAR(20) NOT NULL DEFAULT 'job' COMMENT 'job=定时触发 manual=页面手动',
   `generated_at` DATETIME NOT NULL COMMENT '文件生成完成时间',
@@ -1057,4 +1057,4 @@ CREATE TABLE IF NOT EXISTS `ops_weekly_export_file` (
   UNIQUE KEY `uk_export_file` (`export_code`,`snapshot_date`,`file_name`),
   KEY `idx_export_code_date` (`export_code`,`snapshot_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT='周报导出文件留底登记；部署机文件永不删除';
+COMMENT='周报导出文件登记；可手动永久删除Excel，保留登记记录与库存快照';

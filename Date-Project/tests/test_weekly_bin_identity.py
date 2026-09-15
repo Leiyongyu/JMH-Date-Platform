@@ -11,7 +11,7 @@ from backend.repositories import weekly_inventory_repository as repo
 
 
 def row(**changes):
-    return dict(dict(wid=18678, whb_id=59911, product_id=403591, sku='FCA-50457-0695',
+    return dict(dict(wid=18678, whb_id=59911, whb_name='A-01', product_id=403591, sku='FCA-50457-0695',
                      store_id='0', msku='', fnsku='', total=10, lockNum=10, validNum=0), **changes)
 
 
@@ -97,7 +97,7 @@ def test_missing_migration_fails_before_any_lingxing_call(monkeypatch, tmp_path)
     monkeypatch.setattr(export, 'export_root', lambda: tmp_path)
     monkeypatch.setattr(repo, 'begin_export', MagicMock())
     monkeypatch.setattr(repo, 'finish_export', finish)
-    monkeypatch.setattr(repo, 'insert_snapshot', insert)
+    monkeypatch.setattr(repo, 'replace_snapshot_and_finish_export', insert)
     monkeypatch.setattr(repo, 'require_bin_identity_schema', MagicMock(side_effect=ValueError('执行10_周报仓位业务键修复.sql')))
     with pytest.raises(ValueError, match='执行10'):
         sync.sync_weekly_inventory()
