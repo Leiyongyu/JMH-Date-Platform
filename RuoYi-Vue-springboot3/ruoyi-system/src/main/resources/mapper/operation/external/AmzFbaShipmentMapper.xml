@@ -23,6 +23,9 @@
         <result property="shippedTime" column="shipped_time" />
         <result property="receivingTime" column="receiving_time" />
         <result property="closedTime" column="closed_time" />
+        <result property="staDeliveryStartDate" column="sta_delivery_start_date" />
+        <!-- 天数由 search 用 DATEDIFF 实时算出，不是表字段 -->
+        <result property="deliveryDays" column="delivery_days" />
         <result property="remark" column="remark" />
         <result property="confirmed" column="confirmed" />
     </resultMap>
@@ -69,6 +72,7 @@
             sid, username, shipment_id, shipment_name,shipment_status, msku, sku,
             quantity_shipped, init_quantity_shipped, quantity_received, quantity_shipped_local, declared_diff,
             gmt_create, gmt_modified, working_time, shipped_time, receiving_time, closed_time,
+            sta_delivery_start_date,
             ship_to_name, ship_to_country_code, ship_to_state, ship_to_city, ship_to_region,
             ship_to_address_line1, ship_to_address_line2, ship_to_postal_code, ship_to_doorplate, sync_time
         ) VALUES
@@ -78,6 +82,7 @@
             #{e.quantityShipped}, #{e.initQuantityShipped}, #{e.quantityReceived}, #{e.quantityShippedLocal},
             #{e.quantityShipped} - #{e.quantityReceived},
             #{e.gmtCreate}, #{e.gmtModified}, #{e.workingTime}, #{e.shippedTime}, #{e.receivingTime}, #{e.closedTime},
+            #{e.staDeliveryStartDate},
             #{e.shipToName}, #{e.shipToCountryCode}, #{e.shipToState}, #{e.shipToCity}, #{e.shipToRegion},
             #{e.shipToAddressLine1}, #{e.shipToAddressLine2}, #{e.shipToPostalCode}, #{e.shipToDoorplate}, NOW()
         )
@@ -92,6 +97,7 @@
             quantity_shipped_local = VALUES(quantity_shipped_local),
             declared_diff = VALUES(declared_diff),
             gmt_modified = VALUES(gmt_modified),
+            sta_delivery_start_date = VALUES(sta_delivery_start_date),
             ship_to_name = VALUES(ship_to_name),
             ship_to_country_code = VALUES(ship_to_country_code),
             ship_to_state = VALUES(ship_to_state),
@@ -105,12 +111,21 @@
     </insert>
 
     <select id="search" resultMap="Result">
-        SELECT s.*, sl.store_name, COALESCE(m.remark, '') AS remark, COALESCE(m.confirmed, 0) AS confirmed
+        SELECT s.*, sl.store_name, COALESCE(m.remark, '') AS remark, COALESCE(m.confirmed, 0) AS confirmed,
+               DATEDIFF(s.sta_delivery_start_date, CURDATE()) AS delivery_days
         FROM amz_fba_shipment s
         LEFT JOIN shop_list sl ON CAST(s.sid AS CHAR) COLLATE utf8mb4_unicode_ci = sl.sid AND sl.platform_code = '10001'
         LEFT JOIN amz_fba_shipment_mark m ON s.msku = m.msku AND s.shipment_id = m.shipment_id
         <where>
             <if test="params.confirmed != null and params.confirmed != ''"> and COALESCE(m.confirmed, 0) = #{params.confirmed} </if>
+            <!-- 送达时间 0~7 天。已过送达日期（负数）页面不展示，所以也不筛进来，
+                 否则筛出的行在页面上会全是灰杠。写成日期区间而不是 DATEDIFF，
+                 两者等价但字段在比较符左边可以走索引。
+                 注意：XML 注释里不能出现两个连续短横线，会导致 MyBatis 解析失败。 -->
+            <if test="params.deliveryDueSoon != null and params.deliveryDueSoon != ''">
+                and s.sta_delivery_start_date &gt;= CURDATE()
+                and s.sta_delivery_start_date &lt;= DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+            </if>
             <if test="params.username != null and params.username != ''"> and s.username like concat('%', #{params.username}, '%') </if>
             <if test="params.storeName != null and params.storeName != ''">
                 <choose>
@@ -191,6 +206,14 @@
         </if>
         <where>
             <if test="params.confirmed != null and params.confirmed != ''"> and COALESCE(m.confirmed, 0) = #{params.confirmed} </if>
+            <!-- 送达时间 0~7 天。已过送达日期（负数）页面不展示，所以也不筛进来，
+                 否则筛出的行在页面上会全是灰杠。写成日期区间而不是 DATEDIFF，
+                 两者等价但字段在比较符左边可以走索引。
+                 注意：XML 注释里不能出现两个连续短横线，会导致 MyBatis 解析失败。 -->
+            <if test="params.deliveryDueSoon != null and params.deliveryDueSoon != ''">
+                and s.sta_delivery_start_date &gt;= CURDATE()
+                and s.sta_delivery_start_date &lt;= DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+            </if>
             <if test="params.username != null and params.username != ''"> and s.username like concat('%', #{params.username}, '%') </if>
             <if test="params.storeName != null and params.storeName != ''">
                 <choose>

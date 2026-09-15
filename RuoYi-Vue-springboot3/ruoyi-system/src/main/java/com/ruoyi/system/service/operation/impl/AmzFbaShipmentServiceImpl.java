@@ -17,7 +17,9 @@ public class AmzFbaShipmentServiceImpl implements IAmzFbaShipmentService
         "declaredDiff", "gmtCreate"
     );
     private static final Set<String> TEXT_FIELDS = Set.of(
-        "shipmentId", "sku", "msku", "storeName", "username", "shipmentStatus", "confirmed"
+        "shipmentId", "sku", "msku", "storeName", "username", "shipmentStatus", "confirmed",
+        // 送达时间≤7天筛选，值固定为 "1"；具体比较条件写在 Mapper 里
+        "deliveryDueSoon"
     );
     private static final Set<String> DATE_FIELDS = Set.of(
         "gmtCreateStart", "gmtCreateEnd", "gmtModifiedStart", "gmtModifiedEnd"

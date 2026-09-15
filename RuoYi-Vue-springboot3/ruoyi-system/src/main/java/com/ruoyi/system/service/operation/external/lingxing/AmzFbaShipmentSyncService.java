@@ -135,6 +135,7 @@ public class AmzFbaShipmentSyncService
                         row.setShippedTime(parseDt(str(shipment, "shipped_time")));
                         row.setReceivingTime(parseDt(str(shipment, "receiving_time")));
                         row.setClosedTime(parseDt(str(shipment, "closed_time")));
+                        row.setStaDeliveryStartDate(parseDate(str(shipment, "sta_delivery_start_date")));
                         row.setShipToName(stName);
                         row.setShipToCountryCode(stCountry);
                         row.setShipToState(stState);
@@ -179,6 +180,24 @@ public class AmzFbaShipmentSyncService
         if (!StringUtils.hasText(s)) return null;
         for (DateTimeFormatter fmt : DT_FORMATS) {
             try { return java.util.Date.from(LocalDateTime.parse(s, fmt).atZone(java.time.ZoneId.systemDefault()).toInstant()); }
+            catch (Exception ignored) {}
+        }
+        return null;
+    }
+
+    /**
+     * 解析纯日期字段（sta_delivery_start_date）。
+     * 不能复用 parseDt：它走 LocalDateTime.parse，遇到 10 位纯日期会全部解析失败。
+     * 接口文档标称 yyyy-MM-dd HH:mm:ss，实测返回的全部是 yyyy-MM-dd，
+     * 这里两种都兼容：先按纯日期解析，失败再退回按日期时间解析后取日期部分。
+     */
+    private Date parseDate(String s) {
+        if (!StringUtils.hasText(s)) return null;
+        String text = s.trim();
+        try { return java.sql.Date.valueOf(LocalDate.parse(text, DateTimeFormatter.ISO_LOCAL_DATE)); }
+        catch (Exception ignored) {}
+        for (DateTimeFormatter fmt : DT_FORMATS) {
+            try { return java.sql.Date.valueOf(LocalDateTime.parse(text, fmt).toLocalDate()); }
             catch (Exception ignored) {}
         }
         return null;

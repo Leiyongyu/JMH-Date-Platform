@@ -29,6 +29,11 @@
       <el-form-item label="创建人" prop="username">
         <el-input v-model="queryParams.username" placeholder="搜索创建人" clearable style="width:160px" @keyup.enter="handleQuery" />
       </el-form-item>
+      <el-form-item label="送达时间" prop="deliveryDueSoon">
+        <el-select v-model="queryParams.deliveryDueSoon" placeholder="全部" clearable style="width:150px" @change="handleQuery">
+          <el-option label="7天内" value="1" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="创建时间" prop="gmtCreateRange">
         <el-date-picker v-model="gmtCreateRange" type="daterange" range-separator="-" start-placeholder="开始" end-placeholder="结束" value-format="YYYY-MM-DD" style="width:240px" @change="handleQuery" />
       </el-form-item>
@@ -66,6 +71,17 @@
         </template>
       </el-table-column>
       <el-table-column label="创建人" prop="username" align="center" width="100" />
+      <el-table-column label="送达时间" prop="deliveryDays" align="right" width="95">
+        <template #header>
+          <el-tooltip placement="top" content="送达时段开始日期距今天的天数。0~7天(红)，7天以上(绿)。已过送达日期和非STA货件均显示 --">
+            <span class="delivery-header">送达时间</span>
+          </el-tooltip>
+        </template>
+        <template #default="scope">
+          <span v-if="showDeliveryDays(scope.row.deliveryDays)" :class="deliveryClass(scope.row.deliveryDays)">{{ scope.row.deliveryDays }}</span>
+          <span v-else class="delivery-none">--</span>
+        </template>
+      </el-table-column>
       <el-table-column label="创建时间" prop="gmtCreate" align="center" width="105">
         <template #default="scope">{{ scope.row.gmtCreate ? scope.row.gmtCreate.substring(0,10) : '-' }}</template>
       </el-table-column>
@@ -138,6 +154,7 @@ const data = reactive({
   queryParams: {
     pageNum: 1, pageSize: 50,
     storeName: [], shipmentId: undefined, sku: undefined, msku: undefined, username: undefined, shipmentStatus: undefined, confirmed: undefined,
+    deliveryDueSoon: undefined,
     sortField: undefined, sortOrder: undefined
   }
 })
@@ -160,6 +177,7 @@ function getList() {
   if (p.username) filters.push({ field: 'username', value: p.username })
   if (p.shipmentStatus) filters.push({ field: 'shipmentStatus', value: p.shipmentStatus })
   if (p.confirmed) filters.push({ field: 'confirmed', value: p.confirmed })
+  if (p.deliveryDueSoon) filters.push({ field: 'deliveryDueSoon', value: p.deliveryDueSoon })
   if (gmtCreateRange.value && gmtCreateRange.value.length === 2) {
     if (gmtCreateRange.value[0]) filters.push({ field: 'gmtCreateStart', value: gmtCreateRange.value[0] })
     if (gmtCreateRange.value[1]) filters.push({ field: 'gmtCreateEnd', value: gmtCreateRange.value[1] })
@@ -171,6 +189,15 @@ function getList() {
 function handleQuery() { queryParams.value.pageNum = 1; getList() }
 function resetQuery() { proxy.resetForm('queryRef'); queryParams.value.sortField = undefined; queryParams.value.sortOrder = undefined; handleQuery() }
 function handleSortChange({ prop, order }) { queryParams.value.sortField = order ? prop : undefined; queryParams.value.sortOrder = order || undefined; queryParams.value.pageNum = 1; getList() }
+
+// 负数表示送达日期已过，按要求不展示，和无值一样显示 --。
+function showDeliveryDays(days) {
+  return days !== null && days !== undefined && days >= 0
+}
+// 只对展示出来的天数配色：0~7天红，7天以上绿。
+function deliveryClass(days) {
+  return days <= 7 ? 'delivery-urgent' : 'delivery-normal'
+}
 
 function saveRemark(row) {
   if (!row.msku) return
@@ -197,6 +224,7 @@ function handleExport() {
   if (p.username) filters.push({ field: 'username', value: p.username })
   if (p.shipmentStatus) filters.push({ field: 'shipmentStatus', value: p.shipmentStatus })
   if (p.confirmed) filters.push({ field: 'confirmed', value: p.confirmed })
+  if (p.deliveryDueSoon) filters.push({ field: 'deliveryDueSoon', value: p.deliveryDueSoon })
   if (gmtCreateRange.value && gmtCreateRange.value.length === 2) {
     if (gmtCreateRange.value[0]) filters.push({ field: 'gmtCreateStart', value: gmtCreateRange.value[0] })
     if (gmtCreateRange.value[1]) filters.push({ field: 'gmtCreateEnd', value: gmtCreateRange.value[1] })
@@ -216,4 +244,8 @@ getList()
 <style scoped>
 .fba-shipment-page { background: #f5f7fa; }
 :deep(.el-table .cell) { white-space: nowrap; }
+.delivery-header { border-bottom: 1px dashed #c0c4cc; cursor: help; }
+.delivery-none { color: #909399; }                       /* 无值 / 已过送达日期 */
+.delivery-urgent { color: #f56c6c; font-weight: 600; }   /* 0~7 天 */
+.delivery-normal { color: #67c23a; }                     /* 7 天以上 */
 </style>

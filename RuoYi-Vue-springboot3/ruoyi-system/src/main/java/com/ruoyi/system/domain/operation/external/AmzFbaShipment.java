@@ -30,6 +30,10 @@ public class AmzFbaShipment implements Serializable
     private Date shippedTime;
     private Date receivingTime;
     private Date closedTime;
+    /** 送达时段开始日期，领星 sta_delivery_start_date 原值；仅 STA 货件返回 */
+    private Date staDeliveryStartDate;
+    /** 送达天数 = 送达日期 - 当天，查询时用 DATEDIFF 实时算，不落库 */
+    private Integer deliveryDays;
     private String remark;
     private Integer confirmed;
     private Date createTime;
@@ -83,6 +87,10 @@ public class AmzFbaShipment implements Serializable
     public void setReceivingTime(Date v) { this.receivingTime = v; }
     public Date getClosedTime() { return closedTime; }
     public void setClosedTime(Date v) { this.closedTime = v; }
+    public Date getStaDeliveryStartDate() { return staDeliveryStartDate; }
+    public void setStaDeliveryStartDate(Date v) { this.staDeliveryStartDate = v; }
+    public Integer getDeliveryDays() { return deliveryDays; }
+    public void setDeliveryDays(Integer v) { this.deliveryDays = v; }
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
     public Integer getConfirmed() { return confirmed; }
