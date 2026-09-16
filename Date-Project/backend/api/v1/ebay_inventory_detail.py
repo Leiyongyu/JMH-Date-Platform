@@ -27,6 +27,7 @@ class InventoryKey(BaseModel):
 
 class ExportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    stat_date: str | None = Field(default=None, max_length=10)
     site: str | None = Field(default=None, max_length=100)
     sku: str | None = Field(default=None, max_length=255)
     brand: str | None = Field(default=None, max_length=255)
@@ -45,16 +46,29 @@ def _failure(exc: Exception, label: str):
 
 @router.get("/list")
 def list_inventory(request: Request, site: str | None = Query(None, max_length=100),
+                   stat_date: str | None = Query(None, max_length=10),
                    sku: str | None = Query(None, max_length=255), brand: str | None = Query(None, max_length=255),
                    grade: str | None = Query(None, max_length=64), page: int = Query(1, ge=1),
                    page_size: int = Query(50, ge=1, le=200), sort_field: str | None = Query(None, max_length=80),
                    sort_order: str | None = Query(None, max_length=16)):
     try:
         data = service.list_inventory(site=site, sku=sku, brand=brand, grade=grade, page=page,
-                                      page_size=page_size, sort_field=sort_field, sort_order=sort_order)
+                                      page_size=page_size, sort_field=sort_field, sort_order=sort_order,
+                                      stat_date=stat_date)
         return success_response(data, request_id=request.state.request_id)
     except Exception as exc:
         raise _failure(exc, "查询") from exc
+
+
+@router.post("/snapshot/recalculate")
+def recalculate_snapshot(request: Request):
+    """Explicit write action: all current data, today's date, never client filters/dates."""
+    try:
+        result = pivot_service.capture_snapshot(trigger_type="PAGE_REFRESH")
+        return success_response(result, request_id=request.state.request_id,
+                                message="今日库存明细与透视已重新计算并保存")
+    except Exception as exc:
+        raise _failure(exc, "重新计算") from exc
 
 
 @router.post("/export")

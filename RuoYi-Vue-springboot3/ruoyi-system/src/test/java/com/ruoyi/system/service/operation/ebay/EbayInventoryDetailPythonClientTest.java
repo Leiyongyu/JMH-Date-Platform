@@ -66,6 +66,33 @@ class EbayInventoryDetailPythonClientTest
     }
 
     @Test
+    void recalculatePostsWithoutClientDateFiltersOrBodyAndPreservesInternalHeaders()
+    {
+        responseBody = "{\"code\":0,\"data\":{\"stat_date\":\"2026-09-16\",\"row_count\":37}}"
+                .getBytes(StandardCharsets.UTF_8);
+        Map<String, Object> result = client.recalculateSnapshot(" recalculate-request ");
+
+        assertEquals("POST", receivedMethod);
+        assertEquals("/api/v1/finance/ebay-inventory-detail/snapshot/recalculate", receivedPath);
+        assertNull(receivedQuery);
+        assertEquals(0, receivedBody.length);
+        assertEquals("test-only-internal-token", receivedToken);
+        assertEquals("recalculate-request", receivedRequestId);
+        assertEquals("application/json", receivedAccept);
+        assertEquals(0, result.get("code"));
+        assertEquals(Map.of("stat_date", "2026-09-16", "row_count", 37), result.get("data"));
+    }
+
+    @Test
+    void recalculateRejectsPythonBusinessErrors()
+    {
+        responseBody = "{\"code\":1,\"message\":\"今日快照重算失败\"}".getBytes(StandardCharsets.UTF_8);
+        var error = assertThrows(IllegalStateException.class, () -> client.recalculateSnapshot(null));
+        assertTrue(error.getMessage().contains("今日快照重算失败"));
+        assertNotNull(receivedRequestId);
+    }
+
+    @Test
     void pivotUsesGetAndEncodesFiltersWithExistingInternalHeaders()
     {
         Map<String, Object> params = new LinkedHashMap<>();

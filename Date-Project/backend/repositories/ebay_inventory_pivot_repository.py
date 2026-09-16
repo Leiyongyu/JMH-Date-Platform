@@ -9,6 +9,7 @@ from backend.database import db_connection
 
 HEADER = "ebay_inventory_pivot_snapshot"
 DETAIL = "ebay_inventory_pivot_owner"
+INVENTORY_DETAIL = "ebay_inventory_detail_history"
 METRICS = (
     "sku_count", "overseas_sellable_quantity", "overseas_total_quantity", "sales_qty_30d",
     "in_stock_sales_ratio", "total_stock_sales_ratio", "overseas_sellable_value",
@@ -26,7 +27,7 @@ def _json_default(value):
     raise TypeError(type(value).__name__)
 
 
-def replace_day(header: dict, groups: list[dict]) -> int:
+def replace_day(header: dict, groups: list[dict], inventory_items: list[dict]) -> int:
     """Replace this date only; a failed insert rolls back header and all old rows."""
     columns = ("snapshot_id", "owner", "site", *METRICS)
     with db_connection() as connection:
@@ -56,11 +57,64 @@ def replace_day(header: dict, groups: list[dict]) -> int:
                 query = f"INSERT INTO {DETAIL} ({','.join(columns)}) VALUES ({','.join(['%s'] * len(columns))})"
                 for offset in range(0, len(params), 500):
                     cursor.executemany(query, params[offset:offset + 500])
+                # Full detail and owner totals publish atomically under the same date header.
+                cursor.execute(f"DELETE FROM {INVENTORY_DETAIL} WHERE snapshot_id=%s", (snapshot_id,))
+                detail_params = [
+                    (snapshot_id, row["site"], row["sku"],
+                     json.dumps({"values": row, "decimal_fields": [
+                         key for key, value in row.items() if isinstance(value, Decimal)
+                     ]}, default=_json_default, ensure_ascii=False, allow_nan=False))
+                    for row in inventory_items
+                ]
+                for offset in range(0, len(detail_params), 500):
+                    cursor.executemany(
+                        f"INSERT INTO {INVENTORY_DETAIL} (snapshot_id,site,sku,item_json) VALUES (%s,%s,%s,%s)",
+                        detail_params[offset:offset + 500],
+                    )
             connection.commit()
             return snapshot_id
         except Exception:
             connection.rollback()
             raise
+
+
+def read_inventory_day(stat_date):
+    """One repeatable-read snapshot for available dates, header and complete frozen detail."""
+    with db_connection() as connection:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                connection.begin()
+                cursor.execute(f"""SELECT s.stat_date FROM {HEADER} s
+                    WHERE EXISTS (SELECT 1 FROM {INVENTORY_DETAIL} d WHERE d.snapshot_id=s.id)
+                    ORDER BY s.stat_date DESC""")
+                dates = [row["stat_date"].isoformat() for row in cursor.fetchall()]
+                selected = dates[0] if stat_date == "latest" and dates else (
+                    None if stat_date == "latest" else str(stat_date))
+                cursor.execute(f"SELECT * FROM {HEADER} WHERE stat_date=%s", (selected,))
+                header = cursor.fetchone()
+                items = []
+                if header:
+                    cursor.execute(f"SELECT item_json FROM {INVENTORY_DETAIL} WHERE snapshot_id=%s ORDER BY site,sku",
+                                   (header["id"],))
+                    for row in cursor.fetchall():
+                        saved = json.loads(row["item_json"]) if isinstance(row["item_json"], str) else row["item_json"]
+                        item = saved["values"]
+                        for key in saved["decimal_fields"]:
+                            item[key] = Decimal(item[key])
+                        item["stat_date"] = selected
+                        items.append(item)
+                metadata = {}
+                if header and items:
+                    raw = header["metadata_json"]
+                    metadata = json.loads(raw) if isinstance(raw, str) else dict(raw)
+                    metadata.update(snapshot_id=header["id"], generated_at=header["generated_at"].isoformat())
+                metadata.update(stat_date=selected, available_dates=dates, is_history=True)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    return items, metadata, metadata.get("warnings", [])
 
 
 def read_history(*, start_date=None, end_date=None, owner=None, site=None,

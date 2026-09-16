@@ -181,7 +181,7 @@ def capture(monkeypatch):
         state["events"].append(("load",))
         return state["rows"], metadata, ["one warning"]
 
-    def save(header, groups):
+    def save(header, groups, inventory_items):
         assert state["held"]
         state["events"].append(("save",))
         return 42
@@ -199,7 +199,8 @@ def capture(monkeypatch):
 
 def test_capture_uses_generation_today_not_source_snapshot_day_and_lock_spans_save(capture):
     result = service.capture_snapshot(expected_inventory_batch="batch-new", trigger_type="WEEKLY")
-    header, groups = capture["saver"].call_args.args
+    header, groups, inventory_items = capture["saver"].call_args.args
+    assert inventory_items == capture["rows"]
     assert result["stat_date"] == "2026-09-16"
     assert header["stat_date"] == date(2026, 9, 16)
     assert header["stat_month"] == "2026-09"
@@ -304,7 +305,7 @@ class FakeCursor:
         self.connection.events.append(("execute", query, params))
         if self.connection.fail_on and self.connection.fail_on in query:
             raise RuntimeError("simulated statement failure")
-        if query.startswith("DELETE FROM"):
+        if query.startswith("DELETE FROM ebay_inventory_pivot_owner"):
             snapshot_id, = params
             self.connection.pending.pop(snapshot_id, None)
 
@@ -312,8 +313,10 @@ class FakeCursor:
         query = " ".join(query.split())
         params = list(params)
         self.connection.events.append(("executemany", query, params))
-        if self.connection.fail_on == "executemany":
+        if self.connection.fail_on == "executemany" or (self.connection.fail_on and self.connection.fail_on in query):
             raise RuntimeError("simulated detail insert failure")
+        if "ebay_inventory_detail_history" in query:
+            return
         for row in params:
             self.connection.pending.setdefault(row[0], []).append(row)
 
@@ -393,13 +396,16 @@ def header():
 def test_replace_transaction_deletes_only_selected_day_snapshot_and_keeps_other_history(monkeypatch):
     connection = install_connection(monkeypatch)
     groups = service.aggregate_inventory([item("A"), item("B")])
-    result = repository.replace_day(header(), groups)
+    result = repository.replace_day(header(), groups, [item("A"), item("B")])
     assert result == 42
     assert connection.events[0] == ("begin",)
     assert connection.events[-1] == ("commit",)
     assert ("rollback",) not in connection.events
     deletes = [event for event in connection.events if event[0] == "execute" and event[1].startswith("DELETE")]
-    assert deletes == [("execute", "DELETE FROM ebay_inventory_pivot_owner WHERE snapshot_id=%s", (42,))]
+    assert deletes == [
+        ("execute", "DELETE FROM ebay_inventory_pivot_owner WHERE snapshot_id=%s", (42,)),
+        ("execute", "DELETE FROM ebay_inventory_detail_history WHERE snapshot_id=%s", (42,)),
+    ]
     assert connection.saved[41] == ["older-day-kept"]
     assert len(connection.saved[42]) == 1
     assert connection.saved[42][0][:4] == (42, "李茫茫", "德国", 2)
@@ -412,12 +418,12 @@ def test_replace_transaction_deletes_only_selected_day_snapshot_and_keeps_other_
     assert "冻结" in first_insert[2][-1]
 
 
-@pytest.mark.parametrize("fail_on", ["INSERT INTO ebay_inventory_pivot_snapshot", "SELECT id FROM", "DELETE FROM", "executemany"])
+@pytest.mark.parametrize("fail_on", ["INSERT INTO ebay_inventory_pivot_snapshot", "SELECT id FROM", "DELETE FROM", "executemany", "INSERT INTO ebay_inventory_detail_history"])
 def test_replace_failure_rolls_back_old_today_and_older_dates(monkeypatch, fail_on):
     connection = install_connection(monkeypatch, fail_on=fail_on)
     before = deepcopy(connection.saved)
     with pytest.raises(RuntimeError, match="simulated"):
-        repository.replace_day(header(), service.aggregate_inventory([item()]))
+        repository.replace_day(header(), service.aggregate_inventory([item()]), [item()])
     assert connection.saved == before
     assert connection.events[-1] == ("rollback",)
     assert ("commit",) not in connection.events
@@ -426,9 +432,9 @@ def test_replace_failure_rolls_back_old_today_and_older_dates(monkeypatch, fail_
 def test_replace_batches_detail_inserts_in_groups_of_500(monkeypatch):
     connection = install_connection(monkeypatch)
     groups = service.aggregate_inventory([item(str(index), owner="owner-" + str(index)) for index in range(1001)])
-    repository.replace_day(header(), groups)
+    repository.replace_day(header(), groups, [item(str(index)) for index in range(1001)])
     batches = [event for event in connection.events if event[0] == "executemany"]
-    assert [len(event[2]) for event in batches] == [500, 500, 1]
+    assert [len(event[2]) for event in batches] == [500, 500, 1, 500, 500, 1]
 
 
 def test_read_uses_frozen_tables_exact_filters_parameterized_values_and_stable_paging(monkeypatch):

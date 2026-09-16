@@ -6,6 +6,14 @@ export function listEbayInventoryDetail(params) {
   return request({ url: `${base}/list`, method: 'get', params, timeout: 120000 })
 }
 
+export function recalculateEbayInventorySnapshot() {
+  // No date or filters: the server always rebuilds today's complete snapshot.
+  return request({
+    url: `${base}/snapshot/recalculate`, method: 'post',
+    headers: { repeatSubmit: false }, timeout: 120000
+  })
+}
+
 export function listEbayInventoryPivot(params) {
   return request({ url: `${base}/pivot`, method: 'get', params, timeout: 120000 })
 }

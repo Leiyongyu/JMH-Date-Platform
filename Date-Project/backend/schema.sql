@@ -1185,4 +1185,17 @@ INSERT INTO scheduler_task (task_code, task_name, cron_expression, enabled, desc
 VALUES ('goodcang_wh_inventory_storage_sync', '谷仓仓租概要及明细近30天同步', '0 0 7 ? * MON', 1,
  '每周一07:00；北京时间包含当天近30天；先拉概要，再按去重单号分页拉明细，全部校验后两表同一事务全量替换。Quartz为唯一计时器。')
 ON DUPLICATE KEY UPDATE task_name=VALUES(task_name), cron_expression=VALUES(cron_expression),
- description=VALUES(description);
+description=VALUES(description);
+
+CREATE TABLE IF NOT EXISTS ebay_inventory_detail_history (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  snapshot_id BIGINT UNSIGNED NOT NULL COMMENT '共享日期批次；主表stat_date唯一',
+  site VARCHAR(32) NOT NULL,
+  sku VARCHAR(255) NOT NULL,
+  item_json JSON NOT NULL COMMENT '当时完整字段、异常提示及Decimal类型标记，不关联最新来源重算',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_inventory_history_sku (snapshot_id,site,sku),
+  CONSTRAINT fk_inventory_detail_history_snapshot FOREIGN KEY (snapshot_id)
+    REFERENCES ebay_inventory_pivot_snapshot(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Ebay库存明细历史：同日事务覆盖，跨日长期保存，与负责人透视同批';

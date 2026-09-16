@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import PurePosixPath
 from typing import Any
 
 from backend.repositories import ebay_inventory_detail_repository as repository
+from backend.repositories import ebay_inventory_pivot_repository as history_repository
 from backend.repositories import inventory_report_etl_repository as owner_repository
 from backend.services.ebay_inventory_grade_parser import normalize_site, parse_grades
 from backend.services.inventory_report_etl_service import (
@@ -33,6 +34,13 @@ SORT_FIELDS = set(PLACEHOLDER_FIELDS + QUANTITY_FIELDS + PRICE_FIELDS) | {
 
 def _text(value) -> str:
     return str(value or "").strip()
+
+
+def sku_middle_code(sku: str) -> str | None:
+    """取连字符分隔后的第二段数字，作为文本保留前导零。"""
+    parts = _text(sku).split("-")
+    code = parts[1].strip() if len(parts) > 1 else ""
+    return code if code and all("0" <= char <= "9" for char in code) else None
 
 
 def _decimal(value) -> Decimal:
@@ -197,6 +205,7 @@ def _build_items(source_rows, rent_rows, rates, metadata, owner_rules, sku_map):
         rent_amount = None if rent_warning else rents.get(match_key, ZERO)
         item = {
             "site": site, "sku": sku, "brand": sku.split("-", 1)[0].upper(),
+            "sku_middle_code": sku_middle_code(sku),
             "product_name": _text(source.get("product_name")) or None,
             "grade": _text(source.get("grade")) or None,
             "overseas_in_transit_quantity": overseas_transit,
@@ -273,8 +282,18 @@ def load_calculated_inventory():
 
 
 def list_inventory(*, site=None, sku=None, brand=None, grade=None, page=1, page_size=50,
-                   sort_field=None, sort_order=None, paginate=True, selected_keys=None):
-    items, metadata, warnings = load_calculated_inventory()
+                   sort_field=None, sort_order=None, paginate=True, selected_keys=None, stat_date=None):
+    if stat_date:
+        if stat_date != "latest":
+            try:
+                if date.fromisoformat(stat_date).isoformat() != stat_date:
+                    raise ValueError()
+            except (ValueError, TypeError) as exc:
+                raise ValueError("统计日期必须为YYYY-MM-DD") from exc
+        items, metadata, warnings = history_repository.read_inventory_day(stat_date)
+    else:
+        # Retain the internal live calculation path; the page explicitly requests history.
+        items, metadata, warnings = load_calculated_inventory()
     sites = sorted({_text(row["site"]) for row in items})
     brands = sorted({row["brand"] for row in items})
     grades = sorted({row["grade"] for row in items if row.get("grade")})
@@ -315,7 +334,7 @@ def list_inventory(*, site=None, sku=None, brand=None, grade=None, page=1, page_
             "sites": sites, "brands": brands, "grades": grades,
             "metadata": {**metadata,
                          "rent_rate_month": metadata.get("rent_pull_month"), "warnings": warnings,
-                         "row_scope": "最新成功周报批次中七个eBay仓库的站点+完整SKU库存记录"},
+                         "row_scope": "指定统计日期冻结明细" if stat_date else "最新成功周报批次中七个eBay仓库的站点+完整SKU库存记录"},
             "summary": _round_item(summary)}
 
 

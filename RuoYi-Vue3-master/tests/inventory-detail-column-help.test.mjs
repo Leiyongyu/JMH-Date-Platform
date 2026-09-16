@@ -11,9 +11,9 @@ const columnBlock = source.match(/const columnDefs = (\[[\s\S]*?\n\])\.map/)?.[1
 assert.ok(columnBlock, 'column definitions remain decorated with help by field key')
 const columnKeys = Array.from(columnBlock.matchAll(/key: '([^']+)'/g), match => match[1])
 
-test('all 27 columns have source API, source table, formula and empty handling', () => {
-  assert.equal(columnKeys.length, 27)
-  assert.equal(new Set(columnKeys).size, 27)
+test('all 29 columns have source API, source table, formula and empty handling', () => {
+  assert.equal(columnKeys.length, 29)
+  assert.equal(new Set(columnKeys).size, 29)
   assert.deepEqual(Object.keys(inventoryColumnHelp).sort(), [...columnKeys].sort())
   for (const key of columnKeys) {
     for (const field of ['sourceApi', 'sourceTable', 'formula', 'emptyHandling']) {
@@ -22,6 +22,27 @@ test('all 27 columns have source API, source table, formula and empty handling',
     }
   }
   assert.ok(source.includes('help: inventoryColumnHelp[column.key]'))
+})
+
+test('middle code follows SKU with textual leading-zero and missing-value help', () => {
+  assert.equal(columnKeys[columnKeys.indexOf('sku') + 1], 'sku_middle_code')
+  assert.match(inventoryColumnHelp.sku_middle_code.formula, /MCD-20017-0071→20017/)
+  assert.match(inventoryColumnHelp.sku_middle_code.formula, /保留前导零/)
+  assert.match(inventoryColumnHelp.sku_middle_code.emptyHandling, /null.*--/)
+  assert.ok(source.includes("{ sku_middle_code: 'sku' }"))
+})
+
+test('top metadata and warning banner are removed while field and import warnings remain', () => {
+  const template = parse(source).descriptor.template.content
+  for (const text of ['data-context', 'data-warning', '部分数据需留意', '库存实际拉取',
+    '销量截至', '负责人规则', '仓租范围', '汇率月份', '采购价快照', '库龄实际拉取', '库龄拉取归属月']) {
+    assert.ok(!template.includes(text), text)
+  }
+  for (const field of ['rent_warning', 'price_warning', 'age_warning']) {
+    assert.ok(template.includes(':content="row.' + field + '"'), field)
+  }
+  assert.ok(template.includes('importWarnings'))
+  assert.doesNotMatch(source, /metadata\.value|const metadata =|const warnings =/)
 })
 
 test('stock lineage uses only the latest successful weekly batch and preserves warehouse scope', () => {
@@ -38,7 +59,6 @@ test('stock lineage uses only the latest successful weekly batch and preserves w
   }
   assert.match(inventoryColumnHelp.overseas_sellable_quantity.formula, /德国18699、英国18702、美国18700＋18701/)
   assert.match(inventoryColumnHelp.chengdu_sellable_quantity.formula, /德国18674、英国18675、美国18676/)
-  assert.match(source, /库存实际拉取 \{\{ metadata.inventory_pulled_at \}\}/)
 })
 
 test('lineage distinguishes Excel imports, reserved fields and monetary missing values', () => {
@@ -112,9 +132,6 @@ test('overseas maximum age uses the isolated weekly GoodCang latest batch and ch
   assert.match(columnBlock, /key: 'overseas_max_age_days'[^\n]+format: 'quantity'[^\n]+sortable: true/)
   assert.match(source, /column.key === 'overseas_max_age_days' && row.age_warning/)
   assert.match(source, /:content="row.age_warning"/)
-  assert.match(source, /库龄拉取归属月 \{\{ metadata.age_snapshot_month \}\}/)
-  assert.match(source, /库龄实际拉取 \{\{ metadata.age_pulled_at \|\| '未知' \}\}（计划每周一 06:00 刷新）/)
-  assert.match(source, /v-if="metadata.age_pulled_at \|\| metadata.age_snapshot_month"/)
   assert.doesNotMatch(source, /库龄快照月/)
 })
 
@@ -145,8 +162,6 @@ test('purchase price uses latest procurement cg_price by complete SKU across sit
   }
   assert.match(source, /priceColumnKeys\.includes\(column.key\) && row.price_warning/)
   assert.match(source, /:content="row.price_warning"/)
-  assert.match(source, /采购价快照月 \{\{ metadata.price_snapshot_month \}\}/)
-  assert.match(source, /采购价快照 \{\{ metadata.price_pulled_at \}\}/)
 })
 
 test('monthly total stock-sales ratio uses three complete natural months and fixed divisor', () => {

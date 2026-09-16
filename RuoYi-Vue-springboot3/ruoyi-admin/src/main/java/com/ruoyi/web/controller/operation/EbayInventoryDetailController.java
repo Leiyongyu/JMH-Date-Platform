@@ -36,6 +36,7 @@ public class EbayInventoryDetailController extends BaseController
     @PreAuthorize("@ss.hasPermi('operations:ebayInventoryDetail:list')")
     @GetMapping("/list")
     public AjaxResult list(
+            @RequestParam(required = false) String statDate,
             @RequestParam(required = false) String site,
             @RequestParam(required = false) String sku,
             @RequestParam(required = false) String brand,
@@ -47,6 +48,7 @@ public class EbayInventoryDetailController extends BaseController
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
         Map<String, Object> params = filters(site, sku, brand, grade, sortField, sortOrder);
+        params.put("stat_date", text(statDate));
         params.put("page", Math.max(1, pageNum));
         params.put("page_size", Math.min(200, Math.max(1, pageSize)));
         return success(client.list(params, requestId).get("data"));
@@ -66,7 +68,8 @@ public class EbayInventoryDetailController extends BaseController
                 text(input.get("sortField")), text(input.get("sortOrder")));
         // 只传主键，不接收客户端金额；Python 按同一查询逻辑重新取数并校验。
         payload.put("selected_keys", input.getOrDefault("selectedKeys", List.of()));
-        // 导出始终包含全部27个业务字段；列抽屉只调整页面显示。
+        payload.put("stat_date", text(input.get("statDate")));
+        // 导出包含完整业务字段和统计日期；列抽屉只调整页面显示。
         EbayInventoryDetailPythonClient.ExcelFile file = client.export(payload, requestId);
         sendExcel(file, response);
     }
@@ -126,6 +129,16 @@ public class EbayInventoryDetailController extends BaseController
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
         return success(client.importGrades(file, getUsername(), requestId).get("data"));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayInventoryDetail:import')")
+    @Log(title = "Ebay库存明细重新计算", businessType = BusinessType.UPDATE)
+    @PostMapping("/snapshot/recalculate")
+    public AjaxResult recalculateSnapshot(
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        // 统计日期和完整数据范围由 Python 服务决定，不接收客户端日期或筛选条件。
+        return success(client.recalculateSnapshot(requestId).get("data"));
     }
 
     private static Map<String, Object> filters(String site, String sku, String brand,

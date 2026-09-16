@@ -25,6 +25,12 @@ function reserved(formula = '尚未接入数据或启用计算，本轮保留空
 }
 
 export const inventoryColumnHelp = {
+  stat_date: {
+    sourceApi: '无外部接口；周报成功后由库存历史快照链路生成。',
+    sourceTable: 'date-project.ebay_inventory_pivot_snapshot.stat_date；明细保存于ebay_inventory_detail_history。',
+    formula: '采用生成时的中国时区实际日期YYYY-MM-DD。相同日期只保留一批，明细与负责人透视同事务覆盖；不同日期长期保留。历史查询读取当时冻结值，不按最新来源或最新负责人规则重算。',
+    emptyHandling: '未保存明细的日期不可选，不使用当前数据补造过去。默认选择最新已保存明细日期，无历史时列表为空。'
+  },
   site: {
     sourceApi: inventoryApi,
     sourceTable: `${inventoryTable}.wid`,
@@ -36,6 +42,12 @@ export const inventoryColumnHelp = {
     sourceTable: `${inventoryTable}.sku`,
     formula: '取去除首尾空格后的完整SKU，按站点＋完整SKU聚合。此列不去品牌前缀；仓租的去前缀匹配仅用于仓租计算。',
     emptyHandling: '源SKU为null、空串或全空格时整条记录不参与列表。'
+  },
+  sku_middle_code: {
+    sourceApi: `派生字段，复用库存SKU来源：${inventoryApi}`,
+    sourceTable: `${inventoryTable}.sku`,
+    formula: '取完整SKU按“-”分隔后的第二段数字，例如MCD-20017-0071→20017；以文本保留前导零。不用于替换完整SKU或修改仓租、库龄匹配规则。',
+    emptyHandling: '缺少第二段、第二段为空或含非数字字符时返回null，页面显示--，Excel留空。'
   },
   brand: {
     sourceApi: `派生字段，复用库存SKU来源：${inventoryApi}`,

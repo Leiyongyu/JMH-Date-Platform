@@ -4,8 +4,8 @@
       <el-tooltip class="item" effect="dark" :content="showSearch ? '隐藏搜索' : '显示搜索'" placement="top" v-if="search">
         <el-button circle icon="Search" @click="toggleSearch()" />
       </el-tooltip>
-      <el-tooltip class="item" effect="dark" content="刷新" placement="top">
-        <el-button circle icon="Refresh" @click="refresh()" />
+      <el-tooltip class="item" effect="dark" :content="refreshTooltip" placement="top">
+        <el-button circle icon="Refresh" :loading="refreshLoading" :disabled="refreshDisabled" @click="refresh()" />
       </el-tooltip>
       <el-tooltip class="item" effect="dark" content="列配置" placement="top" v-if="showColumnConfig">
         <el-button circle icon="Menu" @click="openColumnConfig()" />
@@ -46,6 +46,9 @@
 import cache from '@/plugins/cache'
 
 const props = defineProps({
+  refreshTooltip: { type: String, default: '刷新' },
+  refreshLoading: { type: Boolean, default: false },
+  refreshDisabled: { type: Boolean, default: false },
   /* 是否显示检索条件 */
   showSearch: {
     type: Boolean,
@@ -141,6 +144,7 @@ function animateSearch(el, isHide) {
 
 // 刷新
 function refresh() {
+  if (props.refreshLoading || props.refreshDisabled) return
   emits("queryTable")
 }
 

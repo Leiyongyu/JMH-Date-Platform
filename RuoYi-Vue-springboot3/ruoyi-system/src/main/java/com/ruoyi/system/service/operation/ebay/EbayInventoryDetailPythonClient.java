@@ -52,6 +52,19 @@ public class EbayInventoryDetailPythonClient extends PythonHttpSupport
         }
     }
 
+    public Map<String, Object> recalculateSnapshot(String requestId)
+    {
+        try
+        {
+            return sendJson(baseRequest(PREFIX + "/snapshot/recalculate", requestId)
+                    .POST(HttpRequest.BodyPublishers.noBody()).build());
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
     public Map<String, Object> importGrades(MultipartFile file, String operator, String requestId)
     {
         if (file == null || file.isEmpty()) throw new IllegalArgumentException("请选择有效的产品等级文件");

@@ -14,15 +14,16 @@ const setupSource = parsed.descriptor.scriptSetup.content
 const statements = script.scriptSetupAst
 
 const stateNames = [
-  'rows', 'total', 'sites', 'brands', 'grades', 'metadata', 'loading', 'dataReady',
+  'rows', 'total', 'sites', 'brands', 'grades', 'availableDates', 'loading', 'dataReady',
+  'recalculating', 'canRecalculate', 'importing',
   'exporting', 'tableRef', 'query', 'appliedFilters', 'filtersDirty',
   'pageQuery', 'pageRange', 'sort', 'selection', 'selectedCount',
   'restoringSelection', 'loadVersion', 'unmounted'
 ]
 const functionNames = [
   'rowKey', 'currentFilters', 'handleSelectionChange', 'clearSelection',
-  'restorePageSelection', 'loadRows', 'handlePagination', 'handleQuery',
-  'handleSortChange', 'handleExport'
+  'restorePageSelection', 'loadRows', 'handlePagination', 'handleQuery', 'disabledStatDate',
+  'handleSortChange', 'handleExport', 'handleRefresh'
 ]
 
 function actualDeclaration(name, functionOnly = false) {
@@ -49,29 +50,34 @@ function deferred() {
   return { promise, resolve }
 }
 
-function createHarness(request = async () => response([])) {
-  const sent = [], exported = [], downloads = [], errors = []
+function createHarness(request = async () => response([]), options = {}) {
+  const sent = [], exported = [], downloads = [], errors = [], recalculations = [], successes = [], warnings = []
   const renderedSelection = new Map()
   let api
   const context = vm.createContext({
     computed, nextTick, reactive, ref, Blob,
     listEbayInventoryDetail: async params => { sent.push(plain(params)); return request(params) },
+    recalculateEbayInventorySnapshot: async (...args) => {
+      recalculations.push(args)
+      return options.recalculate ? options.recalculate() : { data: { stat_date: '2026-09-16' } }
+    },
     exportEbayInventoryDetail: async params => {
       exported.push(plain(params))
       // Only the download envelope is tested, not workbook generation.
       return new Blob([Uint8Array.from([0x50, 0x4b, 0x03, 0x04])],
         { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
     },
-    checkPermi: () => true,
+    checkPermi: () => options.allowed !== false,
     blobValidate: value => value.type !== 'application/json',
     download: { saveAs: (blob, name) => downloads.push({ blob, name }) },
-    ElMessage: { error: message => errors.push(message), success() {}, warning() {} }
+    ElMessage: { error: message => errors.push(message), success: message => successes.push(message), warning: message => warnings.push(message) }
   })
   // Use actual production state and function bodies, not reimplemented logic.
   for (const name of functionNames) vm.runInContext(actualDeclaration(name, true), context)
   for (const name of stateNames) vm.runInContext(actualDeclaration(name), context)
   vm.runInContext('globalThis.pageHarness = { ' + [...stateNames, ...functionNames].join(', ') + ' }', context)
   api = context.pageHarness
+  api.markUnmounted = () => vm.runInContext('unmounted = true', context)
   api.tableRef.value = {
     clearSelection() {
       renderedSelection.clear()
@@ -85,7 +91,7 @@ function createHarness(request = async () => response([])) {
     }
   }
   api.appliedFilters.value = api.currentFilters()
-  return { api, sent, exported, downloads, errors, renderedSelection }
+  return { api, sent, exported, downloads, errors, renderedSelection, recalculations, successes, warnings }
 }
 
 test('Pagination compiles to the explicit imported component, never a reactive state object', () => {
@@ -104,6 +110,114 @@ test('Pagination compiles to the explicit imported component, never a reactive s
   assert.match(compiled.code, /_(?:createVNode|createBlock)\(\$setup\["Pagination"\]/)
   assert.doesNotMatch(compiled.code, /_(?:createVNode|createBlock)\(\$setup\["pagination"\]/)
   assert.match(source, /<Pagination\b/)
+})
+
+test('latest date resolves once and date changes clear selection and pin export', async () => {
+  const row = { site: '德国', sku: 'MCD-20017-0071' }
+  const { api, sent, exported } = createHarness(async params => {
+    const day = params.statDate === 'latest' ? '2026-09-16' : params.statDate
+    const res = response([{ ...row, stat_date: day }])
+    res.data.metadata = { stat_date: day, available_dates: ['2026-09-16', '2026-09-15'] }
+    return res
+  })
+  await api.handleQuery()
+  assert.equal(api.query.statDate, '2026-09-16')
+  assert.equal(api.appliedFilters.value.statDate, '2026-09-16')
+  assert.equal(api.disabledStatDate(new Date(2026, 8, 15)), false)
+  assert.equal(api.disabledStatDate(new Date(2026, 8, 14)), true)
+  api.handleSelectionChange([row])
+  api.query.statDate = '2026-09-15'
+  await api.handleQuery()
+  assert.equal(api.selectedCount.value, 0)
+  assert.equal(sent.at(-1).statDate, '2026-09-15')
+  await api.handleExport()
+  assert.equal(exported.at(-1).statDate, '2026-09-15')
+  assert.match(source, /v-model="query.statDate"/)
+})
+
+test('explicit refresh writes once without filters and switches from old date to server today', async () => {
+  const { api, sent, recalculations, successes } = createHarness(async params =>
+    response([{ site: '德国', sku: 'MCD-20017-0071', stat_date: params.statDate }]))
+  api.query.statDate = '2026-09-01'
+  api.query.site = '德国'
+  await api.handleQuery()
+  assert.equal(recalculations.length, 0)
+  api.handleSelectionChange(api.rows.value)
+  api.pageQuery.pageNum = 3
+  await api.handleRefresh()
+  assert.deepEqual(recalculations, [[]]) // No selected date, SKU or page reaches the write endpoint.
+  assert.equal(api.query.statDate, '2026-09-16')
+  assert.equal(sent.at(-1).statDate, '2026-09-16')
+  assert.equal(sent.at(-1).pageNum, 1)
+  assert.equal(sent.at(-1).site, '德国')
+  assert.equal(api.selectedCount.value, 0)
+  assert.equal(api.recalculating.value, false)
+  assert.equal(api.dataReady.value, true)
+  assert.equal(successes.length, 1)
+  assert.match(source, /@queryTable="handleRefresh"/)
+})
+
+test('refresh coalesces repeated clicks and never turns query or pagination into writes', async () => {
+  const pending = deferred()
+  const { api, sent, recalculations } = createHarness(undefined, { recalculate: () => pending.promise })
+  const first = api.handleRefresh()
+  await api.handleRefresh()
+  await api.handleQuery()
+  await api.handlePagination({ page: 2, limit: 50 })
+  assert.equal(recalculations.length, 1)
+  assert.equal(sent.length, 0)
+  pending.resolve({ data: { stat_date: '2026-09-16' } })
+  await first
+  await api.handleQuery()
+  await api.handlePagination({ page: 2, limit: 50 })
+  assert.equal(recalculations.length, 1)
+})
+
+test('failed recalculation preserves selected historical date and never reports success', async () => {
+  const { api, sent, successes } = createHarness(undefined, {
+    recalculate: async () => { throw new Error('server rejected') }
+  })
+  api.query.statDate = '2026-09-01'
+  await api.handleRefresh()
+  assert.equal(api.query.statDate, '2026-09-01')
+  assert.equal(api.recalculating.value, false)
+  assert.equal(api.dataReady.value, false)
+  assert.equal(sent.length, 0)
+  assert.equal(successes.length, 0)
+})
+
+test('read-only permission and active import/export block recalculation', async () => {
+  const denied = createHarness(undefined, { allowed: false })
+  await denied.api.handleRefresh()
+  assert.equal(denied.recalculations.length, 0)
+  for (const key of ['importing', 'exporting', 'loading']) {
+    const view = createHarness()
+    view.api[key].value = true
+    await view.api.handleRefresh()
+    assert.equal(view.recalculations.length, 0)
+  }
+})
+
+test('invalid post-write date is visible and never used to load another snapshot', async () => {
+  const pending = deferred()
+  const view = createHarness(undefined, { recalculate: () => pending.promise })
+  const work = view.api.handleRefresh()
+  pending.resolve({ data: {} })
+  await work
+  assert.equal(view.sent.length, 0)
+  assert.equal(view.successes.length, 0)
+  assert.equal(view.errors.length, 1)
+})
+
+test('unmounted view does not query or report success after recalculation returns', async () => {
+  const pending = deferred()
+  const view = createHarness(undefined, { recalculate: () => pending.promise })
+  const work = view.api.handleRefresh()
+  view.api.markUnmounted()
+  pending.resolve({ data: { stat_date: '2026-09-16' } })
+  await work
+  assert.equal(view.sent.length, 0)
+  assert.equal(view.successes.length, 0)
 })
 
 test('footer exposes total, range and page-size/navigation controls', () => {
@@ -125,7 +239,7 @@ test('page and page-size changes send pageNum/pageSize with active filters and s
   api.appliedFilters.value = api.currentFilters()
   await api.handlePagination({ page: 2, limit: 50 })
   assert.deepEqual(sent[0], {
-    site: '德国', pageNum: 2, pageSize: 50,
+    statDate: 'latest', site: '德国', pageNum: 2, pageSize: 50,
     sortField: 'sales_qty_30d', sortOrder: 'descending'
   })
   await api.handlePagination({ page: 1, limit: 100 })
@@ -226,7 +340,7 @@ test('selected and unselected exports retain filter scope but never pagination p
   api.handleSelectionChange([second])
   await api.handleExport()
   assert.deepEqual(exported[0], {
-    site: '德国', sortField: 'sales_qty_30d', sortOrder: 'descending',
+    statDate: 'latest', site: '德国', sortField: 'sales_qty_30d', sortOrder: 'descending',
     selectedKeys: [first, second]
   })
   for (const key of ['pageNum', 'pageSize', 'page', 'page_size']) {

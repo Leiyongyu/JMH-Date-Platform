@@ -21,6 +21,18 @@ def source(sku="FRD-70618-0687", site="德国", **values):
     }
 
 
+@pytest.mark.parametrize(("sku", "expected"), [
+    ("MCD-20017-0071", "20017"), ("FRD-00123-0068", "00123"),
+    ("MCD-0-0071", "0"), ("SKU", None), ("MCD--0071", None),
+    ("2PC-BMW-30055-0182", None), ("MCD-20A17-0071", None),
+])
+def test_middle_code_is_second_numeric_segment_and_preserves_text(isolated, sku, expected):
+    isolated([source(sku=sku)])
+    item = service.list_inventory()["items"][0]
+    assert item["sku_middle_code"] == expected
+    assert item["sku"] == sku
+
+
 def rent(warehouse="DE", sku="JMH-70618-0687", currency="EUR", amount="10", **values):
     return {
         "warehouse_code": warehouse, "product_sku": sku,

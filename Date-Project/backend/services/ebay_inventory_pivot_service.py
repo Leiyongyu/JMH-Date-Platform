@@ -80,7 +80,7 @@ def capture_snapshot(expected_inventory_batch: str | None = None, trigger_type="
             "inventory_pulled_at": metadata.get("inventory_pulled_at"),
             "trigger_type": str(trigger_type)[:32], "item_count": len(items),
             "metadata": {**metadata, "warnings": warnings, "amount_aggregation_policy": "sum_present_v1"},
-        }, groups)
+        }, groups, items)
         return {"stat_date": stat_date.isoformat(), "snapshot_id": snapshot_id,
                 "group_count": len(groups), "item_count": len(items), "inventory_batch_id": batch}
 

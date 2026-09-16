@@ -31,6 +31,24 @@ class EbayInventoryDetailPivotControllerTest
     }
 
     @Test
+    void detailDateIsForwardedToListAndExport() throws Exception
+    {
+        var client = mock(EbayInventoryDetailPythonClient.class);
+        when(client.list(anyMap(), any())).thenReturn(Map.of("data", Map.of("items", List.of())));
+        when(client.export(anyMap(), any())).thenReturn(
+                new EbayInventoryDetailPythonClient.ExcelFile(new byte[] { 80, 75 }, "attachment; filename=test.xlsx"));
+        var controller = new EbayInventoryDetailController(client);
+        controller.list(" 2026-09-15 ", null, null, null, null, 1, 50, null, null, "trace");
+        controller.export(Map.of("statDate", "2026-09-15"), "trace", new MockHttpServletResponse());
+        ArgumentCaptor<Map<String, Object>> listParams = ArgumentCaptor.forClass(Map.class);
+        ArgumentCaptor<Map<String, Object>> exportParams = ArgumentCaptor.forClass(Map.class);
+        verify(client).list(listParams.capture(), eq("trace"));
+        verify(client).export(exportParams.capture(), eq("trace"));
+        assertEquals("2026-09-15", listParams.getValue().get("stat_date"));
+        assertEquals("2026-09-15", exportParams.getValue().get("stat_date"));
+    }
+
+    @Test
     void pivotMapsAllFiltersAndUnwrapsPythonData()
     {
         var client = mock(EbayInventoryDetailPythonClient.class);

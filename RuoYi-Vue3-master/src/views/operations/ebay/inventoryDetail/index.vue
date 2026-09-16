@@ -1,14 +1,19 @@
 <template>
   <div class="app-container inventory-detail-page">
     <div class="view-switch">
-      <el-radio-group v-model="activeView" aria-label="库存视图切换">
+      <el-radio-group v-model="activeView" :disabled="recalculating" aria-label="库存视图切换">
         <el-radio-button value="detail">库存明细</el-radio-button>
         <el-radio-button value="pivot">历史透视</el-radio-button>
       </el-radio-group>
     </div>
     <InventoryHistoryPivot v-if="activeView === 'pivot'" />
     <section v-show="activeView === 'detail'" class="table-panel">
-      <el-form v-show="showSearch" :model="query" :inline="true" class="query-form" @submit.prevent="handleQuery">
+      <el-form v-show="showSearch" :model="query" :inline="true" :disabled="recalculating" class="query-form" @submit.prevent="handleQuery">
+        <el-form-item label="统计日期">
+          <el-date-picker v-model="query.statDate" type="date" value-format="YYYY-MM-DD"
+            placeholder="最新已保存日期" :clearable="false" :disabled-date="disabledStatDate"
+            style="width: 175px" @change="handleQuery" />
+        </el-form-item>
         <el-form-item label="站点">
           <el-select v-model="query.site" clearable filterable placeholder="全部站点" style="width: 160px">
             <el-option v-for="site in sites" :key="site" :label="site" :value="site" />
@@ -32,7 +37,7 @@
           <el-button icon="Refresh" :disabled="loading" @click="resetQuery">重置</el-button>
           <el-button v-hasPermi="['operations:ebayInventoryDetail:import']" icon="Upload" plain
             :disabled="loading || importing" @click="importDialogVisible = true">导入产品等级</el-button>
-          <el-tooltip content="已勾选时导出所选记录；未勾选时导出当前筛选下的全部记录。始终包含全部27个字段。" placement="top">
+          <el-tooltip content="已勾选时导出所选记录；未勾选时导出当前统计日期及筛选下的全部记录。包含全部29个字段。" placement="top">
             <el-button v-hasPermi="['operations:ebayInventoryDetail:export']" type="primary" icon="Download"
               :loading="exporting" :disabled="loading || !dataReady || filtersDirty || total === 0" @click="handleExport">
               {{ selectedCount ? `导出已选（${selectedCount}）` : '导出全部数据' }}
@@ -50,30 +55,16 @@
           <el-button v-if="selectedCount" link type="primary" @click="clearSelection">清空选择</el-button>
         </div>
         <right-toolbar v-model:showSearch="showSearch" :show-column-config="true"
-          @queryTable="loadRows" @columnConfig="openColumnConfig" />
+          :refresh-loading="recalculating" :refresh-disabled="loading || importing || exporting || !canRecalculate"
+          :refresh-tooltip="canRecalculate ? '刷新：重新计算并覆盖今日快照，不重新拉取接口' : '重新计算需要产品等级导入权限'"
+          @queryTable="handleRefresh" @columnConfig="openColumnConfig" />
       </div>
 
-      <div v-if="metadata.inventory_pulled_at || metadata.sales_anchor_date || metadata.owner_rule_month || metadata.rent_date_from || metadata.price_pulled_at || metadata.price_snapshot_month || metadata.age_snapshot_month || metadata.age_pulled_at" class="data-context">
-        <span v-if="metadata.inventory_pulled_at">库存实际拉取 {{ metadata.inventory_pulled_at }}（周报任务计划每周一 07:30 刷新）</span>
-        <span v-if="metadata.sales_anchor_date">销量截至 {{ metadata.sales_anchor_date }}</span>
-        <span v-if="metadata.owner_rule_month">负责人规则 {{ metadata.owner_rule_month }}</span>
-        <span v-if="metadata.rent_date_from">仓租范围 {{ metadata.rent_date_from }} 至 {{ metadata.rent_date_to || '--' }}</span>
-        <span v-if="metadata.rent_rate_month">汇率月份 {{ metadata.rent_rate_month }}</span>
-        <span v-if="metadata.price_snapshot_month">采购价快照月 {{ metadata.price_snapshot_month }}</span>
-        <span v-if="metadata.price_pulled_at">采购价快照 {{ metadata.price_pulled_at }}</span>
-        <span v-if="metadata.age_pulled_at || metadata.age_snapshot_month">库龄实际拉取 {{ metadata.age_pulled_at || '未知' }}（计划每周一 06:00 刷新）</span>
-        <span v-if="metadata.age_snapshot_month">库龄拉取归属月 {{ metadata.age_snapshot_month }}</span>
-      </div>
-      <el-alert v-if="warnings.length" type="warning" :closable="false" show-icon class="data-warning">
-        <template #title>部分数据需留意</template>
-        <div v-for="(warning, index) in warnings" :key="index">{{ warning }}</div>
-      </el-alert>
-
-      <el-table v-if="columnConfigLoaded" :key="columnTableKey" ref="tableRef" v-loading="loading"
+      <el-table v-if="columnConfigLoaded" :key="columnTableKey" ref="tableRef" v-loading="loading || recalculating"
         :data="rows" :row-key="rowKey" :default-sort="defaultSort" border stripe
         height="620" empty-text="暂无符合条件的库存数据" class="inventory-table"
         @selection-change="handleSelectionChange" @sort-change="handleSortChange">
-        <el-table-column type="selection" width="46" fixed="left" align="center" :selectable="() => dataReady && !loading && !filtersDirty" />
+        <el-table-column type="selection" width="46" fixed="left" align="center" :selectable="() => dataReady && !loading && !recalculating && !filtersDirty" />
         <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key"
           :label="column.label" :min-width="column.width || 132"
           :fixed="fixedColumnKeys.includes(column.key) ? 'left' : false"
@@ -83,6 +74,7 @@
             <el-tooltip placement="top" effect="light" :show-after="200">
               <template #content>
                 <div class="column-help">
+                  <p>以下说明为快照生成时的取数口径；历史日期读取已冻结值，不按最新来源重算。</p>
                   <div class="column-help-title">{{ column.label }} · 数据口径</div>
                   <dl>
                     <div><dt>来源接口</dt><dd>{{ column.help.sourceApi }}</dd></div>
@@ -167,7 +159,7 @@ import { useColumnConfig } from '@/composables/useColumnConfig'
 import download from '@/plugins/download'
 import { blobValidate } from '@/utils/ruoyi'
 import { checkPermi } from '@/utils/permission'
-import { listEbayInventoryDetail, exportEbayInventoryDetail, importEbayInventoryGrades } from '@/api/operations/ebay/inventoryDetail'
+import { listEbayInventoryDetail, exportEbayInventoryDetail, importEbayInventoryGrades, recalculateEbayInventorySnapshot } from '@/api/operations/ebay/inventoryDetail'
 import { inventoryColumnHelp } from './columnHelp'
 import InventoryHistoryPivot from './InventoryHistoryPivot.vue'
 
@@ -177,13 +169,15 @@ const total = ref(0)
 const sites = ref([])
 const brands = ref([])
 const grades = ref([])
-const metadata = ref({})
+const availableDates = ref([])
 const loading = ref(false)
+const recalculating = ref(false)
+const canRecalculate = computed(() => checkPermi(['operations:ebayInventoryDetail:import']))
 const dataReady = ref(false)
 const exporting = ref(false)
 const showSearch = ref(true)
 const tableRef = ref()
-const query = reactive({ site: undefined, sku: '', brand: undefined, grade: undefined })
+const query = reactive({ statDate: undefined, site: undefined, sku: '', brand: undefined, grade: undefined })
 const appliedFilters = ref({})
 const filtersDirty = computed(() => JSON.stringify(currentFilters()) !== JSON.stringify(appliedFilters.value))
 // Keep state distinct from the Pagination component: script-setup bindings win
@@ -198,7 +192,6 @@ const sort = reactive({ sortField: 'sales_qty_30d', sortOrder: 'descending' })
 const defaultSort = computed(() => ({ prop: sort.sortField, order: sort.sortOrder }))
 const selection = reactive(new Map())
 const selectedCount = computed(() => selection.size)
-const warnings = computed(() => Array.isArray(metadata.value.warnings) ? metadata.value.warnings : [])
 let restoringSelection = false
 let loadVersion = 0
 let unmounted = false
@@ -208,6 +201,7 @@ const priceColumnKeys = ['unit_price_tax', 'overseas_sellable_value', 'overseas_
 const columnDefs = [
   { key: 'site', label: '站点', width: 90 },
   { key: 'sku', label: 'SKU', width: 205 },
+  { key: 'sku_middle_code', label: '中间码', width: 110 },
   { key: 'brand', label: '品牌', width: 100 },
   { key: 'product_name', label: '产品名称', width: 240 },
   { key: 'grade', label: '等级', width: 100 },
@@ -232,13 +226,14 @@ const columnDefs = [
   { key: 'total_duration_months', label: '总时长（月）', format: 'decimal', width: 145 },
   { key: 'total_stock_sales_ratio_months', label: '总库销比（月）', format: 'percent', sortable: true, width: 155 },
   { key: 'purchase_quantity', label: '申购量', format: 'quantity' },
-  { key: 'last_sold_at', label: '最后售出时间', width: 180 }
+  { key: 'last_sold_at', label: '最后售出时间', width: 180 },
+  { key: 'stat_date', label: '统计日期', width: 130 }
 ].map(column => ({ ...column, help: inventoryColumnHelp[column.key] }))
 const {
   showColumnDrawer, columnConfigLoaded, columnTableKey, visibleKeys, visibleColumns,
   openColumnConfig, initColumnConfig, applyColumnConfig
 } = useColumnConfig('operations:ebay:inventory-detail', columnDefs, fixedColumnKeys, fixedColumnKeys,
-  { average_daily_sales_30d: 'average_monthly_sales_3m' })
+  { average_daily_sales_30d: 'average_monthly_sales_3m' }, { sku_middle_code: 'sku' })
 
 function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== ''
@@ -269,11 +264,18 @@ function rowKey(row) {
 
 function currentFilters() {
   return {
+    statDate: query.statDate || 'latest',
     site: query.site || undefined,
     sku: query.sku.trim() || undefined,
     brand: query.brand || undefined,
     grade: query.grade || undefined
   }
+}
+
+function disabledStatDate(value) {
+  const key = [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'),
+    String(value.getDate()).padStart(2, '0')].join('-')
+  return !availableDates.value.includes(key)
 }
 
 function handleSelectionChange(selectedRows) {
@@ -317,7 +319,12 @@ async function loadRows() {
     sites.value = data.sites || []
     brands.value = data.brands || []
     grades.value = data.grades || []
-    metadata.value = data.metadata || {}
+    availableDates.value = data.metadata?.available_dates || []
+    // Resolve "latest" once; pagination and export stay on the displayed date.
+    if (appliedFilters.value.statDate === 'latest' && data.metadata?.stat_date) {
+      appliedFilters.value = { ...appliedFilters.value, statDate: data.metadata.stat_date }
+      if (!query.statDate) query.statDate = data.metadata.stat_date
+    }
     await restorePageSelection()
     if (version === loadVersion) dataReady.value = true
   } catch (error) {
@@ -328,11 +335,13 @@ async function loadRows() {
 }
 
 function handlePagination({ page, limit }) {
+  if (recalculating.value) return
   Object.assign(pageQuery, { pageNum: page, pageSize: limit })
   return loadRows()
 }
 
 function handleQuery() {
+  if (recalculating.value) return
   clearSelection()
   pageQuery.pageNum = 1
   appliedFilters.value = currentFilters()
@@ -340,19 +349,48 @@ function handleQuery() {
 }
 
 function resetQuery() {
-  Object.assign(query, { site: undefined, sku: '', brand: undefined, grade: undefined })
+  Object.assign(query, { statDate: undefined, site: undefined, sku: '', brand: undefined, grade: undefined })
   Object.assign(sort, { sortField: 'sales_qty_30d', sortOrder: 'descending' })
   tableRef.value?.sort(sort.sortField, sort.sortOrder)
   return handleQuery()
 }
 
 function handleSortChange({ prop, order }) {
+  if (recalculating.value) return
   const nextField = order ? prop : 'sales_qty_30d'
   const nextOrder = order || 'descending'
   if (sort.sortField === nextField && sort.sortOrder === nextOrder) return
   Object.assign(sort, { sortField: nextField, sortOrder: nextOrder })
   pageQuery.pageNum = 1
   loadRows()
+}
+
+async function handleRefresh() {
+  if (recalculating.value || loading.value || importing.value || exporting.value || !canRecalculate.value) return
+  recalculating.value = true
+  dataReady.value = false
+  clearSelection()
+  try {
+    const response = await recalculateEbayInventorySnapshot()
+    if (unmounted) return
+    const day = response.data?.stat_date
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) {
+      ElMessage.error('服务未返回有效的统计日期，请查询核对后再操作')
+      return
+    }
+    // Never write the date currently selected by the user; the server supplies today.
+    query.statDate = day
+    pageQuery.pageNum = 1
+    appliedFilters.value = currentFilters()
+    await loadRows()
+    if (unmounted) return
+    if (dataReady.value) ElMessage.success(`已重新计算并保存 ${day} 的库存明细及透视`)
+    else ElMessage.warning('今日快照已保存，列表读取失败，请点击查询重试')
+  } catch (error) {
+    // The request interceptor displays server errors; no second write/retry is automatic.
+  } finally {
+    recalculating.value = false
+  }
 }
 
 async function handleColumnApply(keys) {
@@ -411,6 +449,7 @@ function handleGradeFileChange(file) {
     ElMessage.warning('请选择不超过10 MB的 .xlsx 文件')
     gradeFile.value = null
     uploadRef.value?.clearFiles()
+    ElMessage.success('等级已导入；请点击表格右上角刷新，重新计算并覆盖今日快照')
     return
   }
   gradeFile.value = raw
@@ -443,7 +482,7 @@ async function handleGradeImport() {
   }
 }
 
-watch(() => [query.site, query.sku, query.brand, query.grade], clearSelection)
+watch(() => [query.statDate, query.site, query.sku, query.brand, query.grade], clearSelection)
 onMounted(async () => {
   appliedFilters.value = currentFilters()
   await Promise.all([initColumnConfig(), loadRows()])
@@ -469,8 +508,6 @@ onBeforeUnmount(() => {
 .selected-text { color: #3d71bf; }
 .pending-filter-text { color: #b88230; }
 .muted { color: #94a0b1; }
-.data-context { display: flex; flex-wrap: wrap; gap: 6px 20px; color: #8591a3; font-size: 11px; margin-bottom: 12px; line-height: 1.6; }
-.data-warning { margin-bottom: 12px; }
 .table-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf0f5; }
 .page-range { color: #65758c; font-size: 12px; white-space: nowrap; }
 .table-pagination :deep(.pagination-container) { margin-top: 0; max-width: 100%; overflow-x: auto; }

@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { getUserColumnConfig, saveUserColumnConfig } from '@/api/system/userColumnConfig'
 
-export function useColumnConfig(pageKey, columns, fixedKeys = [], requiredKeys = fixedKeys, keyAliases = {}) {
+export function useColumnConfig(pageKey, columns, fixedKeys = [], requiredKeys = fixedKeys, keyAliases = {}, newColumnAfter = {}) {
   const showColumnDrawer = ref(false)
   const allKeys = columns.map((item) => item.key)
   const columnMap = new Map(columns.map((item) => [item.key, item]))
@@ -63,9 +63,17 @@ export function useColumnConfig(pageKey, columns, fixedKeys = [], requiredKeys =
 
   function restoreKeys(saved) {
     const restored = normalizeKeys(saved.visibleKeys, false)
+    const knownKeys = new Set((saved.knownKeys || []).map((key) => keyAliases[key] || key))
+    // Explicit placement is only for newly introduced columns, including legacy configs.
+    // Once saved in allKeys, the user's hidden state and ordering take precedence.
+    Object.entries(newColumnAfter).forEach(([key, afterKey]) => {
+      if (columnMap.has(key) && !knownKeys.has(key) && !restored.includes(key)) {
+        const index = restored.indexOf(afterKey)
+        restored.splice(index < 0 ? restored.length : index + 1, 0, key)
+      }
+    })
     if (!saved.appendMissing) return restored
 
-    const knownKeys = new Set((saved.knownKeys || []).map((key) => keyAliases[key] || key))
     allKeys.forEach((key) => {
       if (!knownKeys.has(key) && !restored.includes(key)) {
         restored.push(key)

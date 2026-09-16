@@ -14,7 +14,8 @@ from backend.services.ebay_inventory_detail_service import CHINA, list_inventory
 
 EXCEL_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 COLUMNS = (
-    ("site", "站点", "text"), ("sku", "SKU", "text"), ("brand", "品牌", "text"),
+    ("site", "站点", "text"), ("sku", "SKU", "text"),
+    ("sku_middle_code", "中间码", "text"), ("brand", "品牌", "text"),
     ("product_name", "产品名称", "text"), ("grade", "等级", "text"),
     ("overseas_in_transit_quantity", "海外在途", "qty"),
     ("overseas_sellable_quantity", "海外可售", "qty"),
@@ -38,6 +39,7 @@ COLUMNS = (
     ("total_stock_sales_ratio_months", "总库销比（月）", "percent"),
     ("purchase_quantity", "申购量", "qty"),
     ("last_sold_at", "最后售出时间", "text"),
+    ("stat_date", "统计日期", "text"),
 )
 _ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
@@ -69,7 +71,7 @@ def export_inventory(**filters) -> tuple[str, bytes]:
         sheet.column_dimensions[get_column_letter(index)].width = width
         cell = WriteOnlyCell(sheet, label)
         cell.font = header_font
-        color = "24486D" if index <= 5 else "346A70" if index <= 14 else "806031" if index <= 18 else "625B83"
+        color = "24486D" if index <= 6 else "346A70" if index <= 15 else "806031" if index <= 19 else "625B83"
         cell.fill = PatternFill("solid", fgColor=color)
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         header.append(cell)
@@ -102,5 +104,7 @@ def export_inventory(**filters) -> tuple[str, bytes]:
     output = BytesIO()
     workbook.save(output)
     workbook.close()
-    filename = f"Ebay库存明细-{datetime.now(CHINA):%Y%m%d%H%M%S}.xlsx"
+    stat_date = data.get("metadata", {}).get("stat_date")
+    prefix = f"Ebay库存明细-{stat_date}" if stat_date else "Ebay库存明细"
+    filename = f"{prefix}-{datetime.now(CHINA):%Y%m%d%H%M%S}.xlsx"
     return filename, output.getvalue()
