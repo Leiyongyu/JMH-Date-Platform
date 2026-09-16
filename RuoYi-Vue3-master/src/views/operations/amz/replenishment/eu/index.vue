@@ -463,8 +463,6 @@ const columnDefs = [
   { key: 'reviewCount', label: '评论数', align: 'right', width: 100, sortable: true, filterType: 'number' },
   { key: 'adRate', label: '广告费率', align: 'right', width: 105, sortable: true, format: 'percentNumber', filterType: 'number' },
   { key: 'profitRate30d', label: '30天利润率', align: 'right', width: 120, sortable: true, format: 'percentNumber', filterType: 'number' },
-  { key: 'grossProfit30d', label: '30天毛利润（元）', align: 'right', width: 155, sortable: true, format: 'money' },
-  { key: 'grossProfit90d', label: '90天毛利润（元）', align: 'right', width: 155, sortable: true, format: 'money' },
   { key: 'refundRate90d', label: '90天退款率', align: 'right', width: 120, sortable: true, format: 'percentNumber', filterType: 'number' },
   { key: 'purchasedQty', label: '已采购数量', align: 'right', width: 120, sortable: true, format: 'purchasedQty', filterType: 'number' },
   { key: 'domesticStock', label: '国内仓库存', align: 'right', width: 120, sortable: true, filterType: 'number' },
@@ -486,7 +484,9 @@ const columnDefs = [
   { key: 'replenishQty', label: '补货量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
   { key: 'restockDays', label: '补货时间', align: 'right', width: 105, sortable: true, filterType: 'number' },
   { key: 'remark', label: '备注', align: 'left', width: 160, format: 'remark' },
-  { key: 'calcTime', label: '计算时间', align: 'center', width: 170, format: 'time' }
+  { key: 'calcTime', label: '计算时间', align: 'center', width: 170, format: 'time' },
+  { key: 'grossProfit30d', label: '30天毛利润（元）', align: 'right', width: 155, sortable: true, format: 'money' },
+  { key: 'grossProfit90d', label: '90天毛利润（元）', align: 'right', width: 155, sortable: true, format: 'money' }
 ]
 const {
   showColumnDrawer,
@@ -496,9 +496,20 @@ const {
   visibleColumns,
   exportColumns,
   openColumnConfig,
-  initColumnConfig,
+  initColumnConfig: loadColumnConfig,
   applyColumnConfig
 } = useColumnConfig('operations:amz:replenishment:eu', columnDefs, fixedColumnKeys, requiredColumnKeys)
+
+async function initColumnConfig() {
+  await loadColumnConfig()
+  // Apply the new placement to saved layouts too, without unhiding columns or
+  // resetting the user's ordering of any other field. Exports use this order.
+  const trailing = ['grossProfit30d', 'grossProfit90d']
+  visibleKeys.value = [
+    ...visibleKeys.value.filter(key => !trailing.includes(key)),
+    ...trailing.filter(key => visibleKeys.value.includes(key))
+  ]
+}
 const data = reactive({
   queryParams: {
     pageNum: 1,

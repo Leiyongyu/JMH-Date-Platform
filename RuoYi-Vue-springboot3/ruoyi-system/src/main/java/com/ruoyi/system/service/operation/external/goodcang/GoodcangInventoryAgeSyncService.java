@@ -17,7 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** 谷仓eBay库存库龄月度原始数据全量同步。 */
+/** 谷仓eBay库存库龄全量同步，月度历史与最新快照隔离存储。 */
 @Service
 public class GoodcangInventoryAgeSyncService
 {
@@ -46,6 +46,17 @@ public class GoodcangInventoryAgeSyncService
     }
 
     public OperationSyncResult syncCurrentMonth() throws Exception
+    {
+        return sync(false);
+    }
+
+    /** 仅替换最新快照，不刷新月度源数据或清货报表。 */
+    public OperationSyncResult syncLatest() throws Exception
+    {
+        return sync(true);
+    }
+
+    private OperationSyncResult sync(boolean latest) throws Exception
     {
         long started = System.currentTimeMillis();
         String snapshotMonth = YearMonth.now().toString();
@@ -102,22 +113,34 @@ public class GoodcangInventoryAgeSyncService
 
         if (rows.isEmpty())
             throw new IllegalStateException(
-                    "谷仓库龄接口返回0条，已拒绝覆盖当月快照");
+                    "谷仓库龄接口返回0条，已拒绝覆盖"
+                            + (latest ? "最新快照" : "当月快照"));
         if (expectedTotal >= 0 && rows.size() < expectedTotal)
             throw new IllegalStateException(
                     "谷仓库龄分页不完整：应返回" + expectedTotal
                             + "条，实际" + rows.size() + "条");
 
         transactionTemplate.executeWithoutResult(status -> {
-            mapper.deleteBySnapshotMonth(snapshotMonth);
+            if (latest)
+                mapper.deleteLatest();
+            else
+                mapper.deleteBySnapshotMonth(snapshotMonth);
             for (int from = 0; from < rows.size(); from += BATCH_SIZE)
-                mapper.batchInsert(rows.subList(
-                        from, Math.min(from + BATCH_SIZE, rows.size())));
+            {
+                List<Map<String, Object>> batch = rows.subList(
+                        from, Math.min(from + BATCH_SIZE, rows.size()));
+                if (latest)
+                    mapper.batchInsertLatest(batch);
+                else
+                    mapper.batchInsert(batch);
+            }
         });
 
         OperationSyncResult result = OperationSyncResult.success(
-                "goodcang_inventory_age_monthly",
-                "谷仓-eBay库存库龄月快照",
+                latest ? "goodcang_inventory_age_latest"
+                        : "goodcang_inventory_age_monthly",
+                latest ? "谷仓-eBay库存库龄每周刷新"
+                        : "谷仓-eBay库存库龄月快照",
                 API,
                 rows.size(),
                 rows.size(),
@@ -129,10 +152,11 @@ public class GoodcangInventoryAgeSyncService
         details.put("stored_rows", rows.size());
         result.setDetails(details);
         result.setBusinessSummary(
-                "快照月份" + snapshotMonth + "；库存库龄"
+                (latest ? "最新快照；拉取归属月份" : "快照月份")
+                        + snapshotMonth + "；库存库龄"
                         + rows.size() + "条；批次" + batchId);
-        LOG.info("谷仓库存库龄同步完成: month={}, rows={}",
-                snapshotMonth, rows.size());
+        LOG.info("谷仓库存库龄同步完成: scope={}, month={}, rows={}",
+                latest ? "latest" : "monthly", snapshotMonth, rows.size());
         return result;
     }
 

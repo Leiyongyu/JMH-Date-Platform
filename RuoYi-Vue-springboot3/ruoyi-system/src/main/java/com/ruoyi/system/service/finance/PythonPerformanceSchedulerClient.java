@@ -29,6 +29,8 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
             "currency_month_sync";
     private static final String AMZ_SOP_TASK =
             "amz_sop_after_sales_chain";
+    private static final String GOODCANG_STORAGE_TASK =
+            "goodcang_wh_inventory_storage_sync";
     private static final String SERVICE_NAME = "Python绩效ETL";
 
     public PythonPerformanceSchedulerClient(
@@ -50,7 +52,7 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
 
     public Map<String, Object> runGoodcangStorage(String requestId)
     {
-        return run("goodcang_wh_inventory_storage_sync", null, requestId);
+        return run(GOODCANG_STORAGE_TASK, null, requestId);
     }
 
     public Map<String, Object> run(String statMonth, String requestId)
@@ -175,6 +177,19 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         Object resultValue = data.get("result");
         Map<String, Object> result = resultValue instanceof Map<?, ?>
                 ? (Map<String, Object>) resultValue : Map.of();
+        if (GOODCANG_STORAGE_TASK.equals(taskCode))
+        {
+            int summaries = integer(result.get("summary_rows"), -1);
+            int details = integer(result.get("detail_rows"), -1);
+            int bills = integer(result.get("bill_count"), -1);
+            if (summaries < 0 || details < 0 || bills < 0
+                    || integer(result.get("completed_bills"), -1) != bills
+                    || integer(result.get("summary_ods_rows"), -1) != summaries
+                    || integer(result.get("detail_ods_rows"), -1) != details
+                    || integer(result.get("ods_rows"), -1) != summaries + details)
+                throw new IllegalStateException(
+                        "Python未返回完整的仓租概要及明细同步结果，请确认已部署并重启最新Python服务");
+        }
         if (PERFORMANCE_TASK.equals(taskCode))
         {
             Object refreshValue = result.get("refresh");

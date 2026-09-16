@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { getUserColumnConfig, saveUserColumnConfig } from '@/api/system/userColumnConfig'
 
-export function useColumnConfig(pageKey, columns, fixedKeys = [], requiredKeys = fixedKeys) {
+export function useColumnConfig(pageKey, columns, fixedKeys = [], requiredKeys = fixedKeys, keyAliases = {}) {
   const showColumnDrawer = ref(false)
   const allKeys = columns.map((item) => item.key)
   const columnMap = new Map(columns.map((item) => [item.key, item]))
@@ -10,7 +10,7 @@ export function useColumnConfig(pageKey, columns, fixedKeys = [], requiredKeys =
   const cacheKey = `user-column-config:${pageKey}`
 
   function normalizeKeys(keys, appendMissing = true) {
-    const valid = Array.isArray(keys) ? keys.filter((key) => columnMap.has(key)) : []
+    const valid = Array.isArray(keys) ? keys.map((key) => keyAliases[key] || key).filter((key) => columnMap.has(key)) : []
     const validSet = new Set(valid)
     const merged = []
     fixedKeys.forEach((key) => {
@@ -65,7 +65,7 @@ export function useColumnConfig(pageKey, columns, fixedKeys = [], requiredKeys =
     const restored = normalizeKeys(saved.visibleKeys, false)
     if (!saved.appendMissing) return restored
 
-    const knownKeys = new Set(saved.knownKeys || [])
+    const knownKeys = new Set((saved.knownKeys || []).map((key) => keyAliases[key] || key))
     allKeys.forEach((key) => {
       if (!knownKeys.has(key) && !restored.includes(key)) {
         restored.push(key)

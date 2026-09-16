@@ -4,10 +4,14 @@ import java.util.List;
 import java.util.Map;
 import org.apache.ibatis.annotations.Param;
 
-/** 谷仓库存库龄月度原始快照Mapper。 */
+/** 谷仓库存库龄月度原始快照与独立最新快照Mapper。 */
 public interface GoodcangInventoryAgeSnapshotMapper
 {
     int deleteBySnapshotMonth(@Param("snapshotMonth") String snapshotMonth);
 
     int batchInsert(@Param("list") List<Map<String, Object>> list);
+
+    int deleteLatest();
+
+    int batchInsertLatest(@Param("list") List<Map<String, Object>> list);
 }

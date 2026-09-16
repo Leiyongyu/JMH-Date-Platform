@@ -1085,8 +1085,104 @@ CREATE TABLE IF NOT EXISTS `ods_goodcang_wh_inventory_storage` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='ODS-谷仓仓租概要近30天；完整拉取成功后全表事务替换，不保留历史';
 
+CREATE TABLE IF NOT EXISTS `ods_goodcang_wh_inventory_storage_detail` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键；不作为业务关联键',
+  `wis_code` VARCHAR(64) NULL COMMENT '仓租单号；接口原值',
+  `reference_no` VARCHAR(255) NULL COMMENT '参考编号；保留前导零',
+  `warehouse_code` VARCHAR(64) NULL COMMENT '仓库代码；接口原值',
+  `product_sku` VARCHAR(255) NULL COMMENT '商品编码；接口原值',
+  `product_barcode` VARCHAR(255) NULL COMMENT '产品代码；接口原值',
+  `product_name` VARCHAR(1000) NULL COMMENT '产品名称；接口原值',
+  `quantity` BIGINT NULL COMMENT '数量；接口原值，缺失不补零',
+  `length` DECIMAL(30,12) NULL COMMENT '产品长cm；接口原值',
+  `width` DECIMAL(30,12) NULL COMMENT '产品宽cm；接口原值',
+  `height` DECIMAL(30,12) NULL COMMENT '产品高cm；接口原值',
+  `volume` DECIMAL(30,12) NULL COMMENT '体积m3；接口原值',
+  `cargo_type` VARCHAR(64) NULL COMMENT '货型；接口原值',
+  `day` BIGINT NULL COMMENT '库龄天数；接口原值，缺失不补零',
+  `bill_amount` DECIMAL(30,12) NULL COMMENT '总金额不含税；计费币种原币，不换算',
+  `settlement_amount` DECIMAL(30,12) NULL COMMENT '结算金额不含税；结算币种原币，不换算',
+  `warehouse_rent_amount` DECIMAL(30,12) NULL COMMENT '仓租金额不含税；接口原币金额，不换算',
+  `bill_currency_code` VARCHAR(16) NULL COMMENT '计费币种；接口原值',
+  `settlement_currency_code` VARCHAR(16) NULL COMMENT '结算币种；接口原值',
+  `charge_date` VARCHAR(32) NULL COMMENT '计费时间；接口字符串原值',
+  `putaway_date` VARCHAR(32) NULL COMMENT '上架时间；接口字符串原值',
+  `request_wis_code` VARCHAR(64) NOT NULL COMMENT '实际请求仓租单号；与响应wis_code分开保留用于追溯',
+  `request_date_from` DATETIME NOT NULL COMMENT '概要查询开始时间；北京时间，非明细接口请求参数',
+  `request_date_to` DATETIME NOT NULL COMMENT '概要查询截止时间；北京时间，非明细接口请求参数',
+  `source_page` INT UNSIGNED NOT NULL COMMENT '当前仓租单的来源页码，从1开始',
+  `source_row_no` INT UNSIGNED NOT NULL COMMENT '页内行号，从1开始',
+  `api_count` INT UNSIGNED NOT NULL COMMENT '当前仓租单明细接口总数量',
+  `sync_batch_id` VARCHAR(64) NOT NULL COMMENT '与概要一致的当前同步标识；不保留历史批次',
+  `pulled_at` DATETIME NOT NULL COMMENT '本次链式同步起始时刻，也是概要窗口截止时刻',
+  `raw_json` JSON NOT NULL COMMENT '原始明细行全部字段；数值精度不降级float',
+  PRIMARY KEY (`id`),
+  KEY `idx_gc_storage_detail_wis` (`wis_code`),
+  KEY `idx_gc_storage_detail_request` (`request_wis_code`),
+  KEY `idx_gc_storage_detail_sku_date` (`warehouse_code`, `product_sku`, `charge_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='ODS-谷仓近30天仓租单全部明细；概要及逐单明细完整拉取后同事务全表替换，不保留历史';
+
+CREATE TABLE IF NOT EXISTS `ebay_inventory_pivot_snapshot` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '历史透视快照主键',
+  `stat_date` DATE NOT NULL COMMENT '统计日期；生成时的中国时区实际日期，同日覆盖、跨日保留',
+  `stat_month` CHAR(7) NOT NULL COMMENT '统计年月YYYY-MM；由stat_date生成，不代替周变化日期',
+  `generated_at` DATETIME(6) NOT NULL COMMENT '实际生成完成时间；中国时区',
+  `inventory_batch_id` VARCHAR(64) NOT NULL COMMENT '生成时采用的成功周报库存批次ID',
+  `inventory_snapshot_date` DATE NULL COMMENT '源库存快照日期；不冒充统计日期',
+  `inventory_pulled_at` DATETIME NULL COMMENT '源库存实际拉取时间',
+  `trigger_type` VARCHAR(32) NOT NULL COMMENT '触发来源；JOB、manual或BOOTSTRAP等',
+  `item_count` INT NOT NULL COMMENT '本次冻结的站点加完整SKU明细总数',
+  `group_count` INT NOT NULL COMMENT '本次负责人加站点汇总行数',
+  `metadata_json` JSON NOT NULL COMMENT '冻结来源批次、销量锚点、汇率月、负责人规则月及缺失提示等追溯信息',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '首建时间',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最近一次同日覆盖时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_ebay_inventory_pivot_date` (`stat_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Ebay库存负责人历史透视快照；同日事务覆盖、其他日期永久保存，不随周报ODS清理';
+
+CREATE TABLE IF NOT EXISTS `ebay_inventory_pivot_owner` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '负责人站点汇总主键',
+  `snapshot_id` BIGINT UNSIGNED NOT NULL COMMENT '所属历史快照ID',
+  `owner` VARCHAR(128) NOT NULL COMMENT '冻结的负责人；未匹配保留未分配',
+  `site` VARCHAR(32) NOT NULL COMMENT '归一站点；不跨站合并库存或销量',
+  `sku_count` INT NOT NULL COMMENT '同负责人同站点的完整SKU去重数量',
+  `overseas_sellable_quantity` DECIMAL(30,6) NOT NULL COMMENT '海外可售数量合计',
+  `overseas_total_quantity` DECIMAL(30,6) NOT NULL COMMENT '海外总库存合计',
+  `sales_qty_30d` DECIMAL(30,6) NOT NULL COMMENT '冻结的近30天销量合计；沿用源数据最新付款日锚点',
+  `in_stock_sales_ratio` DECIMAL(30,6) NOT NULL COMMENT '可售合计除销量合计；零分母为0，保存比值不乘100',
+  `total_stock_sales_ratio` DECIMAL(30,6) NOT NULL COMMENT '总库存合计除销量合计；零分母为0，保存比值不乘100',
+  `overseas_sellable_value` DECIMAL(30,2) NULL COMMENT '人民币海外可售货值；仅汇总有值SKU，全部缺失为NULL',
+  `overseas_total_value` DECIMAL(30,2) NULL COMMENT '人民币海外总货值；仅汇总有值SKU，全部缺失为NULL',
+  `warehouse_rent_30d_cny` DECIMAL(30,2) NULL COMMENT '人民币30天谷仓仓租；排除缺失或冲突，仅汇总有值SKU，全部缺失为NULL',
+  `missing_price_count` INT NOT NULL COMMENT '缺失或异常单价的SKU数；有效0单价不计缺失',
+  `missing_rent_count` INT NOT NULL COMMENT '缺失、异常或冲突仓租的SKU数；有效0仓租不计缺失',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_ebay_inventory_pivot_owner_site` (`snapshot_id`,`owner`,`site`),
+  KEY `idx_ebay_inventory_pivot_owner_site` (`owner`,`site`),
+  CONSTRAINT `fk_ebay_inventory_pivot_snapshot` FOREIGN KEY (`snapshot_id`)
+    REFERENCES `ebay_inventory_pivot_snapshot` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Ebay库存历史负责人站点汇总；值生成后冻结，查询不回算当前来源';
+
+CREATE TABLE IF NOT EXISTS ebay_inventory_detail_grade (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    site VARCHAR(100) NOT NULL COMMENT '归一站点：德国、英国、美国、法国',
+    sku VARCHAR(255) NOT NULL COMMENT '完整SKU，不去品牌前缀',
+    grade VARCHAR(64) NOT NULL COMMENT '上传文件的原始等级文本，不套补货2.0等级规则',
+    source_file VARCHAR(255) NOT NULL DEFAULT '' COMMENT '最近一次来源文件',
+    updated_by VARCHAR(64) NOT NULL DEFAULT '' COMMENT '最近一次导入人',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_inventory_detail_site_sku (site,sku),
+    KEY idx_inventory_detail_grade (grade)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Ebay库存明细独立等级配置，文件按站点完整SKU增量更新';
+
 INSERT INTO scheduler_task (task_code, task_name, cron_expression, enabled, description)
-VALUES ('goodcang_wh_inventory_storage_sync', '谷仓仓租概要近30天同步', '0 0 7 ? * MON', 1,
- '每周一07:00；北京时间包含当天近30天，page从1开始，pageSize=200；完整校验后全表事务替换，不保留历史数据。Quartz为唯一计时器。')
+VALUES ('goodcang_wh_inventory_storage_sync', '谷仓仓租概要及明细近30天同步', '0 0 7 ? * MON', 1,
+ '每周一07:00；北京时间包含当天近30天；先拉概要，再按去重单号分页拉明细，全部校验后两表同一事务全量替换。Quartz为唯一计时器。')
 ON DUPLICATE KEY UPDATE task_name=VALUES(task_name), cron_expression=VALUES(cron_expression),
  description=VALUES(description);

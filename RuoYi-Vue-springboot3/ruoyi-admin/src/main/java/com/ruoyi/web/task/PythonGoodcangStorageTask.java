@@ -8,12 +8,12 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
-/** GoodCang V1 rent summaries; Python owns paging, validation and atomic replacement. */
+/** GoodCang V1 rent summaries and details; Python replaces both tables atomically. */
 @Component("pythonGoodcangStorageTask")
 public class PythonGoodcangStorageTask
 {
     private static final String CODE = "goodcang_wh_inventory_storage_sync";
-    private static final String NAME = "谷仓仓租概要近30天同步";
+    private static final String NAME = "谷仓仓租概要及明细近30天同步";
     private static final String PATH = "/api/v1/internal/scheduler/tasks/" + CODE + "/run";
     private final PythonPerformanceSchedulerClient client;
     private final IOperationSyncLogService logs;
@@ -40,7 +40,10 @@ public class PythonGoodcangStorageTask
                     CODE, NAME, PATH, source, stored, System.currentTimeMillis() - started);
             result.setDetails(response);
             result.setBusinessSummary("查询范围：" + details.get("start_date") + " ~ "
-                    + details.get("end_date") + "；写入" + stored + "行；requestId=" + requestId);
+                    + details.get("end_date") + "；概要" + details.get("summary_rows")
+                    + "行；仓租单" + details.get("bill_count") + "个；明细"
+                    + details.get("detail_rows") + "行；两表共写入" + stored
+                    + "行；requestId=" + requestId);
             logs.finish(logId, result);
             OperationSyncContext.set(result);
         }
@@ -54,4 +57,3 @@ public class PythonGoodcangStorageTask
         }
     }
 }
-

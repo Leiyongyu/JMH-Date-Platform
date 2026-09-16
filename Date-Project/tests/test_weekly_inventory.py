@@ -490,8 +490,13 @@ def test_schema_matches_every_normalized_column():
         assert 'snapshot_date`,`sync_batch_id`' in definition
 
 
-@pytest.mark.parametrize('missing_product,registration_failure', [(False,False),(True,False),(False,True)])
-def test_whole_chain_without_real_io(monkeypatch,tmp_path,missing_product,registration_failure):
+@pytest.mark.parametrize('missing_product,registration_failure,capture_failure', [
+    (False,False,False),(True,False,False),(False,True,False),(False,False,True),
+])
+def test_whole_chain_without_real_io(monkeypatch,tmp_path,missing_product,registration_failure,capture_failure):
+    import sys
+    from types import ModuleType
+
     monkeypatch.setattr(repo,'require_bin_identity_schema',MagicMock())
     client=MagicMock()
     client.post_signed_query_auth.side_effect=[
@@ -521,16 +526,38 @@ def test_whole_chain_without_real_io(monkeypatch,tmp_path,missing_product,regist
     monkeypatch.setattr(repo,'warehouse_names',lambda:{18677:'仓库'})
     finish=MagicMock()
     monkeypatch.setattr(repo,'finish_export',finish)
+    # Only this full-chain test replaces the history boundary. No global test
+    # fixture may hide whether production history capture is actually invoked.
+    pivot_module=ModuleType('backend.services.ebay_inventory_pivot_service')
+    def capture(*,expected_inventory_batch,trigger_type):
+        assert stored['inventory'][0]['sync_batch_id']==expected_inventory_batch
+        assert len(list(tmp_path.glob('*.xlsx')))==1
+        if capture_failure:
+            raise RuntimeError('injected historical storage failure')
+        return dict(snapshot_id=12,stat_date='2026-09-16',group_count=1,item_count=1)
+    capture_mock=MagicMock(side_effect=capture)
+    pivot_module.capture_snapshot=capture_mock
+    monkeypatch.setitem(sys.modules,pivot_module.__name__,pivot_module)
     if missing_product:
         with pytest.raises(ValueError,match='产品详情'):sync.sync_weekly_inventory()
         replace_mock.assert_not_called()
+        capture_mock.assert_not_called()
         assert not list(tmp_path.glob('*.xlsx'))
         assert finish.call_args.kwargs['error']
     elif registration_failure:
         with pytest.raises(RuntimeError,match='registration'):sync.sync_weekly_inventory()
+        capture_mock.assert_not_called()
         assert len(list(tmp_path.glob('*.xlsx'))) == 1  # preserve published evidence
         assert stored['inventory']
         assert finish.call_args.kwargs['error']
+    elif capture_failure:
+        with pytest.raises(ValueError,match='库存和Excel已成功发布，但历史透视保存失败'):
+            sync.sync_weekly_inventory('manual')
+        replace_mock.assert_called_once()
+        capture_mock.assert_called_once_with(
+            expected_inventory_batch=stored['inventory'][0]['sync_batch_id'],trigger_type='manual')
+        assert len(list(tmp_path.glob('*.xlsx')))==1
+        finish.assert_not_called()  # The committed SUCCESS record is untouched.
     else:
         result=sync.sync_weekly_inventory('manual')
         assert result['row_count']==1 and result['column_count']==24
@@ -542,6 +569,8 @@ def test_whole_chain_without_real_io(monkeypatch,tmp_path,missing_product,regist
         assert begin.call_args.args[-1]=='manual'
         finish.assert_not_called()
         assert result['deleted_rows']==4
+        assert result['pivot_snapshot']['snapshot_id']==12
+        capture_mock.assert_called_once_with(expected_inventory_batch=result['sync_batch_id'],trigger_type='manual')
     snapshot.assert_not_called()
 
 

@@ -7,14 +7,19 @@
         WHERE snapshot_month = #{snapshotMonth}
     </delete>
 
-    <insert id="batchInsert">
-        INSERT INTO ods_goodcang_inventory_age_monthly (
+    <delete id="deleteLatest">
+        DELETE FROM ods_goodcang_inventory_age_latest
+    </delete>
+
+    <sql id="snapshotColumns">
             snapshot_month, warehouse_code, product_sku, iba_quantity,
             iba_fifo_time, iba_warning_age, product_title, product_title_en,
             warehouse_desc, warehouse_age, expiration_date, source_page,
             source_row_no, api_code, api_message, api_total, sync_batch_id,
             raw_json, pulled_at
-        ) VALUES
+    </sql>
+
+    <sql id="snapshotValues">
         <foreach collection="list" item="e" separator=",">
             (
                 #{e.snapshotMonth}, #{e.warehouseCode}, #{e.productSku},
@@ -25,6 +30,20 @@
                 #{e.apiTotal}, #{e.syncBatchId}, #{e.rawJson}, #{e.pulledAt}
             )
         </foreach>
+    </sql>
+
+    <insert id="batchInsert">
+        INSERT INTO ods_goodcang_inventory_age_monthly (
+            <include refid="snapshotColumns"/>
+        ) VALUES
+        <include refid="snapshotValues"/>
+    </insert>
+
+    <insert id="batchInsertLatest">
+        INSERT INTO ods_goodcang_inventory_age_latest (
+            <include refid="snapshotColumns"/>
+        ) VALUES
+        <include refid="snapshotValues"/>
     </insert>
 
 </mapper>

@@ -163,6 +163,31 @@ def unique_bin_rows(rows):
 
 
 def sync_weekly_inventory(trigger_type="JOB"):
+    """Publish inventory first, then freeze the eBay owner/site history.
+
+    Capture stays outside the extraction failure handler: after the ODS/Excel
+    transaction commits, a history failure must never downgrade that success.
+    The scheduler still receives an explicit partial-success error so the
+    missing historical point is visible and can be retried.
+    """
+    result = _sync_weekly_inventory_sources(trigger_type)
+    batch = result["sync_batch_id"]
+    try:
+        from backend.services.ebay_inventory_pivot_service import capture_snapshot
+
+        result["pivot_snapshot"] = capture_snapshot(
+            expected_inventory_batch=batch, trigger_type=trigger_type,
+        )
+    except Exception as exc:
+        LOG.exception("Weekly inventory published but pivot history failed, batch=%s", batch)
+        raise ValueError(
+            f"库存和Excel已成功发布，但历史透视保存失败；批次{batch}；"
+            "已有历史保留，请查看任务日志并重试历史保存"
+        ) from exc
+    return result
+
+
+def _sync_weekly_inventory_sources(trigger_type="JOB"):
     """Called under the scheduler's global named lock; never label live data as historical."""
     from backend.services.weekly_inventory_export_service import export_root, write_export
 

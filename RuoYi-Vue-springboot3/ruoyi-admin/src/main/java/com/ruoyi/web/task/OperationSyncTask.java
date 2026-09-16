@@ -67,6 +67,8 @@ public class OperationSyncTask
             () -> SpringUtils.getBean(GoodcangProductSyncService.class).syncFromApi()); }
     public void syncGoodcangInventoryAge() { exec("goodcang_inventory_age_monthly", "谷仓-eBay库存库龄月快照", "/inventory/inventory_age_list", LOCK_GOODCANG,
             () -> SpringUtils.getBean(GoodcangInventoryAgeSyncService.class).syncCurrentMonth()); }
+    public void syncGoodcangInventoryAgeLatest() { exec("goodcang_inventory_age_latest", "谷仓-eBay库存库龄每周刷新", "/inventory/inventory_age_list", LOCK_GOODCANG,
+            () -> SpringUtils.getBean(GoodcangInventoryAgeSyncService.class).syncLatest()); }
     public void syncAmzListing() { exec("amz_listing", "领星-Amazon商品刊登", "erp/sc/data/mws/listing", LOCK_LINGXING_AMZ,
             () -> SpringUtils.getBean(LingxingAmzListingSyncService.class).syncAll()); }
 

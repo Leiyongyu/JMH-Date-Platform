@@ -739,8 +739,8 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
         cursor.execute(
             """
             INSERT INTO scheduler_task (task_code, task_name, cron_expression, enabled, description)
-            VALUES ('goodcang_wh_inventory_storage_sync', '谷仓仓租概要近30天同步', '0 0 7 ? * MON', 1,
-             '每周一07:00；北京时间包含当天近30天，page从1开始，pageSize=200；完整校验后全表事务替换，不保留历史数据。Quartz为唯一计时器。')
+            VALUES ('goodcang_wh_inventory_storage_sync', '谷仓仓租概要及明细近30天同步', '0 0 7 ? * MON', 1,
+             '每周一07:00；北京时间包含当天近30天；先拉概要，再按去重单号分页拉明细，全部校验后两表同一事务全量替换。Quartz为唯一计时器。')
             ON DUPLICATE KEY UPDATE task_name=VALUES(task_name), cron_expression=VALUES(cron_expression),
              description=VALUES(description);
             """

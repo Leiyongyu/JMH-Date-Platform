@@ -11,6 +11,7 @@ from backend.api.v1 import inventory as v1_inventory
 from backend.api.v1 import lingxing as v1_lingxing
 from backend.api.v1 import ebay_sku_analysis as v1_ebay_sku_analysis
 from backend.api.v1 import ebay_replenishment_v2 as v1_ebay_replenishment_v2
+from backend.api.v1 import ebay_inventory_detail as v1_ebay_inventory_detail
 from backend.api.v1 import weekly_inventory
 
 
@@ -28,5 +29,6 @@ api_router.include_router(v1_lingxing.router)
 api_router.include_router(v1_finance.router)
 api_router.include_router(v1_ebay_sku_analysis.router)
 api_router.include_router(v1_ebay_replenishment_v2.router)
+api_router.include_router(v1_ebay_inventory_detail.router)
 api_router.include_router(v1_internal_scheduler.router)
 api_router.include_router(weekly_inventory.router)
