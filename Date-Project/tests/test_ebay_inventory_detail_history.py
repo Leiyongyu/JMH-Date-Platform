@@ -67,6 +67,9 @@ def test_repository_reads_header_and_decimal_json_in_one_transaction(monkeypatch
     cursor = connection.cursor.return_value.__enter__.return_value
     saved = frozen()
     saved["sku_middle_code"] = "00123"
+    saved["sku_aliases"] = [saved["sku"], saved["sku"] + "-YXQ"]
+    saved["merged_sku_count"] = 2
+    saved["missing_price_sku_count"] = 1
     numeric = [key for key, value in saved.items() if isinstance(value, Decimal)]
     cursor.fetchall.side_effect = [
         [{"stat_date": date(2026, 9, 15)}],
@@ -81,6 +84,9 @@ def test_repository_reads_header_and_decimal_json_in_one_transaction(monkeypatch
     assert rows[0]["overseas_total_quantity"] == Decimal("10")
     assert isinstance(rows[0]["overseas_total_quantity"], Decimal)
     assert rows[0]["sku_middle_code"] == "00123"  # identifiers are never converted to numbers
+    assert rows[0]["sku_aliases"] == saved["sku_aliases"]
+    assert rows[0]["merged_sku_count"] == 2
+    assert rows[0]["missing_price_sku_count"] == 1
     assert meta["stat_date"] == "2026-09-15"
     assert warnings == ["历史缺价"]
     queries = cursor.execute.call_args_list

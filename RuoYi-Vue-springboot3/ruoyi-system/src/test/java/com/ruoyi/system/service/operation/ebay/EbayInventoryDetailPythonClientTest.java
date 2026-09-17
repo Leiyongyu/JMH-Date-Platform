@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockMultipartFile;
 import static org.junit.jupiter.api.Assertions.*;
 
 /** Only connects to an ephemeral local stub; never contacts Python or a business API. */
@@ -26,6 +27,7 @@ class EbayInventoryDetailPythonClientTest
     private String receivedToken;
     private String receivedRequestId;
     private String receivedAccept;
+    private String receivedContentType;
     private byte[] receivedBody;
     private int responseStatus = 200;
     private String responseType = "application/json";
@@ -44,6 +46,7 @@ class EbayInventoryDetailPythonClientTest
             receivedToken = exchange.getRequestHeaders().getFirst("X-Internal-Token");
             receivedRequestId = exchange.getRequestHeaders().getFirst("X-Request-ID");
             receivedAccept = exchange.getRequestHeaders().getFirst("Accept");
+            receivedContentType = exchange.getRequestHeaders().getFirst("Content-Type");
             receivedBody = exchange.getRequestBody().readAllBytes();
             exchange.getResponseHeaders().set("Content-Type", responseType);
             if (responseDisposition != null)
@@ -63,6 +66,77 @@ class EbayInventoryDetailPythonClientTest
     void stopLocalStub()
     {
         server.stop(0);
+    }
+
+    @Test
+    void priceImportUsesMultipartAuthenticatedOperatorAndExistingInternalHeaders()
+    {
+        responseBody = ("{\"code\":0,\"data\":{\"imported_rows\":3,\"duplicate_rows\":2,"
+                + "\"sku_count\":2,\"middle_code_count\":1,\"skipped_rows\":0,\"warnings\":[]}}")
+                .getBytes(StandardCharsets.UTF_8);
+        var file = new MockMultipartFile("file", "产品单价明细表.xlsx",
+                EbayInventoryDetailPythonClient.EXCEL_CONTENT_TYPE, "PK-price-payload".getBytes(StandardCharsets.UTF_8));
+
+        var result = client.importPrices(file, "李 茫茫", " price-import-request ");
+
+        assertEquals("POST", receivedMethod);
+        assertEquals("/api/v1/finance/ebay-inventory-detail/prices/import", receivedPath);
+        assertEquals(Map.of("operator", "李 茫茫"), query());
+        assertEquals("test-only-internal-token", receivedToken);
+        assertEquals("price-import-request", receivedRequestId);
+        assertTrue(receivedContentType.startsWith("multipart/form-data; boundary="));
+        String body = new String(receivedBody, StandardCharsets.UTF_8);
+        assertTrue(body.contains("name=\"file\""));
+        assertTrue(body.contains("filename=\"产品单价明细表.xlsx\""));
+        assertTrue(body.contains("PK-price-payload"));
+        assertEquals(3, ((Map<?, ?>) result.get("data")).get("imported_rows"));
+    }
+
+    @Test
+    void historyUploadHasSeparate50MbLimitAndRetainsBody()
+    {
+        var content = new byte[11 * 1024 * 1024];
+        content[0] = 80;
+        var file = new MockMultipartFile("file", "history.xlsx", "application/octet-stream", content);
+        assertThrows(IllegalArgumentException.class, () -> client.importPrices(file, "operator", null));
+        client.importHistory(file, "operator", "history-request");
+        assertEquals("/api/v1/finance/ebay-inventory-detail/history/import", receivedPath);
+        assertEquals("POST", receivedMethod);
+        assertEquals("history-request", receivedRequestId);
+        assertTrue(receivedBody.length > content.length);
+        assertEquals("test-only-internal-token", receivedToken);
+    }
+
+    @Test
+    void priceImportRejectsMissingEmptyAndOversizedFilesBeforeCallingPython()
+    {
+        assertThrows(IllegalArgumentException.class, () -> client.importPrices(null, "user", null));
+        var empty = new MockMultipartFile("file", new byte[0]);
+        assertThrows(IllegalArgumentException.class, () -> client.importPrices(empty, "user", null));
+        var oversized = new MockMultipartFile("file", new byte[] { 80 })
+        {
+            @Override public long getSize() { return 10L * 1024 * 1024 + 1; }
+        };
+        var error = assertThrows(IllegalArgumentException.class,
+                () -> client.importPrices(oversized, "user", null));
+        assertTrue(error.getMessage().contains("产品单价文件不能超过10MB"));
+        assertNull(receivedMethod);
+    }
+
+    @Test
+    void priceImportPreservesServerValidationErrorAndGradeImportRoute()
+    {
+        var file = new MockMultipartFile("file", "prices.xlsx", "application/octet-stream", new byte[] { 80, 75 });
+        responseStatus = 400;
+        responseBody = "{\"detail\":\"第 3 行单价无效，未更新任何记录\"}".getBytes(StandardCharsets.UTF_8);
+        var error = assertThrows(IllegalStateException.class, () -> client.importPrices(file, "user", null));
+        assertTrue(error.getMessage().contains("第 3 行单价无效，未更新任何记录"));
+
+        responseStatus = 200;
+        responseBody = "{\"code\":0,\"data\":{\"imported_rows\":1}}".getBytes(StandardCharsets.UTF_8);
+        client.importGrades(file, "grade-user", "grade-trace");
+        assertEquals("/api/v1/finance/ebay-inventory-detail/grades/import", receivedPath);
+        assertEquals("grade-user", query().get("operator"));
     }
 
     @Test

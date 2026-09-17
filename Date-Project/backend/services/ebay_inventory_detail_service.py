@@ -8,15 +8,18 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from backend.repositories import ebay_inventory_detail_repository as repository
+from backend.repositories import ebay_inventory_price_repository as price_repository
 from backend.repositories import ebay_inventory_pivot_repository as history_repository
 from backend.repositories import inventory_report_etl_repository as owner_repository
 from backend.services.ebay_inventory_grade_parser import normalize_site, parse_grades
+from backend.services.ebay_inventory_price_parser import parse_prices
 from backend.services.inventory_report_etl_service import (
     _ebay_assignment, _ebay_product_sku_map, _ebay_rule_map,
 )
 
 ZERO = Decimal("0")
 TOTAL_DURATION_MONTHS = Decimal("4.03")
+MIDDLE_SITE_SUFFIXES = {"德国": "DE", "美国": "US", "英国": "UK"}
 CHINA = timezone(timedelta(hours=8))
 PLACEHOLDER_FIELDS: tuple[str, ...] = ()
 PRICE_FIELDS = ("unit_price_tax", "overseas_sellable_value", "overseas_total_value")
@@ -43,6 +46,21 @@ def sku_middle_code(sku: str) -> str | None:
     return code if code and all("0" <= char <= "9" for char in code) else None
 
 
+def sku_middle_site_code(site: str, middle_code: str | None) -> str | None:
+    """仅供展示的中间码+站点标识，不替代现有分组或价格匹配键。"""
+    middle = "" if middle_code is None else str(middle_code).strip()
+    suffix = MIDDLE_SITE_SUFFIXES.get(_text(site))
+    if not suffix or not middle or not all("0" <= char <= "9" for char in middle):
+        return None
+    return middle + suffix
+
+
+def _product_key(site, sku):
+    """Invalid middle codes stay separate; never merge all missing codes together."""
+    middle = sku_middle_code(sku)
+    return (_text(site), "MIDDLE", middle) if middle is not None else (_text(site), "SKU", _text(sku).upper())
+
+
 def _decimal(value) -> Decimal:
     if value is None or value == "":
         return ZERO
@@ -62,20 +80,16 @@ def rent_sku_key(sku: str) -> str:
 
 
 def _product_price(source, metadata) -> tuple[Decimal | None, str | None]:
-    """cg_price为人民币原值；完整SKU、无站点维度，不换汇/加税/库存加权。"""
-    if (metadata.get("price_batch_count") or 0) > 1:
-        return None, "最新产品采购价月份含多个批次，单价与货值暂不计算"
-    if (source.get("price_source_rows") or 0) > 1:
-        return None, "最新产品档案存在重复完整SKU，单价与货值暂不计算"
-    raw = source.get("cg_price")
+    """上传价按文本中间码取MIN，跨站点共用人民币，不回退产品档案。"""
+    raw = source.get("imported_unit_price")
     if raw is None or raw == "":
-        return None, "最新产品档案未匹配到完整SKU或cg_price为空，不回退历史价"
+        return None, "上传单价未匹配到有效中间码，请导入产品单价后刷新；不回退产品管理价格"
     try:
         price = _decimal(raw)
     except ValueError:
-        return None, "产品cg_price不是有效数值，单价与货值暂不计算"
+        return None, "上传单价不是有效数值，单价与货值暂不计算"
     if price < ZERO:
-        return None, "产品cg_price为负数，单价与货值暂不计算"
+        return None, "上传单价为负数，单价与货值暂不计算"
     # 0 is a real source value, not missing data. Round only after valuation.
     return price, None
 
@@ -104,7 +118,7 @@ def _inventory_age(source, metadata, aliases, collisions) -> tuple[Decimal | Non
     key = (_text(source["site"]), rent_sku_key(source["sku"]))
     if key in collisions:
         return None, "同站点去前缀后匹配多个库存SKU：" + "、".join(sorted(aliases[key]))
-    if (source.get("age_source_products") or 0) > 1:
+    if (source.get("age_source_products") or 0) > 1 and sku_middle_code(source["sku"]) is None:
         return None, "谷仓同站点同尾码存在多个完整商品编码，无法唯一匹配最高库龄"
     if source.get("age_invalid_rows"):
         return None, "谷仓部分批次缺少有效库龄，无法确定最大天数，未按0补齐"
@@ -156,11 +170,14 @@ def _rent_totals(rent_rows, rates, rate_month):
 
 
 def _build_items(source_rows, rent_rows, rates, metadata, owner_rules, sku_map):
-    """全部库存键参与碰撞检测；筛选不得掩盖另一个同尾码SKU。"""
+    """先按原SKU计算，再按站点+中间码汇总；筛选和分页必须在汇总之后。"""
     aliases = defaultdict(set)
     for row in source_rows:
         aliases[(_text(row["site"]), rent_sku_key(row["sku"]))].add(_text(row["sku"]).upper())
-    collisions = {key for key, values in aliases.items() if len(values) > 1}
+    # Alias SKUs belonging to ONE merged product can share an age/rent key.
+    # Rent is counted once per source match key by _merge_product_items below.
+    collisions = {key for key, values in aliases.items()
+                  if len({_product_key(key[0], sku) for sku in values}) > 1}
     rate_month = metadata.get("rent_pull_month")
     rents, rent_errors, warnings = _rent_totals(rent_rows, rates, rate_month)
     if collisions:
@@ -241,13 +258,92 @@ def _build_items(source_rows, rent_rows, rates, metadata, owner_rules, sku_map):
             "last_sold_at": _text(source.get("last_sold_at")) or None,
         }
         items.append(item)
+    items = _merge_product_items(items)
     missing_prices = sum(item["price_warning"] is not None for item in items)
     if missing_prices:
-        warnings.append(f"{missing_prices}条库存记录的产品采购价缺失或异常，单价及货值显示--；可悬浮查看原因")
+        warnings.append(f"{missing_prices}条库存记录未匹配有效上传单价；缺失货值不计入汇总，可悬浮查看原因")
     missing_ages = sum(item["age_warning"] is not None for item in items)
     if missing_ages:
-        warnings.append(f"{missing_ages}条库存记录的库龄未匹配、冲突或异常，海外最高库龄显示--；可悬浮查看原因")
+        warnings.append(f"{missing_ages}条库存记录的部分或全部库龄未匹配、冲突或异常；已匹配部分取最大值，可悬浮查看原因")
     return items, warnings
+
+
+def _merge_product_items(items):
+    """Aggregate unrounded full-SKU values, never sum ratios, prices or rounded purchases."""
+    groups = defaultdict(list)
+    seen = set()
+    for item in items:
+        key = (_text(item["site"]), _text(item["sku"]).upper())
+        if key in seen:
+            raise ValueError("库存源数据存在重复站点+完整SKU，未合并或保存")
+        seen.add(key)
+        groups[_product_key(*key)].append(item)
+    result = []
+    for _, members in sorted(groups.items()):
+        # Stable representative: prefer the shorter original SKU over suffix aliases.
+        members = sorted(members, key=lambda item: (len(item["sku"]), item["sku"].upper(), item["sku"]))
+        row = dict(members[0])
+        row["sku_aliases"] = [item["sku"] for item in members]
+        row["merged_sku_count"] = len(members)
+        row["missing_price_sku_count"] = sum(item["unit_price_tax"] is None for item in members)
+        row["missing_rent_key_count"] = len({item["rent_match_key"] for item in members
+                                             if item["warehouse_rent_30d_cny"] is None})
+        row["brand_aliases"] = sorted({item["brand"] for item in members if item.get("brand")})
+        row["grade_aliases"] = sorted({item["grade"] for item in members if item.get("grade")})
+        row["merge_warning"] = None
+        if len(members) == 1:
+            result.append(row)
+            continue
+
+        notes = []
+        for field in QUANTITY_FIELDS + ("sales_qty_3m",):
+            row[field] = sum((item[field] for item in members), ZERO)
+        sales, sales_3m = row["sales_qty_30d"], row["sales_qty_3m"]
+        row["average_daily_sales_30d"] = sales / Decimal(30)
+        row["average_monthly_sales_3m"] = sales_3m / Decimal(3)
+        row["in_stock_sales_ratio"] = row["overseas_sellable_quantity"] / sales if sales else ZERO
+        row["total_stock_sales_ratio"] = row["overseas_total_quantity"] / sales if sales else ZERO
+        row["total_stock_sales_ratio_months"] = row["cycle_total_quantity"] * Decimal(3) / sales_3m if sales_3m else ZERO
+        row["total_duration_months"] = TOTAL_DURATION_MONTHS
+        row["purchase_quantity"] = (sales_3m * TOTAL_DURATION_MONTHS / Decimal(3) - row["cycle_total_quantity"]).quantize(
+            Decimal("1"), rounding=ROUND_HALF_UP)
+        for field in ("overseas_max_age_days", "last_sold_at"):
+            values = [item[field] for item in members if item.get(field) is not None]
+            row[field] = max(values) if values else None
+        row["product_name"] = next((item["product_name"] for item in members if item.get("product_name")), None)
+        row["grade"] = row["grade_aliases"][0] if len(row["grade_aliases"]) == 1 else None
+        if len(row["grade_aliases"]) > 1:
+            notes.append("合并SKU的等级不同：" + "、".join(row["grade_aliases"]) + "，等级显示--")
+        owners = {_text(item.get("owner")) or "未分配" for item in members}
+        if len(owners) > 1:
+            row["owner"], row["owner_match_source"] = "未分配", "MERGED_CONFLICT"
+            notes.append("合并SKU的负责人不同：" + "、".join(sorted(owners)) + "，归入未分配以免任意转移货值")
+
+        # All members share the same middle code and uploaded minimum price.
+        # Do not retain the old catalogue/inventory-weighted pricing policy.
+        prices = [item["unit_price_tax"] for item in members if item["unit_price_tax"] is not None]
+        row["unit_price_tax"] = min(prices) if prices else None
+        row["missing_price_sku_count"] = 0 if prices else len(members)
+        row["overseas_sellable_value"] = row["unit_price_tax"] * row["overseas_sellable_quantity"] if prices else None
+        row["overseas_total_value"] = row["unit_price_tax"] * row["overseas_total_quantity"] if prices else None
+        row["price_warning"] = None if prices else members[0].get("price_warning")
+        age_notes = sorted({item["age_warning"] for item in members if item.get("age_warning")})
+        age_prefix = "合并库龄取已匹配SKU的最大值；" if row["overseas_max_age_days"] is not None and age_notes else ""
+        row["age_warning"] = age_prefix + "；".join(age_notes) or None
+
+        rent_by_key = {}
+        for item in members:
+            rent_by_key.setdefault(item["rent_match_key"], item["warehouse_rent_30d_cny"])
+        row["rent_match_keys"] = sorted(rent_by_key)
+        rent_values = [value for value in rent_by_key.values() if value is not None]
+        row["warehouse_rent_30d_cny"] = sum(rent_values, ZERO) if rent_values else None
+        rent_notes = sorted({item["rent_warning"] for item in members if item.get("rent_warning")})
+        if row["missing_rent_key_count"] and rent_values:
+            rent_notes.append("合并仓租仅汇总可计算的不同匹配键，缺失金额未计入")
+        row["rent_warning"] = "；".join(rent_notes) or None
+        row["merge_warning"] = "；".join(notes) or None
+        result.append(row)
+    return result
 
 
 def _round_item(item: dict) -> dict:
@@ -256,12 +352,19 @@ def _round_item(item: dict) -> dict:
         if isinstance(value, Decimal):
             # Round displayed averages only at output; ratios and sorting use full precision.
             places = "0.01" if key.endswith("_cny") or key in PRICE_FIELDS or key in {"average_daily_sales_30d", "average_monthly_sales_3m"} else "0.000001"
-            value = value.quantize(Decimal(places), rounding=ROUND_HALF_UP)
+            if item.get("history_origin") != "EXCEL_IMPORT":
+                value = value.quantize(Decimal(places), rounding=ROUND_HALF_UP)
             # 数量保持精确数值文本，避免返回过长尾数或把0变空。
             value = format(value, "f").rstrip("0").rstrip(".") if "." in format(value, "f") else str(value)
             result[key] = "0" if value in {"-0", ""} else value
         else:
             result[key] = value
+    if "sku" in item and item.get("history_origin") != "EXCEL_IMPORT":
+        # Display-only enrichment also supports old frozen rows. Derive solely
+        # from that row, never query current sources or write the historical JSON.
+        middle = item.get("sku_middle_code") if "sku_middle_code" in item else sku_middle_code(item.get("sku"))
+        result.setdefault("sku_middle_code", middle)
+        result["sku_middle_site_code"] = sku_middle_site_code(item.get("site"), middle)
     return result
 
 
@@ -277,7 +380,9 @@ def load_calculated_inventory():
         warnings.append("没有可用的成功周报库存快照，请先执行仓位库存明细周报任务；不回退旧库存表")
     if source_rows and not raw_rules:
         warnings.append(f"{owner_month}没有eBay负责人规则，未匹配行显示未分配，不回退到其他月份")
-    metadata = {**metadata, "owner_rule_month": owner_month}
+    metadata = {**metadata, "owner_rule_month": owner_month,
+                "grouping_policy": "site_middle_code_v1", "source_sku_count": len(source_rows),
+                "product_group_count": len(items)}
     return items, metadata, warnings
 
 
@@ -295,33 +400,35 @@ def list_inventory(*, site=None, sku=None, brand=None, grade=None, page=1, page_
         # Retain the internal live calculation path; the page explicitly requests history.
         items, metadata, warnings = load_calculated_inventory()
     sites = sorted({_text(row["site"]) for row in items})
-    brands = sorted({row["brand"] for row in items})
-    grades = sorted({row["grade"] for row in items if row.get("grade")})
+    brands = sorted({value for row in items for value in row.get("brand_aliases", [row["brand"]]) if value})
+    grades = sorted({value for row in items for value in row.get("grade_aliases", [row.get("grade")]) if value})
     site_filter = normalize_site(site) if site else ""
     sku_filter, brand_filter, grade_filter = _text(sku).upper(), _text(brand).upper(), _text(grade)
     items = [row for row in items
              if (not site_filter or row["site"] == site_filter)
-             and (not sku_filter or sku_filter in row["sku"].upper())
-             and (not brand_filter or row["brand"] == brand_filter)
-             and (not grade_filter or row["grade"] == grade_filter)]
+             and (not sku_filter or any(sku_filter in _text(value).upper() for value in row.get("sku_aliases", [row["sku"]])))
+             and (not brand_filter or brand_filter in row.get("brand_aliases", [row["brand"]]))
+             and (not grade_filter or grade_filter in row.get("grade_aliases", [row.get("grade")]))]
     if selected_keys:
-        requested = {(normalize_site(key["site"]), _text(key["sku"]).upper()) for key in selected_keys}
-        actual = {(row["site"], row["sku"].upper()) for row in items}
+        def selection_key(row):
+            return (normalize_site(row["site"]), _text(row.get("sku")).upper(), _text(row.get("record_key")))
+        requested = {selection_key(key) for key in selected_keys}
+        actual = {selection_key(row) for row in items}
         if not requested.issubset(actual):
             raise ValueError("部分已选数据已变化或不在当前筛选结果中，请刷新后重新选择导出")
-        items = [row for row in items if (row["site"], row["sku"].upper()) in requested]
+        items = [row for row in items if selection_key(row) in requested]
     field = sort_field or "sales_qty_30d"
     if field not in SORT_FIELDS:
         raise ValueError("不支持该排序字段")
     descending = _text(sort_order).lower() not in {"asc", "ascending"}
     # 二级键保证同值分页稳定，空值在两种方向都置底。
-    items.sort(key=lambda row: (row["site"], row["sku"]))
+    items.sort(key=lambda row: (row["site"], _text(row["sku"]), _text(row.get("record_key"))))
     populated = [row for row in items if row.get(field) is not None]
     missing = [row for row in items if row.get(field) is None]
     populated.sort(key=lambda row: row[field], reverse=descending)
     items = populated + missing
     count = len(items)
-    summary = {field: sum((row[field] for row in items), ZERO) for field in (
+    summary = {field: sum((row[field] for row in items if row.get(field) is not None), ZERO) for field in (
         "overseas_total_quantity", "cycle_total_quantity", "sales_qty_30d")}
     summary["warehouse_rent_30d_cny"] = (
         sum((row["warehouse_rent_30d_cny"] for row in items), ZERO)
@@ -334,7 +441,7 @@ def list_inventory(*, site=None, sku=None, brand=None, grade=None, page=1, page_
             "sites": sites, "brands": brands, "grades": grades,
             "metadata": {**metadata,
                          "rent_rate_month": metadata.get("rent_pull_month"), "warnings": warnings,
-                         "row_scope": "指定统计日期冻结明细" if stat_date else "最新成功周报批次中七个eBay仓库的站点+完整SKU库存记录"},
+                         "row_scope": "指定统计日期冻结明细" if stat_date else "最新成功周报批次中七个eBay仓库的站点+中间码汇总；无有效中间码保留完整SKU"},
             "summary": _round_item(summary)}
 
 
@@ -345,3 +452,12 @@ def import_grades(content: bytes, filename: str, operator: str | None = None):
     imported = repository.upsert_grades(rows, _text(operator)[:64] or "SYSTEM", filename)
     return {"imported_rows": imported, **result,
             "message": "按站点+完整SKU更新有效等级；错误行和文件未包含的SKU保留原等级"}
+
+
+def import_prices(content: bytes, filename: str, operator: str | None = None):
+    result = parse_prices(content, filename)
+    filename = PurePosixPath(filename.replace("\\", "/")).name[:255]
+    rows = result.pop("rows")
+    imported = price_repository.replace_prices(rows, _text(operator)[:64] or "SYSTEM", filename)
+    return {"imported_rows": imported, **result,
+            "message": "按SKU+价格去重，替换本次涉及SKU的价格集合，其他SKU保留；同中间码取最低人民币价。请点击刷新重新计算今日快照。"}

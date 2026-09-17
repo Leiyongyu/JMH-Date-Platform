@@ -95,7 +95,7 @@ def read_inventory_day(stat_date):
                 header = cursor.fetchone()
                 items = []
                 if header:
-                    cursor.execute(f"SELECT item_json FROM {INVENTORY_DETAIL} WHERE snapshot_id=%s ORDER BY site,sku",
+                    cursor.execute(f"SELECT item_json FROM {INVENTORY_DETAIL} WHERE snapshot_id=%s ORDER BY site,sku,id",
                                    (header["id"],))
                     for row in cursor.fetchall():
                         saved = json.loads(row["item_json"]) if isinstance(row["item_json"], str) else row["item_json"]
@@ -115,6 +115,67 @@ def read_inventory_day(stat_date):
             connection.rollback()
             raise
     return items, metadata, metadata.get("warnings", [])
+
+
+def insert_import_days(days: dict, file_hash: str, filename: str, operator: str) -> dict:
+    """Atomic insert-only import; caller holds the shared inventory:ebay-pivot lock."""
+    dates = sorted(days)
+    now = datetime.now()
+    imported_rows = imported_dates = skipped_dates = 0
+    with db_connection() as connection:
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                marks = ",".join(["%s"] * len(dates))
+                cursor.execute(f"SELECT id,stat_date,trigger_type,item_count,metadata_json FROM {HEADER} "
+                               f"WHERE stat_date IN ({marks}) FOR UPDATE", tuple(dates))
+                existing = {row["stat_date"]: row for row in cursor.fetchall()}
+                conflicts = []
+                for day, saved in existing.items():
+                    raw = saved["metadata_json"]
+                    metadata = json.loads(raw) if isinstance(raw, str) else raw
+                    if (saved["trigger_type"] != "EXCEL_IMPORT"
+                            or metadata.get("import_file_sha256") != file_hash
+                            or saved["item_count"] != len(days[day])):
+                        conflicts.append(day.isoformat())
+                    else:
+                        cursor.execute(f"SELECT COUNT(*) total FROM {INVENTORY_DETAIL} WHERE snapshot_id=%s",
+                                       (saved["id"],))
+                        if cursor.fetchone()["total"] != len(days[day]):
+                            conflicts.append(day.isoformat())
+                if conflicts:
+                    raise ValueError("以下统计日期已存在其他或不完整批次，整份未导入、未覆盖：" + "、".join(sorted(conflicts)))
+                for day in dates:
+                    if day in existing:
+                        skipped_dates += 1
+                        continue
+                    items = days[day]
+                    metadata = {"history_origin": "EXCEL_IMPORT", "import_file_sha256": file_hash,
+                                "import_filename": filename, "import_operator": operator,
+                                "grouping_policy": "original_excel_rows", "warnings": []}
+                    cursor.execute(f"""INSERT INTO {HEADER}
+                        (stat_date,stat_month,generated_at,inventory_batch_id,trigger_type,item_count,group_count,metadata_json)
+                        VALUES (%s,%s,%s,%s,'EXCEL_IMPORT',%s,0,%s)""",
+                        (day, day.strftime("%Y-%m"), now, file_hash, len(items),
+                         json.dumps(metadata, ensure_ascii=False)))
+                    snapshot_id = cursor.lastrowid
+                    query = (f"INSERT INTO {INVENTORY_DETAIL} (snapshot_id,site,sku,record_key,item_json) "
+                             "VALUES (%s,%s,%s,%s,%s)")
+                    for offset in range(0, len(items), 500):
+                        params = [(snapshot_id, item["site"], item["sku"] or "", item["record_key"],
+                                   json.dumps({"values": item, "decimal_fields": [
+                                       key for key, value in item.items() if isinstance(value, Decimal)
+                                   ]}, default=_json_default, ensure_ascii=False, allow_nan=False))
+                                  for item in items[offset:offset + 500]]
+                        cursor.executemany(query, params)
+                    imported_rows += len(items)
+                    imported_dates += 1
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    return {"imported_rows": imported_rows, "imported_dates": imported_dates,
+            "skipped_existing_dates": skipped_dates, "already_imported": not imported_dates}
 
 
 def read_history(*, start_date=None, end_date=None, owner=None, site=None,

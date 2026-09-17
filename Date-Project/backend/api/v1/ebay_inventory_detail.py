@@ -11,6 +11,7 @@ from backend.api.deps import require_internal_access
 from backend.schemas.responses import success_response
 from backend.services import ebay_inventory_detail_service as service
 from backend.services import ebay_inventory_pivot_service as pivot_service
+from backend.services import ebay_inventory_history_import_service as history_import_service
 from backend.services.ebay_inventory_pivot_export_service import export_pivot
 from backend.services.ebay_inventory_detail_export_service import EXCEL_CONTENT_TYPE, export_inventory
 from backend.services.ebay_inventory_grade_parser import MAX_FILE_BYTES
@@ -22,7 +23,8 @@ router = APIRouter(prefix="/api/v1/finance/ebay-inventory-detail", dependencies=
 class InventoryKey(BaseModel):
     model_config = ConfigDict(extra="forbid")
     site: str = Field(min_length=1, max_length=100)
-    sku: str = Field(min_length=1, max_length=255)
+    sku: str = Field(default="", max_length=255)
+    record_key: str = Field(default="", max_length=80)
 
 
 class ExportRequest(BaseModel):
@@ -124,5 +126,35 @@ async def import_grades(request: Request, file: UploadFile = File(...), operator
         return success_response(result, request_id=request.state.request_id, message="等级导入完成")
     except Exception as exc:
         raise _failure(exc, "等级导入") from exc
+    finally:
+        await file.close()
+
+
+@router.post("/prices/import")
+async def import_prices(request: Request, file: UploadFile = File(...), operator: str | None = Query(None, max_length=64)):
+    filename = file.filename or "prices.xlsx"
+    try:
+        content = await file.read(MAX_FILE_BYTES + 1)
+        if len(content) > MAX_FILE_BYTES:
+            raise ValueError("单价文件不能超过10MB")
+        result = await run_in_threadpool(service.import_prices, content, filename, operator)
+        return success_response(result, request_id=request.state.request_id, message="产品单价导入完成")
+    except Exception as exc:
+        raise _failure(exc, "单价导入") from exc
+    finally:
+        await file.close()
+
+
+@router.post("/history/import")
+async def import_history(request: Request, file: UploadFile = File(...), operator: str | None = Query(None, max_length=64)):
+    filename = file.filename or "history.xlsx"
+    try:
+        content = await file.read(history_import_service.MAX_FILE_BYTES + 1)
+        if len(content) > history_import_service.MAX_FILE_BYTES:
+            raise ValueError("历史文件不能超过50MB")
+        result = await run_in_threadpool(history_import_service.import_history, content, filename, operator)
+        return success_response(result, request_id=request.state.request_id, message="历史数据导入完成")
+    except Exception as exc:
+        raise _failure(exc, "历史导入") from exc
     finally:
         await file.close()

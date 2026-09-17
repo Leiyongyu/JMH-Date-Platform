@@ -1166,6 +1166,21 @@ CREATE TABLE IF NOT EXISTS `ebay_inventory_pivot_owner` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='Ebay库存历史负责人站点汇总；值生成后冻结，查询不回算当前来源';
 
+CREATE TABLE IF NOT EXISTS ebay_inventory_detail_price (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    sku VARCHAR(255) NOT NULL COMMENT '上传的完整SKU，去首尾空格并转大写',
+    middle_code VARCHAR(64) NULL COMMENT 'SKU第二段纯数字文本，保留前导零；无法解析时NULL，不参与匹配',
+    unit_price DECIMAL(24,6) NOT NULL COMMENT '上传人民币单价；非负，0为有效价',
+    source_file VARCHAR(255) NOT NULL DEFAULT '' COMMENT '最近来源文件',
+    updated_by VARCHAR(64) NOT NULL DEFAULT '' COMMENT '最近导入人',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_inventory_price_sku_price (sku,unit_price),
+    KEY idx_inventory_price_middle_price (middle_code,unit_price)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Ebay库存明细上传单价；本次SKU价格集合增量替换，中间码取最低价';
+
 CREATE TABLE IF NOT EXISTS ebay_inventory_detail_grade (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
     site VARCHAR(100) NOT NULL COMMENT '归一站点：德国、英国、美国、法国',
@@ -1192,9 +1207,10 @@ CREATE TABLE IF NOT EXISTS ebay_inventory_detail_history (
   snapshot_id BIGINT UNSIGNED NOT NULL COMMENT '共享日期批次；主表stat_date唯一',
   site VARCHAR(32) NOT NULL,
   sku VARCHAR(255) NOT NULL,
+  record_key VARCHAR(80) NOT NULL DEFAULT '' COMMENT 'Excel原始行标识；生成记录为空',
   item_json JSON NOT NULL COMMENT '当时完整字段、异常提示及Decimal类型标记，不关联最新来源重算',
   PRIMARY KEY (id),
-  UNIQUE KEY uk_inventory_history_sku (snapshot_id,site,sku),
+  UNIQUE KEY uk_inventory_history_row (snapshot_id,site,sku,record_key),
   CONSTRAINT fk_inventory_detail_history_snapshot FOREIGN KEY (snapshot_id)
     REFERENCES ebay_inventory_pivot_snapshot(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci

@@ -37,13 +37,25 @@ export function exportEbayInventoryDetail(data) {
 }
 
 export function importEbayInventoryGrades(file) {
+  return importEbayInventoryFile('grades', file)
+}
+
+export function importEbayInventoryPrices(file) {
+  return importEbayInventoryFile('prices', file)
+}
+
+function importEbayInventoryFile(kind, file) {
   const data = new FormData()
   data.append('file', file)
   return request({
-    url: `${base}/grades/import`,
+    url: `${base}/${kind}/import`,
     method: 'post',
     data,
     headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false },
-    timeout: 120000
+    timeout: kind === 'history' ? 300000 : 120000
   })
+}
+
+export function importEbayInventoryHistory(file) {
+  return importEbayInventoryFile('history', file)
 }

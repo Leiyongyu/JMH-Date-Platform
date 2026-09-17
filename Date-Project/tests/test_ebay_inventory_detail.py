@@ -1,11 +1,17 @@
 """库存明细服务隔离用例：无数据库连接、无外部接口、无真实文件修改。"""
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from io import BytesIO
 import re
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from openpyxl import Workbook
 
+from backend.api.deps import require_internal_access
+from backend.api.v1 import ebay_inventory_detail as inventory_api
 from backend.repositories import ebay_inventory_detail_repository as repository
 from backend.services import ebay_inventory_detail_service as service
 
@@ -31,6 +37,44 @@ def test_middle_code_is_second_numeric_segment_and_preserves_text(isolated, sku,
     item = service.list_inventory()["items"][0]
     assert item["sku_middle_code"] == expected
     assert item["sku"] == sku
+
+
+@pytest.mark.parametrize(("site", "sku", "expected"), [
+    ("德国", "DAS-10053-0121", "10053DE"),
+    ("美国", "DAS-10053-0121", "10053US"),
+    ("英国", "DAS-10053-0121-YXQ", "10053UK"),
+    ("德国", "DAS-00123-0121", "00123DE"),
+    ("英国", "DAS-0-0121", "0UK"),
+    ("法国", "DAS-10053-0121", None),
+    ("英国", "2PC-DAS-10053-0121", None),
+])
+def test_middle_site_code_is_display_only_with_explicit_site_mapping(isolated, site, sku, expected):
+    isolated([source(site=site, sku=sku)])
+    item = service.list_inventory()["items"][0]
+    assert item["sku_middle_site_code"] == expected
+    assert item["sku"] == sku
+    assert item["site"] == site
+
+
+def test_middle_site_code_uses_frozen_row_without_recalculating_or_mutating(isolated, monkeypatch):
+    isolated([source(sku="DAS-00123-0121", site="英国")])
+    frozen, metadata, warnings = service.load_calculated_inventory()
+    # Older JSON lacked both display identifiers; infer only from the frozen SKU.
+    frozen[0].pop("sku_middle_code")
+    original = dict(frozen[0])
+    monkeypatch.setattr(service.history_repository, "read_inventory_day", lambda day: (frozen, metadata, warnings))
+    monkeypatch.setattr(service, "load_calculated_inventory", lambda: pytest.fail("no current-source query"))
+    item = service.list_inventory(stat_date="2026-09-15")["items"][0]
+    assert item["sku_middle_site_code"] == "00123UK"
+    assert item["sku_middle_code"] == "00123"
+    assert frozen[0] == original
+
+
+def test_middle_site_code_respects_stored_middle_and_does_not_enrich_summary():
+    item = {"site": "德国", "sku": "DAS-123-XXX", "sku_middle_code": "00123"}
+    assert service._round_item(item)["sku_middle_site_code"] == "00123DE"
+    assert service._round_item({**item, "sku_middle_code": None})["sku_middle_site_code"] is None
+    assert "sku_middle_site_code" not in service._round_item({"sales_qty_30d": Decimal(10)})
 
 
 def rent(warehouse="DE", sku="JMH-70618-0687", currency="EUR", amount="10", **values):
@@ -85,10 +129,10 @@ def test_duration_is_fixed_for_every_site_not_overridden_by_source(isolated, raw
     assert all(item["purchase_quantity"] == "363" for item in items)
 
 
-@pytest.mark.parametrize("month", [None, "", "2024-12", "2026-08"])
-def test_last_sold_month_preserves_historical_year_month_or_empty(isolated, month):
-    isolated([source(last_sold_at=month)])
-    assert service.list_inventory()["items"][0]["last_sold_at"] == (month or None)
+@pytest.mark.parametrize("day", [None, "", "2024-12-31", "2026-08-09", "2026-08-31"])
+def test_last_sold_date_preserves_year_month_day_or_empty(isolated, day):
+    isolated([source(last_sold_at=day)])
+    assert service.list_inventory()["items"][0]["last_sold_at"] == (day or None)
 
 
 @pytest.mark.parametrize(("stock", "expected"), [
@@ -109,7 +153,7 @@ def test_last_sold_sql_uses_all_history_exact_site_and_sku_not_sales_windows():
     repository._source_rows(cursor)
     query = cursor.execute.call_args.args[0]
     expression = query.split("SELECT DATE_FORMAT(MAX(source.payment_time)", 1)[1].split(") last_sold_at", 1)[0]
-    assert "'%%Y-%%m'" in expression
+    assert "'%%Y-%%m-%%d'" in expression
     assert "FROM dwd_ebay_sku_analysis_order source" in expression
     assert "source.site_name = CONVERT(inventory.site" in expression
     assert "source.inventory_sku = CONVERT(inventory.sku" in expression
@@ -171,10 +215,10 @@ def test_formulas_use_decimal_and_preserve_unspecified_fields(isolated):
 
 
 def test_product_price_uses_full_decimal_before_rounding_valuation(isolated):
-    isolated([source(cg_price=Decimal("1.005"), price_source_rows=1,
+    isolated([source(imported_unit_price=Decimal("1.005"), price_source_rows=1,
                      overseas_sellable_quantity=Decimal("3"),
                      overseas_in_transit_quantity=Decimal("2"))],
-             metadata={"price_snapshot_month": "2026-09", "price_batch_count": 1})
+             metadata={"price_imported_at": "2026-09-16 10:00:00", "price_row_count": 1})
     item = service.list_inventory()["items"][0]
     assert item["unit_price_tax"] == "1.01"
     assert item["overseas_sellable_value"] == "3.02"  # 1.005 * 3, not 1.01 * 3 = 3.03.
@@ -184,7 +228,7 @@ def test_product_price_uses_full_decimal_before_rounding_valuation(isolated):
 
 @pytest.mark.parametrize("price", [0, "0", Decimal("0.000000")])
 def test_zero_product_price_is_valid_not_missing(isolated, price):
-    isolated([source(cg_price=price, price_source_rows=1)])
+    isolated([source(imported_unit_price=price, price_source_rows=1)])
     item = service.list_inventory()["items"][0]
     assert all(item[field] == "0" for field in service.PRICE_FIELDS)
     assert item["price_warning"] is None
@@ -192,18 +236,18 @@ def test_zero_product_price_is_valid_not_missing(isolated, price):
 
 @pytest.mark.parametrize("price", [None, ""])
 def test_missing_price_keeps_values_null_even_when_inventory_is_zero(isolated, price):
-    isolated([source(cg_price=price, price_source_rows=1,
+    isolated([source(imported_unit_price=price, price_source_rows=1,
                      overseas_sellable_quantity=0, overseas_in_transit_quantity=0)],
-             metadata={"price_snapshot_month": "2026-09", "price_batch_count": 1})
+             metadata={"price_imported_at": "2026-09-16 10:00:00", "price_row_count": 1})
     result = service.list_inventory()
     item = result["items"][0]
     assert all(item[field] is None for field in service.PRICE_FIELDS)
-    assert "不回退历史价" in item["price_warning"]
-    assert any("采购价缺失或异常" in warning for warning in result["metadata"]["warnings"])
+    assert "不回退产品管理价格" in item["price_warning"]
+    assert any("未匹配有效上传单价" in warning for warning in result["metadata"]["warnings"])
 
 
 def test_product_cny_price_does_not_depend_on_rent_currency_rates(isolated):
-    isolated([source(cg_price=Decimal("25.123456"), price_source_rows=1)],
+    isolated([source(imported_unit_price=Decimal("25.123456"), price_source_rows=1)],
              [rent(currency="EUR")], rates={})
     item = service.list_inventory()["items"][0]
     assert item["warehouse_rent_30d_cny"] is None  # EUR is missing, independently.
@@ -213,9 +257,10 @@ def test_product_cny_price_does_not_depend_on_rent_currency_rates(isolated):
     assert item["price_warning"] is None
 
 
-def test_same_complete_sku_uses_same_price_across_sites(isolated):
-    isolated([source(site=site, cg_price=Decimal("8.125"), price_source_rows=1)
-              for site in ("德国", "英国", "美国")])
+def test_same_middle_code_uses_same_price_across_sites_and_full_sku_aliases(isolated):
+    isolated([source(site=site, sku=sku, imported_unit_price=Decimal("8.125"), price_source_rows=3)
+              for site, sku in (("德国", "FRD-70618-0687"), ("英国", "OTH-70618-0001"),
+                                ("美国", "FRD-70618-0687-YXQ"))])
     items = service.list_inventory(paginate=False)["items"]
     assert len(items) == 3
     assert {row["unit_price_tax"] for row in items} == {"8.13"}
@@ -223,36 +268,44 @@ def test_same_complete_sku_uses_same_price_across_sites(isolated):
     assert {row["overseas_total_value"] for row in items} == {"243.75"}
 
 
-@pytest.mark.parametrize(("source_rows", "batch_count", "expected_warning"), [
-    (2, 1, "重复完整SKU"),
-    (1, 2, "多个批次"),
+@pytest.mark.parametrize(("source_rows", "batch_count"), [
+    (2, 1),
+    (1, 2),
 ])
-def test_ambiguous_price_sources_do_not_use_arbitrary_max_price(
-        isolated, source_rows, batch_count, expected_warning):
-    isolated([source(cg_price=Decimal("999"), price_source_rows=source_rows)],
+def test_imported_middle_minimum_is_valid_with_multiple_pairs_and_import_batches(
+        isolated, source_rows, batch_count):
+    isolated([source(imported_unit_price=Decimal("12.25"), price_source_rows=source_rows)],
              metadata={"price_batch_count": batch_count, "price_snapshot_month": "2026-09"})
-    result = service.list_inventory()
-    item = result["items"][0]
+    item = service.list_inventory()["items"][0]
+    assert item["unit_price_tax"] == "12.25"
+    assert item["overseas_total_value"] == "367.5"
+    assert item["price_warning"] is None
+
+
+@pytest.mark.parametrize("catalogue_price", [0, Decimal("99.99"), Decimal("1.005")])
+def test_missing_uploaded_price_never_falls_back_to_lingxing_catalogue(isolated, catalogue_price):
+    isolated([source(cg_price=catalogue_price, imported_unit_price=None, price_source_rows=1)],
+             metadata={"price_snapshot_month": "2026-09", "price_batch_count": 1})
+    item = service.list_inventory()["items"][0]
     assert all(item[field] is None for field in service.PRICE_FIELDS)
-    assert expected_warning in item["price_warning"]
-    assert any("采购价缺失或异常" in warning for warning in result["metadata"]["warnings"])
+    assert "不回退产品管理价格" in item["price_warning"]
 
 
 @pytest.mark.parametrize("price", [Decimal("-0.01"), Decimal("NaN"), Decimal("Infinity"),
                                   float("-inf"), "invalid-price", True])
 def test_invalid_price_does_not_crash_or_create_misleading_values(isolated, price):
-    isolated([source(cg_price=price, price_source_rows=1)])
+    isolated([source(imported_unit_price=price, price_source_rows=1)])
     result = service.list_inventory()
     item = result["items"][0]
     assert all(item[field] is None for field in service.PRICE_FIELDS)
     assert item["price_warning"]
-    assert any("采购价缺失或异常" in warning for warning in result["metadata"]["warnings"])
+    assert any("未匹配有效上传单价" in warning for warning in result["metadata"]["warnings"])
 
 
 @pytest.mark.parametrize("field", service.PRICE_FIELDS)
 @pytest.mark.parametrize("direction", ["ascending", "descending"])
 def test_price_columns_sort_numerically_with_nulls_always_last(isolated, field, direction):
-    isolated([source(sku=f"FRD-{label}", cg_price=price, price_source_rows=1,
+    isolated([source(sku=f"FRD-{label}", imported_unit_price=price, price_source_rows=1,
                      overseas_sellable_quantity=1, overseas_in_transit_quantity=0)
               for label, price in (("TEN", Decimal("10")), ("MISSING", None),
                                    ("NINE", Decimal("9")), ("ZERO", Decimal("0")))])
@@ -340,13 +393,14 @@ def test_absent_snapshot_differs_from_no_charge_for_one_sku(isolated):
     assert service.list_inventory()["items"][0]["warehouse_rent_30d_cny"] == "0"
 
 
-def test_collision_detection_runs_before_brand_filter(isolated):
+def test_same_product_rent_is_counted_once_before_alias_brand_filter(isolated):
     isolated([source(), source(sku="BMW-70618-0687")], [rent()], {"EUR": Decimal("7.6")})
     result = service.list_inventory(brand="FRD")
     assert result["pagination"]["total"] == 1
-    assert result["items"][0]["warehouse_rent_30d_cny"] is None
-    assert "BMW-70618-0687" in result["items"][0]["rent_warning"]
-    assert result["summary"]["warehouse_rent_30d_cny"] is None
+    assert result["items"][0]["warehouse_rent_30d_cny"] == "76"
+    assert result["items"][0]["rent_warning"] is None
+    assert result["items"][0]["overseas_total_quantity"] == "60"
+    assert result["summary"]["warehouse_rent_30d_cny"] == "76"
 
 
 def test_same_suffix_in_different_sites_is_not_collision(isolated):
@@ -422,7 +476,7 @@ def test_source_sql_is_inventory_driven_with_global_30_day_anchor():
     assert "ORDER BY source.payment_time DESC,source.id DESC LIMIT 1" in query
 
 
-def test_price_sql_uses_one_latest_catalogue_month_and_complete_sku_only():
+def test_price_sql_aggregates_uploaded_middle_code_minimum_before_inventory_join():
     cursor = MagicMock()
     cursor.fetchall.return_value = []
     repository._source_rows(cursor)
@@ -430,27 +484,33 @@ def test_price_sql_uses_one_latest_catalogue_month_and_complete_sku_only():
     query = cursor.execute.call_args.args[0]
     price_cte = query.split("product_prices AS (", 1)[1].split("\n        )", 1)[0]
     table = repository._product_price_table()
-    assert table.endswith(".ods_lingxing_product_procurement_monthly")
+    assert table == "ebay_inventory_detail_price"
     assert f"FROM {table}" in price_cte
-    assert f"WHERE snapshot_month=(SELECT MAX(snapshot_month) FROM {table})" in price_cte
+    assert "snapshot_month" not in price_cte and "sync_batch_id" not in price_cte
     assert "ods_goodcang_inventory_age_latest" not in price_cte
-    assert "GROUP BY TRIM(sku)" in price_cte
+    assert "GROUP BY middle_code" in price_cte
     assert "COUNT(*) price_source_rows" in price_cte
-    assert "MAX(cg_price) cg_price" in price_cte
-    assert "inventory.sku" not in price_cte  # Latest month is not per current SKU.
-    assert "site" not in price_cte
-    assert "NULLIF(cg_price" not in price_cte and "COALESCE(cg_price" not in price_cte
+    assert "MIN(unit_price) imported_unit_price" in price_cte
+    assert "inventory.sku" not in price_cte
+    assert "GROUP BY site" not in price_cte
+    assert "NULLIF(unit_price" not in price_cte and "COALESCE(unit_price" not in price_cte
+    assert "unit_price>0" not in price_cte.replace(" ", "")  # Zero is a valid minimum.
+    assert "middle_code IS NOT NULL AND middle_code<>''" in price_cte
     price_join = query.split("LEFT JOIN product_prices prices", 1)[1].split("LEFT JOIN", 1)[0]
-    assert "prices.sku" in price_join and "inventory.sku" in price_join
+    assert "prices.middle_code" in price_join and "inventory.sku" in price_join
     assert "site" not in price_join
-    assert "SUBSTRING" not in price_cte + price_join  # No prefix stripping.
-    assert "prices.price_source_rows" in query  # Service can reject normalized duplicate SKUs.
+    assert "SUBSTRING_INDEX(SUBSTRING_INDEX(inventory.sku,'-',2),'-',-1)" in price_join
+    assert "REGEXP '^[0-9]+$'" in price_join
+    assert "CAST(" not in price_join  # Text equality must preserve leading zeros.
+    assert "ods_lingxing_product_procurement_monthly" not in query
+    assert "cg_price" not in query
+    assert "prices.imported_unit_price" in query
 
 
-def test_source_metadata_reads_price_month_and_batch_count_in_one_query():
+def test_source_metadata_reads_all_imported_price_rows_and_middle_count_in_one_query():
     cursor = MagicMock()
-    price_meta = {"price_snapshot_month": "2026-09", "price_pulled_at": "2026-09-01 07:00:00",
-                  "price_row_count": 900, "price_batch_count": 1}
+    price_meta = {"price_imported_at": "2026-09-16 10:00:00",
+                  "price_row_count": 900, "price_middle_code_count": 700}
     cursor.fetchone.side_effect = [{"sales_anchor_date": None},
                                    {"rent_batch_count": 1}, price_meta,
                                    {"age_snapshot_month": None, "age_row_count": 0, "age_batch_count": 0}]
@@ -459,23 +519,24 @@ def test_source_metadata_reads_price_month_and_batch_count_in_one_query():
     assert all(result[key] == value for key, value in price_meta.items())
     price_query = cursor.execute.call_args_list[2].args[0]
     assert f"FROM {repository._product_price_table()}" in price_query
-    assert "ods_lingxing_product_procurement_monthly" in price_query
-    assert "COUNT(DISTINCT sync_batch_id) price_batch_count" in price_query
-    assert "WHERE snapshot_month=(SELECT MAX(snapshot_month) FROM " in price_query
+    assert "ebay_inventory_detail_price" in price_query
+    assert "MAX(updated_at) price_imported_at" in price_query
+    assert "COUNT(DISTINCT middle_code) price_middle_code_count" in price_query
+    assert "WHERE" not in price_query.upper()  # Incremental imports are not a latest-only batch.
+    assert result["price_source"] == "uploaded_middle_code_min_v1"
 
 
-def test_empty_price_catalogue_returns_null_price_metadata_and_values(isolated):
+def test_empty_uploaded_price_table_returns_null_price_metadata_and_values(isolated):
     cursor = MagicMock()
-    price_meta = {"price_snapshot_month": None, "price_pulled_at": None,
-                  "price_row_count": 0, "price_batch_count": 0}
+    price_meta = {"price_imported_at": None, "price_row_count": 0, "price_middle_code_count": 0}
     cursor.fetchone.side_effect = [{"sales_anchor_date": None}, {"rent_batch_count": 0}, price_meta,
                                    {"age_snapshot_month": None, "age_row_count": 0, "age_batch_count": 0}]
     metadata = repository._source_metadata(cursor)
-    assert metadata["price_snapshot_month"] is None
-    isolated([source(cg_price=None, price_source_rows=None)], metadata=metadata)
+    assert metadata["price_imported_at"] is None
+    isolated([source(imported_unit_price=None, price_source_rows=None)], metadata=metadata)
     item = service.list_inventory()["items"][0]
     assert all(item[field] is None for field in service.PRICE_FIELDS)
-    assert "不回退历史价" in item["price_warning"]
+    assert "不回退产品管理价格" in item["price_warning"]
 
 
 def test_mixed_rent_batches_are_rejected():
@@ -730,7 +791,6 @@ def test_invalid_age_is_not_rounded_or_treated_as_zero(isolated, days):
 
 @pytest.mark.parametrize(("invalid_rows", "products", "batches"), [
     (1, 1, 1),  # One malformed batch must not be silently discarded by MAX.
-    (0, 2, 1),  # Different source SKU prefixes share one station/suffix.
     (0, 1, 2),  # The full latest table contains multiple imported sync batches.
 ])
 def test_partial_invalid_or_ambiguous_age_is_entirely_unknown(isolated, invalid_rows, products, batches):
@@ -750,16 +810,17 @@ def test_many_valid_batches_for_one_source_sku_are_not_ambiguous(isolated):
     assert item["age_warning"] is None
 
 
-def test_inventory_suffix_collision_cannot_be_hidden_by_brand_filter(isolated):
+def test_merged_product_age_is_available_before_alias_brand_filter(isolated):
     isolated([aged_source(58), aged_source(58, sku="BMW-70618-0687")],
              metadata={"age_batch_count": 1})
     all_rows = service.list_inventory(paginate=False)["items"]
-    assert all(row["overseas_max_age_days"] is None for row in all_rows)
-    assert all(row["age_warning"] for row in all_rows)
+    assert len(all_rows) == 1
+    assert all(row["overseas_max_age_days"] == "58" for row in all_rows)
+    assert all(row["age_warning"] is None for row in all_rows)
     result = service.list_inventory(brand="FRD")
     assert len(result["items"]) == 1
-    assert result["items"][0]["overseas_max_age_days"] is None
-    assert "BMW-70618-0687" in result["items"][0]["age_warning"]
+    assert result["items"][0]["overseas_max_age_days"] == "58"
+    assert "FRD-70618-0687" in result["items"][0]["sku_aliases"]
 
 
 def test_unmatched_age_does_not_report_a_source_collision(isolated):
@@ -794,7 +855,7 @@ def test_overseas_age_sorts_numerically_and_puts_missing_last(isolated, directio
 
 
 def test_attaching_age_does_not_change_existing_inventory_sales_rent_or_price(isolated):
-    original = source(cg_price=Decimal("1.005"), price_source_rows=1, sales_qty_3m=90)
+    original = source(imported_unit_price=Decimal("1.005"), price_source_rows=1, sales_qty_3m=90)
     isolated([original], [rent()], {"EUR": Decimal("7.6")}, {"age_batch_count": 1})
     before = service.list_inventory()["items"][0]
     isolated([{**original, "age_days": 58, "age_source_rows": 2, "age_source_products": 1, "age_invalid_rows": 0}],
@@ -862,7 +923,7 @@ def test_source_metadata_reads_full_latest_age_table_with_month_only_as_metadata
     age_meta = {"age_snapshot_month": "2026-09", "age_pulled_at": "2026-09-01 07:00:00",
                 "age_row_count": 2000, "age_batch_count": 1}
     cursor.fetchone.side_effect = [{"sales_anchor_date": None}, {"rent_batch_count": 1},
-                                   {"price_snapshot_month": "2026-08", "price_batch_count": 1}, age_meta]
+                                   {"price_imported_at": "2026-09-16 10:00:00", "price_row_count": 1}, age_meta]
     result = repository._source_metadata(cursor)
     assert cursor.execute.call_count == 4
     assert all(result[key] == value for key, value in age_meta.items())
@@ -889,21 +950,21 @@ def test_latest_age_metadata_counts_all_batches_and_service_rejects_mixed_age_on
     age_meta = {"age_snapshot_month": "2026-09", "age_pulled_at": "2026-09-16 07:00:00",
                 "age_row_count": 2000, "age_batch_count": batch_count}
     cursor.fetchone.side_effect = [{"sales_anchor_date": None}, {"rent_batch_count": 0},
-                                   {"price_snapshot_month": "2026-08", "price_batch_count": 1}, age_meta]
+                                   {"price_imported_at": "2026-09-16 10:00:00", "price_row_count": 1}, age_meta]
     metadata = repository._source_metadata(cursor)
     query = cursor.execute.call_args_list[3].args[0]
     assert "COUNT(DISTINCT sync_batch_id) age_batch_count" in query
     assert not re.search(r"\bWHERE\b", query, re.I)
     assert metadata["age_batch_count"] == batch_count
-    isolated([aged_source(58, cg_price=Decimal("25"), price_source_rows=1),
+    isolated([aged_source(58, imported_unit_price=Decimal("25"), price_source_rows=1),
               source(sku="FRD-NO-AGE", age_days=None, age_source_rows=0,
-                     cg_price=Decimal("25"), price_source_rows=1)], metadata=metadata)
+                     imported_unit_price=Decimal("25"), price_source_rows=1)], metadata=metadata)
     result = service.list_inventory(paginate=False)
     assert len(result["items"]) == 2
     for item in result["items"]:
         assert item["overseas_max_age_days"] is None
         assert "多个批次" in item["age_warning"]
-        assert item["unit_price_tax"] == "25"  # The independent monthly price remains valid.
+        assert item["unit_price_tax"] == "25"  # The independently imported CNY price remains valid.
         assert item["overseas_total_quantity"] == "30"
     assert any("库龄" in warning for warning in result["metadata"]["warnings"])
 
@@ -913,9 +974,113 @@ def test_empty_age_snapshot_is_distinct_from_zero_day_stock(isolated):
     age_meta = {"age_snapshot_month": None, "age_pulled_at": None,
                 "age_row_count": 0, "age_batch_count": 0}
     cursor.fetchone.side_effect = [{"sales_anchor_date": None}, {"rent_batch_count": 0},
-                                   {"price_snapshot_month": None, "price_batch_count": 0}, age_meta]
+                                   {"price_imported_at": None, "price_row_count": 0}, age_meta]
     metadata = repository._source_metadata(cursor)
     assert metadata["age_snapshot_month"] is None
     isolated([source(age_days=None, age_source_rows=0, age_source_products=None,
                      age_invalid_rows=None)], metadata=metadata)
     assert service.list_inventory()["items"][0]["overseas_max_age_days"] is None
+
+
+def price_workbook(rows):
+    book = Workbook()
+    book.active.append(["产品代码", "单价(默认采购价)"])
+    for row in rows:
+        book.active.append(row)
+    stream = BytesIO()
+    book.save(stream)
+    book.close()
+    return stream.getvalue()
+
+
+def test_price_import_validates_deduplicates_and_normalizes_audit_fields_before_write(monkeypatch):
+    content = price_workbook([("ABC-00123-0001", "10.125"), ("ABC-00123-0001", "10.1250"),
+                              ("ABC-00123-0001", "20")])
+    writer = MagicMock(return_value=2)
+    monkeypatch.setattr(service.price_repository, "replace_prices", writer)
+    monkeypatch.setattr(service, "load_calculated_inventory", lambda: pytest.fail("import must not rewrite snapshots"))
+    result = service.import_prices(content, r"C:\upload\prices.xlsx", " " + "a" * 80 + " ")
+    rows, operator, filename = writer.call_args.args
+    assert len(rows) == 2
+    assert {row["unit_price"] for row in rows} == {Decimal("10.125"), Decimal("20")}
+    assert {row["middle_code"] for row in rows} == {"00123"}
+    assert operator == "a" * 64
+    assert filename == "prices.xlsx"
+    assert result["imported_rows"] == 2
+    assert result["duplicate_rows"] == 1
+    assert "rows" not in result
+    assert "点击刷新" in result["message"]
+
+
+@pytest.mark.parametrize("invalid_price", ["-0.01", "bad price", None])
+def test_invalid_price_rejects_whole_import_before_any_repository_write(monkeypatch, invalid_price):
+    writer = MagicMock()
+    monkeypatch.setattr(service.price_repository, "replace_prices", writer)
+    content = price_workbook([("ABC-00123-0001", "10"), ("ABC-00999-0001", invalid_price)])
+    with pytest.raises(ValueError):
+        service.import_prices(content, "prices.xlsx", "tester")
+    writer.assert_not_called()
+
+
+def test_price_import_default_operator_and_filename_length_are_bounded(monkeypatch):
+    writer = MagicMock(return_value=1)
+    monkeypatch.setattr(service.price_repository, "replace_prices", writer)
+    service.import_prices(price_workbook([("ABC-00123-0001", "0")]), "/upload/" + "x" * 300 + ".xlsx", " ")
+    assert writer.call_args.args[1] == "SYSTEM"
+    assert len(writer.call_args.args[2]) == 255
+
+
+@pytest.fixture
+def price_api_client():
+    app = FastAPI()
+    app.include_router(inventory_api.router)
+    app.dependency_overrides[require_internal_access] = lambda: None
+
+    @app.middleware("http")
+    async def add_request_id(request, call_next):
+        request.state.request_id = "price-import-test"
+        return await call_next(request)
+
+    with TestClient(app) as client:
+        yield client, app
+
+
+def test_price_import_api_passes_file_and_operator_to_real_validated_service(price_api_client, monkeypatch):
+    client, _ = price_api_client
+    writer = MagicMock(return_value=1)
+    monkeypatch.setattr(service.price_repository, "replace_prices", writer)
+    response = client.post("/api/v1/finance/ebay-inventory-detail/prices/import", params={"operator": "tester"},
+                           files={"file": ("prices.xlsx", price_workbook([("ABC-00123-0001", "10.125")]))})
+    assert response.status_code == 200
+    assert response.json()["data"]["imported_rows"] == 1
+    assert writer.call_args.args[1:] == ("tester", "prices.xlsx")
+
+
+def test_price_import_api_rejects_invalid_and_oversized_uploads_without_writes(price_api_client, monkeypatch):
+    client, _ = price_api_client
+    writer = MagicMock()
+    monkeypatch.setattr(service.price_repository, "replace_prices", writer)
+    invalid = client.post("/api/v1/finance/ebay-inventory-detail/prices/import",
+                          files={"file": ("prices.xlsx", b"not an excel file")})
+    assert invalid.status_code == 400
+    monkeypatch.setattr(inventory_api, "MAX_FILE_BYTES", 32)
+    oversized = client.post("/api/v1/finance/ebay-inventory-detail/prices/import",
+                            files={"file": ("prices.xlsx", b"x" * 33)})
+    assert oversized.status_code == 400
+    assert "不能超过" in oversized.json()["detail"]
+    writer.assert_not_called()
+
+
+def test_price_import_api_requires_internal_access_before_processing_file(price_api_client, monkeypatch):
+    client, app = price_api_client
+    processor = MagicMock()
+    monkeypatch.setattr(service, "import_prices", processor)
+
+    def deny():
+        raise HTTPException(status_code=403, detail="internal access denied")
+
+    app.dependency_overrides[require_internal_access] = deny
+    response = client.post("/api/v1/finance/ebay-inventory-detail/prices/import",
+                           files={"file": ("prices.xlsx", b"untrusted")})
+    assert response.status_code == 403
+    processor.assert_not_called()

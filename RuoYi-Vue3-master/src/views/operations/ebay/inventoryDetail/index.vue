@@ -1,7 +1,7 @@
 <template>
   <div class="app-container inventory-detail-page">
     <div class="view-switch">
-      <el-radio-group v-model="activeView" :disabled="recalculating" aria-label="库存视图切换">
+      <el-radio-group v-model="activeView" :disabled="recalculating || importing || exporting" aria-label="库存视图切换">
         <el-radio-button value="detail">库存明细</el-radio-button>
         <el-radio-button value="pivot">历史透视</el-radio-button>
       </el-radio-group>
@@ -20,7 +20,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="SKU">
-          <el-input v-model="query.sku" clearable placeholder="搜索 SKU" style="width: 230px" @keyup.enter="handleQuery" />
+          <el-input v-model="query.sku" clearable placeholder="搜索 SKU / 中间码（含合并别名）" style="width: 265px" @keyup.enter="handleQuery" />
         </el-form-item>
         <el-form-item label="品牌">
           <el-select v-model="query.brand" clearable filterable placeholder="全部品牌" style="width: 150px">
@@ -35,14 +35,31 @@
         <el-form-item class="query-actions">
           <el-button type="primary" icon="Search" :disabled="loading" @click="handleQuery">查询</el-button>
           <el-button icon="Refresh" :disabled="loading" @click="resetQuery">重置</el-button>
-          <el-button v-hasPermi="['operations:ebayInventoryDetail:import']" icon="Upload" plain
-            :disabled="loading || importing" @click="importDialogVisible = true">导入产品等级</el-button>
-          <el-tooltip content="已勾选时导出所选记录；未勾选时导出当前统计日期及筛选下的全部记录。包含全部29个字段。" placement="top">
-            <el-button v-hasPermi="['operations:ebayInventoryDetail:export']" type="primary" icon="Download"
-              :loading="exporting" :disabled="loading || !dataReady || filtersDirty || total === 0" @click="handleExport">
-              {{ selectedCount ? `导出已选（${selectedCount}）` : '导出全部数据' }}
-            </el-button>
-          </el-tooltip>
+          <div v-if="canImportData || canExportData" class="transfer-actions" role="group" aria-label="库存数据导入导出">
+            <el-tooltip content="点击导出当前勾选记录；未勾选时导出筛选结果，包含全部30个字段。右侧箭头展开导入菜单。" placement="top">
+              <span>
+                <el-button class="transfer-primary" type="primary" icon="Download"
+                  :loading="exporting" :disabled="exportUnavailable" @click="handleExport">
+                  {{ selectedCount ? `导出（${selectedCount}）` : '导出' }}
+                </el-button>
+              </span>
+            </el-tooltip>
+            <el-dropdown trigger="click" :disabled="transferBusy" @command="handleTransferCommand">
+              <el-button class="transfer-toggle" type="primary" :disabled="transferBusy" aria-label="展开导入导出菜单">
+                <el-icon><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item v-if="canExportData" command="export" icon="Download" :disabled="exportUnavailable">
+                    {{ selectedCount ? `导出已选（${selectedCount}）` : '导出全部数据' }}
+                  </el-dropdown-item>
+                  <el-dropdown-item v-if="canImportData" command="grades" icon="Upload" :divided="canExportData">导入产品等级</el-dropdown-item>
+                  <el-dropdown-item v-if="canImportData" command="prices" icon="Upload">导入产品单价</el-dropdown-item>
+                  <el-dropdown-item v-if="canImportData" command="history" icon="Upload">导入历史数据</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
         </el-form-item>
       </el-form>
 
@@ -56,7 +73,7 @@
         </div>
         <right-toolbar v-model:showSearch="showSearch" :show-column-config="true"
           :refresh-loading="recalculating" :refresh-disabled="loading || importing || exporting || !canRecalculate"
-          :refresh-tooltip="canRecalculate ? '刷新：重新计算并覆盖今日快照，不重新拉取接口' : '重新计算需要产品等级导入权限'"
+          :refresh-tooltip="canRecalculate ? '刷新：重新计算并覆盖今日快照，不重新拉取接口' : '重新计算需要产品导入权限'"
           @queryTable="handleRefresh" @columnConfig="openColumnConfig" />
       </div>
 
@@ -74,7 +91,7 @@
             <el-tooltip placement="top" effect="light" :show-after="200">
               <template #content>
                 <div class="column-help">
-                  <p>以下说明为快照生成时的取数口径；历史日期读取已冻结值，不按最新来源重算。</p>
+                  <p>以下为当前生成口径：站点＋中间码合并，原SKU仍用于来源匹配。历史日期读取已冻结值，不按新口径重算；Excel导入历史只读取原表值，不套用以下公式，空值、0及错误值显示--。</p>
                   <div class="column-help-title">{{ column.label }} · 数据口径</div>
                   <dl>
                     <div><dt>来源接口</dt><dd>{{ column.help.sourceApi }}</dd></div>
@@ -90,7 +107,15 @@
             </el-tooltip>
           </template>
           <template #default="{ row }">
-            <el-tag v-if="column.key === 'grade' && hasValue(row.grade)" type="info" effect="plain" size="small" class="grade-tag">{{ row.grade }}</el-tag>
+            <el-tooltip v-if="column.key === 'sku' && row.merged_sku_count > 1"
+              :content="`按站点＋中间码合并 ${row.merged_sku_count} 个SKU：${row.sku_aliases.join('、')}`" placement="top">
+              <span class="sku-text">{{ row.sku }} <el-icon><QuestionFilled /></el-icon></span>
+            </el-tooltip>
+            <el-tooltip v-else-if="['grade', 'owner'].includes(column.key) && row.merge_warning"
+              :content="row.merge_warning" placement="top">
+              <span class="rent-warning-value">{{ formatValue(row[column.key], column.format) }} <el-icon><QuestionFilled /></el-icon></span>
+            </el-tooltip>
+            <el-tag v-else-if="column.key === 'grade' && hasValue(row.grade)" type="info" effect="plain" size="small" class="grade-tag">{{ row.grade }}</el-tag>
             <el-tooltip v-else-if="column.key === 'warehouse_rent_30d_cny' && row.rent_warning"
               :content="row.rent_warning" placement="top">
               <span class="rent-warning-value">{{ formatValue(row[column.key], column.format) }} <el-icon><QuestionFilled /></el-icon></span>
@@ -122,25 +147,27 @@
     <column-config-drawer v-model="showColumnDrawer" :columns="columnDefs" :fixed-keys="fixedColumnKeys"
       :visible-keys="visibleKeys" @apply="handleColumnApply" />
 
-    <el-dialog v-model="importDialogVisible" title="导入 eBay 产品等级" width="580px" append-to-body
+    <el-dialog v-model="importDialogVisible" :title="`导入 eBay ${activeImportConfig.label}`" width="620px" append-to-body
       :close-on-click-modal="!importing" :close-on-press-escape="!importing" :show-close="!importing">
-      <el-alert type="info" :closable="false" show-icon title="按 SKU ＋站点更新等级，不影响文件以外的记录。" />
-      <p class="import-description">上传 Excel（.xlsx），表头需包含「SKU」「站点」「等级」。站点支持德国 / 英国 / 美国等名称或 DE / UK / US 等对应代码，等级按文件原值保存。无效行会跳过并列明原因，不覆盖这些记录原有的等级。</p>
+      <el-alert type="info" :closable="false" show-icon :title="activeImportConfig.summary" />
+      <p class="import-description">{{ activeImportConfig.description }}</p>
       <el-upload ref="uploadRef" drag :auto-upload="false" :limit="1" accept=".xlsx" :disabled="importing"
-        :on-change="handleGradeFileChange" :on-remove="handleGradeFileRemove" :on-exceed="handleFileExceed">
+        :on-change="handleImportFileChange" :on-remove="handleImportFileRemove" :on-exceed="handleFileExceed">
         <el-icon class="upload-icon"><UploadFilled /></el-icon>
-        <div>拖入等级文件，或<span class="upload-link">点击选择</span></div>
-        <template #tip><div class="el-upload__tip">仅支持 .xlsx，最大 10 MB；重复的 SKU ＋站点须使用相同等级。</div></template>
+        <div>拖入{{ activeImportConfig.label }}文件，或<span class="upload-link">点击选择</span></div>
+        <template #tip><div class="el-upload__tip">仅支持 .xlsx，最大 {{ activeImportConfig.maxMb || 10 }} MB；{{ activeImportConfig.tip }}</div></template>
       </el-upload>
       <template #footer>
         <el-button :disabled="importing" @click="importDialogVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="!gradeFile" :loading="importing" @click="handleGradeImport">确认导入</el-button>
+        <el-button type="primary" :disabled="!importFile" :loading="importing" @click="handleImport">确认导入</el-button>
       </template>
     </el-dialog>
-    <el-dialog v-model="importResultVisible" title="产品等级导入结果" width="680px" append-to-body>
-      <el-alert :type="Number(importResult.skipped_rows) ? 'warning' : 'success'" :closable="false" show-icon
-        :title="`更新 ${importResult.imported_rows ?? 0} 条，合并重复 ${importResult.duplicate_rows ?? 0} 条，跳过无效 ${importResult.skipped_rows ?? 0} 条`" />
-      <p class="import-description">仅更新有效的 SKU ＋站点，文件之外的记录及跳过行原有等级均保持不变。</p>
+    <el-dialog v-model="importResultVisible" :title="`${importModes[importResultMode].label}导入结果`" width="680px" append-to-body>
+      <el-alert :type="Number(importResult.skipped_rows) || importWarnings.length ? 'warning' : 'success'" :closable="false" show-icon
+        :title="importResultSummary" />
+      <p class="import-description">{{ importModes[importResultMode].resultDescription }}
+        <template v-if="importResultMode !== 'history'">导入不会自动重算快照；请点击表格右上角刷新，重新计算并覆盖今日快照，历史日期保持不变。</template>
+      </p>
       <el-scrollbar v-if="importWarnings.length" max-height="330px" class="import-warning-list">
         <div v-for="(warning, index) in importWarnings" :key="index">{{ warning }}</div>
       </el-scrollbar>
@@ -152,14 +179,14 @@
 <script setup name="EbayInventoryDetail">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { QuestionFilled, UploadFilled } from '@element-plus/icons-vue'
+import { ArrowDown, QuestionFilled, UploadFilled } from '@element-plus/icons-vue'
 import Pagination from '@/components/Pagination/index.vue'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
 import download from '@/plugins/download'
 import { blobValidate } from '@/utils/ruoyi'
 import { checkPermi } from '@/utils/permission'
-import { listEbayInventoryDetail, exportEbayInventoryDetail, importEbayInventoryGrades, recalculateEbayInventorySnapshot } from '@/api/operations/ebay/inventoryDetail'
+import { listEbayInventoryDetail, exportEbayInventoryDetail, importEbayInventoryGrades, importEbayInventoryPrices, importEbayInventoryHistory, recalculateEbayInventorySnapshot } from '@/api/operations/ebay/inventoryDetail'
 import { inventoryColumnHelp } from './columnHelp'
 import InventoryHistoryPivot from './InventoryHistoryPivot.vue'
 
@@ -201,6 +228,7 @@ const priceColumnKeys = ['unit_price_tax', 'overseas_sellable_value', 'overseas_
 const columnDefs = [
   { key: 'site', label: '站点', width: 90 },
   { key: 'sku', label: 'SKU', width: 205 },
+  { key: 'sku_middle_site_code', label: '中间码+站点', width: 150 },
   { key: 'sku_middle_code', label: '中间码', width: 110 },
   { key: 'brand', label: '品牌', width: 100 },
   { key: 'product_name', label: '产品名称', width: 240 },
@@ -233,7 +261,8 @@ const {
   showColumnDrawer, columnConfigLoaded, columnTableKey, visibleKeys, visibleColumns,
   openColumnConfig, initColumnConfig, applyColumnConfig
 } = useColumnConfig('operations:ebay:inventory-detail', columnDefs, fixedColumnKeys, fixedColumnKeys,
-  { average_daily_sales_30d: 'average_monthly_sales_3m' }, { sku_middle_code: 'sku' })
+  { average_daily_sales_30d: 'average_monthly_sales_3m' },
+  { sku_middle_code: 'sku', sku_middle_site_code: { before: 'sku_middle_code', after: 'sku' } })
 
 function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== ''
@@ -259,7 +288,9 @@ function formatValue(value, format) {
 }
 
 function rowKey(row) {
-  return JSON.stringify([String(row.site || '').trim(), String(row.sku || '').trim()])
+  const key = [String(row.site || '').trim(), String(row.sku || '').trim()]
+  if (row.record_key) key.push(row.record_key)
+  return JSON.stringify(key)
 }
 
 function currentFilters() {
@@ -282,7 +313,9 @@ function handleSelectionChange(selectedRows) {
   if (restoringSelection || loading.value || filtersDirty.value || !dataReady.value) return
   // Only mutate the current page's keys, preserving selections on other pages.
   rows.value.forEach(row => selection.delete(rowKey(row)))
-  selectedRows.forEach(row => selection.set(rowKey(row), { site: row.site, sku: row.sku }))
+  selectedRows.forEach(row => selection.set(rowKey(row), {
+    site: row.site, sku: row.sku || '', ...(row.record_key ? { record_key: row.record_key } : {})
+  }))
 }
 
 function clearSelection() {
@@ -408,7 +441,7 @@ async function handleColumnApply(keys) {
 }
 
 async function handleExport() {
-  if (exporting.value || loading.value || !dataReady.value || filtersDirty.value || !checkPermi(['operations:ebayInventoryDetail:export'])) return
+  if (exporting.value || importing.value || recalculating.value || loading.value || !dataReady.value || filtersDirty.value || !checkPermi(['operations:ebayInventoryDetail:export'])) return
   exporting.value = true
   try {
     const data = await exportEbayInventoryDetail({
@@ -437,44 +470,114 @@ async function handleExport() {
 
 const importDialogVisible = ref(false)
 const importing = ref(false)
-const gradeFile = ref(null)
-const uploadRef = ref()
-const importResultVisible = ref(false)
-const importResult = ref({})
-const importWarnings = computed(() => Array.isArray(importResult.value.warnings) ? importResult.value.warnings : [])
+const canImportData = computed(() => checkPermi(['operations:ebayInventoryDetail:import']))
+const canExportData = computed(() => checkPermi(['operations:ebayInventoryDetail:export']))
+const transferBusy = computed(() => loading.value || importing.value || exporting.value || recalculating.value)
+const exportUnavailable = computed(() => transferBusy.value || !canExportData.value
+  || !dataReady.value || filtersDirty.value || total.value === 0)
 
-function handleGradeFileChange(file) {
-  const raw = file.raw
-  if (!raw || !/\.xlsx$/i.test(raw.name) || raw.size > 10 * 1024 * 1024) {
-    ElMessage.warning('请选择不超过10 MB的 .xlsx 文件')
-    gradeFile.value = null
-    uploadRef.value?.clearFiles()
-    ElMessage.success('等级已导入；请点击表格右上角刷新，重新计算并覆盖今日快照')
-    return
+function handleTransferCommand(command) {
+  if (transferBusy.value) return
+  if (command === 'export') {
+    if (!exportUnavailable.value) return handleExport()
+  } else if (canImportData.value && ['grades', 'prices', 'history'].includes(command)) {
+    openImportDialog(command)
   }
-  gradeFile.value = raw
 }
 
-function handleGradeFileRemove() {
-  gradeFile.value = null
+const importMode = ref('grades')
+const importFile = ref(null)
+const uploadRef = ref()
+const importResultVisible = ref(false)
+const importResultMode = ref('grades')
+const importResult = ref({})
+const importWarnings = computed(() => Array.isArray(importResult.value.warnings) ? importResult.value.warnings : [])
+const importModes = {
+  history: {
+    label: '库存历史', maxMb: 50,
+    summary: '仅填充历史原始行，不合并、不计算、不覆盖已有日期的其他批次。',
+    description: '只读取库存明细持续更新-US、库存明细持续更新-DE、库存明细持续更新-UK三个sheet，按统计时间保存。重复行全部保留；空SKU、空值、0、公式错误和无法识别的数值显示--。最后售出时间保留原值，不推算年份。',
+    tip: '相同文件重复上传不会增加记录。已有日期与本次文件冲突时整份拒绝；原Excel不会修改。',
+    resultDescription: '已按原统计日期填充明细，可通过日期选择器查询。不生成或覆盖透视数据，也不需要点击刷新重算。'
+  },
+  grades: {
+    label: '产品等级',
+    summary: '按 SKU ＋站点更新等级，不影响文件以外的记录。',
+    description: '上传 Excel（.xlsx），表头需包含「SKU」「站点」「等级」。站点支持德国 / 英国 / 美国等名称或 DE / UK / US 等对应代码，等级按文件原值保存。无效行会跳过并列明原因，不覆盖这些记录原有的等级。',
+    tip: '重复的 SKU ＋站点须使用相同等级。',
+    resultDescription: '仅更新有效的 SKU ＋站点，文件之外的记录及跳过行原有等级均保持不变。'
+  },
+  prices: {
+    label: '产品单价',
+    summary: '按 SKU 增量更新价格；同中间码取最低价，所有站点共用。',
+    description: '上传《产品单价明细表》Excel（.xlsx），表头支持「产品代码」/「SKU」和「单价(默认采购价)」/「单价（含税）」。自动提取 SKU 以短横线分隔后的第二段纯数字为中间码，单价按人民币含税价使用，允许零价，不再读取产品管理单价。每次导入按 SKU ＋单价去重，替换文件涉及 SKU 的全部价格，未涉及 SKU 保留；不同 SKU 的同中间码取当前已导入价格的最低值。',
+    tip: '非数字中间段仍保存并提示，但不参与中间码匹配；缺少 SKU 或无效单价会拒绝整份导入。原 Excel 文件保持不变。',
+    resultDescription: '已替换本次涉及 SKU 的价格集合，其余 SKU 保持不变；同中间码的最低价供所有站点使用。'
+  }
+}
+const activeImportConfig = computed(() => importModes[importMode.value])
+const importResultSummary = computed(() => importResultMode.value === 'history'
+  ? `新增 ${importResult.value.imported_rows ?? 0} 行、${importResult.value.imported_dates ?? 0} 个日期；已有相同文件跳过 ${importResult.value.skipped_existing_dates ?? 0} 个日期；重复行保留 ${importResult.value.duplicate_rows_preserved ?? 0} 条、空SKU ${importResult.value.missing_sku_rows ?? 0} 条`
+  : importResultMode.value === 'prices'
+  ? `导入 ${importResult.value.imported_rows ?? 0} 条 SKU＋单价，合并重复 ${importResult.value.duplicate_rows ?? 0} 条，涉及 ${importResult.value.sku_count ?? 0} 个 SKU、${importResult.value.middle_code_count ?? 0} 个中间码，${importResult.value.unmatched_middle_rows ?? 0} 条无数字中间码`
+  : `更新 ${importResult.value.imported_rows ?? 0} 条，合并重复 ${importResult.value.duplicate_rows ?? 0} 条，跳过无效 ${importResult.value.skipped_rows ?? 0} 条`)
+
+function openImportDialog(mode) {
+  if (!importModes[mode] || loading.value || importing.value || exporting.value || recalculating.value
+    || !checkPermi(['operations:ebayInventoryDetail:import'])) return
+  importMode.value = mode
+  importFile.value = null
+  uploadRef.value?.clearFiles()
+  importDialogVisible.value = true
+}
+
+function handleImportFileChange(file) {
+  const raw = file.raw
+  const maxMb = activeImportConfig.value.maxMb || 10
+  if (!raw || !/\.xlsx$/i.test(raw.name) || raw.size > maxMb * 1024 * 1024) {
+    ElMessage.warning(`请选择不超过${maxMb} MB的 .xlsx 文件`)
+    importFile.value = null
+    uploadRef.value?.clearFiles()
+    return
+  }
+  importFile.value = raw
+}
+
+function handleImportFileRemove() {
+  importFile.value = null
 }
 
 function handleFileExceed() {
   ElMessage.warning('一次只导入一个文件，请先移除当前文件')
 }
 
-async function handleGradeImport() {
-  if (!gradeFile.value || importing.value || !checkPermi(['operations:ebayInventoryDetail:import'])) return
+async function handleImport() {
+  if (!importFile.value || importing.value || loading.value || exporting.value || recalculating.value
+    || !checkPermi(['operations:ebayInventoryDetail:import'])) return
   importing.value = true
+  const mode = importMode.value
   try {
-    const response = await importEbayInventoryGrades(gradeFile.value)
+    const importRequest = mode === 'history' ? importEbayInventoryHistory
+      : mode === 'prices' ? importEbayInventoryPrices : importEbayInventoryGrades
+    const response = await importRequest(importFile.value)
+    if (unmounted) return
     const result = response.data || {}
     importResult.value = result
+    importResultMode.value = mode
     importResultVisible.value = true
     importDialogVisible.value = false
-    gradeFile.value = null
+    importFile.value = null
     uploadRef.value?.clearFiles()
+    if (mode === 'history') {
+      query.statDate = result.latest_import_date
+      query.site = undefined
+      query.sku = ''
+      query.brand = undefined
+      query.grade = undefined
+    }
     await handleQuery()
+    if (!unmounted) ElMessage.success(mode === 'history' ? '历史数据已保存，可按统计日期查询；无需重算'
+      : `${importModes[mode].label}已导入；请点击表格右上角刷新，重新计算并覆盖今日快照`)
   } catch (error) {
     // The shared request interceptor reports validation and transport errors.
   } finally {
@@ -502,6 +605,9 @@ onBeforeUnmount(() => {
 .query-form :deep(.el-form-item__label) { color: #65758c; }
 .query-actions :deep(.el-form-item__content) { gap: 8px; }
 .query-actions :deep(.el-button + .el-button) { margin-left: 0; }
+.transfer-actions { display: inline-flex; align-items: center; }
+.transfer-primary { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.transfer-toggle { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; padding: 8px 10px; border-left-color: rgba(255, 255, 255, .4); }
 .table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .selection-info { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 12px; color: #65758c; }
 .selection-info b { color: #2a3951; font-weight: 600; }

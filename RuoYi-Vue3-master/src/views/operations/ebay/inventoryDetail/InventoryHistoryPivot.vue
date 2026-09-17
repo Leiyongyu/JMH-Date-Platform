@@ -122,7 +122,7 @@ const columns = [
   { key: 'owner', label: '负责人', width: 135, fixed: 'left', tip: '历史库存明细采集时匹配的负责人，归属已冻结；未分配记录也保留。' },
   { key: 'site', label: '站点', width: 120, fixed: 'left', tip: '沿用库存明细的仓库与站点映射；站点明细后附红色负责人汇总，仅汇总该日期当前筛选的站点。' },
   { key: 'stat_date', label: '统计日期', width: 145, tip: '按北京时间记录真实生成日期（YYYY-MM-DD）；同日覆盖，跨日长期保存。悬浮单元格可查看统计年月。' },
-  { key: 'sku_count', label: 'SKU数', format: 'quantity', width: 110, tip: '同一负责人、站点、统计日期内，按完整SKU去重计数；负责人汇总为各站点SKU数之和，跨站点的相同SKU分别计数。' },
+  { key: 'sku_count', label: 'SKU数', format: 'quantity', width: 110, tip: '新生成快照按站点＋中间码合并后计数，无有效中间码的SKU独立保留；负责人汇总为各站点计数之和，跨站点分别计数。旧日期保持原完整SKU计数，不追溯重算。' },
   { key: 'overseas_sellable_quantity', label: '海外可售', format: 'quantity', tip: '该负责人、站点下库存明细的海外可售数量合计。' },
   { key: 'overseas_total_quantity', label: '海外总库存', format: 'quantity', tip: '该负责人、站点下海外在途与海外可售之和；由库存明细汇总。' },
   { key: 'sales_qty_30d', label: '近30天销量', format: 'quantity', tip: '采集时库存明细的近30天销量合计；销量窗口跟随当时源数据最新付款日，不随查询历史的当前日期变动。' },
@@ -189,7 +189,7 @@ function missingMessage(row, key) {
   }
   if (formatValue(row[key], 'money') !== '--') {
     return missingCount > 0
-      ? '已排除 ' + missingCount + ' 个SKU（' + reason + '），仅汇总有值金额，未将缺失值按0计算。'
+      ? '有 ' + missingCount + ' 个库存行存在缺失（' + reason + '），仅汇总有值金额；合并行只排除缺失部分，未将缺失值按0计算。'
       : ''
   }
   if (Number(row.sku_count) > 0 && missingCount >= Number(row.sku_count)) {

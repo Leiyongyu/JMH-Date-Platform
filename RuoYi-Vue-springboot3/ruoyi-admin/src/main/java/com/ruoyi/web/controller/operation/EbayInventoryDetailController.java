@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 运营中心 / eBay / 库存明细；列表、等级导入与导出使用独立权限。 */
+/** 运营中心 / eBay / 库存明细；列表、等级/单价导入与导出使用独立权限。 */
 @RestController
 @RequestMapping("/finance/ebay-inventory-detail")
 public class EbayInventoryDetailController extends BaseController
@@ -129,6 +129,24 @@ public class EbayInventoryDetailController extends BaseController
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
         return success(client.importGrades(file, getUsername(), requestId).get("data"));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayInventoryDetail:import')")
+    @Log(title = "Ebay库存明细产品单价导入", businessType = BusinessType.IMPORT)
+    @PostMapping("/prices/import")
+    public AjaxResult importPrices(@RequestParam("file") MultipartFile file,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        return success(client.importPrices(file, getUsername(), requestId).get("data"));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayInventoryDetail:import')")
+    @Log(title = "Ebay库存明细历史导入", businessType = BusinessType.IMPORT)
+    @PostMapping("/history/import")
+    public AjaxResult importHistory(@RequestParam("file") MultipartFile file,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        return success(client.importHistory(file, getUsername(), requestId).get("data"));
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayInventoryDetail:import')")

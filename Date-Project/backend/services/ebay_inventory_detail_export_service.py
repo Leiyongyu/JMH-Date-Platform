@@ -15,6 +15,7 @@ from backend.services.ebay_inventory_detail_service import CHINA, list_inventory
 EXCEL_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 COLUMNS = (
     ("site", "站点", "text"), ("sku", "SKU", "text"),
+    ("sku_middle_site_code", "中间码+站点", "text"),
     ("sku_middle_code", "中间码", "text"), ("brand", "品牌", "text"),
     ("product_name", "产品名称", "text"), ("grade", "等级", "text"),
     ("overseas_in_transit_quantity", "海外在途", "qty"),
@@ -71,7 +72,7 @@ def export_inventory(**filters) -> tuple[str, bytes]:
         sheet.column_dimensions[get_column_letter(index)].width = width
         cell = WriteOnlyCell(sheet, label)
         cell.font = header_font
-        color = "24486D" if index <= 6 else "346A70" if index <= 15 else "806031" if index <= 19 else "625B83"
+        color = "24486D" if index <= 7 else "346A70" if index <= 16 else "806031" if index <= 20 else "625B83"
         cell.fill = PatternFill("solid", fgColor=color)
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         header.append(cell)
@@ -81,6 +82,9 @@ def export_inventory(**filters) -> tuple[str, bytes]:
         for key, _, kind in COLUMNS:
             value = item.get(key)
             cell = WriteOnlyCell(sheet)
+            if value is None and item.get("history_origin") == "EXCEL_IMPORT":
+                cell.value = "--"
+                cell.data_type = "s"
             if value is not None:
                 if kind == "text":
                     cell.value = _ILLEGAL_XML.sub("", str(value))

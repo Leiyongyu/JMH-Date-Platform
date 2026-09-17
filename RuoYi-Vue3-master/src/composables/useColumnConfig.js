@@ -66,10 +66,13 @@ export function useColumnConfig(pageKey, columns, fixedKeys = [], requiredKeys =
     const knownKeys = new Set((saved.knownKeys || []).map((key) => keyAliases[key] || key))
     // Explicit placement is only for newly introduced columns, including legacy configs.
     // Once saved in allKeys, the user's hidden state and ordering take precedence.
-    Object.entries(newColumnAfter).forEach(([key, afterKey]) => {
+    Object.entries(newColumnAfter).forEach(([key, placement]) => {
       if (columnMap.has(key) && !knownKeys.has(key) && !restored.includes(key)) {
-        const index = restored.indexOf(afterKey)
-        restored.splice(index < 0 ? restored.length : index + 1, 0, key)
+        // A before anchor may opt into an after fallback; existing string placements are unchanged.
+        const beforeIndex = typeof placement === 'object' ? restored.indexOf(placement?.before) : -1
+        const afterIndex = restored.indexOf(typeof placement === 'string' ? placement : placement?.after)
+        const index = beforeIndex >= 0 ? beforeIndex : (afterIndex < 0 ? restored.length : afterIndex + 1)
+        restored.splice(index, 0, key)
       }
     })
     if (!saved.appendMissing) return restored

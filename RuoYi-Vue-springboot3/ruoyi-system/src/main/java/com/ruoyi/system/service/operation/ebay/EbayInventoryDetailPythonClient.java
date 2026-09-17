@@ -67,13 +67,38 @@ public class EbayInventoryDetailPythonClient extends PythonHttpSupport
 
     public Map<String, Object> importGrades(MultipartFile file, String operator, String requestId)
     {
-        if (file == null || file.isEmpty()) throw new IllegalArgumentException("请选择有效的产品等级文件");
-        if (file.getSize() > 10L * 1024 * 1024) throw new IllegalArgumentException("产品等级文件不能超过10MB");
+        return importFile("/grades/import", "产品等级", file, operator, requestId);
+    }
+
+    public Map<String, Object> importPrices(MultipartFile file, String operator, String requestId)
+    {
+        return importFile("/prices/import", "产品单价", file, operator, requestId);
+    }
+
+    private Map<String, Object> importFile(String path, String label, MultipartFile file,
+            String operator, String requestId)
+    {
+        return importFile(path, label, file, operator, requestId, 10);
+    }
+
+    public Map<String, Object> importHistory(MultipartFile file, String operator, String requestId)
+    {
+        return importFile("/history/import", "库存历史", file, operator, requestId, 50);
+    }
+
+    private Map<String, Object> importFile(String path, String label, MultipartFile file,
+            String operator, String requestId, int maxMb)
+    {
+        if (file == null || file.isEmpty()) throw new IllegalArgumentException("请选择有效的" + label + "文件");
+        if (file.getSize() > (long) maxMb * 1024 * 1024)
+            throw new IllegalArgumentException(label + "文件不能超过" + maxMb + "MB");
         try
         {
-            String boundary = "----EbayInventoryGrade" + UUID.randomUUID().toString().replace("-", "");
-            HttpRequest request = baseRequest(PREFIX + "/grades/import"
-                            + queryString(Map.of("operator", operator)), requestId)
+            String boundary = "----EbayInventoryImport" + UUID.randomUUID().toString().replace("-", "");
+            HttpRequest.Builder builder = baseRequest(PREFIX + path
+                            + queryString(Map.of("operator", operator)), requestId);
+            if ("/history/import".equals(path)) builder.timeout(java.time.Duration.ofSeconds(300));
+            HttpRequest request = builder
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                     .POST(multipartBodyPublisher(boundary, "file", new MultipartFile[] { file }))
                     .build();

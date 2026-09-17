@@ -12,6 +12,8 @@ from backend.database import db_connection
 
 MAX_ROWS = 50_000
 _GRADE_TABLE = "ebay_inventory_detail_grade"
+_PRICE_TABLE = "ebay_inventory_detail_price"
+_PRICE_MISSING = "Ebay库存明细单价表尚未部署，请先执行20260916_ebay_inventory_detail_price.sql"
 _GRADE_MISSING = "Ebay库存明细等级表尚未部署，请先执行对应的建表SQL"
 _BATCH_SIZE = 500
 
@@ -87,8 +89,8 @@ def _weekly_inventory_ctes() -> str:
 
 
 def _product_price_table() -> str:
-    database = (settings.shop_source_database.strip() or "jmh_data_platform").replace("`", "``")
-    return f"`{database}`.ods_lingxing_product_procurement_monthly"
+    # Uploaded prices are local, incremental configuration, not Lingxing snapshots.
+    return _PRICE_TABLE
 
 
 def _inventory_age_table() -> str:
@@ -126,6 +128,8 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None) -> list[
     price_table = _product_price_table()
     age_table = _inventory_age_table()
     sales_window = sales_window or _three_month_sales_window()
+    # Match Python's second-segment strip, including tabs/newlines, not just SQL spaces.
+    middle_sql = "REGEXP_REPLACE(SUBSTRING_INDEX(SUBSTRING_INDEX(inventory.sku,'-',2),'-',-1), '^[[:space:]]+|[[:space:]]+$', '')"
     query = f"""
         WITH {_weekly_inventory_ctes()},
         sales_anchor AS (
@@ -191,13 +195,12 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None) -> list[
             GROUP BY site,sku_suffix
         ),
         product_prices AS (
-            -- Latest complete catalogue month, not a per-SKU fallback to older prices.
-            -- Group before joining so malformed whitespace duplicates cannot multiply stock rows.
-            SELECT TRIM(sku) sku,MAX(cg_price) cg_price,COUNT(*) price_source_rows
+            -- One price per textual middle code across sites; zero is a valid minimum.
+            -- Aggregate before joining so repeated SKU/price pairs never multiply inventory.
+            SELECT middle_code,MIN(unit_price) imported_unit_price,COUNT(*) price_source_rows
             FROM {price_table}
-            WHERE snapshot_month=(SELECT MAX(snapshot_month) FROM {price_table})
-              AND sku IS NOT NULL AND TRIM(sku)<>''
-            GROUP BY TRIM(sku)
+            WHERE middle_code IS NOT NULL AND middle_code<>''
+            GROUP BY middle_code
         )
         SELECT inventory.site,inventory.sku,grades.grade,
                COALESCE(NULLIF(TRIM((
@@ -208,7 +211,7 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None) -> list[
                    ORDER BY source.payment_time DESC,source.id DESC LIMIT 1
                )),''),products.product_name) product_name,
                (
-                   SELECT DATE_FORMAT(MAX(source.payment_time),'%%Y-%%m')
+                   SELECT DATE_FORMAT(MAX(source.payment_time),'%%Y-%%m-%%d')
                    FROM dwd_ebay_sku_analysis_order source
                    WHERE source.site_name = CONVERT(inventory.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
                      AND source.inventory_sku = CONVERT(inventory.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
@@ -220,7 +223,7 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None) -> list[
                CAST(inventory.pending_outbound_quantity AS DECIMAL(30,6)) pending_outbound_quantity,
                COALESCE(recent.sales_qty_30d,0) sales_qty_30d,
                COALESCE(monthly.sales_qty_3m,0) sales_qty_3m,
-               prices.cg_price,prices.price_source_rows,
+               prices.imported_unit_price,prices.price_source_rows,
                ages.age_days,ages.age_source_rows,ages.age_source_products,ages.age_invalid_rows
         FROM inventory_summary inventory
         LEFT JOIN recent_sales recent
@@ -237,8 +240,10 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None) -> list[
           ON CONVERT(products.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
            = CONVERT(inventory.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
         LEFT JOIN product_prices prices
-          ON CONVERT(prices.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
-           = CONVERT(inventory.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
+          ON LOCATE('-',inventory.sku)>0
+         AND {middle_sql} REGEXP '^[0-9]+$'
+         AND CONVERT(prices.middle_code USING utf8mb4) COLLATE utf8mb4_unicode_ci
+           = CONVERT({middle_sql} USING utf8mb4) COLLATE utf8mb4_unicode_ci
         LEFT JOIN age_groups ages
           ON CONVERT(ages.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
            = CONVERT(inventory.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
@@ -259,6 +264,8 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None) -> list[
     except ProgrammingError as exc:
         if _grade_table_missing(exc):
             raise ValueError(_GRADE_MISSING) from exc
+        if exc.args and exc.args[0] == 1146 and _PRICE_TABLE in str(exc):
+            raise ValueError(_PRICE_MISSING) from exc
         raise
     return _bounded_rows(cursor, "库存明细")
 
@@ -291,13 +298,18 @@ def _source_metadata(cursor) -> dict[str, Any]:
     if metadata["rent_batch_count"] > 1:
         raise ValueError("谷仓仓租明细含多个批次，无法确定统一拉取月份，请先完成全量覆盖同步")
     price_table = _product_price_table()
-    cursor.execute(f"""
-        SELECT MAX(snapshot_month) price_snapshot_month,MAX(pulled_at) price_pulled_at,
-               COUNT(*) price_row_count,COUNT(DISTINCT sync_batch_id) price_batch_count
-        FROM {price_table}
-        WHERE snapshot_month=(SELECT MAX(snapshot_month) FROM {price_table})
-    """)
+    try:
+        cursor.execute(f"""
+            SELECT MAX(updated_at) price_imported_at,COUNT(*) price_row_count,
+                   COUNT(DISTINCT middle_code) price_middle_code_count
+            FROM {price_table}
+        """)
+    except ProgrammingError as exc:
+        if exc.args and exc.args[0] == 1146 and _PRICE_TABLE in str(exc):
+            raise ValueError(_PRICE_MISSING) from exc
+        raise
     metadata.update(cursor.fetchone())
+    metadata["price_source"] = "uploaded_middle_code_min_v1"
     age_table = _inventory_age_table()
     cursor.execute(f"""
         SELECT MAX(snapshot_month) age_snapshot_month,MAX(pulled_at) age_pulled_at,

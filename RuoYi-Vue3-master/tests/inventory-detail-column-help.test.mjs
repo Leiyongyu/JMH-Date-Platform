@@ -11,9 +11,9 @@ const columnBlock = source.match(/const columnDefs = (\[[\s\S]*?\n\])\.map/)?.[1
 assert.ok(columnBlock, 'column definitions remain decorated with help by field key')
 const columnKeys = Array.from(columnBlock.matchAll(/key: '([^']+)'/g), match => match[1])
 
-test('all 29 columns have source API, source table, formula and empty handling', () => {
-  assert.equal(columnKeys.length, 29)
-  assert.equal(new Set(columnKeys).size, 29)
+test('all 30 columns have source API, source table, formula and empty handling', () => {
+  assert.equal(columnKeys.length, 30)
+  assert.equal(new Set(columnKeys).size, 30)
   assert.deepEqual(Object.keys(inventoryColumnHelp).sort(), [...columnKeys].sort())
   for (const key of columnKeys) {
     for (const field of ['sourceApi', 'sourceTable', 'formula', 'emptyHandling']) {
@@ -24,12 +24,28 @@ test('all 29 columns have source API, source table, formula and empty handling',
   assert.ok(source.includes('help: inventoryColumnHelp[column.key]'))
 })
 
-test('middle code follows SKU with textual leading-zero and missing-value help', () => {
-  assert.equal(columnKeys[columnKeys.indexOf('sku') + 1], 'sku_middle_code')
+test('middle code plus site precedes middle code with textual leading-zero and missing-value help', () => {
+  assert.equal(columnKeys[columnKeys.indexOf('sku') + 1], 'sku_middle_site_code')
+  assert.equal(columnKeys[columnKeys.indexOf('sku_middle_site_code') + 1], 'sku_middle_code')
   assert.match(inventoryColumnHelp.sku_middle_code.formula, /MCD-20017-0071→20017/)
   assert.match(inventoryColumnHelp.sku_middle_code.formula, /保留前导零/)
   assert.match(inventoryColumnHelp.sku_middle_code.emptyHandling, /null.*--/)
-  assert.ok(source.includes("{ sku_middle_code: 'sku' }"))
+  assert.ok(source.includes("sku_middle_site_code: { before: 'sku_middle_code', after: 'sku' }"))
+  assert.match(source, /包含全部30个字段/)
+  const help = inventoryColumnHelp.sku_middle_site_code
+  assert.match(help.sourceApi, /只读派生标识.*当前生成行或已保存历史行.*不新增上游接口/)
+  assert.match(help.sourceTable, /ebay_inventory_detail_history\.item_json.*sku_middle_code.*sku.*site/)
+  assert.match(help.formula, /优先使用该行sku_middle_code.*旧历史未保存中间码字段.*第二段纯数字/)
+  assert.match(help.formula, /以文本保留前导零，不转数字/)
+  assert.match(help.formula, /仅映射德国→DE、美国→US、英国→UK/)
+  assert.match(help.formula, /直接拼接、不加分隔符/)
+  assert.match(help.formula, /10053＋德国→10053DE.*00100＋英国→00100UK/)
+  assert.match(help.formula, /不修改历史快照.*不替代现有站点＋中间码合并键/)
+  assert.match(help.emptyHandling, /中间码缺失或非纯数字.*站点缺失或不在.*null.*--.*Excel留空/)
+  const definition = columnBlock.split('\n').find(line => line.includes("key: 'sku_middle_site_code'"))
+  assert.match(definition, /label: '中间码\+站点'.*width: 150/)
+  assert.doesNotMatch(definition, /format:|sortable:/)
+  assert.doesNotMatch(source, /v-model="query\.sku_middle_site_code"/)
 })
 
 test('top metadata and warning banner are removed while field and import warnings remain', () => {
@@ -90,7 +106,7 @@ test('pending outbound uses confirmed product_total across all seven warehouses'
   }
 })
 
-test('purchase quantity uses fixed 4.03 months and last sold month uses all history', () => {
+test('purchase quantity uses fixed 4.03 months and last sold day uses all history', () => {
   const help = inventoryColumnHelp.purchase_quantity
   assert.match(help.formula, /近3个月均销量×总时长（月）－周期总库存/)
   assert.match(help.formula, /使用未舍入值/)
@@ -99,12 +115,14 @@ test('purchase quantity uses fixed 4.03 months and last sold month uses all hist
   assert.match(help.emptyHandling, /总时长固定4.03/)
   assert.match(inventoryColumnHelp.total_duration_months.formula, /固定为4.03个月/)
   assert.match(inventoryColumnHelp.total_duration_months.sourceApi, /无外部接口/)
-  assert.match(inventoryColumnHelp.last_sold_at.formula, /站点＋完整SKU.*全部历史订单.*MAX\(payment_time\).*YYYY-MM/)
+  assert.match(inventoryColumnHelp.last_sold_at.formula, /站点＋完整SKU.*全部历史订单.*MAX\(payment_time\).*YYYY-MM-DD/)
+  assert.match(inventoryColumnHelp.last_sold_at.formula, /所有成员的最近售出日期/)
+  assert.match(inventoryColumnHelp.last_sold_at.emptyHandling, /旧历史只有年月时保持原值，不补造日期/)
   assert.match(inventoryColumnHelp.last_sold_at.emptyHandling, /返回null，页面显示--、Excel留空/)
   assert.match(columnBlock, /key: 'purchase_quantity'[^\n]+format: 'quantity'/)
 })
 
-test('overseas maximum age uses the isolated weekly GoodCang latest batch and checks both suffix collision sides', () => {
+test('overseas maximum age uses the isolated weekly batch and merges valid product aliases', () => {
   const help = inventoryColumnHelp.overseas_max_age_days
   assert.match(help.sourceApi, /谷仓 POST \/inventory\/inventory_age_list/)
   assert.match(help.sourceApi, /独立任务计划每周一06:00（中国时区）刷新/)
@@ -126,8 +144,8 @@ test('overseas maximum age uses the isolated weekly GoodCang latest batch and ch
   assert.match(help.emptyHandling, /刷新失败保留上次成功数据及其实际拉取时间/)
   assert.match(help.emptyHandling, /缺快照、无匹配或无效库龄.*null.*--/)
   assert.match(help.emptyHandling, /真实warehouse_age=0时显示0/)
-  assert.match(help.emptyHandling, /库存侧同站点不同完整SKU同尾码冲突/)
-  assert.match(help.emptyHandling, /来源侧同站点不同product_sku同尾码冲突/)
+  assert.match(help.emptyHandling, /同一有效中间码内的前缀别名不再视为冲突/)
+  assert.match(help.emptyHandling, /无有效中间码且匹配冲突时仍拒绝匹配/)
   assert.doesNotMatch(help.sourceApi, /预留字段|尚未接入/)
   assert.match(columnBlock, /key: 'overseas_max_age_days'[^\n]+format: 'quantity'[^\n]+sortable: true/)
   assert.match(source, /column.key === 'overseas_max_age_days' && row.age_warning/)
@@ -135,33 +153,53 @@ test('overseas maximum age uses the isolated weekly GoodCang latest batch and ch
   assert.doesNotMatch(source, /库龄快照月/)
 })
 
-test('purchase price uses latest procurement cg_price by complete SKU across sites', () => {
+test('purchase price uses imported middle-code minimum across sites, never catalogue fallback', () => {
   for (const key of ['unit_price_tax', 'overseas_sellable_value', 'overseas_total_value']) {
     const help = inventoryColumnHelp[key]
-    assert.match(help.sourceApi, /productList.*batchGetProductInfo.*cg_price/)
-    assert.match(help.sourceTable, /jmh_data_platform\.ods_lingxing_product_procurement_monthly/)
-    assert.match(help.sourceTable, /cg_price/)
-    assert.match(help.formula, /最新snapshot_month整月批次/)
-    assert.match(help.formula, /完整SKU精确匹配cg_price，不区分站点、不去前缀、不按库存加权/)
-    assert.match(help.formula, /不按SKU回退旧月份价格/)
-    assert.match(help.formula, /人民币原值.*不再汇率换算或额外加税/)
+    assert.match(help.sourceApi, /Excel导入.*prices\/import/)
+    assert.match(help.sourceTable, /date-project\.ebay_inventory_detail_price/)
+    assert.match(help.sourceTable, /middle_code.*unit_price/)
+    assert.match(help.formula, /完整SKU＋价格去重/)
+    assert.match(help.formula, /本次涉及SKU的价格集合，其他SKU保留/)
+    assert.match(help.formula, /跨站点按中间码匹配.*MIN\(unit_price\)最低价/)
+    assert.match(help.formula, /人民币原值.*不换汇、不额外加税/)
     assert.match(help.formula, /ROUND_HALF_UP保留2位/)
-    assert.match(help.emptyHandling, /未匹配.*为空.*异常.*null.*--/)
+    assert.match(help.emptyHandling, /未导入匹配价格.*异常.*null.*--/)
+    assert.match(help.emptyHandling, /不回退产品管理价格/)
     assert.match(help.emptyHandling, /明确为0是有效价格/)
     assert.doesNotMatch(help.sourceApi, /预留字段|尚未接入/)
     assert.doesNotMatch(help.formula, /purchase_price|product_total|seller_id/)
     assert.match(columnBlock, new RegExp("key: '" + key + "'[^\\n]+format: 'money'[^\\n]+sortable: true"))
   }
-  assert.match(inventoryColumnHelp.unit_price_tax.formula, /不据此宣称接口自动含税/)
-  assert.match(inventoryColumnHelp.overseas_sellable_value.formula, /海外可售货值＝未舍入cg_price原价×当前海外可售/)
-  assert.match(inventoryColumnHelp.overseas_total_value.formula, /海外总货值＝未舍入cg_price原价×当前海外总库存/)
+  assert.match(inventoryColumnHelp.unit_price_tax.formula, /直接使用上传价/)
+  assert.match(inventoryColumnHelp.overseas_sellable_value.formula, /海外可售货值＝未舍入的中间码最低价×合并后海外可售/)
+  assert.match(inventoryColumnHelp.overseas_total_value.formula, /海外总货值＝未舍入的中间码最低价×合并后海外总库存/)
   for (const key of ['overseas_sellable_value', 'overseas_total_value']) {
     assert.match(inventoryColumnHelp[key].formula, /不先把单价舍入再乘/)
-    assert.match(inventoryColumnHelp[key].formula, /快照与当前库存可能来自不同批次时间/)
+    assert.match(inventoryColumnHelp[key].formula, /旧日期不追溯重算/)
     assert.match(inventoryColumnHelp[key].emptyHandling, /有效价格.*为0.*¥0\.00/)
   }
   assert.match(source, /priceColumnKeys\.includes\(column.key\) && row.price_warning/)
   assert.match(source, /:content="row.price_warning"/)
+})
+
+test('product merge explains aliases, minimum price, deduplicated rent and recomputed ratios', () => {
+  assert.match(inventoryColumnHelp.sku.formula, /长度最短.*字典序/)
+  assert.match(inventoryColumnHelp.sku.formula, /搜索任一别名均返回整组/)
+  assert.match(inventoryColumnHelp.sku_middle_code.formula, /站点＋中间码为合并键/)
+  assert.match(inventoryColumnHelp.sku_middle_code.emptyHandling, /不能将所有空中间码合并/)
+  assert.match(inventoryColumnHelp.unit_price_tax.formula, /MIN\(unit_price\)最低价/)
+  assert.match(inventoryColumnHelp.unit_price_tax.emptyHandling, /明确为0是有效价格/)
+  assert.match(inventoryColumnHelp.overseas_sellable_value.formula, /最低价×合并后海外可售/)
+  assert.match(inventoryColumnHelp.warehouse_rent_30d_cny.formula, /相同尾码只计一次/)
+  for (const key of ['in_stock_sales_ratio', 'total_stock_sales_ratio', 'total_stock_sales_ratio_months']) {
+    assert.match(inventoryColumnHelp[key].formula, /合并后的库存及销量重新计算/)
+  }
+  assert.match(inventoryColumnHelp.purchase_quantity.formula, /最后只四舍五入一次/)
+  assert.match(inventoryColumnHelp.stat_date.formula, /旧日期快照不追溯重算/)
+  assert.match(source, /row.merged_sku_count > 1/)
+  assert.match(source, /row.sku_aliases.join/)
+  assert.ok(!source.includes('v-html'))
 })
 
 test('monthly total stock-sales ratio uses three complete natural months and fixed divisor', () => {
@@ -223,6 +261,10 @@ test('three-month average and percent ratios show two decimals without changing 
   assert.equal(context.formatValue('0', 'quantity'), '0')
   assert.equal(context.formatValue('58', 'quantity'), '58')
   assert.equal(context.formatValue(null, 'quantity'), '--')
+  for (const [raw, expected] of [
+    ['10053DE', '10053DE'], ['10053US', '10053US'], ['00100UK', '00100UK'],
+    [null, '--'], [undefined, '--'], ['', '--']
+  ]) assert.equal(context.formatValue(raw), expected)
   for (const [raw, expected] of [
     ['0', '0.00%'], [0, '0.00%'], ['0.125', '12.50%'], ['1.25', '125.00%'],
     ['1.666667', '166.67%'], ['2.5', '250.00%'],

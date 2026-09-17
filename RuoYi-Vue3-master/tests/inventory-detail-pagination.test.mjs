@@ -112,6 +112,24 @@ test('Pagination compiles to the explicit imported component, never a reactive s
   assert.match(source, /<Pagination\b/)
 })
 
+test('original Excel rows with identical or missing SKU keep independent selection keys', async () => {
+  const data = [
+    { site: '德国', sku: 'DAS-10053-0121', record_key: 'DE:2' },
+    { site: '德国', sku: 'DAS-10053-0121', record_key: 'DE:3' },
+    { site: '德国', sku: null, record_key: 'DE:4' },
+    { site: '德国', sku: null, record_key: 'DE:5' }
+  ]
+  const view = createHarness(async () => response(data))
+  await view.api.loadRows()
+  assert.equal(new Set(data.map(view.api.rowKey)).size, 4)
+  view.api.handleSelectionChange([data[1], data[2]])
+  await view.api.handleExport()
+  assert.deepEqual(view.exported[0].selectedKeys, [
+    { site: '德国', sku: 'DAS-10053-0121', record_key: 'DE:3' },
+    { site: '德国', sku: '', record_key: 'DE:4' }
+  ])
+})
+
 test('latest date resolves once and date changes clear selection and pin export', async () => {
   const row = { site: '德国', sku: 'MCD-20017-0071' }
   const { api, sent, exported } = createHarness(async params => {
@@ -207,6 +225,16 @@ test('invalid post-write date is visible and never used to load another snapshot
   assert.equal(view.sent.length, 0)
   assert.equal(view.successes.length, 0)
   assert.equal(view.errors.length, 1)
+})
+
+test('active import and recalculation prevent concurrent export', async () => {
+  for (const key of ['importing', 'recalculating']) {
+    const view = createHarness()
+    view.api.dataReady.value = true
+    view.api[key].value = true
+    await view.api.handleExport()
+    assert.equal(view.exported.length, 0)
+  }
 })
 
 test('unmounted view does not query or report success after recalculation returns', async () => {

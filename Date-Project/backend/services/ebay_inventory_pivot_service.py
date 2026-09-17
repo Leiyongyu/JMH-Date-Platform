@@ -42,8 +42,12 @@ def aggregate_inventory(items):
                 # Missing money does not remove this SKU's stock, sales or SKU count.
                 # None remains only if no SKU supplies this specific amount; 0 is valid.
                 group[field] = (group[field] if group[field] is not None else ZERO) + Decimal(str(value))
-        group["missing_price_count"] += int(any(item.get(field) is None for field in AMOUNTS[:2]))
-        group["missing_rent_count"] += int(item.get("warehouse_rent_30d_cny") is None)
+        # Merged product values can be partial even when their sum is non-null.
+        # Count such a product once so the pivot still discloses omitted values.
+        group["missing_price_count"] += int(bool(item.get("missing_price_sku_count"))
+                                            or any(item.get(field) is None for field in AMOUNTS[:2]))
+        group["missing_rent_count"] += int(bool(item.get("missing_rent_key_count"))
+                                           or item.get("warehouse_rent_30d_cny") is None)
     result = []
     for _, group in sorted(groups.items()):
         sales = group["sales_qty_30d"]

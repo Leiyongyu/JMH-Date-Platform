@@ -216,7 +216,9 @@ test('owner totals have a red bold row style including date, identity and missin
   assert.deepEqual(style.errors, [])
   assert.match(style.code, /\.owner-total-row > td\.el-table__cell\s*\{[^}]*color: #c62828; font-weight: 700/)
   assert.match(style.code, /\.owner-total-row \.missing-value\s*\{[^}]*color: #c62828; font-weight: 700/)
-  assert.match(api.columns.find(column => column.key === 'sku_count').tip, /跨站点的相同SKU分别计数/)
+  assert.match(api.columns.find(column => column.key === 'sku_count').tip, /站点＋中间码合并后计数/)
+  assert.match(api.columns.find(column => column.key === 'sku_count').tip, /跨站点分别计数/)
+  assert.match(api.columns.find(column => column.key === 'sku_count').tip, /旧日期保持原完整SKU计数/)
   assert.match(api.columns.find(column => column.key === 'site').tip, /当前筛选的站点/)
   for (const column of api.columns.filter(item => item.format === 'percent')) {
     assert.match(column.tip, /先加总各站点库存和销量再相除/)
@@ -307,7 +309,7 @@ for (const [key, missingField, reason] of [
     const row = { sku_count: 5, [missingField]: 2, [key]: '1234.56' }
     assert.equal(api.formatValue(row[key], 'money'), '¥1,234.56')
     const message = api.missingMessage(row, key)
-    assert.match(message, /已排除 2 个SKU/)
+    assert.match(message, /有 2 个库存行存在缺失/)
     assert.match(message, reason)
     assert.match(message, /仅汇总有值金额/)
     assert.doesNotMatch(message, /显示--|全部缺失|未记录金额汇总/)
@@ -331,7 +333,7 @@ for (const [key, missingField, reason] of [
       const row = { sku_count: 4, [missingField]: 2, [key]: amount }
       assert.equal(api.formatValue(row[key], 'money'), '¥0.00')
       const message = api.missingMessage(row, key)
-      assert.match(message, /已排除 2 个SKU/)
+      assert.match(message, /有 2 个库存行存在缺失/)
       assert.match(message, /仅汇总有值金额/)
       assert.doesNotMatch(message, /显示--|全部缺失|未记录金额汇总/)
     }
