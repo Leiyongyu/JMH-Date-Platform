@@ -4,6 +4,12 @@ from datetime import datetime
 from uuid import uuid4
 
 from backend.repositories import performance_repository as repo
+from backend.services.amz_listing_raw_sync_service import (
+    TASK_CODE as AMZ_LISTING_RAW_TASK_CODE,
+    TASK_NAME as AMZ_LISTING_RAW_TASK_NAME,
+    AmzListingRawSyncError,
+    sync_amz_listing_raw,
+)
 from backend.services.amazon_profit_sync_service import (
     AmazonProfitEtlError,
     previous_natural_month,
@@ -56,6 +62,7 @@ OPENING_INVENTORY_TASK_CODE = (
 )
 OPENING_INVENTORY_TASK_NAME = "月度库存次月月初库存填充"
 TASK_CODES = {
+    AMZ_LISTING_RAW_TASK_CODE,
     GOODCANG_STORAGE_TASK_CODE,
     WEEKLY_INVENTORY_TASK_CODE,
     AMZ_TASK_CODE,
@@ -100,6 +107,8 @@ def run_scheduler_task(
         raise ValueError("未知任务编码")
     if weekly_snapshot_only and task_code != WEEKLY_INVENTORY_TASK_CODE:
         raise ValueError("仅周报任务支持已有快照生成")
+    if task_code == AMZ_LISTING_RAW_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
+        raise ValueError("AMZ原始刊登只拉取当前完整数据，不接受历史月份或日期筛选")
     # Keep this before run_id/log creation: rejected month labels must have no side effects.
     if task_code == WEEKLY_INVENTORY_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
         raise ValueError("仓位库存周报仅拉取当前实时快照，不接受历史月份或日期")
@@ -134,7 +143,9 @@ def run_scheduler_task(
                 trigger_type=trigger_type,
             )
         else:
-            if task_code == WEEKLY_INVENTORY_TASK_CODE:
+            if task_code == AMZ_LISTING_RAW_TASK_CODE:
+                lock_name = "lingxing:amz-listing-raw:replace"
+            elif task_code == WEEKLY_INVENTORY_TASK_CODE:
                 lock_name = "inventory:weekly-export"
             elif task_code == GOODCANG_STORAGE_TASK_CODE:
                 # Global table replacement: a month-qualified lock is not sufficient.
@@ -154,6 +165,9 @@ def run_scheduler_task(
             with repo.named_lock(lock_name) as acquired:
                 if not acquired:
                     task_name = (
+                        AMZ_LISTING_RAW_TASK_NAME
+                        if task_code == AMZ_LISTING_RAW_TASK_CODE
+                        else
                         "仓位库存明细周报"
                         if task_code == WEEKLY_INVENTORY_TASK_CODE
                         else GOODCANG_STORAGE_TASK_NAME
@@ -174,7 +188,9 @@ def run_scheduler_task(
                     raise SchedulerTaskAlreadyRunning(
                         f"{task_name}正在执行"
                     )
-                if task_code == WEEKLY_INVENTORY_TASK_CODE:
+                if task_code == AMZ_LISTING_RAW_TASK_CODE:
+                    result = sync_amz_listing_raw()
+                elif task_code == WEEKLY_INVENTORY_TASK_CODE:
                     result = (regenerate_weekly_inventory() if weekly_snapshot_only
                               else sync_weekly_inventory(trigger_type))
                 elif task_code == GOODCANG_STORAGE_TASK_CODE:
@@ -228,6 +244,7 @@ def run_scheduler_task(
             if isinstance(
                 exc,
                 (
+                    AmzListingRawSyncError,
                     AmazonProfitEtlError,
                     AmzSopEtlError,
                     InventoryReportSourceSyncError,
@@ -242,6 +259,7 @@ def run_scheduler_task(
             if isinstance(
                 exc,
                 (
+                    AmzListingRawSyncError,
                     AmazonProfitEtlError,
                     AmzSopEtlError,
                     InventoryReportSourceSyncError,

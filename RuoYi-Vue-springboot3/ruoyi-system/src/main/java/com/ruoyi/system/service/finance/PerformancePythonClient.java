@@ -33,6 +33,16 @@ public class PerformancePythonClient extends PythonHttpSupport
         return get("/performance-rankings", params, requestId);
     }
 
+    public Map<String, Object> amzOwnerSkuSummary(String requestId)
+    {
+        return get("/amz-owner-sku/summary", Map.of(), requestId);
+    }
+
+    public Map<String, Object> ebayOwnerSkuSummary(String requestId)
+    {
+        return get("/ebay-owner-sku/summary", Map.of(), requestId);
+    }
+
     public Map<String, Object> months(int limit, String requestId)
     {
         return get("/performance-months", Map.of("limit", limit), requestId);
