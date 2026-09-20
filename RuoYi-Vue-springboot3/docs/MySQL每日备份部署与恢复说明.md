@@ -88,6 +88,23 @@ mysql> SOURCE D:/restore/jmh_data_platform_20260805_200000.sql;
 
 ## 安全和运维
 
+### 2026-09-20：区分备份失败与过期清理异常
+
+- 导出、压缩、校验或 NAS 发布失败仍抛出异常，Quartz 标记失败，原有失败告警不变。
+- 新备份发布成功后，过期目录逐个清理；某个目录清理失败时记录路径和完整异常，继续处理其他过期目录。目录枚举失败也作为清理警告报告。
+- 仅清理失败时，Quartz 状态为成功，但执行信息明确显示“备份成功，过期清理异常”。Java 日志保留全部异常路径；企微通过独立的 `mysql-backup / retention` 通道发送 `WARNING`，不依赖成功通知开关。该通道使用现有告警总开关、Webhook 和去重配置。
+- 后续清理恢复正常时，调用现有恢复通知机制（是否发消息受 `sync.alert.notify-recovery` 控制）。告警发送异常只记日志，不改变已发布备份的结果。
+- 没有放宽保留期、直接子目录、目录命名及符号链接防护；不会尝试强制修复或强制删除 NAS 损坏对象。一次清理可能在部分文件删除后失败，不具备回滚能力；已清理目录数只计完整删除成功的目录。
+- `backup.log` 和 `manifest.json` 仍是发布前生成的备份材料；发布后的清理结果以 Quartz 执行信息和 Java 日志为准。压缩包校验通过不等于数据库恢复演练通过。
+
+部署本次修复只需重新构建、发布 `ruoyi-admin.jar` 并重启 Java；**无需 SQL、无需修改任务 236、无需改 UNC 配置，也不需要重跑旧日期备份**。代码不能修复 `2026-08-06/backup.log` 在 NAS 上的文件/目录类型不一致问题，仍需由 NAS 管理员单独排查。
+
+回归测试使用临时合成文件及模拟异常，不调用 mysqldump、不连接 NAS、数据库或企微：
+
+```powershell
+mvn -pl ruoyi-admin -am '-Dtest=MySqlBackupServiceTest,MySqlBackupTaskTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
+```
+
 - `backup.log`和若依定时任务日志会记录成功或失败原因，但不会记录数据库密码。
 - NAS不可用、mysqldump失败、文件过小、ZIP损坏或复制后哈希不一致都会让Quartz任务标记失败。
 - 发布成功前的NAS目录使用`.partial-*`名称；失败时只清理本次任务创建的临时目录。

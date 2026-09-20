@@ -118,15 +118,15 @@ public class MySqlBackupService
                     stagingDirectory, targetRoot, now.toLocalDate(), runId,
                     artifacts);
             published = true;
-            int deletedDirectories = cleanupExpiredBackups(
+            CleanupResult cleanup = cleanupExpiredBackups(
                     targetRoot, now.toLocalDate());
             long duration = System.currentTimeMillis() - started;
             log.info("MySQL备份完成：目录={}，数据库={}，压缩后={}字节，清理目录={}，耗时={}ms",
                     publishedDirectory, artifacts.size(), totalBytes,
-                    deletedDirectories, duration);
+                    cleanup.deletedDirectories(), duration);
             return new BackupResult(
                     publishedDirectory.toString(), artifacts.size(),
-                    totalBytes, deletedDirectories, duration);
+                    totalBytes, cleanup.deletedDirectories(), duration, cleanup.failures());
         }
         catch (Exception e)
         {
@@ -147,7 +147,7 @@ public class MySqlBackupService
         }
     }
 
-    private BackupArtifact backupDatabase(
+    BackupArtifact backupDatabase(
             String database,
             String runId,
             Path stagingDirectory,
@@ -283,19 +283,16 @@ public class MySqlBackupService
         }
     }
 
-    private int cleanupExpiredBackups(Path targetRoot, LocalDate today)
-            throws IOException
+    CleanupResult cleanupExpiredBackups(Path targetRoot, LocalDate today)
     {
         LocalDate oldestRetainedDate = today.minusDays(
                 properties.getRetentionDays() - 1L);
         int deleted = 0;
+        List<CleanupFailure> failures = new ArrayList<>();
         try (var paths = Files.list(targetRoot))
         {
             for (Path path : paths.toList())
             {
-                if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)
-                        || Files.isSymbolicLink(path))
-                    continue;
                 Matcher matcher = BACKUP_DIRECTORY.matcher(
                         path.getFileName().toString());
                 if (!matcher.matches()) continue;
@@ -304,12 +301,35 @@ public class MySqlBackupService
                 catch (Exception ignored) { continue; }
                 if (directoryDate.isBefore(oldestRetainedDate))
                 {
-                    deleteTree(path, targetRoot);
-                    deleted++;
+                    try
+                    {
+                        BasicFileAttributes attrs = Files.readAttributes(
+                                path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                        if (!attrs.isDirectory() || attrs.isSymbolicLink()) continue;
+                        deleteTree(path, targetRoot);
+                        deleted++;
+                    }
+                    catch (Exception e)
+                    {
+                        // A damaged old NAS object must not invalidate an already published backup.
+                        recordCleanupFailure(failures, path, e);
+                    }
                 }
             }
         }
-        return deleted;
+        catch (Exception e)
+        {
+            // Listing/iteration/close failures are retention failures, not backup failures.
+            recordCleanupFailure(failures, targetRoot, e);
+        }
+        return new CleanupResult(deleted, List.copyOf(failures));
+    }
+
+    private void recordCleanupFailure(List<CleanupFailure> failures, Path path, Exception error)
+    {
+        String reason = error.getClass().getSimpleName() + ": " + error.getMessage();
+        failures.add(new CleanupFailure(path.toString(), reason));
+        log.warn("MySQL备份已发布成功，但过期清理失败：路径={}，原因={}", path, reason, error);
     }
 
     private void writeManifest(
@@ -449,7 +469,7 @@ public class MySqlBackupService
         });
     }
 
-    private void deleteTree(Path target, Path allowedParent) throws IOException
+    void deleteTree(Path target, Path allowedParent) throws IOException
     {
         Path normalizedTarget = target.toAbsolutePath().normalize();
         requireDirectChild(allowedParent.toAbsolutePath().normalize(), normalizedTarget);
@@ -498,7 +518,7 @@ public class MySqlBackupService
                 StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     }
 
-    private record BackupArtifact(
+    record BackupArtifact(
             String database,
             String fileName,
             String sqlEntryName,
@@ -508,16 +528,41 @@ public class MySqlBackupService
     {
     }
 
+    public record CleanupFailure(String path, String reason) {}
+
+    record CleanupResult(int deletedDirectories, List<CleanupFailure> failures) {}
+
     public record BackupResult(
             String directory,
             int databaseCount,
             long totalBytes,
             int deletedDirectories,
-            long durationMillis)
+            long durationMillis,
+            List<CleanupFailure> cleanupFailures)
     {
+        public BackupResult
+        {
+            cleanupFailures = List.copyOf(cleanupFailures);
+        }
+
+        public boolean hasCleanupWarnings()
+        {
+            return !cleanupFailures.isEmpty();
+        }
+
+        public String cleanupWarning()
+        {
+            if (!hasCleanupWarnings()) return "";
+            CleanupFailure first = cleanupFailures.get(0);
+            return "备份成功，过期清理异常" + cleanupFailures.size()
+                    + "项；首个路径=" + first.path() + "；原因=" + first.reason()
+                    + "；完整明细见Java日志";
+        }
+
         public String summary()
         {
-            return "目录=" + directory
+            return (hasCleanupWarnings() ? cleanupWarning() + "；" : "备份成功；")
+                    + "目录=" + directory
                     + "，数据库=" + databaseCount
                     + "，压缩后=" + totalBytes + "字节"
                     + "，清理目录=" + deletedDirectories
