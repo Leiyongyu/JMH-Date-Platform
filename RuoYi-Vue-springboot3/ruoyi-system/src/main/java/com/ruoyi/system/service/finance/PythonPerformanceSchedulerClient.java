@@ -55,6 +55,11 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run(GOODCANG_STORAGE_TASK, null, requestId);
     }
 
+    public Map<String, Object> runEbayStoreListing(String requestId)
+    {
+        return run("ebay_store_listing_sync", null, requestId);
+    }
+
     public Map<String, Object> runAmzListingRaw(String requestId)
     {
         return run("lingxing_amz_listing_raw_sync", null, requestId);

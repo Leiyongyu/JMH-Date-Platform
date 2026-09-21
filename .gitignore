@@ -54,3 +54,6 @@ RuoYi-Vue-springboot3/docs/*
 !RuoYi-Vue-springboot3/docs/OperationAssistant-ERP对接部署说明.md
 !RuoYi-Vue-springboot3/docs/MySQL每日备份部署与恢复说明.md
 .run/
+# Local eBay seller credentials workbook (contains refresh tokens).
+Date-Project/data/紫鸟店铺全量.xlsx
+Date-Project/data/~$紫鸟店铺全量.xlsx

@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from backend.api.deps import require_internal_access
 from backend.schemas.performance_requests import SchedulerRunRequest
 from backend.schemas.responses import success_response
+from backend.ebay_api.credentials import EbayApiError
+from backend.ebay_api.workbook_accounts import credential_expiry_report
 from backend.services.scheduler_service import (
     SchedulerTaskAlreadyRunning,
     list_scheduler_runs,
@@ -18,6 +20,14 @@ router = APIRouter(
     prefix="/api/v1/internal/scheduler",
     dependencies=[Depends(require_internal_access)],
 )
+
+
+@router.get('/ebay-credentials/expiry')
+def get_ebay_credential_expiry(request: Request):
+    try:
+        return success_response(credential_expiry_report(), request_id=request.state.request_id)
+    except EbayApiError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
 @router.get("/tasks")

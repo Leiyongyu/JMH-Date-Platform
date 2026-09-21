@@ -4,6 +4,12 @@ from datetime import datetime
 from uuid import uuid4
 
 from backend.repositories import performance_repository as repo
+from backend.services.ebay_store_listing_sync_service import (
+    TASK_CODE as EBAY_STORE_LISTING_TASK_CODE,
+    TASK_NAME as EBAY_STORE_LISTING_TASK_NAME,
+    EbayStoreListingSyncError,
+    sync_ebay_store_listings,
+)
 from backend.services.amz_listing_raw_sync_service import (
     TASK_CODE as AMZ_LISTING_RAW_TASK_CODE,
     TASK_NAME as AMZ_LISTING_RAW_TASK_NAME,
@@ -62,6 +68,7 @@ OPENING_INVENTORY_TASK_CODE = (
 )
 OPENING_INVENTORY_TASK_NAME = "月度库存次月月初库存填充"
 TASK_CODES = {
+    EBAY_STORE_LISTING_TASK_CODE,
     AMZ_LISTING_RAW_TASK_CODE,
     GOODCANG_STORAGE_TASK_CODE,
     WEEKLY_INVENTORY_TASK_CODE,
@@ -109,6 +116,8 @@ def run_scheduler_task(
         raise ValueError("仅周报任务支持已有快照生成")
     if task_code == AMZ_LISTING_RAW_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
         raise ValueError("AMZ原始刊登只拉取当前完整数据，不接受历史月份或日期筛选")
+    if task_code == EBAY_STORE_LISTING_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
+        raise ValueError("eBay店铺商品仅拉取当前在售列表，不接受历史月份或日期")
     # Keep this before run_id/log creation: rejected month labels must have no side effects.
     if task_code == WEEKLY_INVENTORY_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
         raise ValueError("仓位库存周报仅拉取当前实时快照，不接受历史月份或日期")
@@ -143,7 +152,9 @@ def run_scheduler_task(
                 trigger_type=trigger_type,
             )
         else:
-            if task_code == AMZ_LISTING_RAW_TASK_CODE:
+            if task_code == EBAY_STORE_LISTING_TASK_CODE:
+                lock_name = "ebay:store-listing:replace"
+            elif task_code == AMZ_LISTING_RAW_TASK_CODE:
                 lock_name = "lingxing:amz-listing-raw:replace"
             elif task_code == WEEKLY_INVENTORY_TASK_CODE:
                 lock_name = "inventory:weekly-export"
@@ -165,6 +176,9 @@ def run_scheduler_task(
             with repo.named_lock(lock_name) as acquired:
                 if not acquired:
                     task_name = (
+                        EBAY_STORE_LISTING_TASK_NAME
+                        if task_code == EBAY_STORE_LISTING_TASK_CODE
+                        else
                         AMZ_LISTING_RAW_TASK_NAME
                         if task_code == AMZ_LISTING_RAW_TASK_CODE
                         else
@@ -188,7 +202,9 @@ def run_scheduler_task(
                     raise SchedulerTaskAlreadyRunning(
                         f"{task_name}正在执行"
                     )
-                if task_code == AMZ_LISTING_RAW_TASK_CODE:
+                if task_code == EBAY_STORE_LISTING_TASK_CODE:
+                    result = sync_ebay_store_listings()
+                elif task_code == AMZ_LISTING_RAW_TASK_CODE:
                     result = sync_amz_listing_raw()
                 elif task_code == WEEKLY_INVENTORY_TASK_CODE:
                     result = (regenerate_weekly_inventory() if weekly_snapshot_only
@@ -244,6 +260,7 @@ def run_scheduler_task(
             if isinstance(
                 exc,
                 (
+                    EbayStoreListingSyncError,
                     AmzListingRawSyncError,
                     AmazonProfitEtlError,
                     AmzSopEtlError,
@@ -259,6 +276,7 @@ def run_scheduler_task(
             if isinstance(
                 exc,
                 (
+                    EbayStoreListingSyncError,
                     AmzListingRawSyncError,
                     AmazonProfitEtlError,
                     AmzSopEtlError,
