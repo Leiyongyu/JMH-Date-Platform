@@ -1,0 +1,88 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import * as Vue from 'vue'
+import { renderToString } from '@vue/server-renderer'
+import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
+import { compile } from '@vue/compiler-dom'
+import { pricePresentation } from '../src/components/ListingPriceTierChart/presentation.js'
+const file=new URL('../src/components/ListingPriceTierChart/index.vue',import.meta.url)
+const source=fs.readFileSync(file,'utf8')
+const {descriptor,errors}=parse(source)
+const render=new Function('Vue',compile(descriptor.template.content,{mode:'function',prefixIdentifiers:true}).code)(Vue)
+const ranges=['< ¥340','¥340–<680','¥680–<1,020','¥1,020–1,690','> ¥1,690']
+const definitions=['低价引流层','基础走量层','利润核心层','高客单层','专业/稀缺层'].map((name,i)=>({name,short:name,range:ranges[i]}))
+const tiers=definitions.map((d,i)=>({tier_no:i+1,label:d.name,range:d.range,sku_count:i?0:2,sku_percent:i?'0.00':'100.00'}))
+const child={node_id:'s',scope:'SITE',site:'DE',store_name:'store',currencies:['EUR'],group_sku_count:2,tiers}
+const shop={...child,node_id:'p',scope:'SHOP',site:'',children:[child]}
+async function html(platform,report,error='') {
+ const presentation=pricePresentation(platform)
+ report=structuredClone(report)
+ for(const parent of report?.items || []) for(const node of [parent,...(parent.children || [])])
+  node.tiers.forEach((t,i)=>t.range=presentation.ranges[i])
+ const currentDefinitions=definitions.map((d,i)=>({...d,range:presentation.ranges[i]}))
+ const app=Vue.createSSRApp({render,setup:()=>({platform,platformLabel:platform.toUpperCase(),currencyLabel:presentation.label,presentation,report,error,loading:false,load(){},definitions:currentDefinitions,
+ colors:['a','b','c','d','e'],nodeTitle:n=>n.store_name,tierTitle:t=>t.label,anomalyText:()=>'',detailsOpen:false,keyword:'',visibleShops:[],rateDescription:'当月my_rate',ruleDescription:'按人民币分组'})})
+ for(const name of ['el-button','el-input','el-table','el-table-column','el-dialog']) app.component(name,{setup:(_, {slots})=>()=>name==='el-dialog'?null:Vue.h('span',slots.default?.())})
+ app.component('el-alert',{props:['title'],setup:p=>()=>Vue.h('aside',p.title)})
+ app.component('el-empty',{props:['description'],setup:p=>()=>Vue.h('aside',p.description)})
+ app.directive('loading',{})
+ return renderToString(app)
+}
+test('both platform chart compiles and retains compact layout',()=>{
+ assert.deepEqual(errors,[])
+ const script=compileScript(descriptor,{id:'price'})
+ assert.deepEqual(compileTemplate({source:descriptor.template.content,filename:file.pathname,id:'price',compilerOptions:{bindingMetadata:script.bindings}}).errors,[])
+ assert.match(source,/height: 360px/);assert.match(source,/overflow-y: auto/);assert.doesNotMatch(source,/v-html/)
+})
+test('AMZ CNY and eBay USD five tiers, collapsed stores and expandable sites',async()=>{
+ for(const p of ['amz','ebay']) {
+  const out=await html(p,{state:'READY',items:[shop],shop_count:1,total_sku_count:2,rate_month:'2026-09',missing_currencies:[]})
+  assert.match(out,new RegExp(pricePresentation(p).label+'价格结构'));assert.match(out,/利润核心层/);assert.match(out,/专业\/稀缺层/)
+  assert.match(out,/<details class="shop-row">/);assert.doesNotMatch(out,/<details[^>]*open/)
+  assert.match(out,/DE · EUR/);assert.match(out,/100.00%/);assert.match(out,/展开报表/)
+ }
+})
+test('stale and missing rates have visible warnings',async()=>{
+ const out=await html('amz',{state:'READY',items:[],shop_count:0,total_sku_count:0,stale:true,missing_currencies:['GBP']})
+ assert.match(out,/月份已更新/);assert.match(out,/缺当月汇率：GBP/)
+ assert.match(await html('ebay',{state:'EMPTY',items:[]}),/尚未生成美元报表/)
+ assert.match(await html('ebay',null,'出错'),/出错/)
+})
+
+test('each store and expanded site shows platform currency ranges, counts and percentages without hover',async()=>{
+ for(const platform of ['amz','ebay']) {
+  const out=await html(platform,{state:'READY',items:[shop],shop_count:1,total_sku_count:2,rate_month:'2026-09',missing_currencies:[]})
+  const values=[...out.matchAll(/<div class="tier-values">([\s\S]*?)<\/div>/g)].map(match=>match[1])
+  assert.equal(values.length,2,'store summary and site details both have direct labels')
+  for(const block of values) {
+   const visibleRanges=[...block.matchAll(/<span class="tier-range"><i[^>]*><\/i>([^<]*)<\/span>/g)]
+    .map(match=>match[1].replaceAll('&lt;','<').replaceAll('&gt;','>'))
+   assert.deepEqual(visibleRanges,pricePresentation(platform).ranges,'platform currency ranges must be visible text, not just title attributes')
+   assert.match(block,/>2 <span class="sku-unit">SKU<\/span>/)
+   assert.equal([...block.matchAll(/>0 <span class="sku-unit">SKU<\/span>/g)].length,4,'zero-count tiers keep their labels')
+   assert.match(block,/<small>100.00%<\/small>/)
+  }
+ }
+})
+test('homepage gives price charts a separate half-width second row; no platform data swap',()=>{
+ const home=fs.readFileSync(new URL('../src/views/index.vue',import.meta.url),'utf8')
+ assert.match(home,/AmzOwnerSkuChart v-for/);assert.match(home,/ListingPriceTierChart v-for/)
+ assert.match(home,/repeat\(4, minmax/)
+ assert.match(home,/<div class="owner-dashboards">\s*<AmzOwnerSkuChart[^>]+\/>\s*<\/div>\s*<div class="price-dashboards">\s*<ListingPriceTierChart/)
+ assert.match(home,/\.price-dashboards \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
+ assert.match(home,/@media \(max-width: 639px\) \{ \.owner-dashboards, \.price-dashboards/)
+ assert.match(source,/refreshListingPriceTier\(props.platform\)/)
+ assert.match(source,/getListingPriceTier\(props.platform\)/)
+ assert.match(source,/row-key="node_id"/)
+})
+
+test('USD uses rate_org, CNY retains my_rate and mismatched cached currency is rejected',()=>{
+ assert.deepEqual(pricePresentation('ebay').ranges,['< $50','$50–<100','$100–<150','$150–250','> $250'])
+ assert.equal(pricePresentation('ebay').rateField,'rate_org')
+ assert.equal(pricePresentation('amz').rateField,'my_rate')
+ assert.deepEqual(pricePresentation('amz').ranges,ranges)
+ assert.match(pricePresentation('ebay').formula,/其他原币价格×该币种rate_org÷USDrate_org/)
+ assert.match(source,/next.target_currency \|\| 'CNY'/)
+ assert.match(source,/报表币种与当前口径不一致/)
+})

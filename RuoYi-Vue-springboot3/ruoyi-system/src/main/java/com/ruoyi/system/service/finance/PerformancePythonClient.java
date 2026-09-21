@@ -43,6 +43,45 @@ public class PerformancePythonClient extends PythonHttpSupport
         return get("/ebay-owner-sku/summary", Map.of(), requestId);
     }
 
+    public Map<String, Object> ebayPriceTierSummary(String requestId)
+    {
+        return get("/ebay-price-tier/summary", Map.of(), requestId);
+    }
+
+    public Map<String, Object> amzPriceTierSummary(String requestId)
+    {
+        return get("/amz-price-tier/summary", Map.of(), requestId);
+    }
+
+    public Map<String, Object> refreshAmzPriceTier(String requestId)
+    {
+        try
+        {
+            HttpRequest request = baseRequest("/amz-price-tier/refresh", requestId)
+                    .POST(HttpRequest.BodyPublishers.noBody()).build();
+            return sendJson(request, false);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    /** 只重新计算本地统计仓库；POST不自动重试，避免重复计算。 */
+    public Map<String, Object> refreshEbayPriceTier(String requestId)
+    {
+        try
+        {
+            HttpRequest request = baseRequest("/ebay-price-tier/refresh", requestId)
+                    .POST(HttpRequest.BodyPublishers.noBody()).build();
+            return sendJson(request, false);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
     public Map<String, Object> months(int limit, String requestId)
     {
         return get("/performance-months", Map.of("limit", limit), requestId);

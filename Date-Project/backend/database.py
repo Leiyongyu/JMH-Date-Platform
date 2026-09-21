@@ -548,6 +548,8 @@ def init_database() -> None:
         project_root / "migrations" / "20260902_lingxing_currency_month.sql",
         project_root / "migrations" / "20260903_ctu_inventory_over_30.sql",
         project_root / "migrations" / "20260918_amz_listing_raw.sql",
+        project_root / "migrations" / "20260919_listing_cny_price_tier.sql",
+        project_root / "migrations" / "20260921_ebay_usd_price_tier.sql",
     ]
     schema = "\n".join(
         path.read_text(encoding="utf-8")

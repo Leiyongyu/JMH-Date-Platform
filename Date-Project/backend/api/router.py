@@ -15,6 +15,8 @@ from backend.api.v1 import ebay_inventory_detail as v1_ebay_inventory_detail
 from backend.api.v1 import weekly_inventory
 from backend.api.v1 import amz_owner_sku
 from backend.api.v1 import ebay_owner_sku
+from backend.api.v1 import ebay_price_tier
+from backend.api.v1 import amz_price_tier
 
 
 api_router = APIRouter()
@@ -36,3 +38,5 @@ api_router.include_router(v1_internal_scheduler.router)
 api_router.include_router(weekly_inventory.router)
 api_router.include_router(amz_owner_sku.router)
 api_router.include_router(ebay_owner_sku.router)
+api_router.include_router(ebay_price_tier.router)
+api_router.include_router(amz_price_tier.router)
