@@ -52,6 +52,7 @@ finally:
 
 - 只请求ActiveList，显式关闭Scheduled/Sold/Unsold；HideVariations=false，保留变体SKU和原始XML。
 - 检查HTTP状态和XML Ack；Failure/PartialFailure不当成功或空数据，错误仅输出数字错误码。Warning返回警告码。
+- 请求ActiveList但响应缺少该节点时，记录Ack、受限数字警告码、页码、响应字节数。仅Ack=Success且无Error业务错误时重试相同页，与网络/TLS共用最多3次请求预算；Warning缺节点直接失败。持续缺节点不作为空库存，不跳页、不发布部分数据。
 - 本模块分页保守上限100，小样本支持1–100。参考项目的“必须100”不是小样本限制：[官方参考示例](https://developer.ebay.com/devzone/xml/docs/reference/ebay/GetMyeBaySelling.html)使用每页3条，每页5条已实测通过。2026-09-19已按每页100条完成37家/18,059条全量同步与入库核对，详见[403修复记录](../../deploy/ebay-store-listing/商品同步403修复说明.md)。未对每页200条作验证。
 - `item_id`是刊登标识，同一SKU可能有多个刊登；页内ItemID重复报错，不静默丢行。
 - `current_price.value`通过Decimal校验，以字符串返回；`currency`取原始currencyID，不换汇。

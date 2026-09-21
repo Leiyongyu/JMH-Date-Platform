@@ -6,6 +6,21 @@ from xml.etree import ElementTree as ET
 from .credentials import EbayApiError
 
 NS = '{urn:ebay:apis:eBLBaseComponents}'
+
+
+class MissingActiveList(EbayApiError):
+    """A valid Trading envelope with no requested list; never an empty inventory."""
+    def __init__(self, *, ack, codes, page, page_size, response_bytes):
+        self.retryable = ack == 'Success'
+        safe_ack = ack if ack in ('Success', 'Warning') else 'OTHER'
+        # Only bounded numeric codes; never include LongMessage or response XML.
+        safe_codes = [c for c in codes if c and c.isascii() and c.isdecimal() and len(c) <= 12][:10]
+        super().__init__(
+            f'Trading响应缺少ActiveList，不当作空数据；ack={safe_ack} '
+            f'warning_codes={",".join(safe_codes) or "-"} page={page} '
+            f'page_size={page_size} response_bytes={response_bytes}')
+
+
 SITES = {'ebay.co.uk': 'UK', 'ebay.de': 'DE', 'ebay.fr': 'FR', 'ebay.it': 'IT',
          'ebay.es': 'ES', 'ebay.com': 'US', 'ebay.com.au': 'AU', 'ebay.ca': 'CA',
          'ebay.at': 'AT', 'ebay.ch': 'CH', 'ebay.nl': 'NL', 'ebay.be': 'BE',
@@ -67,7 +82,8 @@ def parse_active_page(raw: bytes, *, page: int, page_size: int) -> dict:
         raise EbayApiError('GetMyeBaySelling业务失败；错误码=' + ','.join(safe_codes))
     active = root.find(NS + 'ActiveList')
     if active is None:
-        raise EbayApiError('Trading响应缺少ActiveList，不当作空数据')
+        raise MissingActiveList(ack=ack, codes=safe_codes, page=page, page_size=page_size,
+                                response_bytes=len(raw))
     total = number(active, 'PaginationResult/TotalNumberOfEntries', integer=True, required=True)
     pages = number(active, 'PaginationResult/TotalNumberOfPages', integer=True, required=True)
     items = []

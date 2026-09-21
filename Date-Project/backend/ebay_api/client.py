@@ -9,7 +9,7 @@ from xml.etree import ElementTree as ET
 import requests
 
 from .credentials import EbayCredentials, EbayApiError
-from .listings import parse_active_page
+from .listings import MissingActiveList, parse_active_page
 from .tls import tls_failure
 
 TOKEN_URL = 'https://api.ebay.com/identity/v1/oauth2/token'
@@ -34,15 +34,26 @@ class EbaySellerClient:
     def close(self):
         self._session.close()
 
-    def _request(self, method, url, **kwargs):
+    def _request(self, method, url, *, response_parser=None, **kwargs):
         operation = {TOKEN_URL: 'OAuth', IDENTITY_URL: 'Identity', TRADING_URL: 'Trading'}.get(url, 'API')
         # This client only refreshes OAuth tokens and performs read-only seller queries.
+        # Transport and successful-but-missing-list responses share ONE attempt budget.
         # Retry the same request, never advance the page or retry HTTP/business failures.
         for attempt in range(3):
             try:
                 response = self._session.request(method, url, timeout=(10, 60), allow_redirects=False,
                                                  verify=True, **kwargs)
-                break
+                if response.status_code != 200:
+                    raise EbayApiError(f'eBay接口请求失败；接口={operation} HTTP {response.status_code}')
+                return response if response_parser is None else response_parser(response.content)
+            except MissingActiveList as exc:
+                if not exc.retryable or attempt == 2:
+                    raise EbayApiError(
+                        f'{exc}；接口={operation} request_attempt={attempt + 1}/3；未接受缺失列表') from None
+                delay = (5, 15)[attempt]
+                logger.warning('eBay成功响应缺少列表，重试相同页；接口=%s request_attempt=%s/3 '
+                               'retry_delay_seconds=%s %s', operation, attempt + 1, delay, exc)
+                self._sleep(delay)
             except requests.exceptions.SSLError as exc:
                 retryable, diagnostic = tls_failure(exc)
                 if not retryable or attempt == 2:
@@ -59,9 +70,6 @@ class EbaySellerClient:
                 self._sleep((5, 15)[attempt])
             except requests.RequestException:
                 raise EbayApiError(f'eBay传输请求失败；接口={operation}；不输出敏感异常正文') from None
-        if response.status_code != 200:
-            raise EbayApiError(f'eBay接口请求失败；接口={operation} HTTP {response.status_code}')
-        return response
 
     @staticmethod
     def _json(response):
@@ -165,7 +173,9 @@ class EbaySellerClient:
                 '<SoldList><Include>false</Include></SoldList>'
                 '<UnsoldList><Include>false</Include></UnsoldList>'
                 '</GetMyeBaySellingRequest>')
-        response = self._request('POST', TRADING_URL, data=body.encode('utf-8'), headers={
+        parsed = self._request('POST', TRADING_URL,
+            response_parser=lambda raw: parse_active_page(raw, page=page, page_size=page_size),
+            data=body.encode('utf-8'), headers={
             'X-EBAY-API-CALL-NAME': 'GetMyeBaySelling', 'X-EBAY-API-IAF-TOKEN': self._access_token(),
             'X-EBAY-API-COMPATIBILITY-LEVEL': '1193', 'X-EBAY-API-SITEID': '0', 'Content-Type': 'text/xml'})
-        return {'seller': identity, **parse_active_page(response.content, page=page, page_size=page_size)}
+        return {'seller': identity, **parsed}
