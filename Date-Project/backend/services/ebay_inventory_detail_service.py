@@ -386,8 +386,34 @@ def load_calculated_inventory():
     return items, metadata, warnings
 
 
+def _filter_values(value, label, *, uppercase=False, numeric=False):
+    """CSV filters: OR within a field, AND across fields; retain leading zeroes."""
+    text = _text(value)
+    if len(text) > 2048:
+        raise ValueError(f"{label}筛选不能超过2048个字符")
+    values = {part.strip() for part in text.split(",") if part.strip()}
+    if len(values) > 100:
+        raise ValueError(f"{label}最多选择100项")
+    if numeric and any(not all("0" <= char <= "9" for char in part) for part in values):
+        raise ValueError("SKU筛选请输入数字中间码，多个中间码使用英文逗号分隔，例如10053,20017")
+    return {part.upper() for part in values} if uppercase else values
+
+
+def _row_middle_codes(row):
+    # Old/imported snapshots may lack the display field. Extract for matching only;
+    # do not recalculate, regroup or mutate frozen history rows.
+    code = _text(row.get("sku_middle_code"))
+    if code and all("0" <= char <= "9" for char in code):
+        return {code}
+    return {code for value in (row.get("sku_aliases") or [row.get("sku")])
+            if (code := sku_middle_code(value)) is not None}
+
+
 def list_inventory(*, site=None, sku=None, brand=None, grade=None, page=1, page_size=50,
                    sort_field=None, sort_order=None, paginate=True, selected_keys=None, stat_date=None):
+    sku_filter = _filter_values(sku, "中间码", numeric=True)
+    brand_filter = _filter_values(brand, "品牌", uppercase=True)
+    grade_filter = _filter_values(grade, "等级")
     if stat_date:
         if stat_date != "latest":
             try:
@@ -403,12 +429,13 @@ def list_inventory(*, site=None, sku=None, brand=None, grade=None, page=1, page_
     brands = sorted({value for row in items for value in row.get("brand_aliases", [row["brand"]]) if value})
     grades = sorted({value for row in items for value in row.get("grade_aliases", [row.get("grade")]) if value})
     site_filter = normalize_site(site) if site else ""
-    sku_filter, brand_filter, grade_filter = _text(sku).upper(), _text(brand).upper(), _text(grade)
     items = [row for row in items
              if (not site_filter or row["site"] == site_filter)
-             and (not sku_filter or any(sku_filter in _text(value).upper() for value in row.get("sku_aliases", [row["sku"]])))
-             and (not brand_filter or brand_filter in row.get("brand_aliases", [row["brand"]]))
-             and (not grade_filter or grade_filter in row.get("grade_aliases", [row.get("grade")]))]
+             and (not sku_filter or sku_filter.intersection(_row_middle_codes(row)))
+             and (not brand_filter or brand_filter.intersection(
+                 _text(value).upper() for value in (row.get("brand_aliases") or [row.get("brand")])))
+             and (not grade_filter or grade_filter.intersection(
+                 _text(value) for value in (row.get("grade_aliases") or [row.get("grade")])))]
     if selected_keys:
         def selection_key(row):
             return (normalize_site(row["site"]), _text(row.get("sku")).upper(), _text(row.get("record_key")))

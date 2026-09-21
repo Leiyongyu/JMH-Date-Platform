@@ -31,9 +31,9 @@ class ExportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     stat_date: str | None = Field(default=None, max_length=10)
     site: str | None = Field(default=None, max_length=100)
-    sku: str | None = Field(default=None, max_length=255)
-    brand: str | None = Field(default=None, max_length=255)
-    grade: str | None = Field(default=None, max_length=64)
+    sku: str | None = Field(default=None, max_length=2048, description="数字中间码，英文逗号分隔，精确匹配")
+    brand: str | None = Field(default=None, max_length=2048, description="品牌多选，英文逗号分隔")
+    grade: str | None = Field(default=None, max_length=2048, description="等级多选，英文逗号分隔")
     sort_field: str | None = Field(default=None, max_length=80)
     sort_order: str | None = Field(default=None, max_length=16)
     selected_keys: list[InventoryKey] = Field(default_factory=list, max_length=50000)
@@ -49,8 +49,9 @@ def _failure(exc: Exception, label: str):
 @router.get("/list")
 def list_inventory(request: Request, site: str | None = Query(None, max_length=100),
                    stat_date: str | None = Query(None, max_length=10),
-                   sku: str | None = Query(None, max_length=255), brand: str | None = Query(None, max_length=255),
-                   grade: str | None = Query(None, max_length=64), page: int = Query(1, ge=1),
+                   sku: str | None = Query(None, max_length=2048, description="数字中间码，英文逗号分隔，精确匹配"),
+                   brand: str | None = Query(None, max_length=2048),
+                   grade: str | None = Query(None, max_length=2048), page: int = Query(1, ge=1),
                    page_size: int = Query(50, ge=1, le=200), sort_field: str | None = Query(None, max_length=80),
                    sort_order: str | None = Query(None, max_length=16)):
     try:

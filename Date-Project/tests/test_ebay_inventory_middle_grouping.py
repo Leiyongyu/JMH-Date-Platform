@@ -141,7 +141,7 @@ def test_stable_representative_alias_filters_keep_whole_group_and_sort_before_pa
     assert first["items"][0]["sales_qty_30d"] == "31"
     assert first["pagination"]["total"] == second["pagination"]["total"] == 2
     assert second["items"][0]["sku"] == "DAS-20000-0121"
-    for filters in ({"sku": "YXQ"}, {"brand": "JMH"}, {"sku": "10053", "grade": "A"}):
+    for filters in ({"sku": "10053"}, {"brand": "JMH"}, {"sku": "10053", "grade": "A"}):
         data = service.list_inventory(**filters)
         assert data["pagination"]["total"] == 1
         assert data["items"][0]["sales_qty_30d"] == "31"
@@ -217,5 +217,5 @@ def test_old_history_not_rewritten_and_grouped_history_alias_search_is_read_only
     assert service.list_inventory(stat_date="2026-09-15")["pagination"]["total"] == 2
     frozen[:] = [{**old, "sku_aliases": [old["sku"], old["sku"] + "-YXQ"],
                   "merged_sku_count": 2, "sales_qty_30d": Decimal(24)}]
-    row = service.list_inventory(stat_date="2026-09-16", sku="YXQ")["items"][0]
+    row = service.list_inventory(stat_date="2026-09-16", sku="10053")["items"][0]
     assert row["sales_qty_30d"] == "24"

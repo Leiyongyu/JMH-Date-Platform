@@ -19,16 +19,16 @@
             <el-option v-for="site in sites" :key="site" :label="site" :value="site" />
           </el-select>
         </el-form-item>
-        <el-form-item label="SKU">
-          <el-input v-model="query.sku" clearable placeholder="搜索 SKU / 中间码（含合并别名）" style="width: 265px" @keyup.enter="handleQuery" />
+        <el-form-item label="SKU中间码">
+          <el-input v-model="query.sku" clearable maxlength="2048" placeholder="多个中间码用英文逗号分隔，如10053,20017" style="width: 340px" @keyup.enter="handleQuery" />
         </el-form-item>
         <el-form-item label="品牌">
-          <el-select v-model="query.brand" clearable filterable placeholder="全部品牌" style="width: 150px">
+          <el-select v-model="query.brand" multiple clearable filterable collapse-tags collapse-tags-tooltip :multiple-limit="100" placeholder="全部品牌（多选）" style="width: 210px">
             <el-option v-for="brand in brands" :key="brand" :label="brand" :value="brand" />
           </el-select>
         </el-form-item>
         <el-form-item label="等级">
-          <el-select v-model="query.grade" clearable filterable placeholder="全部等级" style="width: 150px">
+          <el-select v-model="query.grade" multiple clearable filterable collapse-tags collapse-tags-tooltip :multiple-limit="100" placeholder="全部等级（多选）" style="width: 180px">
             <el-option v-for="grade in grades" :key="grade" :label="grade" :value="grade" />
           </el-select>
         </el-form-item>
@@ -204,7 +204,7 @@ const dataReady = ref(false)
 const exporting = ref(false)
 const showSearch = ref(true)
 const tableRef = ref()
-const query = reactive({ statDate: undefined, site: undefined, sku: '', brand: undefined, grade: undefined })
+const query = reactive({ statDate: undefined, site: undefined, sku: '', brand: [], grade: [] })
 const appliedFilters = ref({})
 const filtersDirty = computed(() => JSON.stringify(currentFilters()) !== JSON.stringify(appliedFilters.value))
 // Keep state distinct from the Pagination component: script-setup bindings win
@@ -293,13 +293,18 @@ function rowKey(row) {
   return JSON.stringify(key)
 }
 
+function filterCsv(value) {
+  const values = Array.isArray(value) ? value : String(value || '').split(',')
+  return [...new Set(values.map(item => String(item).trim()).filter(Boolean))].join(',') || undefined
+}
+
 function currentFilters() {
   return {
     statDate: query.statDate || 'latest',
     site: query.site || undefined,
-    sku: query.sku.trim() || undefined,
-    brand: query.brand || undefined,
-    grade: query.grade || undefined
+    sku: filterCsv(query.sku),
+    brand: filterCsv(query.brand),
+    grade: filterCsv(query.grade)
   }
 }
 
@@ -375,14 +380,23 @@ function handlePagination({ page, limit }) {
 
 function handleQuery() {
   if (recalculating.value) return
+  const filters = currentFilters()
+  if (filters.sku && !/^[0-9]+(?:,[0-9]+)*$/.test(filters.sku)) {
+    ElMessage.error('请输入数字中间码，多个中间码使用英文逗号分隔，例如10053,20017')
+    return
+  }
+  if (['sku', 'brand', 'grade'].some(key => filters[key]?.length > 2048 || (filters[key]?.split(',').length || 0) > 100)) {
+    ElMessage.error('每个筛选条件最多100项、2048个字符')
+    return
+  }
   clearSelection()
   pageQuery.pageNum = 1
-  appliedFilters.value = currentFilters()
+  appliedFilters.value = filters
   return loadRows()
 }
 
 function resetQuery() {
-  Object.assign(query, { statDate: undefined, site: undefined, sku: '', brand: undefined, grade: undefined })
+  Object.assign(query, { statDate: undefined, site: undefined, sku: '', brand: [], grade: [] })
   Object.assign(sort, { sortField: 'sales_qty_30d', sortOrder: 'descending' })
   tableRef.value?.sort(sort.sortField, sort.sortOrder)
   return handleQuery()
@@ -572,8 +586,8 @@ async function handleImport() {
       query.statDate = result.latest_import_date
       query.site = undefined
       query.sku = ''
-      query.brand = undefined
-      query.grade = undefined
+      query.brand = []
+      query.grade = []
     }
     await handleQuery()
     if (!unmounted) ElMessage.success(mode === 'history' ? '历史数据已保存，可按统计日期查询；无需重算'
@@ -585,7 +599,7 @@ async function handleImport() {
   }
 }
 
-watch(() => [query.statDate, query.site, query.sku, query.brand, query.grade], clearSelection)
+watch(() => [query.statDate, query.site, query.sku, query.brand, query.grade], clearSelection, { deep: true })
 onMounted(async () => {
   appliedFilters.value = currentFilters()
   await Promise.all([initColumnConfig(), loadRows()])

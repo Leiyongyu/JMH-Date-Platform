@@ -21,7 +21,7 @@ const stateNames = [
   'restoringSelection', 'loadVersion', 'unmounted'
 ]
 const functionNames = [
-  'rowKey', 'currentFilters', 'handleSelectionChange', 'clearSelection',
+  'rowKey', 'filterCsv', 'currentFilters', 'handleSelectionChange', 'clearSelection',
   'restorePageSelection', 'loadRows', 'handlePagination', 'handleQuery', 'disabledStatDate',
   'handleSortChange', 'handleExport', 'handleRefresh'
 ]
@@ -35,6 +35,46 @@ function actualDeclaration(name, functionOnly = false) {
   return setupSource.slice(node.start, node.end)
 }
 const plain = value => JSON.parse(JSON.stringify(value))
+
+test('multiple brands and grades plus CSV middle codes persist across pagination and export', async () => {
+  const view = createHarness(async params => response([{ site: '德国', sku: 'DAS-10053-0121' }],
+    { page: params.pageNum, size: params.pageSize, total: 3 }))
+  const { api, sent, exported } = view
+  api.query.sku = ' 10053, 00123,10053, '
+  api.query.brand = ['DAS', 'MCD']
+  api.query.grade = ['A', 'S']
+  await api.handleQuery()
+  await api.handlePagination({ page: 2, limit: 1 })
+  await api.handleExport()
+  for (const payload of [...sent, ...exported]) {
+    assert.equal(payload.sku, '10053,00123')
+    assert.equal(payload.brand, 'DAS,MCD')
+    assert.equal(payload.grade, 'A,S')
+  }
+  assert.equal(exported.length, 1)
+  api.query.brand.push('BMW')
+  assert.equal(api.filtersDirty.value, true)
+  await api.handleExport()
+  assert.equal(exported.length, 1, 'unapplied multi-select edits block stale exports')
+  api.query.sku = ''; api.query.brand = []; api.query.grade = []
+  await api.handleQuery()
+  assert.equal(sent.at(-1).sku, undefined)
+  assert.equal(sent.at(-1).brand, undefined)
+  assert.equal(sent.at(-1).grade, undefined)
+  assert.match(source, /v-model="query.brand" multiple/)
+  assert.match(source, /v-model="query.grade" multiple/)
+  assert.match(source, /clearSelection, \{ deep: true \}/)
+})
+
+test('non-numeric and Chinese-comma SKU input is rejected without a request', async () => {
+  for (const sku of ['10053，20017', 'DAS-10053-0121', '10053\n20017']) {
+    const { api, sent, errors } = createHarness()
+    api.query.sku = sku
+    await api.handleQuery()
+    assert.equal(sent.length, 0)
+    assert.match(errors[0], /英文逗号/)
+  }
+})
 const settle = () => new Promise(resolve => setImmediate(resolve))
 
 function response(items, { page = 1, size = 50, total = items.length } = {}) {
