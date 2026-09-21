@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from hashlib import sha256
@@ -9,10 +10,12 @@ import requests
 
 from .credentials import EbayCredentials, EbayApiError
 from .listings import parse_active_page
+from .tls import tls_failure
 
 TOKEN_URL = 'https://api.ebay.com/identity/v1/oauth2/token'
 IDENTITY_URL = 'https://apiz.ebay.com/commerce/identity/v1/user/'
 TRADING_URL = 'https://api.ebay.com/ws/api.dll'
+logger = logging.getLogger(__name__)
 
 
 class EbaySellerClient:
@@ -40,8 +43,16 @@ class EbaySellerClient:
                 response = self._session.request(method, url, timeout=(10, 60), allow_redirects=False,
                                                  verify=True, **kwargs)
                 break
-            except requests.exceptions.SSLError:
-                raise EbayApiError(f'eBay TLS校验或连接失败；接口={operation}；不输出敏感异常正文') from None
+            except requests.exceptions.SSLError as exc:
+                retryable, diagnostic = tls_failure(exc)
+                if not retryable or attempt == 2:
+                    raise EbayApiError(
+                        f'eBay TLS校验或连接失败；接口={operation} request_attempt={attempt + 1}/3；'
+                        f'{diagnostic}；不输出敏感异常正文') from None
+                delay = (5, 15)[attempt]
+                logger.warning('eBay临时TLS断连，重试相同请求；接口=%s request_attempt=%s/3 '
+                               'retry_delay_seconds=%s %s', operation, attempt + 1, delay, diagnostic)
+                self._sleep(delay)
             except (requests.Timeout, requests.ConnectionError):
                 if attempt == 2:
                     raise EbayApiError(f'eBay网络请求失败；接口={operation}；已尝试3次；不输出敏感异常正文') from None
