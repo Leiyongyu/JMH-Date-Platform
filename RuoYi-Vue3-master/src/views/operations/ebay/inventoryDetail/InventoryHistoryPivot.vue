@@ -125,7 +125,7 @@ const columns = [
   { key: 'sku_count', label: 'SKU数', format: 'quantity', width: 110, tip: '新生成快照按站点＋中间码合并后计数，无有效中间码的SKU独立保留；负责人汇总为各站点计数之和，跨站点分别计数。旧日期保持原完整SKU计数，不追溯重算。' },
   { key: 'overseas_sellable_quantity', label: '海外可售', format: 'quantity', tip: '该负责人、站点下库存明细的海外可售数量合计。' },
   { key: 'overseas_total_quantity', label: '海外总库存', format: 'quantity', tip: '该负责人、站点下海外在途与海外可售之和；由库存明细汇总。' },
-  { key: 'sales_qty_30d', label: '近30天销量', format: 'quantity', tip: '采集时库存明细的近30天销量合计；销量窗口跟随当时源数据最新付款日，不随查询历史的当前日期变动。' },
+  { key: 'sales_qty_30d', label: '近30天销量', format: 'quantity', tip: '保存当次库存明细计算的销量合计，不随查看日期重算。新快照按生成日前30个完整日期统计，不含生成当天，并排除已作废；旧快照与Excel导入历史保留原值。' },
   { key: 'in_stock_sales_ratio', label: '可售库销比', format: 'percent', tip: '汇总海外可售 ÷ 汇总近30天销量，显示为百分比；销量为0时为0%。负责人汇总亦先加总各站点库存和销量再相除，不对SKU行或站点库销比求和或平均。' },
   { key: 'total_stock_sales_ratio', label: '总库销比', format: 'percent', tip: '汇总海外总库存 ÷ 汇总近30天销量，显示为百分比；销量为0时为0%。负责人汇总亦先加总各站点库存和销量再相除，不对SKU行或站点库销比求和或平均。' },
   { key: 'overseas_sellable_value', label: '海外可售货值', format: 'money', width: 160, tip: '采集时各SKU海外可售货值合计（人民币）；忽略缺失金额，仅汇总有值金额，0为有效值；该项金额全部缺失才显示--。已冻结历史中未记录的金额汇总不追溯重算，仍显示--。' },

@@ -11,6 +11,17 @@ const columnBlock = source.match(/const columnDefs = (\[[\s\S]*?\n\])\.map/)?.[1
 assert.ok(columnBlock, 'column definitions remain decorated with help by field key')
 const columnKeys = Array.from(columnBlock.matchAll(/key: '([^']+)'/g), match => match[1])
 
+test('sales help excludes voided rows and describes calendar days instead of the data anchor', () => {
+  const help = inventoryColumnHelp.sales_qty_30d.formula
+  assert.match(help, /北京时间零点/)
+  assert.match(help, /此前30个完整日期/)
+  assert.match(help, /排除发货状态包含“已作废”/)
+  assert.match(help, /仅“已退款”仍计入/)
+  assert.match(help, /8月22日至9月20日/)
+  assert.doesNotMatch(help, /MAX\(payment_time\)|含锚点当天/)
+  assert.match(inventoryColumnHelp.average_monthly_sales_3m.formula, /排除.*已作废/)
+})
+
 test('all 30 columns have source API, source table, formula and empty handling', () => {
   assert.equal(columnKeys.length, 30)
   assert.equal(new Set(columnKeys).size, 30)
@@ -211,7 +222,7 @@ test('monthly total stock-sales ratio uses three complete natural months and fix
     assert.ok(help.sourceTable.includes(field), field)
   }
   assert.match(help.formula, /总库销比（月）＝周期总库存÷近3月均销量/)
-  assert.match(help.formula, /中国时区查询当月以前三个完整自然月.*合计÷固定3/)
+  assert.match(help.formula, /中国时区计算当月以前三个完整自然月.*合计÷固定3/)
   assert.match(help.formula, /按站点＋完整SKU/)
   assert.match(help.formula, /2026年9月查询取6、7、8月/)
   assert.match(help.formula, /不是近30天日均、预估销量2或滚动90天销量/)

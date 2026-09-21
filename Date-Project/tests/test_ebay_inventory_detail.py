@@ -460,15 +460,16 @@ def test_sorting_is_numeric_and_pagination_stable(isolated):
     assert first["pagination"]["total"] == second["pagination"]["total"] == 3
 
 
-def test_source_sql_is_inventory_driven_with_global_30_day_anchor():
+def test_source_sql_is_inventory_driven_with_calendar_30_day_window():
     cursor = MagicMock()
     cursor.fetchall.return_value = []
     assert repository._source_rows(cursor) == []
     query = cursor.execute.call_args.args[0]
     assert "FROM inventory_summary inventory" in query
-    assert "SELECT DATE(MAX(payment_time)) anchor_date\n            FROM dwd_ebay_sku_analysis_order" in query
-    assert "INTERVAL 29 DAY" in query
-    assert "INTERVAL 1 DAY" in query
+    assert "sales_anchor AS" not in query
+    assert "INTERVAL 29 DAY" not in query
+    assert query.count("COALESCE(source.shipping_status,'') NOT LIKE '%%已作废%%'") == 3
+    assert query.count("%s") == 4
     assert "GROUP BY source.site_name,source.inventory_sku" in query
     # Window only deduplicates the seven warehouses in the selected weekly batch;
     # product-name lookup still avoids a full order-table window sort.
@@ -570,8 +571,10 @@ def test_read_snapshot_uses_one_transaction_and_metadata_fx_month(monkeypatch):
     connection.rollback.assert_not_called()
     for reader in (metadata_reader, rent_reader):
         reader.assert_called_once_with(cursor)
-    source_reader.assert_called_once_with(cursor, sales_window=sales_window)
-    window_reader.assert_called_once_with()
+    reference_date = window_reader.call_args.args[0]
+    source_reader.assert_called_once_with(cursor, sales_window=sales_window,
+                                         recent_window=repository._recent_sales_window(reference_date))
+    window_reader.assert_called_once()
     rate_reader.assert_called_once_with(cursor, "2026-08")
     assert result[1] is metadata
     assert metadata["monthly_sales_date_from"] == sales_window[0]
@@ -628,7 +631,7 @@ def test_monthly_sales_sql_uses_explicit_calendar_window_and_preserves_inventory
     cursor.fetchall.return_value = rows
     assert repository._source_rows(cursor, sales_window=window) == rows
     query, params = cursor.execute.call_args.args
-    assert tuple(params) == window
+    assert tuple(params[2:]) == window
     cte = query.split("complete_month_sales AS (", 1)[1].split("\n        ),", 1)[0]
     assert re.search(r"SUM\(\w+\.purchase_quantity\)\s+(?:AS\s+)?sales_qty_3m", cte, re.I)
     assert re.search(r"\w+\.payment_time\s*>=\s*%s", cte)
@@ -639,7 +642,7 @@ def test_monthly_sales_sql_uses_explicit_calendar_window_and_preserves_inventory
     assert "FROM inventory_summary inventory" in query
     assert re.search(r"LEFT JOIN\s+complete_month_sales\s+", query, re.I)
     assert re.search(r"COALESCE\(\w+\.sales_qty_3m\s*,\s*0\)\s+(?:AS\s+)?sales_qty_3m", query, re.I)
-    assert query.count("%s") == 2
+    assert query.count("%s") == 4
 
 
 def test_snapshot_window_does_not_follow_old_sales_anchor(monkeypatch):
@@ -650,16 +653,23 @@ def test_snapshot_window_does_not_follow_old_sales_anchor(monkeypatch):
     window = (date(2026, 6, 1), date(2026, 9, 1))
     clock = MagicMock(return_value=window)
     monkeypatch.setattr(repository, "_three_month_sales_window", clock)
-    metadata = {"sales_anchor_date": date(2020, 2, 29), "rent_pull_month": "2026-09"}
+    recent_window = (date(2026, 8, 22), date(2026, 9, 21))
+    recent_clock = MagicMock(return_value=recent_window)
+    monkeypatch.setattr(repository, "_recent_sales_window", recent_clock)
+    metadata = {"sales_source_latest_date": date(2020, 2, 29), "rent_pull_month": "2026-09"}
     monkeypatch.setattr(repository, "_source_metadata", lambda _: metadata)
     source_reader = MagicMock(return_value=[])
     monkeypatch.setattr(repository, "_source_rows", source_reader)
     monkeypatch.setattr(repository, "_rent_rows", lambda _: [])
     monkeypatch.setattr(repository, "_rates", lambda *_: {})
     _, result, _, _ = repository.read_snapshot()
-    clock.assert_called_once_with()
-    source_reader.assert_called_once_with(cursor, sales_window=window)
-    assert result["sales_anchor_date"] == date(2020, 2, 29)
+    clock.assert_called_once()
+    recent_clock.assert_called_once_with(clock.call_args.args[0])
+    source_reader.assert_called_once_with(cursor, sales_window=window, recent_window=recent_window)
+    assert result["sales_anchor_date"] == date(2026, 9, 20)
+    assert result["sales_source_latest_date"] == date(2020, 2, 29)
+    assert result["sales_date_from"] == recent_window[0]
+    assert result["sales_date_to_exclusive"] == recent_window[1]
     assert result["monthly_sales_date_from"] == date(2026, 6, 1)
     assert result["monthly_sales_date_to_exclusive"] == date(2026, 9, 1)
 

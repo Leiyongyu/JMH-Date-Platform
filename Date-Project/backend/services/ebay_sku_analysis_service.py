@@ -130,7 +130,13 @@ def _prepare_order_frame(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFram
     valid = replaceable[~replaceable["_sku"].str.startswith("AMZ", na=False)].copy()
     if valid.empty:
         raise ValueError("文件中没有有效的eBay付款订单数据")
+    # Keep voided rows in replacement keys so re-upload removes their old copies.
+    # Filter before order-level allocation; a refunded-only row remains eligible.
+    valid = valid[~valid["发货状态"].map(_text).str.contains("已作废", regex=False)].copy()
     valid["_stat_month"] = valid["_payment_time"].dt.strftime("%Y-%m")
+    if valid.empty:
+        # An all-voided upload must still replace the corresponding old orders.
+        return valid, replaceable
     valid["_payment_date"] = valid["_payment_time"].dt.date
     order_keys = ["_order_no", "_payment_date", "_site_name"]
     quantity_total = valid.groupby(order_keys)["_quantity"].transform("sum")

@@ -6,7 +6,7 @@ const inventoryBatchRule = '只取实际pulled_at最新的成功快照批次（E
 const orderImport = '数字酋长订单 Excel 导入，非 eBay 在线销量接口。系统入口：POST /operations/ebay/sku-analysis/import'
 const orderTable = 'date-project.dwd_ebay_sku_analysis_order（清洗自 ods_ebay_sku_analysis_order_raw）'
 const productApi = '领星 POST /erp/sc/routing/data/local_inventory/batchGetProductInfo'
-const salesWindow = '全表 DATE(MAX(payment_time)) 为锚点，按站点＋完整 SKU 汇总锚点前29天00:00至锚点次日00:00（不含）的 purchase_quantity；含锚点当天共30天，不随查询当天或筛选条件变化'
+const salesWindow = '以重新计算当天的北京时间零点为不含上界，统计此前30个完整日期的purchase_quantity，按站点＋完整SKU匹配后按站点＋中间码汇总；排除发货状态包含“已作废”，仅“已退款”仍计入。例如9月21日计算8月22日至9月20日。历史快照按保存值展示，不随查看日期移动'
 const overseasScope = '海外仓：德国18699、英国18702、美国18700＋18701'
 const chengduScope = '成都中转仓：德国18674、英国18675、美国18676'
 const stockEmpty = '当前库存行中，该类仓库无记录或数量字段为空时按0；0正常显示，不显示--。'
@@ -136,19 +136,19 @@ export const inventoryColumnHelp = {
   average_monthly_sales_3m: {
     sourceApi: `派生字段，复用销量来源：${orderImport}`,
     sourceTable: `${orderTable}（payment_time、purchase_quantity）`,
-    formula: '近3个月均销量＝近3个完整自然月的purchase_quantity总销量÷固定3，为月均销量。按中国时区查询当月以前三个月、站点＋完整SKU统计；例如2026年9月取6、7、8月，不包含9月，不是滚动90天或近30天日均。Decimal计算，输出时四舍五入（ROUND_HALF_UP）保留2位小数，页面与Excel均显示2位；排序及总库销比（月）使用未舍入值。',
+    formula: '近3个月均销量＝排除发货状态包含“已作废”后，近3个完整自然月的purchase_quantity总销量÷固定3，为月均销量。按中国时区查询当月以前三个月、站点＋完整SKU统计；例如2026年9月取6、7、8月，不包含9月，不是滚动90天或近30天日均。Decimal计算，输出时四舍五入（ROUND_HALF_UP）保留2位小数，页面与Excel均显示2位；排序及总库销比（月）使用未舍入值。',
     emptyHandling: '无销量时显示0.00；缺失月份按0计，仍固定除以3，不按有销量的月份数作分母。'
   },
   in_stock_sales_ratio: {
     sourceApi: `库存：${inventoryApi}。\n销量：${orderImport}。`,
     sourceTable: `${inventoryTable}.product_valid_num\n${orderTable}（payment_time、purchase_quantity）`,
-    formula: '在库库销比＝海外可售÷近30天销量（同站点＋完整SKU），以比值×100%显示，保留2位小数，如1.25显示125.00%。销量按订单全表最新付款日及前29天统计；底层Decimal比值保留6位小数，页面与Excel只改变显示格式。',
+    formula: '在库库销比＝海外可售÷近30天销量（同站点＋完整SKU），以比值×100%显示，保留2位小数，如1.25显示125.00%。销量按重新计算日前30个完整日期统计，不含当天，并排除已作废；底层Decimal比值保留6位小数，页面与Excel只改变显示格式。',
     emptyHandling: '销量缺失或为0时按比值0处理，显示0.00%；海外可售缺失按0。不会除零。'
   },
   total_stock_sales_ratio: {
     sourceApi: `库存：${inventoryApi}。\n销量：${orderImport}。`,
     sourceTable: `${inventoryTable}（product_onway、product_valid_num）\n${orderTable}（payment_time、purchase_quantity）`,
-    formula: '总库销比＝海外总库存÷近30天销量＝（海外在途＋海外可售）÷近30天销量，以比值×100%显示并保留2位小数。销量按全表最新付款日及前29天统计；底层比值保留6位小数，不含成都库存，页面与Excel不重复乘100。',
+    formula: '总库销比＝海外总库存÷近30天销量＝（海外在途＋海外可售）÷近30天销量，以比值×100%显示并保留2位小数。销量按重新计算日前30个完整日期统计，不含当天，并排除已作废；底层比值保留6位小数，不含成都库存，页面与Excel不重复乘100。',
     emptyHandling: '销量缺失或为0时显示0.00%；库存数量空值按0。'
   },
   unit_price_tax: {
@@ -190,7 +190,7 @@ export const inventoryColumnHelp = {
   total_stock_sales_ratio_months: {
     sourceApi: `库存：${inventoryApi}。\n销量：${orderImport}。`,
     sourceTable: `${inventoryTable}（product_onway、product_valid_num、quantity_receive、product_total）\n${orderTable}（payment_time、site_name、inventory_sku、purchase_quantity）`,
-    formula: '总库销比（月）＝周期总库存÷近3月均销量。近3月均销量＝中国时区查询当月以前三个完整自然月的purchase_quantity合计÷固定3，按站点＋完整SKU匹配；例如2026年9月查询取6、7、8月，时间范围6月1日00:00至9月1日00:00（不含）。不是近30天日均、预估销量2或滚动90天销量，也不按有销量月数作分母。周期总库存＝海外总库存＋成都在途＋成都可售＋采购计划＋待出库；待出库取product_total，未接入的采购计划仅合计时按0。分母不预先舍入为2位，后端Decimal原比值保留6位；页面/Excel按比值×100%显示并保留2位小数，不重复乘100。',
+    formula: '总库销比（月）＝周期总库存÷近3月均销量。近3月均销量＝排除已作废后，中国时区计算当月以前三个完整自然月的purchase_quantity合计÷固定3，按站点＋完整SKU匹配；例如2026年9月查询取6、7、8月，时间范围6月1日00:00至9月1日00:00（不含）。不是近30天日均、预估销量2或滚动90天销量，也不按有销量月数作分母。周期总库存＝海外总库存＋成都在途＋成都可售＋采购计划＋待出库；待出库取product_total，未接入的采购计划仅合计时按0。分母不预先舍入为2位，后端Decimal原比值保留6位；页面/Excel按比值×100%显示并保留2位小数，不重复乘100。',
     emptyHandling: '三个完整月无销量或均销量为0时，原比值返回0，显示0.00%；缺失月份按0参与合计，但分母仍固定3。周期库存中的空数量按0，不会除零。'
   },
   purchase_quantity: {
@@ -202,7 +202,7 @@ export const inventoryColumnHelp = {
   last_sold_at: {
     sourceApi: orderImport,
     sourceTable: `${orderTable}（site_name、inventory_sku、payment_time）`,
-    formula: '按站点＋完整SKU精确匹配全部历史订单，取MAX(payment_time)，显示YYYY-MM-DD年月日（例如2026-08-31），不显示时分秒。不限制近30天或近3个月，不去SKU前缀，不跨站点取最大值。',
+    formula: '按站点＋完整SKU精确匹配非已作废的全部历史订单，取MAX(payment_time)，显示YYYY-MM-DD年月日（例如2026-08-31），不显示时分秒。不限制近30天或近3个月，不去SKU前缀，不跨站点取最大值。',
     emptyHandling: '没有匹配订单或付款时间全为空时返回null，页面显示--、Excel留空；不填当前日期。旧历史只有年月时保持原值，不补造日期；重新生成今天快照后按年月日显示。'
   }
 }

@@ -122,27 +122,30 @@ def _three_month_sales_window(reference_date: date | None = None) -> tuple[date,
     return date(start_index // 12, start_index % 12 + 1, 1), end
 
 
-def _source_rows(cursor, sales_window: tuple[date, date] | None = None) -> list[dict[str, Any]]:
-    # 库存作为行全集：无近三个月订单的库存 SKU 也必须显示。近30天销量取
-    # 全表最新付款日为锚点；月均销量另按前三个完整自然月，不能混用两种窗口。
+def _recent_sales_window(reference_date: date | None = None) -> tuple[date, date]:
+    """北京时间当天零点为开区间上界，取此前30个完整日期。"""
+    end = reference_date or datetime.now(timezone(timedelta(hours=8))).date()
+    return end - timedelta(days=30), end
+
+
+def _source_rows(cursor, sales_window: tuple[date, date] | None = None,
+                 recent_window: tuple[date, date] | None = None) -> list[dict[str, Any]]:
+    # 库存作为行全集。近30天截至北京时间昨天，月均销量取前三个完整自然月。
     price_table = _product_price_table()
     age_table = _inventory_age_table()
-    sales_window = sales_window or _three_month_sales_window()
+    reference_date = datetime.now(timezone(timedelta(hours=8))).date()
+    sales_window = sales_window or _three_month_sales_window(reference_date)
+    recent_window = recent_window or _recent_sales_window(reference_date)
     # Match Python's second-segment strip, including tabs/newlines, not just SQL spaces.
     middle_sql = "REGEXP_REPLACE(SUBSTRING_INDEX(SUBSTRING_INDEX(inventory.sku,'-',2),'-',-1), '^[[:space:]]+|[[:space:]]+$', '')"
     query = f"""
         WITH {_weekly_inventory_ctes()},
-        sales_anchor AS (
-            SELECT DATE(MAX(payment_time)) anchor_date
-            FROM dwd_ebay_sku_analysis_order
-        ),
         recent_sales AS (
             SELECT source.site_name,source.inventory_sku,
                    SUM(source.purchase_quantity) sales_qty_30d
             FROM dwd_ebay_sku_analysis_order source
-            CROSS JOIN sales_anchor
-            WHERE source.payment_time >= DATE_SUB(sales_anchor.anchor_date, INTERVAL 29 DAY)
-              AND source.payment_time < DATE_ADD(sales_anchor.anchor_date, INTERVAL 1 DAY)
+            WHERE source.payment_time >= %s AND source.payment_time < %s
+              AND COALESCE(source.shipping_status,'') NOT LIKE '%%已作废%%'
             GROUP BY source.site_name,source.inventory_sku
         ),
         complete_month_sales AS (
@@ -150,6 +153,7 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None) -> list[
                    SUM(source.purchase_quantity) sales_qty_3m
             FROM dwd_ebay_sku_analysis_order source
             WHERE source.payment_time >= %s AND source.payment_time < %s
+              AND COALESCE(source.shipping_status,'') NOT LIKE '%%已作废%%'
             GROUP BY source.site_name,source.inventory_sku
         ),
         product_names AS (
@@ -215,6 +219,7 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None) -> list[
                    FROM dwd_ebay_sku_analysis_order source
                    WHERE source.site_name = CONVERT(inventory.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
                      AND source.inventory_sku = CONVERT(inventory.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
+                     AND COALESCE(source.shipping_status,'') NOT LIKE '%%已作废%%'
                ) last_sold_at,
                CAST(inventory.chengdu_in_transit_quantity AS DECIMAL(30,6)) chengdu_in_transit_quantity,
                CAST(inventory.chengdu_sellable_quantity AS DECIMAL(30,6)) chengdu_sellable_quantity,
@@ -260,7 +265,7 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None) -> list[
         LIMIT {MAX_ROWS + 1}
     """
     try:
-        cursor.execute(query, sales_window)
+        cursor.execute(query, (*recent_window, *sales_window))
     except ProgrammingError as exc:
         if _grade_table_missing(exc):
             raise ValueError(_GRADE_MISSING) from exc
@@ -278,7 +283,8 @@ def source_rows() -> list[dict[str, Any]]:
 def _source_metadata(cursor) -> dict[str, Any]:
     cursor.execute(f"""
         WITH {_weekly_snapshot_cte()}
-        SELECT (SELECT DATE(MAX(payment_time)) FROM dwd_ebay_sku_analysis_order) sales_anchor_date,
+        SELECT (SELECT DATE(MAX(payment_time)) FROM dwd_ebay_sku_analysis_order
+                WHERE COALESCE(shipping_status,'') NOT LIKE '%已作废%') sales_source_latest_date,
                MAX(sync_batch_id) inventory_batch_id,MAX(snapshot_date) inventory_snapshot_date,
                MAX(inventory_pulled_at) inventory_pulled_at
         FROM inventory_snapshot
@@ -377,7 +383,9 @@ def rates(month: str | None) -> dict[str, Decimal]:
 
 def read_snapshot() -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], dict[str, Decimal]]:
     """同一一致性读事务内取数，避免采购价/仓租/库龄替换期间混用新旧批次。"""
-    sales_window = _three_month_sales_window()
+    reference_date = datetime.now(timezone(timedelta(hours=8))).date()
+    sales_window = _three_month_sales_window(reference_date)
+    recent_window = _recent_sales_window(reference_date)
     with db_connection() as connection:
         try:
             with connection.cursor() as cursor:
@@ -385,8 +393,12 @@ def read_snapshot() -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str
                 connection.begin()
                 metadata = _source_metadata(cursor)
                 metadata.update(monthly_sales_date_from=sales_window[0],
-                                monthly_sales_date_to_exclusive=sales_window[1])
-                items = _source_rows(cursor, sales_window=sales_window)
+                                monthly_sales_date_to_exclusive=sales_window[1],
+                                sales_date_from=recent_window[0],
+                                sales_date_to_exclusive=recent_window[1],
+                                sales_anchor_date=recent_window[1] - timedelta(days=1),
+                                sales_policy="calendar_30d_exclude_today_void_v1")
+                items = _source_rows(cursor, sales_window=sales_window, recent_window=recent_window)
                 rent = _rent_rows(cursor)
                 fx = _rates(cursor, metadata.get("rent_pull_month"))
             connection.commit()

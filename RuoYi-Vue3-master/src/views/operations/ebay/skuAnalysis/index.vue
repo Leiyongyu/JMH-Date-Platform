@@ -138,7 +138,7 @@
       <el-upload ref="uploadRef" drag accept=".xlsx" :auto-upload="false" :limit="1" :on-change="onFile" :on-remove="onRemove">
         <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
         <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
-        <template #tip><div class="el-upload__tip">按平台订单号＋付款日期增量覆盖；利润取订单文件的“订单利润(￥)”字段。</div></template>
+        <template #tip><div class="el-upload__tip">模板不变；按平台订单号＋付款日期增量覆盖。发货状态包含“已作废”的行不导入，重传时会移除对应订单旧明细；仅“已退款”仍保留。利润取“订单利润(￥)”字段。</div></template>
       </el-upload>
       <template #footer><el-button @click="importVisible=false">取消</el-button><el-button type="primary" :loading="importing" @click="submitImport">导入并分析</el-button></template>
     </el-dialog>
