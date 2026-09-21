@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from datetime import datetime
 from tempfile import TemporaryFile
 from uuid import uuid4
@@ -15,6 +17,9 @@ TASK_CODE = 'ebay_store_listing_sync'
 TASK_NAME = 'eBay店铺商品信息每月同步'
 PAGE_SIZE = 100
 MAX_PAGES = 10000
+ACCOUNT_MAX_ATTEMPTS = 3
+ACCOUNT_RETRY_DELAYS = (5, 15)
+logger = logging.getLogger(__name__)
 
 
 class EbayStoreListingSyncError(ValueError):
@@ -26,8 +31,10 @@ class EbayStoreListingSyncError(ValueError):
 def sync_ebay_store_listings():
     batch_id = str(uuid4())
     pulled_at = datetime.now(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None)
-    metrics = {'sync_batch_id': batch_id, 'extract_rows': 0, 'ods_rows': 0, 'shop_count': 0}
+    metrics = {'sync_batch_id': batch_id, 'extract_rows': 0, 'ods_rows': 0, 'shop_count': 0,
+               'account_retries': 0}
     stage, account_no, page, source_row = 'CONFIG', 0, 0, None
+    attempt = 0
     try:
         accounts = configured_accounts()
         completed = []
@@ -36,6 +43,7 @@ def sync_ebay_store_listings():
         with TemporaryFile(mode='w+t', encoding='utf-8') as spool:
             for account_no, account in enumerate(accounts, 1):
                 stage, page = 'EXTRACT', 1
+                attempt = 1
                 source_row = account.get('source_row')
                 client = EbaySellerClient(credentials_for(account))
                 try:
@@ -47,6 +55,10 @@ def sync_ebay_store_listings():
                     if account['user_id'] in identity_ids:
                         raise EbayApiError('不同配置行授权到了同一eBay账号，拒绝重复同步')
                     identity_ids.add(account['user_id'])
+                    # Keep completed accounts; roll back only this account's temporary rows.
+                    # tell/seek use the text stream's own cookie, never character offsets.
+                    account_start = spool.tell()
+                    extract_start = metrics['extract_rows']
                     seen, totals = set(), None
                     while True:
                         response = client.active_listings_page(page=page, page_size=PAGE_SIZE,
@@ -63,7 +75,27 @@ def sync_ebay_store_listings():
                         if totals is None:
                             totals = (total, pages)
                         if totals != (total, pages):
-                            raise EbayApiError('拉取期间商品总数或页数变化，请重试完整任务')
+                            diagnostic = (f'拉取期间商品总数或页数变化；'
+                                          f'initial_total={totals[0]} initial_pages={totals[1]} '
+                                          f'observed_total={total} observed_pages={pages}')
+                            spool.seek(account_start)
+                            spool.truncate()
+                            metrics['extract_rows'] = extract_start
+                            if attempt >= ACCOUNT_MAX_ATTEMPTS:
+                                raise EbayApiError(
+                                    f'{diagnostic}；店铺完整重拉已达{ACCOUNT_MAX_ATTEMPTS}次上限，未发布本批数据')
+                            delay = ACCOUNT_RETRY_DELAYS[attempt - 1]
+                            logger.warning(
+                                'eBay店铺分页变化，丢弃当前店铺临时数据后从第1页重拉；'
+                                'batch=%s account_index=%s source_row=%s page=%s '
+                                'attempt=%s/%s next_attempt=%s retry_delay_seconds=%s %s',
+                                batch_id, account_no, source_row, page, attempt,
+                                ACCOUNT_MAX_ATTEMPTS, attempt + 1, delay, diagnostic)
+                            metrics['account_retries'] += 1
+                            time.sleep(delay)
+                            attempt += 1
+                            page, seen, totals = 1, set(), None
+                            continue
                         expected = max(0, min(PAGE_SIZE, total - (page - 1) * PAGE_SIZE))
                         if len(response['items']) != expected:
                             raise EbayApiError('本页条数不完整，拒绝覆盖')
@@ -97,5 +129,6 @@ def sync_ebay_store_listings():
     except Exception as exc:
         detail = str(exc) if isinstance(exc, (EbayApiError, repo.AccountIdentityConflict)) else type(exc).__name__
         raise EbayStoreListingSyncError(
-            f'eBay店铺商品同步失败；stage={stage} account_index={account_no} source_row={source_row} page={page} batch={batch_id}；{detail}',
+            f'eBay店铺商品同步失败；stage={stage} account_index={account_no} source_row={source_row} page={page} '
+            f'attempt={attempt}/{ACCOUNT_MAX_ATTEMPTS} batch={batch_id}；{detail}',
             stage, metrics) from None
