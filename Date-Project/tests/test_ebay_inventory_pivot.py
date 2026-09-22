@@ -195,7 +195,9 @@ def capture(monkeypatch):
     monkeypatch.setattr(service.repository, "replace_day", saver)
     raiser = MagicMock(side_effect=lambda rows: state["events"].append(("raise_high_water",)) or len(rows))
     monkeypatch.setattr(service.detail_repository, "raise_max_monthly_sales", raiser)
-    state.update(raiser=raiser)
+    finder = MagicMock(side_effect=lambda batch: state.get("captured_on"))
+    monkeypatch.setattr(service.repository, "stat_date_for_batch", finder)
+    state.update(raiser=raiser, finder=finder)
     state.update(loader=loader, saver=saver)
     return state
 
@@ -529,7 +531,7 @@ def test_shared_loader_returns_unfiltered_unrounded_decimal_rows_and_month_metad
     product_map = MagicMock(return_value=sku_map)
     build = MagicMock(return_value=(raw_items, []))
     monkeypatch.setattr(detail_service, "datetime", FrozenDatetime)
-    monkeypatch.setattr(detail_service.repository, "read_snapshot", lambda: (source, source_metadata, [], {}, [], []))
+    monkeypatch.setattr(detail_service.repository, "read_snapshot", lambda: (source, source_metadata, [], {}, []))
     monkeypatch.setattr(detail_service.owner_repository, "owner_rules", owner_rules)
     monkeypatch.setattr(detail_service, "_ebay_rule_map", rule_map)
     monkeypatch.setattr(detail_service, "_ebay_product_sku_map", product_map)
@@ -541,7 +543,7 @@ def test_shared_loader_returns_unfiltered_unrounded_decimal_rows_and_month_metad
     owner_rules.assert_called_once_with("2026-09", "ebay")
     rule_map.assert_called_once_with(raw_rules)
     product_map.assert_called_once_with("2026-09", include_next=False)
-    build.assert_called_once_with(source, [], {}, source_metadata, rules, sku_map, [], [])
+    build.assert_called_once_with(source, [], {}, source_metadata, rules, sku_map, [])
     assert metadata["owner_rule_month"] == "2026-09"
     assert metadata["rent_pull_month"] == "2026-08"
     assert source_metadata == original_metadata
@@ -552,7 +554,7 @@ def test_shared_loader_empty_snapshot_skips_owner_queries_and_emits_warning(monk
     owner_rules = MagicMock()
     sku_map = MagicMock()
     monkeypatch.setattr(detail_service.repository, "read_snapshot",
-                        lambda: ([], {"inventory_batch_id": None}, [], {}, [], []))
+                        lambda: ([], {"inventory_batch_id": None}, [], {}, []))
     monkeypatch.setattr(detail_service.owner_repository, "owner_rules", owner_rules)
     monkeypatch.setattr(detail_service, "_ebay_product_sku_map", sku_map)
     items, metadata, warnings, _ = detail_service.load_calculated_inventory()
@@ -560,3 +562,32 @@ def test_shared_loader_empty_snapshot_skips_owner_queries_and_emits_warning(monk
     owner_rules.assert_not_called()
     sku_map.assert_not_called()
     assert any("没有可用的成功周报库存快照" in warning for warning in warnings)
+
+
+def test_recapturing_the_same_batch_overwrites_that_day_and_skips_high_water(capture, monkeypatch):
+    """同一个库存批次只占一个统计日期，重复刷新不新开一天、也不重复观测。
+
+    历史上这里是按"点刷新那天"开日期，连着三天刷新就攒出三份内容完全相同的
+    历史行（同批次、同库存快照日、同行数）。现在改为：该批次已捕获过就覆盖
+    当时那一天；高水位只在首次捕获时记一次，符合"刷新一次就是一次"。
+    """
+    capture["captured_on"] = date(2026, 9, 16)      # 该批次上次是在16号捕获的
+    result = service.capture_snapshot()
+    header = capture["saver"].call_args.args[0]
+    assert result["stat_date"] == "2026-09-16"      # 不是生成当天的9月16日之后那天
+    assert header["stat_date"] == date(2026, 9, 16)
+    assert header["stat_month"] == "2026-09"
+    # 生成时间仍记录本次重算的时刻，只有统计日期沿用原来那天。
+    assert header["generated_at"] == datetime(2026, 9, 16, 8, 9, 10)
+    capture["finder"].assert_called_once_with(header["inventory_batch_id"])
+    capture["raiser"].assert_not_called()
+    assert ("raise_high_water",) not in capture["events"]
+
+
+def test_first_capture_of_a_batch_opens_today_and_records_one_observation(capture):
+    """新批次第一次捕获才开新的统计日期，并记录一次高水位观测。"""
+    capture["captured_on"] = None
+    result = service.capture_snapshot()
+    assert result["stat_date"] == "2026-09-16"      # FrozenDatetime 的当天
+    capture["raiser"].assert_called_once()
+    assert ("raise_high_water",) in capture["events"]

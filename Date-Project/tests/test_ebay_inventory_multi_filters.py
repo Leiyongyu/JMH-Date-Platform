@@ -34,7 +34,8 @@ def test_multi_value_or_and_cross_field_and_before_paging(isolated):
     all_rows = service.list_inventory(**filters, paginate=False)["items"]
     assert {row["sku_middle_code"] for row in all_rows} == {"10053", "20017"}
     merged = next(row for row in all_rows if row["sku_middle_code"] == "10053")
-    assert merged["sales_qty_30d"] == "24"  # Whole merged group, not just matching alias.
+    # graded() 现在通过 sales_qty_30d 给观测值：A档10 + S档30 = 40。
+    assert merged["sales_qty_30d"] == "40"  # Whole merged group, not just matching alias.
     assert merged["merged_sku_count"] == 2
     assert service.list_inventory(sku="1005")["pagination"]["total"] == 0
     assert [row["sku_middle_code"] for row in service.list_inventory(sku="00123")["items"]] == ["00123"]

@@ -8,6 +8,8 @@ from openpyxl import load_workbook
 from backend.services import ebay_inventory_detail_service as service
 from backend.services import ebay_inventory_detail_export_service as export
 from backend.services import ebay_inventory_pivot_service as pivot
+from datetime import date
+
 from test_ebay_inventory_detail import graded, isolated, source, rent
 
 
@@ -141,7 +143,8 @@ def test_stable_representative_alias_filters_keep_whole_group_and_sort_before_pa
     assert first["items"][0]["sales_qty_30d"] == "31"
     assert first["pagination"]["total"] == second["pagination"]["total"] == 2
     assert second["items"][0]["sku"] == "DAS-20000-0121"
-    for filters in ({"sku": "10053"}, {"brand": "JMH"}, {"sku": "10053", "grade": "A"}):
+    # 合并后观测值 1+30=31 跨进「≥30」档，同样的利润率下等级由A升为S。
+    for filters in ({"sku": "10053"}, {"brand": "JMH"}, {"sku": "10053", "grade": "S"}):
         data = service.list_inventory(**filters)
         assert data["pagination"]["total"] == 1
         assert data["items"][0]["sales_qty_30d"] == "31"
@@ -186,15 +189,12 @@ def test_zero_sales_amount_gives_no_grade_instead_of_lowest_grade(isolated):
     assert row["grade"] is None
 
 
-def test_history_max_month_takes_best_month_not_latest_or_total(isolated):
-    """跨月取最大，不是取最近一个月，也不是全部历史求和。"""
-    row_source = product()
-    isolated([row_source], monthly=[
-        {"site": row_source["site"], "sku": row_source["sku"], "stat_month": "2026-05", "sales_qty": Decimal("47")},
-        {"site": row_source["site"], "sku": row_source["sku"], "stat_month": "2026-06", "sales_qty": Decimal("12")},
-        {"site": row_source["site"], "sku": row_source["sku"], "stat_month": "2026-07", "sales_qty": Decimal("31")},
-    ])
-    assert service.list_inventory()["items"][0]["max_monthly_sales"] == "47"
+def test_observation_is_the_rolling_30_day_window_not_a_calendar_month(isolated):
+    """本次观测值就是「近30天销量」那个滚动窗口，不再按自然月汇总。"""
+    isolated([product(sales_qty_30d=Decimal("47"))])
+    item = service.list_inventory()["items"][0]
+    assert item["max_monthly_sales"] == "47" == item["sales_qty_30d"]
+    assert item["max_monthly_sales_source"] == "ORDERS"
 
 
 def test_duplicate_full_sku_is_not_silently_double_counted(isolated):
@@ -266,9 +266,7 @@ def test_high_water_wins_when_orders_no_longer_contain_the_peak_month(isolated):
     业务场景就是这个——订单表只有2026-05起的数据，更早的历史高点只存在
     于高水位表里，重算不能把它抹掉。
     """
-    row = product(sku="DAS-10756-0121", site="德国")
-    isolated([row], monthly=[{"site": "德国", "sku": row["sku"], "stat_month": "2026-06",
-                              "sales_qty": Decimal("35")}],
+    isolated([product(sku="DAS-10756-0121", site="德国", sales_qty_30d=Decimal("35"))],
              max_floor=[floor("德国", "MIDDLE", "10756", "197")])
     item = service.list_inventory()["items"][0]
     assert item["max_monthly_sales"] == "197"
@@ -276,9 +274,7 @@ def test_high_water_wins_when_orders_no_longer_contain_the_peak_month(isolated):
 
 
 def test_current_orders_win_when_they_exceed_the_stored_high_water(isolated):
-    row = product(sku="DAS-10756-0121", site="德国")
-    isolated([row], monthly=[{"site": "德国", "sku": row["sku"], "stat_month": "2026-06",
-                              "sales_qty": Decimal("240")}],
+    isolated([product(sku="DAS-10756-0121", site="德国", sales_qty_30d=Decimal("240"))],
              max_floor=[floor("德国", "MIDDLE", "10756", "197")])
     item = service.list_inventory()["items"][0]
     assert item["max_monthly_sales"] == "240"
@@ -287,30 +283,24 @@ def test_current_orders_win_when_they_exceed_the_stored_high_water(isolated):
 
 def test_high_water_raises_the_grade_it_would_otherwise_lower(isolated):
     """销量偏低会把等级整体拉低，这正是要存高水位的原因。"""
-    inputs = {"three_month_profit_cny": Decimal("21"), "three_month_paid_amount_cny": Decimal("100")}
-    row = product(sku="DAS-10756-0121", site="德国", **inputs)
-    monthly = [{"site": "德国", "sku": row["sku"], "stat_month": "2026-06", "sales_qty": Decimal("3")}]
-    isolated([row], monthly=monthly)
+    row = product(sku="DAS-10756-0121", site="德国", sales_qty_30d=Decimal("3"),
+                  three_month_profit_cny=Decimal("21"), three_month_paid_amount_cny=Decimal("100"))
+    isolated([row])
     assert service.list_inventory()["items"][0]["grade"] == "D"   # K=3 → ≤4档，0.21≥0.15
-    isolated([row], monthly=monthly, max_floor=[floor("德国", "MIDDLE", "10756", "197")])
+    isolated([row], max_floor=[floor("德国", "MIDDLE", "10756", "197")])
     assert service.list_inventory()["items"][0]["grade"] == "S"   # K=197 → ≥30档，0.21≥0.2
 
 
 def test_high_water_key_falls_back_to_full_sku_without_a_numeric_middle_code(isolated):
-    row = product(sku="PLAIN", site="德国")
-    isolated([row], monthly=[], max_floor=[floor("德国", "SKU", "PLAIN", "88")])
+    isolated([product(sku="PLAIN", site="德国", sales_qty_30d=Decimal("0"))],
+             max_floor=[floor("德国", "SKU", "PLAIN", "88")])
     assert service.list_inventory()["items"][0]["max_monthly_sales"] == "88"
 
 
-def test_high_water_candidates_use_merged_key_and_earliest_peak_month(isolated):
-    a = product(sku="BMW-10053-0121", site="德国")
-    b = product(sku="JMH-10053-0121", site="德国")
-    isolated([a, b], monthly=[
-        {"site": "德国", "sku": a["sku"], "stat_month": "2026-06", "sales_qty": Decimal("20")},
-        {"site": "德国", "sku": b["sku"], "stat_month": "2026-06", "sales_qty": Decimal("20")},
-        {"site": "德国", "sku": a["sku"], "stat_month": "2026-07", "sales_qty": Decimal("40")},
-    ])
+def test_high_water_candidates_use_merged_key_and_statistics_date(isolated):
+    """候选按合并键提交，观测值是合并后的近30天销量，窗口右端即统计日期。"""
+    isolated([product(sku="BMW-10053-0121", site="德国", sales_qty_30d=Decimal("20")),
+              product(sku="JMH-10053-0121", site="德国", sales_qty_30d=Decimal("20"))])
     _, _, _, candidates = service.load_calculated_inventory()
     assert candidates == [{"site": "德国", "product_key_type": "MIDDLE", "product_key": "10053",
-                           # 06月两个SKU相加也是40，与07月并列；取更早的月份保证可重复。
-                           "max_monthly_sales": Decimal("40"), "peak_month": "2026-06"}]
+                           "max_monthly_sales": Decimal("40"), "peak_window_end": date(2026, 9, 22)}]

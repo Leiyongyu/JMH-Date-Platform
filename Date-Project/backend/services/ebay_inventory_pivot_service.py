@@ -75,12 +75,16 @@ def capture_snapshot(expected_inventory_batch: str | None = None, trigger_type="
             raise ValueError("没有可用的成功库存快照，不生成空白历史")
         if expected_inventory_batch and expected_inventory_batch != batch:
             raise ValueError("库存批次已变化，未将其他批次误记为本次任务历史")
-        # 重新计算同时抬高历史最大月销高水位：只升不降，由SQL的GREATEST保证。
-        # 放在写快照之前，快照里的等级与页面下次看到的保持同一口径。
-        detail_repository.raise_max_monthly_sales(sales_candidates)
         groups = aggregate_inventory(items)
         generated = datetime.now(CHINA)
-        stat_date = generated.date()
+        # 一个库存批次只占一个统计日期：已捕获过就覆盖原来那天，不按当天新开。
+        captured = repository.stat_date_for_batch(batch)
+        stat_date = captured or generated.date()
+        if captured is None:
+            # 高水位只在该批次首次捕获时记一次观测。重复刷新不应被当成新的
+            # 一次观测——否则同一个30天窗口会被反复提交，虽然GREATEST不会
+            # 改变结果，但"刷新一次就是一次"的语义会失真。
+            detail_repository.raise_max_monthly_sales(sales_candidates)
         snapshot_id = repository.replace_day({
             "stat_date": stat_date, "stat_month": stat_date.strftime("%Y-%m"),
             "generated_at": generated.replace(tzinfo=None), "inventory_batch_id": batch,

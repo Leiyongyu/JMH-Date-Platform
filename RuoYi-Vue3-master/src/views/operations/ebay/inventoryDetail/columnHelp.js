@@ -82,8 +82,8 @@ export const inventoryColumnHelp = {
   max_monthly_sales: {
     sourceApi: `派生字段，复用销量来源：${orderImport}`,
     sourceTable: `${orderTable}（payment_time、purchase_quantity）`,
-    formula: '历史最大月销＝按自然月汇总该商品的purchase_quantity后，取历史上最高的那个月份值，且只升不降。统计全部完整自然月，当月尚未结束不参与；排除发货状态包含“已作废”的订单；只统计当前库存中仍存在的站点＋SKU。该值另存于高水位表 dws_ebay_inventory_max_monthly_sales（按站点＋中间码，无合法中间码时按站点＋完整SKU），每次点击“重新计算”时用本次算出的月度峰值与已存值取较大者更新，因此订单表里已经看不到的历史高点不会被抹掉。',
-    emptyHandling: '从未售出且没有高水位记录时显示0，不显示--；0是真实的“没卖过”，会落入最低销量档参与等级评定。'
+    formula: '历史最大月销＝历史上任意连续30天里的最高销量，不按自然月切分，且只升不降。窗口为[统计日期-30, 统计日期)，不含统计日期当天，与本页“近30天销量”是同一个窗口；排除发货状态包含“已作废”的订单。每次点击“重新计算”只观测当前这一个窗口，与高水位表 dws_ebay_inventory_max_monthly_sales（按站点＋中间码，无合法中间码时按站点＋完整SKU）里的已存值取较大者；同一个库存批次只观测一次，重复刷新不会重复记录。更早的窗口由部署脚本 04_回填历史最大月销.sql 一次性补齐，因此订单表起始月之前的高点不会被抹掉。',
+    emptyHandling: '从未售出且没有高水位记录时显示0，不显示--；0是真实的“没卖过”，会落入最低销量档参与等级评定。列名沿用“历史最大月销”是业务习惯叫法，口径已是滚动30天而非自然月。'
   },
   overseas_in_transit_quantity: {
     sourceApi: inventoryApi,
@@ -233,7 +233,7 @@ inventoryColumnHelp.brand.formula += ' 合并行展示代表SKU的品牌；品�
 inventoryColumnHelp.product_name.formula += ' 合并后按代表SKU排序取首个有值的名称。'
 inventoryColumnHelp.grade.formula += ' 合并行用合计值重算等级，不继承任一成员SKU的等级：先得到合并后的利润率与历史最大月销，再套同一张分档表。'
 inventoryColumnHelp.profit_rate.formula += ' 合并行按成员利润之和÷成员销售额之和重算，不对各成员的比率取平均。'
-inventoryColumnHelp.max_monthly_sales.formula += ' 合并行先把同中间码各成员SKU在同一自然月的销量相加，再取最大的那个月，即“这个产品卖得最好的一个月卖了多少”，不是各成员峰值相加或取其中最大；高水位也按合并后的键保存，取值时与本次算出的峰值取较大者。'
+inventoryColumnHelp.max_monthly_sales.formula += ' 合并行先把同中间码各成员SKU在同一窗口内的销量相加，再跨窗口取最大，即“这个产品卖得最好的连续30天卖了多少”，不是各成员峰值相加或取其中最大；高水位也按合并后的键保存。'
 inventoryColumnHelp.owner.formula += ' 合并SKU负责人一致时保留；若将来出现不一致，合并行归入未分配并提示，不任意转移个人货值。'
 inventoryColumnHelp.overseas_max_age_days.formula += ' 最终在同站点＋中间码的成员SKU间取最大有效库龄。'
 inventoryColumnHelp.average_monthly_sales_3m.formula += ' 合并时先汇总所有成员的三月总销量，再除以3；不累加已舍入均销量。'

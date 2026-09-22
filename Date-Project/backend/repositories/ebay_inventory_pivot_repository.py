@@ -27,6 +27,23 @@ def _json_default(value):
     raise TypeError(type(value).__name__)
 
 
+def stat_date_for_batch(inventory_batch_id):
+    """该库存批次是否已经捕获过；返回当时的统计日期，没有则None。
+
+    一个周报批次只应产生一份历史。重复点"重新计算"要覆盖原来那一天，
+    而不是按当天新开一个统计日期——否则连着几天刷新就会攒出几份内容
+    完全相同的历史行（同批次、同库存快照日、同行数）。
+    """
+    if not inventory_batch_id:
+        return None
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"SELECT MIN(stat_date) stat_date FROM {HEADER} WHERE inventory_batch_id=%s",
+            (inventory_batch_id,))
+        row = cursor.fetchone()
+    return (row or {}).get("stat_date")
+
+
 def replace_day(header: dict, groups: list[dict], inventory_items: list[dict]) -> int:
     """Replace this date only; a failed insert rolls back header and all old rows."""
     columns = ("snapshot_id", "owner", "site", *METRICS)

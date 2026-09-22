@@ -277,44 +277,11 @@ def source_rows() -> list[dict[str, Any]]:
         return _source_rows(cursor)
 
 
-def _monthly_sales_rows(cursor, month_end_exclusive: date | None = None) -> list[dict[str, Any]]:
-    """历史各完整自然月的销量，供"历史最大月销"取最大值。
-
-    只取当前库存里还存在的站点+SKU，行数不随历史订单总量增长；当月尚未结束
-    不计入，作废订单不计，与本页其他销量口径一致。按站点+完整SKU返回明细，
-    合并到中间码这一步交给服务层的 _product_key，避免在SQL里再写一套合并键。
-    """
-    end = month_end_exclusive or datetime.now(timezone(timedelta(hours=8))).date().replace(day=1)
-    query = f"""
-        WITH {_weekly_inventory_ctes()}
-        SELECT inventory.site,inventory.sku,
-               DATE_FORMAT(source.payment_time,'%%Y-%%m') stat_month,
-               SUM(source.purchase_quantity) sales_qty
-        FROM inventory_summary inventory
-        JOIN dwd_ebay_sku_analysis_order source
-          ON CONVERT(source.site_name USING utf8mb4) COLLATE utf8mb4_unicode_ci
-           = CONVERT(inventory.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
-         AND CONVERT(source.inventory_sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
-           = CONVERT(inventory.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
-        WHERE source.payment_time < %s
-          AND COALESCE(source.shipping_status,'') NOT LIKE '%%已作废%%'
-        GROUP BY inventory.site,inventory.sku,DATE_FORMAT(source.payment_time,'%%Y-%%m')
-        LIMIT {MAX_ROWS + 1}
-    """
-    cursor.execute(query, (end,))
-    return _bounded_rows(cursor, "库存明细历史月销量")
-
-
-def monthly_sales_rows() -> list[dict[str, Any]]:
-    with db_connection() as connection, connection.cursor() as cursor:
-        return _monthly_sales_rows(cursor)
-
-
 def _max_monthly_sales_rows(cursor) -> list[dict[str, Any]]:
     """历史最大月销高水位；表缺失时按空处理，页面退化为只用订单表现有月份。"""
     try:
         cursor.execute(
-            f"SELECT site,product_key_type,product_key,max_monthly_sales,peak_month"
+            f"SELECT site,product_key_type,product_key,max_monthly_sales,peak_window_end"
             f" FROM {_MAX_MONTHLY_SALES_TABLE} LIMIT {MAX_ROWS + 1}"
         )
     except ProgrammingError as exc:
@@ -330,7 +297,7 @@ def max_monthly_sales_rows() -> list[dict[str, Any]]:
 
 
 def raise_max_monthly_sales(rows: list[dict[str, Any]]) -> int:
-    """只升不降地合并高水位：低于或等于已存值的候选不写，峰值月份随值一起变。
+    """只升不降地合并高水位：低于或等于已存值的候选不写，峰值窗口随值一起变。
 
     没有候选行时不建连接。表缺失直接抛错，避免"重新计算"静默不落库。
     """
@@ -340,12 +307,12 @@ def raise_max_monthly_sales(rows: list[dict[str, Any]]) -> int:
         raise ValueError(f"历史最大月销高水位超过{MAX_ROWS}行，未写入")
     query = f"""
         INSERT INTO {_MAX_MONTHLY_SALES_TABLE}
-            (site,product_key_type,product_key,max_monthly_sales,peak_month,value_source)
+            (site,product_key_type,product_key,max_monthly_sales,peak_window_end,value_source)
         VALUES (%(site)s,%(product_key_type)s,%(product_key)s,%(max_monthly_sales)s,
-                %(peak_month)s,'CALCULATED')
+                %(peak_window_end)s,'CALCULATED')
         ON DUPLICATE KEY UPDATE
-            peak_month=IF(VALUES(max_monthly_sales)>max_monthly_sales,
-                          VALUES(peak_month),peak_month),
+            peak_window_end=IF(VALUES(max_monthly_sales)>max_monthly_sales,
+                              VALUES(peak_window_end),peak_window_end),
             value_source=IF(VALUES(max_monthly_sales)>max_monthly_sales,
                             'CALCULATED',value_source),
             max_monthly_sales=GREATEST(max_monthly_sales,VALUES(max_monthly_sales))
@@ -468,7 +435,7 @@ def rates(month: str | None) -> dict[str, Decimal]:
 
 
 def read_snapshot() -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]],
-                             dict[str, Decimal], list[dict[str, Any]], list[dict[str, Any]]]:
+                             dict[str, Decimal], list[dict[str, Any]]]:
     """同一一致性读事务内取数，避免采购价/仓租/库龄替换期间混用新旧批次。"""
     reference_date = datetime.now(timezone(timedelta(hours=8))).date()
     sales_window = _three_month_sales_window(reference_date)
@@ -486,14 +453,12 @@ def read_snapshot() -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str
                                 sales_anchor_date=recent_window[1] - timedelta(days=1),
                                 sales_policy="calendar_30d_exclude_today_void_v1")
                 items = _source_rows(cursor, sales_window=sales_window, recent_window=recent_window)
-                # 与库存明细同一事务内读取，否则历史月销可能对应另一批库存快照。
-                monthly = _monthly_sales_rows(cursor, month_end_exclusive=sales_window[1])
-                # 高水位与月度明细同事务读取；两者形状不同，分别返回不合并。
+                # 高水位与库存明细同一事务内读取，否则等级可能用上另一批数据的下限。
                 max_floor = _max_monthly_sales_rows(cursor)
                 rent = _rent_rows(cursor)
                 fx = _rates(cursor, metadata.get("rent_pull_month"))
             connection.commit()
-            return items, metadata, rent, fx, monthly, max_floor
+            return items, metadata, rent, fx, max_floor
         except Exception:
             connection.rollback()
             raise
