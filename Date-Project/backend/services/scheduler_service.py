@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Callable
 from uuid import uuid4
 
 from backend.repositories import performance_repository as repo
@@ -70,24 +72,162 @@ OPENING_INVENTORY_TASK_CODE = (
     "monthly_inventory_report_opening_inventory_fill"
 )
 OPENING_INVENTORY_TASK_NAME = "月度库存次月月初库存填充"
-TASK_CODES = {
-    EBAY_HEALTH_TASK_CODE,
-    EBAY_STORE_LISTING_TASK_CODE,
-    AMZ_LISTING_RAW_TASK_CODE,
-    GOODCANG_STORAGE_TASK_CODE,
-    WEEKLY_INVENTORY_TASK_CODE,
-    AMZ_TASK_CODE,
-    CLEARANCE_TASK_CODE,
-    AMZ_SOP_TASK_CODE,
-    INVENTORY_REPORT_TASK_CODE,
-    SALES_VOLUME_TASK_CODE,
-    OPENING_INVENTORY_TASK_CODE,
-    CURRENCY_TASK_CODE,
-}
 
 
 class SchedulerTaskAlreadyRunning(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class TaskContext:
+    """一次调度执行的入参上下文；spec 的各个钩子只读它，不再读全局 task_code。"""
+
+    task_code: str
+    month: str
+    start_date: object = None
+    end_date: object = None
+    request_id: str = ""
+    trigger_type: str = "manual"
+    weekly_snapshot_only: bool = False
+
+
+@dataclass(frozen=True)
+class TaskSpec:
+    """单个任务的全部差异点。公共调度流程只读这里，不再按 task_code 分支。
+
+    execute / lock_name 一律写成 lambda，目的是把模块级函数名推迟到调用时
+    才解析；测试大量使用 monkeypatch.setattr(scheduler_service, "xxx", ...)
+    替换执行函数，提前绑定会让这些替换全部失效。
+    """
+
+    code: str
+    name: str
+    execute: Callable[[TaskContext], dict]
+    # 非空表示该任务拒绝历史月份/日期入参，值即拒绝提示文案。
+    period_args_error: str | None = None
+    # 覆盖 stat_month 的解析方式；目前只有 FBA 库龄任务需要。
+    resolve_month: Callable[[str | None], str] | None = None
+    # True 缺省取上一个自然月；False 取 end_date 或当天所在月。
+    default_previous_month: bool = False
+    # None 表示任务自管锁（AMZ 月利润按月各加各的锁），调度器不套外层锁。
+    lock_name: Callable[[TaskContext], str] | None = None
+
+
+TASK_SPECS: dict[str, TaskSpec] = {
+    spec.code: spec
+    for spec in (
+        TaskSpec(
+            code=EBAY_HEALTH_TASK_CODE,
+            name="eBay密钥健康检查",
+            period_args_error="密钥健康检查只检查当前状态，不接受历史日期",
+            lock_name=lambda ctx: "ebay:token-health:check",
+            execute=lambda ctx: check_ebay_token_health(),
+        ),
+        TaskSpec(
+            code=EBAY_STORE_LISTING_TASK_CODE,
+            name=EBAY_STORE_LISTING_TASK_NAME,
+            period_args_error="eBay店铺商品仅拉取当前在售列表，不接受历史月份或日期",
+            lock_name=lambda ctx: "ebay:store-listing:replace",
+            execute=lambda ctx: sync_ebay_store_listings(),
+        ),
+        TaskSpec(
+            code=AMZ_LISTING_RAW_TASK_CODE,
+            name=AMZ_LISTING_RAW_TASK_NAME,
+            period_args_error="AMZ原始刊登只拉取当前完整数据，不接受历史月份或日期筛选",
+            lock_name=lambda ctx: "lingxing:amz-listing-raw:replace",
+            execute=lambda ctx: sync_amz_listing_raw(),
+        ),
+        TaskSpec(
+            code=WEEKLY_INVENTORY_TASK_CODE,
+            name="仓位库存明细周报",
+            period_args_error="仓位库存周报仅拉取当前实时快照，不接受历史月份或日期",
+            # 「重新拉取」与「只用已有快照生成」共用同一把锁，不能各用各的。
+            lock_name=lambda ctx: "inventory:weekly-export",
+            execute=lambda ctx: (
+                regenerate_weekly_inventory()
+                if ctx.weekly_snapshot_only
+                else sync_weekly_inventory(ctx.trigger_type)
+            ),
+        ),
+        TaskSpec(
+            code=GOODCANG_STORAGE_TASK_CODE,
+            name=GOODCANG_STORAGE_TASK_NAME,
+            period_args_error="谷仓仓租概要固定同步包含当天的最近30天，不接受自定义月份或日期",
+            # 整表覆盖：按月锁不足以互斥，必须全局锁。
+            lock_name=lambda ctx: "goodcang:warehouse-storage:replace",
+            execute=lambda ctx: sync_goodcang_storage(),
+        ),
+        TaskSpec(
+            code=AMZ_TASK_CODE,
+            name="AMZ月度订单利润同步",
+            default_previous_month=True,
+            # 自管锁：_run_amazon_profit_months 按月逐个加锁并各自成事务，
+            # 外层再套一把同名锁会变成重复加锁。
+            lock_name=None,
+            execute=lambda ctx: _run_amazon_profit_months(
+                [ctx.month],
+                request_id=ctx.request_id,
+                trigger_type=ctx.trigger_type,
+            ),
+        ),
+        TaskSpec(
+            code=CLEARANCE_TASK_CODE,
+            name="AMZ FBA与eBay海外仓库存库龄同步",
+            resolve_month=lambda value: resolve_fba_inventory_pull_month(value),
+            lock_name=lambda ctx: f"warehouse:amz-ebay-inventory-age:{ctx.month}",
+            execute=lambda ctx: sync_fba_inventory(ctx.month),
+        ),
+        TaskSpec(
+            code=AMZ_SOP_TASK_CODE,
+            name=AMZ_SOP_TASK_NAME,
+            lock_name=lambda ctx: "sop:amz-after-sales-chain",
+            execute=lambda ctx: run_amz_sop_chain(
+                start_date=ctx.start_date,
+                end_date=ctx.end_date,
+                request_id=ctx.request_id,
+            ),
+        ),
+        TaskSpec(
+            code=INVENTORY_REPORT_TASK_CODE,
+            name=INVENTORY_REPORT_TASK_NAME,
+            default_previous_month=True,
+            lock_name=lambda ctx: f"inventory:monthly-report-source:{ctx.month}",
+            execute=lambda ctx: sync_monthly_inventory_report_sources(ctx.month),
+        ),
+        TaskSpec(
+            code=SALES_VOLUME_TASK_CODE,
+            name=SALES_VOLUME_TASK_NAME,
+            default_previous_month=True,
+            lock_name=lambda ctx: f"inventory:monthly-sales-volume:{ctx.month}",
+            execute=lambda ctx: sync_monthly_inventory_sales_volume(ctx.month),
+        ),
+        TaskSpec(
+            code=OPENING_INVENTORY_TASK_CODE,
+            name=OPENING_INVENTORY_TASK_NAME,
+            default_previous_month=True,
+            lock_name=lambda ctx: f"inventory:next-month-opening:{ctx.month}",
+            execute=lambda ctx: fill_next_month_opening_inventory(ctx.month),
+        ),
+        TaskSpec(
+            code=CURRENCY_TASK_CODE,
+            name="领星月度汇率同步",
+            lock_name=lambda ctx: f"currency:lingxing-month:{ctx.month}",
+            execute=lambda ctx: sync_currency_month(ctx.month),
+        ),
+    )
+}
+
+TASK_CODES = frozenset(TASK_SPECS)
+
+# 这些异常自带 stage/metrics，失败运行记录据此还原阶段和已处理行数。
+_STAGED_ERRORS = (
+    EbayStoreListingSyncError,
+    AmzListingRawSyncError,
+    AmazonProfitEtlError,
+    AmzSopEtlError,
+    InventoryReportSourceSyncError,
+    GoodcangStorageSyncError,
+)
 
 
 def list_scheduler_tasks() -> list[dict]:
@@ -114,34 +254,32 @@ def run_scheduler_task(
     trigger_type: str = "manual",
     weekly_snapshot_only: bool = False,
 ) -> dict:
-    if task_code not in TASK_CODES:
+    spec = TASK_SPECS.get(task_code)
+    if spec is None:
         raise ValueError("未知任务编码")
     if weekly_snapshot_only and task_code != WEEKLY_INVENTORY_TASK_CODE:
         raise ValueError("仅周报任务支持已有快照生成")
-    if task_code == EBAY_HEALTH_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
-        raise ValueError("密钥健康检查只检查当前状态，不接受历史日期")
-    if task_code == AMZ_LISTING_RAW_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
-        raise ValueError("AMZ原始刊登只拉取当前完整数据，不接受历史月份或日期筛选")
-    if task_code == EBAY_STORE_LISTING_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
-        raise ValueError("eBay店铺商品仅拉取当前在售列表，不接受历史月份或日期")
     # Keep this before run_id/log creation: rejected month labels must have no side effects.
-    if task_code == WEEKLY_INVENTORY_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
-        raise ValueError("仓位库存周报仅拉取当前实时快照，不接受历史月份或日期")
-    if task_code == GOODCANG_STORAGE_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
-        raise ValueError("谷仓仓租概要固定同步包含当天的最近30天，不接受自定义月份或日期")
-    if task_code == CLEARANCE_TASK_CODE:
-        stat_month = resolve_fba_inventory_pull_month(stat_month)
+    if spec.period_args_error and any(
+        value is not None for value in (stat_month, start_date, end_date)
+    ):
+        raise ValueError(spec.period_args_error)
+    if spec.resolve_month is not None:
+        stat_month = spec.resolve_month(stat_month)
     month = stat_month or (
         previous_natural_month()
-        if task_code in {
-            AMZ_TASK_CODE,
-            INVENTORY_REPORT_TASK_CODE,
-            SALES_VOLUME_TASK_CODE,
-            OPENING_INVENTORY_TASK_CODE,
-        }
+        if spec.default_previous_month
         else (end_date or datetime.now().date()).strftime("%Y-%m")
     )
-    amz_months = [month] if task_code == AMZ_TASK_CODE else []
+    context = TaskContext(
+        task_code=task_code,
+        month=month,
+        start_date=start_date,
+        end_date=end_date,
+        request_id=request_id,
+        trigger_type=trigger_type,
+        weekly_snapshot_only=weekly_snapshot_only,
+    )
     run_id = str(uuid4())
     started_at = datetime.now()
     with repo.performance_connection() as connection:
@@ -151,95 +289,13 @@ def run_scheduler_task(
         )
         connection.commit()
     try:
-        if task_code == AMZ_TASK_CODE:
-            result = _run_amazon_profit_months(
-                amz_months,
-                request_id=request_id,
-                trigger_type=trigger_type,
-            )
+        if spec.lock_name is None:
+            result = spec.execute(context)
         else:
-            if task_code == EBAY_HEALTH_TASK_CODE:
-                lock_name = "ebay:token-health:check"
-            elif task_code == EBAY_STORE_LISTING_TASK_CODE:
-                lock_name = "ebay:store-listing:replace"
-            elif task_code == AMZ_LISTING_RAW_TASK_CODE:
-                lock_name = "lingxing:amz-listing-raw:replace"
-            elif task_code == WEEKLY_INVENTORY_TASK_CODE:
-                lock_name = "inventory:weekly-export"
-            elif task_code == GOODCANG_STORAGE_TASK_CODE:
-                # Global table replacement: a month-qualified lock is not sufficient.
-                lock_name = "goodcang:warehouse-storage:replace"
-            elif task_code == AMZ_SOP_TASK_CODE:
-                lock_name = "sop:amz-after-sales-chain"
-            elif task_code == INVENTORY_REPORT_TASK_CODE:
-                lock_name = f"inventory:monthly-report-source:{month}"
-            elif task_code == SALES_VOLUME_TASK_CODE:
-                lock_name = f"inventory:monthly-sales-volume:{month}"
-            elif task_code == OPENING_INVENTORY_TASK_CODE:
-                lock_name = f"inventory:next-month-opening:{month}"
-            elif task_code == CURRENCY_TASK_CODE:
-                lock_name = f"currency:lingxing-month:{month}"
-            else:
-                lock_name = f"warehouse:amz-ebay-inventory-age:{month}"
-            with repo.named_lock(lock_name) as acquired:
+            with repo.named_lock(spec.lock_name(context)) as acquired:
                 if not acquired:
-                    task_name = (
-                        "eBay密钥健康检查"
-                        if task_code == EBAY_HEALTH_TASK_CODE
-                        else
-                        EBAY_STORE_LISTING_TASK_NAME
-                        if task_code == EBAY_STORE_LISTING_TASK_CODE
-                        else
-                        AMZ_LISTING_RAW_TASK_NAME
-                        if task_code == AMZ_LISTING_RAW_TASK_CODE
-                        else
-                        "仓位库存明细周报"
-                        if task_code == WEEKLY_INVENTORY_TASK_CODE
-                        else GOODCANG_STORAGE_TASK_NAME
-                        if task_code == GOODCANG_STORAGE_TASK_CODE
-                        else
-                        AMZ_SOP_TASK_NAME
-                        if task_code == AMZ_SOP_TASK_CODE
-                        else INVENTORY_REPORT_TASK_NAME
-                        if task_code == INVENTORY_REPORT_TASK_CODE
-                        else SALES_VOLUME_TASK_NAME
-                        if task_code == SALES_VOLUME_TASK_CODE
-                        else OPENING_INVENTORY_TASK_NAME
-                        if task_code == OPENING_INVENTORY_TASK_CODE
-                        else "领星月度汇率同步"
-                        if task_code == CURRENCY_TASK_CODE
-                        else "AMZ FBA与eBay海外仓库存库龄同步"
-                    )
-                    raise SchedulerTaskAlreadyRunning(
-                        f"{task_name}正在执行"
-                    )
-                if task_code == EBAY_HEALTH_TASK_CODE:
-                    result = check_ebay_token_health()
-                elif task_code == EBAY_STORE_LISTING_TASK_CODE:
-                    result = sync_ebay_store_listings()
-                elif task_code == AMZ_LISTING_RAW_TASK_CODE:
-                    result = sync_amz_listing_raw()
-                elif task_code == WEEKLY_INVENTORY_TASK_CODE:
-                    result = (regenerate_weekly_inventory() if weekly_snapshot_only
-                              else sync_weekly_inventory(trigger_type))
-                elif task_code == GOODCANG_STORAGE_TASK_CODE:
-                    result = sync_goodcang_storage()
-                elif task_code == CLEARANCE_TASK_CODE:
-                    result = sync_fba_inventory(month)
-                elif task_code == INVENTORY_REPORT_TASK_CODE:
-                    result = sync_monthly_inventory_report_sources(month)
-                elif task_code == SALES_VOLUME_TASK_CODE:
-                    result = sync_monthly_inventory_sales_volume(month)
-                elif task_code == OPENING_INVENTORY_TASK_CODE:
-                    result = fill_next_month_opening_inventory(month)
-                elif task_code == CURRENCY_TASK_CODE:
-                    result = sync_currency_month(month)
-                else:
-                    result = run_amz_sop_chain(
-                        start_date=start_date,
-                        end_date=end_date,
-                        request_id=request_id,
-                    )
+                    raise SchedulerTaskAlreadyRunning(f"{spec.name}正在执行")
+                result = spec.execute(context)
         with repo.performance_connection() as connection:
             repo.insert_scheduler_run(
                 connection,
@@ -268,37 +324,14 @@ def run_scheduler_task(
             connection.commit()
         return {"run_id": run_id, "task_code": task_code, "status": "completed", "result": result}
     except Exception as exc:
+        staged = isinstance(exc, _STAGED_ERRORS)
         etl_stage = (
             exc.stage
-            if isinstance(
-                exc,
-                (
-                    EbayStoreListingSyncError,
-                    AmzListingRawSyncError,
-                    AmazonProfitEtlError,
-                    AmzSopEtlError,
-                    InventoryReportSourceSyncError,
-                    GoodcangStorageSyncError,
-                ),
-            )
+            if staged
             else "LOCK" if isinstance(exc, SchedulerTaskAlreadyRunning)
             else "UNKNOWN"
         )
-        metrics = (
-            exc.metrics
-            if isinstance(
-                exc,
-                (
-                    EbayStoreListingSyncError,
-                    AmzListingRawSyncError,
-                    AmazonProfitEtlError,
-                    AmzSopEtlError,
-                    InventoryReportSourceSyncError,
-                    GoodcangStorageSyncError,
-                ),
-            )
-            else {}
-        )
+        metrics = exc.metrics if staged else {}
         with repo.performance_connection() as connection:
             repo.insert_scheduler_run(
                 connection,
