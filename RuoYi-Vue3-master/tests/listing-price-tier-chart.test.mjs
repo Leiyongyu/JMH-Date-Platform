@@ -15,6 +15,10 @@ const definitions=['低价引流层','基础走量层','利润核心层','高客
 const tiers=definitions.map((d,i)=>({tier_no:i+1,label:d.name,range:d.range,sku_count:i?0:2,sku_percent:i?'0.00':'100.00'}))
 const child={node_id:'s',scope:'SITE',site:'DE',store_name:'store',currencies:['EUR'],group_sku_count:2,tiers}
 const shop={...child,node_id:'p',scope:'SHOP',site:'',children:[child]}
+function fallbackOf(report) {
+ return Object.entries(report?.rate_months || {})
+  .filter(([,month])=>month && month!==report?.rate_month).map(([code])=>code).sort()
+}
 async function html(platform,report,error='') {
  const presentation=pricePresentation(platform)
  report=structuredClone(report)
@@ -22,7 +26,8 @@ async function html(platform,report,error='') {
   node.tiers.forEach((t,i)=>t.range=presentation.ranges[i])
  const currentDefinitions=definitions.map((d,i)=>({...d,range:presentation.ranges[i]}))
  const app=Vue.createSSRApp({render,setup:()=>({platform,platformLabel:platform.toUpperCase(),currencyLabel:presentation.label,presentation,report,error,loading:false,load(){},definitions:currentDefinitions,
- colors:['a','b','c','d','e'],nodeTitle:n=>n.store_name,tierTitle:t=>t.label,anomalyText:()=>'',detailsOpen:false,keyword:'',visibleShops:[],rateDescription:'当月my_rate',ruleDescription:'按人民币分组'})})
+ colors:['a','b','c','d','e'],nodeTitle:n=>n.store_name,tierTitle:t=>t.label,anomalyText:()=>'',detailsOpen:false,keyword:'',visibleShops:[],rateDescription:'各币种最新my_rate',ruleDescription:'按人民币分组',
+ rateMonths:report?.rate_months || {},fallbackCurrencies:fallbackOf(report)})})
  for(const name of ['el-button','el-input','el-table','el-table-column','el-dialog']) app.component(name,{setup:(_, {slots})=>()=>name==='el-dialog'?null:Vue.h('span',slots.default?.())})
  app.component('el-alert',{props:['title'],setup:p=>()=>Vue.h('aside',p.title)})
  app.component('el-empty',{props:['description'],setup:p=>()=>Vue.h('aside',p.description)})
@@ -45,7 +50,15 @@ test('AMZ CNY and eBay USD five tiers, collapsed stores and expandable sites',as
 })
 test('stale and missing rates have visible warnings',async()=>{
  const out=await html('amz',{state:'READY',items:[],shop_count:0,total_sku_count:0,stale:true,missing_currencies:['GBP']})
- assert.match(out,/月份已更新/);assert.match(out,/缺当月汇率：GBP/)
+ assert.match(out,/月份已更新/);assert.match(out,/GBP 在汇率表中没有任何可用汇率/)
+ // 当月没同步时回退到旧月份：不拦报表，但必须显式说明用的不是当月汇率。
+ const fell=await html('ebay',{state:'READY',items:[],shop_count:0,total_sku_count:0,rate_month:'2026-10',
+  missing_currencies:[],rate_months:{EUR:'2026-09',GBP:'2026-09',USD:'2026-10'}})
+ assert.match(fell,/EUR、GBP 使用的不是 2026-10 的汇率/)
+ // 全部取自当月时不应出现这条提示。
+ const current=await html('ebay',{state:'READY',items:[],shop_count:0,total_sku_count:0,rate_month:'2026-09',
+  missing_currencies:[],rate_months:{EUR:'2026-09',USD:'2026-09'}})
+ assert.doesNotMatch(current,/使用的不是/)
  assert.match(await html('ebay',{state:'EMPTY',items:[]}),/尚未生成美元报表/)
  assert.match(await html('ebay',null,'出错'),/出错/)
 })

@@ -38,8 +38,22 @@ def begin(connection,cursor):
 def context(cursor,platform):
     month = datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m')
     rate_field = 'rate_org' if platform == 'ebay' else 'my_rate'
-    cursor.execute(f'SELECT currency_code,{rate_field} FROM dim_lingxing_currency_month WHERE rate_month=%s ORDER BY currency_code',(month,))
-    rates = {r['currency_code'].strip().upper(): str(r[rate_field]) if r[rate_field] is not None else None for r in cursor.fetchall()}
+    # 每个币种各自取"不晚于当月、且该字段有正值"的最新一个月，作为兜底：
+    # 月度汇率同步还没跑时不至于整份报表卡住，同币种也不会被另一个币种的
+    # 缺失连累。不取未来月份——预先录入的下月汇率此刻尚未生效。
+    # (rate_month,currency_code) 唯一，同币种同月不会有第二行。
+    cursor.execute(f'''SELECT c.currency_code,c.rate_month,c.{rate_field} rate
+                       FROM dim_lingxing_currency_month c
+                       WHERE c.rate_month<=%s AND c.{rate_field} IS NOT NULL AND c.{rate_field}>0
+                         AND c.rate_month=(SELECT MAX(x.rate_month) FROM dim_lingxing_currency_month x
+                                           WHERE x.currency_code=c.currency_code AND x.rate_month<=%s
+                                             AND x.{rate_field} IS NOT NULL AND x.{rate_field}>0)
+                       ORDER BY c.currency_code''',(month,month))
+    picked = list(cursor.fetchall())
+    rates = {r['currency_code'].strip().upper(): str(r['rate']) for r in picked}
+    # 记下每个币种实际取自哪个月：回退发生时页面能说清用的是哪一版汇率，
+    # 也让 read_report 的 stale 比对能发现"汇率换月了"。
+    rate_months = {r['currency_code'].strip().upper(): r['rate_month'] for r in picked}
     shops = {}
     if platform == 'ebay':
         cursor.execute('SELECT seller_user_id,seller_account,row_count,sync_batch_id,pulled_at FROM ods_ebay_store_listing_state ORDER BY seller_user_id')
@@ -53,7 +67,7 @@ def context(cursor,platform):
             sid = str(row['sid'])
             if sid in shops and shops[sid] != row: raise ValueError('AMZ店铺sid对应多个不同店铺，请先检查店铺数据')
             shops[sid] = row
-    return decode(dumps(dict(rate_month=month,rates=rates,source=state,shops=shops)))
+    return decode(dumps(dict(rate_month=month,rates=rates,rate_months=rate_months,source=state,shops=shops)))
 
 
 def source(cursor,platform,ctx):
@@ -87,6 +101,7 @@ def rebuild(platform):
     check_platform(platform)
     head_table, detail_table = (USD_HEAD, USD_DETAIL) if platform == 'ebay' else (HEAD, DETAIL)
     currency = 'USD' if platform == 'ebay' else 'CNY'
+    rate_field = 'rate_org' if platform == 'ebay' else 'my_rate'
     lock = 'jmh:usd-price-tier:ebay' if platform == 'ebay' else 'jmh:cny-price-tier:amz'
     with db_connection() as connection,connection.cursor() as cursor:
         cursor.execute('SELECT GET_LOCK(%s,0) acquired',(lock,))
@@ -96,7 +111,19 @@ def rebuild(platform):
             ctx = context(cursor,platform)
             candidates,empty,count = source(cursor,platform,ctx)
             report = engine.summarize(candidates,ctx['rates'],empty,target_currency=currency)
-            report.update(platform=platform,rate_month=ctx['rate_month'],rates=ctx['rates'],source_listing_count=count,
+            # 缺当月汇率会让该币种的商品整批换算不出来、被排除在占比之外。
+            # 只留一行角标提示的话，页面看着仍然正常，却可能少掉大半SKU
+            # （例：缺EUR/GBP时eBay只剩USD站点，17050→5061）。与批次、行数
+            # 校验一样按"整份拒绝、保留旧报表"处理，不发布残缺口径。
+            # missing_currencies 只收集真实出现过的币种，FX表里无关币种为空不会误报。
+            if report['missing_currencies']:
+                raise ValueError(
+                    f"{'、'.join(report['missing_currencies'])}在汇率表里没有任何可用的"
+                    f"{rate_field}（已回退查找不晚于{ctx['rate_month']}的全部月份），"
+                    f"{report['missing_rate_rows']}条商品无法换算成{currency}；"
+                    f"已保留上一次报表，请先补齐这些币种的汇率再重新统计")
+            report.update(platform=platform,rate_month=ctx['rate_month'],rates=ctx['rates'],
+                          rate_months=ctx['rate_months'],source_listing_count=count,
                           report_id=str(uuid4()),generated_at=datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S'))
             values = []
             for parent in report['items']:

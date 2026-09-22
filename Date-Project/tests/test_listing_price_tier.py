@@ -96,7 +96,10 @@ def mocks(monkeypatch):
     ctx=MagicMock();ctx.__enter__.return_value=conn
     monkeypatch.setattr(repo,'db_connection',lambda:ctx)
     cur.fetchone.return_value={'acquired':1}
-    monkeypatch.setattr(repo,'context',lambda *_:dict(rate_month='2026-09',rates={'EUR':'7.6'}))
+    # 美元报表换算EUR时还要USD交叉汇率；缺了会被"缺当月汇率整份拒绝"挡在写库之前，
+    # 那样ebay相关用例测到的就不是它们各自想测的分支了。
+    monkeypatch.setattr(repo,'context',lambda *_:dict(rate_month='2026-09',rates={'EUR':'7.6','USD':'6.8'},
+                                                     rate_months={'EUR':'2026-09','USD':'2026-09'}))
     monkeypatch.setattr(repo,'source',lambda *_:([candidate()],[],1))
     return conn,cur
 
@@ -133,13 +136,23 @@ def test_source_amz_uses_exact_raw_table_and_active_filter():
 
 
 @pytest.mark.parametrize('platform,field', [('ebay','rate_org'), ('amz','my_rate')])
-def test_month_context_only_exact_month_not_fallback(platform,field):
-    cur=MagicMock();cur.fetchall.side_effect=[[{'currency_code':'EUR',field:Decimal('7.600066')}],[]]
+def test_month_context_falls_back_to_each_currency_latest_month(platform,field):
+    """汇率按币种各取最新可用月份；当月没同步时回退，不再整份卡住。
+
+    同时记录每个币种实际取自哪个月，页面才能说明用的是哪一版汇率。
+    """
+    cur=MagicMock()
+    cur.fetchall.side_effect=[[{'currency_code':'EUR','rate_month':'2026-09','rate':Decimal('7.600066')},
+                               {'currency_code':'USD','rate_month':'2026-08','rate':Decimal('6.8')}],[]]
     ctx=repo.context(cur,platform)
-    assert ctx['rates']['EUR']=='7.600066'
-    assert f'SELECT currency_code,{field} ' in cur.execute.call_args_list[0].args[0]
-    assert 'WHERE rate_month=%s' in cur.execute.call_args_list[0].args[0]
-    assert cur.execute.call_args_list[0].args[1]==(ctx['rate_month'],)
+    assert ctx['rates']=={'EUR':'7.600066','USD':'6.8'}
+    assert ctx['rate_months']=={'EUR':'2026-09','USD':'2026-08'}
+    sql=cur.execute.call_args_list[0].args[0]
+    assert f'c.{field} rate' in sql and 'MAX(x.rate_month)' in sql
+    # 不取未来月份，且只在有正值的行里挑最新月份。
+    assert sql.count('rate_month<=%s')==2
+    assert f'{field} IS NOT NULL' in sql and f'{field}>0' in sql
+    assert cur.execute.call_args_list[0].args[1]==(ctx['rate_month'],ctx['rate_month'])
 
 
 @pytest.mark.parametrize('change',['month','rate','batch'])
@@ -186,3 +199,66 @@ def test_api_auth_and_correct_platform(monkeypatch,platform):
         read.assert_called_once_with(platform);refresh.assert_called_once_with(platform)
         refresh.side_effect=repo.ReportBusy('busy')
         assert client.post(base+'/refresh',headers=headers).status_code==409
+
+
+@pytest.mark.parametrize(('platform', 'rates', 'missing'), [
+    # eBay美元：缺欧元汇率 → 该站点整批换算不出来
+    ('ebay', {'USD': '6.7787'}, 'EUR'),
+    # eBay美元：欧元有、但缺USD交叉汇率 → 除USD原价外全军覆没
+    ('ebay', {'EUR': '7.8397'}, 'USD'),
+    # AMZ人民币：缺欧元汇率
+    ('amz', {}, 'EUR'),
+])
+def test_missing_month_rate_refuses_to_publish_instead_of_dropping_skus(
+        monkeypatch, platform, rates, missing):
+    """缺当月汇率必须整份拒绝，不能发布少掉一大批SKU却看着正常的报表。
+
+    历史行为是把换不出来的商品静默排除、只留一行角标提示：例如缺EUR/GBP时
+    eBay报表会从17050个SKU缩到只剩USD站点的5061个，图表照常渲染。
+    与批次/行数校验一样按"保留旧报表"处理。
+    """
+    conn, cur = mocks(monkeypatch)
+    monkeypatch.setattr(repo, 'context', lambda *_: dict(rate_month='2026-09', rates=rates,
+                                                        rate_months={c: '2026-09' for c in rates}))
+    with pytest.raises(ValueError) as failure:
+        repo.rebuild(platform)
+    message = str(failure.value)
+    assert missing in message and '2026-09' in message
+    assert ('rate_org' if platform == 'ebay' else 'my_rate') in message
+    assert '保留上一次报表' in message
+    # 拒绝必须发生在写库之前：旧报表一行都不能被删或被覆盖。
+    conn.commit.assert_not_called()
+    cur.executemany.assert_not_called()
+    assert not [c for c in cur.execute.call_args_list
+                if c.args[0].lstrip().startswith(('DELETE', 'INSERT', 'UPDATE'))]
+    assert 'RELEASE_LOCK' in cur.execute.call_args.args[0]
+
+
+def test_complete_rates_still_publish_normally(monkeypatch):
+    """汇率齐全时行为不变，新增的校验不能误伤正常发布。"""
+    conn, cur = mocks(monkeypatch)
+    monkeypatch.setattr(repo, 'context',
+                        lambda *_: dict(rate_month='2026-09', rates={'EUR': '7.8397', 'USD': '6.7787'},
+                                        rate_months={'EUR': '2026-09', 'USD': '2026-09'}))
+    result = repo.rebuild('ebay')
+    assert result['state'] == 'READY' and result['missing_currencies'] == []
+    conn.commit.assert_called_once()
+
+
+def test_current_month_gap_falls_back_instead_of_blocking(monkeypatch):
+    """当月还没同步汇率时照常出报表，用各币种最近有值的月份兜底。
+
+    这是"缺汇率整份拒绝"的边界：拒绝只针对某币种任何月份都查不到汇率，
+    不能因为当月任务还没跑就把报表卡住。
+    """
+    conn, cur = mocks(monkeypatch)
+    monkeypatch.setattr(repo, 'context', lambda *_: dict(
+        rate_month='2026-10',
+        rates={'EUR': '7.8397', 'USD': '6.7787'},
+        rate_months={'EUR': '2026-09', 'USD': '2026-08'}))
+    result = repo.rebuild('ebay')
+    assert result['state'] == 'READY' and result['missing_currencies'] == []
+    # 统计月份仍是当月，但要如实记下每个币种实际用的是哪一版汇率。
+    assert result['rate_month'] == '2026-10'
+    assert result['rate_months'] == {'EUR': '2026-09', 'USD': '2026-08'}
+    conn.commit.assert_called_once()

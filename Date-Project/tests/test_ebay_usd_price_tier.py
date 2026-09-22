@@ -59,7 +59,8 @@ def test_missing_original_rate_does_not_fallback_to_usd_rate():
 
 def test_ebay_publish_only_new_usd_tables_and_read_reconstructs_usd(monkeypatch):
     conn,cur=mocks(monkeypatch)
-    ctx=dict(rate_month='2026-09',rates={'EUR':'7.7','USD':'7'})
+    ctx=dict(rate_month='2026-09',rates={'EUR':'7.7','USD':'7'},
+             rate_months={'EUR':'2026-09','USD':'2026-09'})
     monkeypatch.setattr(repo,'context',lambda *_:ctx)
     report=repo.rebuild('ebay')
     assert report['target_currency']=='USD' and report['items'][0]['tiers'][2]['sku_count']==1
@@ -76,7 +77,8 @@ def test_ebay_publish_only_new_usd_tables_and_read_reconstructs_usd(monkeypatch)
     assert [t['range'] for t in read['items'][0]['tiers']]==list(service.USD_RANGES)
     ctx['rates']['USD']='8'
     # Stored context is immutable in real JSON; use an independent snapshot for test.
-    cur.fetchone.return_value['source_context_json']={**ctx,'rates':{'EUR':'7.7','USD':'7'}}
+    cur.fetchone.return_value['source_context_json']={**ctx,'rates':{'EUR':'7.7','USD':'7'},
+                                                     'rate_months':{'EUR':'2026-09','USD':'2026-09'}}
     assert repo.read_report('ebay')['stale']
 
 
@@ -87,11 +89,18 @@ def test_cny_version_never_relabelled_as_usd(monkeypatch):
     assert report['state']=='EMPTY' and report['stale']
 
 
-def test_rate_org_read_not_my_rate_and_none_retained():
+def test_rate_org_read_not_my_rate_and_unusable_rows_excluded():
+    """美元报表只读rate_org；rate_org为空或非正的月份由SQL过滤，不进rates。
+
+    过滤后该币种要么回退到更早有值的月份，要么整个不出现——不出现即视为
+    无可用汇率，由 rebuild 拒绝发布，不会被误当成0。
+    """
     cur=MagicMock()
-    cur.fetchall.side_effect=[[{'currency_code':'EUR','rate_org':Decimal('7.7'),'my_rate':Decimal('100')},
-                              {'currency_code':'USD','rate_org':None,'my_rate':Decimal('7')}],[]]
+    cur.fetchall.side_effect=[[{'currency_code':'EUR','rate_month':'2026-09','rate':Decimal('7.7')}],[]]
     ctx=repo.context(cur,'ebay')
-    assert ctx['rates']=={'EUR':'7.7','USD':None}
-    assert 'rate_org' in cur.execute.call_args_list[0].args[0]
-    assert 'my_rate' not in cur.execute.call_args_list[0].args[0]
+    assert ctx['rates']=={'EUR':'7.7'}
+    assert ctx['rate_months']=={'EUR':'2026-09'}
+    sql=cur.execute.call_args_list[0].args[0]
+    assert 'rate_org' in sql and 'my_rate' not in sql
+    # 空值与非正值在SQL层排除，不像过去那样以 None 留在 rates 里。
+    assert 'rate_org IS NOT NULL' in sql and 'rate_org>0' in sql
