@@ -9,7 +9,7 @@ from zipfile import ZipFile
 
 from openpyxl import load_workbook
 
-from backend.services.ebay_inventory_grade_parser import (
+from backend.services.ebay_inventory_workbook import (
     ERROR_VALUES, MAX_EXPANDED_BYTES, MAX_FILE_BYTES, MAX_ROWS, WORKBOOK_ERRORS,
 )
 

@@ -16,9 +16,28 @@ from backend.repositories import ebay_inventory_detail_repository as repository
 from backend.services import ebay_inventory_detail_service as service
 
 
+# 等级不再上传，改由历史最大月销(K)与利润率(J)算出。这里给出能稳定算到
+# 各等级的输入，测试想要某个等级时用 graded("S") 展开，而不是直接塞字面量。
+GRADE_INPUTS = {              # 等级: (历史最大月销, 三月利润, 三月销售额)
+    "S": (30, 25, 100),       # K>=30 且 J=0.25>=0.2
+    "A": (10, 25, 100),       # K<=14 且 J=0.25>=0.2
+    "B": (30, 18, 100),       # K>=30 且 0.18<=J<0.2
+    "C": (10, 15, 100),       # K<=14 且 0.15<=J<0.18
+    "D": (0, 15, 100),        # K<=4  且 J>=0.15
+    "E": (0, 1, 100),         # K<=4  且 J<0.15
+}
+
+
+def graded(grade="A"):
+    month, profit, paid = GRADE_INPUTS[grade]
+    return {"max_month_sales": Decimal(month),
+            "three_month_profit_cny": Decimal(profit),
+            "three_month_paid_amount_cny": Decimal(paid)}
+
+
 def source(sku="FRD-70618-0687", site="德国", **values):
     return {
-        "site": site, "sku": sku, "product_name": "示例产品", "grade": "A",
+        "site": site, "sku": sku, "product_name": "示例产品", **graded("A"),
         "overseas_in_transit_quantity": Decimal("10"),
         "overseas_sellable_quantity": Decimal("20"),
         "chengdu_in_transit_quantity": Decimal("3"),
@@ -58,7 +77,7 @@ def test_middle_site_code_is_display_only_with_explicit_site_mapping(isolated, s
 
 def test_middle_site_code_uses_frozen_row_without_recalculating_or_mutating(isolated, monkeypatch):
     isolated([source(sku="DAS-00123-0121", site="英国")])
-    frozen, metadata, warnings = service.load_calculated_inventory()
+    frozen, metadata, warnings, _ = service.load_calculated_inventory()
     # Older JSON lacked both display identifiers; infer only from the frozen SKU.
     frozen[0].pop("sku_middle_code")
     original = dict(frozen[0])
@@ -95,10 +114,15 @@ def isolated(monkeypatch):
     owner_rules = MagicMock(return_value=[{"rule_type": "BRAND"}])
     monkeypatch.setattr(service.owner_repository, "owner_rules", owner_rules)
 
-    def install(rows, rents=None, rates=None, metadata=None):
+    def install(rows, rents=None, rates=None, metadata=None, monthly=None, max_floor=None):
         details = [] if rents is None else rents
         meta = {"rent_pull_month": "2026-09", "rent_row_count": len(details), **(metadata or {})}
-        snapshot = MagicMock(return_value=(rows, meta, details, rates or {}))
+        if monthly is None:
+            # 统一放在同一个自然月：合并后同月相加，正好覆盖"先按月汇总再取最大"。
+            monthly = [{"site": row["site"], "sku": row["sku"], "stat_month": "2026-06",
+                        "sales_qty": row["max_month_sales"]}
+                       for row in rows if row.get("max_month_sales") is not None]
+        snapshot = MagicMock(return_value=(rows, meta, details, rates or {}, monthly, max_floor or []))
         monkeypatch.setattr(service.repository, "read_snapshot", snapshot)
         return snapshot
 
@@ -562,6 +586,10 @@ def test_read_snapshot_uses_one_transaction_and_metadata_fx_month(monkeypatch):
     monkeypatch.setattr(repository, "_three_month_sales_window", window_reader)
     monkeypatch.setattr(repository, "_source_metadata", metadata_reader)
     monkeypatch.setattr(repository, "_source_rows", source_reader)
+    monthly_reader = MagicMock(return_value=[])
+    monkeypatch.setattr(repository, "_monthly_sales_rows", monthly_reader)
+    floor_reader = MagicMock(return_value=[])
+    monkeypatch.setattr(repository, "_max_monthly_sales_rows", floor_reader)
     monkeypatch.setattr(repository, "_rent_rows", rent_reader)
     monkeypatch.setattr(repository, "_rates", rate_reader)
     result = repository.read_snapshot()
@@ -576,6 +604,10 @@ def test_read_snapshot_uses_one_transaction_and_metadata_fx_month(monkeypatch):
                                          recent_window=repository._recent_sales_window(reference_date))
     window_reader.assert_called_once()
     rate_reader.assert_called_once_with(cursor, "2026-08")
+    # 历史月销必须与库存明细同一事务，且上界为当月1号，当月不计入。
+    monthly_reader.assert_called_once_with(cursor, month_end_exclusive=sales_window[1])
+    # 高水位必须与库存明细同一事务读取，否则等级可能用上另一批数据的下限。
+    floor_reader.assert_called_once_with(cursor)
     assert result[1] is metadata
     assert metadata["monthly_sales_date_from"] == sales_window[0]
     assert metadata["monthly_sales_date_to_exclusive"] == sales_window[1]
@@ -662,7 +694,7 @@ def test_snapshot_window_does_not_follow_old_sales_anchor(monkeypatch):
     monkeypatch.setattr(repository, "_source_rows", source_reader)
     monkeypatch.setattr(repository, "_rent_rows", lambda _: [])
     monkeypatch.setattr(repository, "_rates", lambda *_: {})
-    _, result, _, _ = repository.read_snapshot()
+    _, result, _, _, _, _ = repository.read_snapshot()
     clock.assert_called_once()
     recent_clock.assert_called_once_with(clock.call_args.args[0])
     source_reader.assert_called_once_with(cursor, sales_window=window, recent_window=recent_window)

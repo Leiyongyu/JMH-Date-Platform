@@ -53,7 +53,6 @@
                   <el-dropdown-item v-if="canExportData" command="export" icon="Download" :disabled="exportUnavailable">
                     {{ selectedCount ? `导出已选（${selectedCount}）` : '导出全部数据' }}
                   </el-dropdown-item>
-                  <el-dropdown-item v-if="canImportData" command="grades" icon="Upload" :divided="canExportData">导入产品等级</el-dropdown-item>
                   <el-dropdown-item v-if="canImportData" command="prices" icon="Upload">导入产品单价</el-dropdown-item>
                   <el-dropdown-item v-if="canImportData" command="history" icon="Upload">导入历史数据</el-dropdown-item>
                 </el-dropdown-menu>
@@ -186,7 +185,7 @@ import { useColumnConfig } from '@/composables/useColumnConfig'
 import download from '@/plugins/download'
 import { blobValidate } from '@/utils/ruoyi'
 import { checkPermi } from '@/utils/permission'
-import { listEbayInventoryDetail, exportEbayInventoryDetail, importEbayInventoryGrades, importEbayInventoryPrices, importEbayInventoryHistory, recalculateEbayInventorySnapshot } from '@/api/operations/ebay/inventoryDetail'
+import { listEbayInventoryDetail, exportEbayInventoryDetail, importEbayInventoryPrices, importEbayInventoryHistory, recalculateEbayInventorySnapshot } from '@/api/operations/ebay/inventoryDetail'
 import { inventoryColumnHelp } from './columnHelp'
 import InventoryHistoryPivot from './InventoryHistoryPivot.vue'
 
@@ -244,6 +243,8 @@ const columnDefs = [
   { key: 'overseas_max_age_days', label: '海外最高库龄', format: 'quantity', sortable: true, width: 150 },
   { key: 'sales_qty_30d', label: '近30天销量', format: 'quantity', sortable: true },
   { key: 'average_monthly_sales_3m', label: '近3个月均销量', format: 'decimal2', sortable: true, width: 150 },
+  { key: 'profit_rate', label: '利润率', format: 'percent', sortable: true, width: 110 },
+  { key: 'max_monthly_sales', label: '历史最大月销', format: 'quantity', sortable: true, width: 150 },
   { key: 'in_stock_sales_ratio', label: '在库库销比', format: 'percent', sortable: true },
   { key: 'total_stock_sales_ratio', label: '总库销比', format: 'percent', sortable: true },
   { key: 'unit_price_tax', label: '单价（含税）', format: 'money', sortable: true, width: 140 },
@@ -494,16 +495,16 @@ function handleTransferCommand(command) {
   if (transferBusy.value) return
   if (command === 'export') {
     if (!exportUnavailable.value) return handleExport()
-  } else if (canImportData.value && ['grades', 'prices', 'history'].includes(command)) {
+  } else if (canImportData.value && ['prices', 'history'].includes(command)) {
     openImportDialog(command)
   }
 }
 
-const importMode = ref('grades')
+const importMode = ref('prices')
 const importFile = ref(null)
 const uploadRef = ref()
 const importResultVisible = ref(false)
-const importResultMode = ref('grades')
+const importResultMode = ref('prices')
 const importResult = ref({})
 const importWarnings = computed(() => Array.isArray(importResult.value.warnings) ? importResult.value.warnings : [])
 const importModes = {
@@ -513,13 +514,6 @@ const importModes = {
     description: '只读取库存明细持续更新-US、库存明细持续更新-DE、库存明细持续更新-UK三个sheet，按统计时间保存。重复行全部保留；空SKU、空值、0、公式错误和无法识别的数值显示--。最后售出时间保留原值，不推算年份。',
     tip: '相同文件重复上传不会增加记录。已有日期与本次文件冲突时整份拒绝；原Excel不会修改。',
     resultDescription: '已按原统计日期填充明细，可通过日期选择器查询。不生成或覆盖透视数据，也不需要点击刷新重算。'
-  },
-  grades: {
-    label: '产品等级',
-    summary: '按 SKU ＋站点更新等级，不影响文件以外的记录。',
-    description: '上传 Excel（.xlsx），表头需包含「SKU」「站点」「等级」。站点支持德国 / 英国 / 美国等名称或 DE / UK / US 等对应代码，等级按文件原值保存。无效行会跳过并列明原因，不覆盖这些记录原有的等级。',
-    tip: '重复的 SKU ＋站点须使用相同等级。',
-    resultDescription: '仅更新有效的 SKU ＋站点，文件之外的记录及跳过行原有等级均保持不变。'
   },
   prices: {
     label: '产品单价',
@@ -571,8 +565,7 @@ async function handleImport() {
   importing.value = true
   const mode = importMode.value
   try {
-    const importRequest = mode === 'history' ? importEbayInventoryHistory
-      : mode === 'prices' ? importEbayInventoryPrices : importEbayInventoryGrades
+    const importRequest = mode === 'history' ? importEbayInventoryHistory : importEbayInventoryPrices
     const response = await importRequest(importFile.value)
     if (unmounted) return
     const result = response.data || {}

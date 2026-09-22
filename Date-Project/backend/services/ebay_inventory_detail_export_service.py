@@ -29,6 +29,8 @@ COLUMNS = (
     ("overseas_max_age_days", "海外最高库龄", "qty"),
     ("sales_qty_30d", "近30天销量", "qty"),
     ("average_monthly_sales_3m", "近3个月均销量", "decimal2"),
+    ("profit_rate", "利润率", "percent"),
+    ("max_monthly_sales", "历史最大月销", "qty"),
     ("in_stock_sales_ratio", "在库库销比", "percent"),
     ("total_stock_sales_ratio", "总库销比", "percent"),
     ("unit_price_tax", "单价（含税）", "money"),

@@ -1,4 +1,4 @@
-"""eBay 库存明细的批量取数与独立等级导入，不修改补货 2.0 数据。"""
+"""eBay 库存明细的批量取数，不修改补货 2.0 数据。等级改为按规则计算，无导入。"""
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
@@ -11,10 +11,13 @@ from backend.config import settings
 from backend.database import db_connection
 
 MAX_ROWS = 50_000
-_GRADE_TABLE = "ebay_inventory_detail_grade"
 _PRICE_TABLE = "ebay_inventory_detail_price"
+_MAX_MONTHLY_SALES_TABLE = "dws_ebay_inventory_max_monthly_sales"
 _PRICE_MISSING = "Ebay库存明细单价表尚未部署，请先执行20260916_ebay_inventory_detail_price.sql"
-_GRADE_MISSING = "Ebay库存明细等级表尚未部署，请先执行对应的建表SQL"
+_MAX_MONTHLY_SALES_MISSING = (
+    "历史最大月销高水位表尚未部署，请先执行"
+    "20260922_ebay_inventory_max_monthly_sales.sql"
+)
 _BATCH_SIZE = 500
 
 
@@ -98,15 +101,6 @@ def _inventory_age_table() -> str:
     return f"`{database}`.ods_goodcang_inventory_age_latest"
 
 
-def _grade_table_missing(exc: Exception) -> bool:
-    return (
-        isinstance(exc, ProgrammingError)
-        and bool(exc.args)
-        and exc.args[0] == 1146
-        and _GRADE_TABLE in str(exc)
-    )
-
-
 def _bounded_rows(cursor, label: str) -> list[dict[str, Any]]:
     rows = list(cursor.fetchall())
     if len(rows) > MAX_ROWS:
@@ -149,8 +143,16 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None,
             GROUP BY source.site_name,source.inventory_sku
         ),
         complete_month_sales AS (
+            -- 利润率沿用补货2.0的算式：三月利润/(三月销售额-已退款退款额)。
+            -- 差别是本页按既有约定排除已作废订单，补货2.0不排除，因此同一SKU
+            -- 两页的利润率可能有小幅差异，属业务选定口径，不是计算错误。
             SELECT source.site_name,source.inventory_sku,
-                   SUM(source.purchase_quantity) sales_qty_3m
+                   SUM(source.purchase_quantity) sales_qty_3m,
+                   SUM(source.order_profit_cny) three_month_profit_cny,
+                   SUM(source.paid_amount_cny)
+                     -SUM(CASE WHEN source.shipping_status LIKE '%%已退款%%'
+                               THEN source.refund_amount_cny ELSE 0 END)
+                     three_month_paid_amount_cny
             FROM dwd_ebay_sku_analysis_order source
             WHERE source.payment_time >= %s AND source.payment_time < %s
               AND COALESCE(source.shipping_status,'') NOT LIKE '%%已作废%%'
@@ -206,7 +208,7 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None,
             WHERE middle_code IS NOT NULL AND middle_code<>''
             GROUP BY middle_code
         )
-        SELECT inventory.site,inventory.sku,grades.grade,
+        SELECT inventory.site,inventory.sku,
                COALESCE(NULLIF(TRIM((
                    SELECT source.product_name_cn
                    FROM dwd_ebay_sku_analysis_order source
@@ -228,6 +230,8 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None,
                CAST(inventory.pending_outbound_quantity AS DECIMAL(30,6)) pending_outbound_quantity,
                COALESCE(recent.sales_qty_30d,0) sales_qty_30d,
                COALESCE(monthly.sales_qty_3m,0) sales_qty_3m,
+               COALESCE(monthly.three_month_profit_cny,0) three_month_profit_cny,
+               COALESCE(monthly.three_month_paid_amount_cny,0) three_month_paid_amount_cny,
                prices.imported_unit_price,prices.price_source_rows,
                ages.age_days,ages.age_source_rows,ages.age_source_products,ages.age_invalid_rows
         FROM inventory_summary inventory
@@ -256,19 +260,12 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None,
            = CONVERT(UPPER(CASE WHEN LOCATE('-',TRIM(inventory.sku))>0
                                 THEN SUBSTRING(TRIM(inventory.sku),LOCATE('-',TRIM(inventory.sku))+1)
                                 ELSE TRIM(inventory.sku) END) USING utf8mb4) COLLATE utf8mb4_unicode_ci
-        LEFT JOIN {_GRADE_TABLE} grades
-          ON CONVERT(grades.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
-           = CONVERT(inventory.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
-         AND CONVERT(grades.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
-           = CONVERT(inventory.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
         ORDER BY inventory.site,inventory.sku
         LIMIT {MAX_ROWS + 1}
     """
     try:
         cursor.execute(query, (*recent_window, *sales_window))
     except ProgrammingError as exc:
-        if _grade_table_missing(exc):
-            raise ValueError(_GRADE_MISSING) from exc
         if exc.args and exc.args[0] == 1146 and _PRICE_TABLE in str(exc):
             raise ValueError(_PRICE_MISSING) from exc
         raise
@@ -278,6 +275,95 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None,
 def source_rows() -> list[dict[str, Any]]:
     with db_connection() as connection, connection.cursor() as cursor:
         return _source_rows(cursor)
+
+
+def _monthly_sales_rows(cursor, month_end_exclusive: date | None = None) -> list[dict[str, Any]]:
+    """历史各完整自然月的销量，供"历史最大月销"取最大值。
+
+    只取当前库存里还存在的站点+SKU，行数不随历史订单总量增长；当月尚未结束
+    不计入，作废订单不计，与本页其他销量口径一致。按站点+完整SKU返回明细，
+    合并到中间码这一步交给服务层的 _product_key，避免在SQL里再写一套合并键。
+    """
+    end = month_end_exclusive or datetime.now(timezone(timedelta(hours=8))).date().replace(day=1)
+    query = f"""
+        WITH {_weekly_inventory_ctes()}
+        SELECT inventory.site,inventory.sku,
+               DATE_FORMAT(source.payment_time,'%%Y-%%m') stat_month,
+               SUM(source.purchase_quantity) sales_qty
+        FROM inventory_summary inventory
+        JOIN dwd_ebay_sku_analysis_order source
+          ON CONVERT(source.site_name USING utf8mb4) COLLATE utf8mb4_unicode_ci
+           = CONVERT(inventory.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
+         AND CONVERT(source.inventory_sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
+           = CONVERT(inventory.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
+        WHERE source.payment_time < %s
+          AND COALESCE(source.shipping_status,'') NOT LIKE '%%已作废%%'
+        GROUP BY inventory.site,inventory.sku,DATE_FORMAT(source.payment_time,'%%Y-%%m')
+        LIMIT {MAX_ROWS + 1}
+    """
+    cursor.execute(query, (end,))
+    return _bounded_rows(cursor, "库存明细历史月销量")
+
+
+def monthly_sales_rows() -> list[dict[str, Any]]:
+    with db_connection() as connection, connection.cursor() as cursor:
+        return _monthly_sales_rows(cursor)
+
+
+def _max_monthly_sales_rows(cursor) -> list[dict[str, Any]]:
+    """历史最大月销高水位；表缺失时按空处理，页面退化为只用订单表现有月份。"""
+    try:
+        cursor.execute(
+            f"SELECT site,product_key_type,product_key,max_monthly_sales,peak_month"
+            f" FROM {_MAX_MONTHLY_SALES_TABLE} LIMIT {MAX_ROWS + 1}"
+        )
+    except ProgrammingError as exc:
+        if exc.args and exc.args[0] == 1146 and _MAX_MONTHLY_SALES_TABLE in str(exc):
+            return []
+        raise
+    return _bounded_rows(cursor, "历史最大月销高水位")
+
+
+def max_monthly_sales_rows() -> list[dict[str, Any]]:
+    with db_connection() as connection, connection.cursor() as cursor:
+        return _max_monthly_sales_rows(cursor)
+
+
+def raise_max_monthly_sales(rows: list[dict[str, Any]]) -> int:
+    """只升不降地合并高水位：低于或等于已存值的候选不写，峰值月份随值一起变。
+
+    没有候选行时不建连接。表缺失直接抛错，避免"重新计算"静默不落库。
+    """
+    if not rows:
+        return 0
+    if len(rows) > MAX_ROWS:
+        raise ValueError(f"历史最大月销高水位超过{MAX_ROWS}行，未写入")
+    query = f"""
+        INSERT INTO {_MAX_MONTHLY_SALES_TABLE}
+            (site,product_key_type,product_key,max_monthly_sales,peak_month,value_source)
+        VALUES (%(site)s,%(product_key_type)s,%(product_key)s,%(max_monthly_sales)s,
+                %(peak_month)s,'CALCULATED')
+        ON DUPLICATE KEY UPDATE
+            peak_month=IF(VALUES(max_monthly_sales)>max_monthly_sales,
+                          VALUES(peak_month),peak_month),
+            value_source=IF(VALUES(max_monthly_sales)>max_monthly_sales,
+                            'CALCULATED',value_source),
+            max_monthly_sales=GREATEST(max_monthly_sales,VALUES(max_monthly_sales))
+    """
+    with db_connection() as connection:
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                for offset in range(0, len(rows), _BATCH_SIZE):
+                    cursor.executemany(query, rows[offset:offset + _BATCH_SIZE])
+            connection.commit()
+        except Exception as exc:
+            connection.rollback()
+            if isinstance(exc, ProgrammingError) and exc.args and exc.args[0] == 1146 \
+                    and _MAX_MONTHLY_SALES_TABLE in str(exc):
+                raise ValueError(_MAX_MONTHLY_SALES_MISSING) from exc
+            raise
+    return len(rows)
 
 
 def _source_metadata(cursor) -> dict[str, Any]:
@@ -381,7 +467,8 @@ def rates(month: str | None) -> dict[str, Decimal]:
         return _rates(cursor, month)
 
 
-def read_snapshot() -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], dict[str, Decimal]]:
+def read_snapshot() -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]],
+                             dict[str, Decimal], list[dict[str, Any]], list[dict[str, Any]]]:
     """同一一致性读事务内取数，避免采购价/仓租/库龄替换期间混用新旧批次。"""
     reference_date = datetime.now(timezone(timedelta(hours=8))).date()
     sales_window = _three_month_sales_window(reference_date)
@@ -399,42 +486,14 @@ def read_snapshot() -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str
                                 sales_anchor_date=recent_window[1] - timedelta(days=1),
                                 sales_policy="calendar_30d_exclude_today_void_v1")
                 items = _source_rows(cursor, sales_window=sales_window, recent_window=recent_window)
+                # 与库存明细同一事务内读取，否则历史月销可能对应另一批库存快照。
+                monthly = _monthly_sales_rows(cursor, month_end_exclusive=sales_window[1])
+                # 高水位与月度明细同事务读取；两者形状不同，分别返回不合并。
+                max_floor = _max_monthly_sales_rows(cursor)
                 rent = _rent_rows(cursor)
                 fx = _rates(cursor, metadata.get("rent_pull_month"))
             connection.commit()
-            return items, metadata, rent, fx
+            return items, metadata, rent, fx, monthly, max_floor
         except Exception:
             connection.rollback()
             raise
-
-
-def upsert_grades(rows: list[dict[str, Any]], operator: str, filename: str) -> int:
-    """只更新本次文件的站点+SKU，不清空未出现在文件中的已有等级。"""
-    if not rows:
-        return 0
-    if len(rows) > MAX_ROWS:
-        raise ValueError(f"等级导入超过{MAX_ROWS}行")
-    params = [
-        {"site": row["site"], "sku": row["sku"], "grade": row["grade"],
-         "updated_by": operator, "source_file": filename}
-        for row in rows
-    ]
-    query = f"""
-        INSERT INTO {_GRADE_TABLE} (site,sku,grade,updated_by,source_file,updated_at)
-        VALUES (%(site)s,%(sku)s,%(grade)s,%(updated_by)s,%(source_file)s,NOW())
-        ON DUPLICATE KEY UPDATE grade=VALUES(grade),updated_by=VALUES(updated_by),
-                                source_file=VALUES(source_file),updated_at=NOW()
-    """
-    with db_connection() as connection:
-        try:
-            connection.begin()
-            with connection.cursor() as cursor:
-                for offset in range(0, len(params), _BATCH_SIZE):
-                    cursor.executemany(query, params[offset:offset + _BATCH_SIZE])
-            connection.commit()
-        except Exception as exc:
-            connection.rollback()
-            if _grade_table_missing(exc):
-                raise ValueError(_GRADE_MISSING) from exc
-            raise
-    return len(rows)

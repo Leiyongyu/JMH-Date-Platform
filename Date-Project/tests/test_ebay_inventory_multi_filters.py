@@ -8,19 +8,19 @@ from openpyxl import load_workbook
 from backend.api.v1 import ebay_inventory_detail as api
 from backend.services import ebay_inventory_detail_service as service
 from backend.services import ebay_inventory_detail_export_service as exporter
-from test_ebay_inventory_detail import isolated, source
+from test_ebay_inventory_detail import graded, isolated, source
 from test_ebay_inventory_pivot_api_export import client
 
 
 def install_rows(isolated):
     isolated([
-        source(sku="DAS-10053-0121", grade="A"),
-        source(sku="JMH-10053-0121-YXQ", grade="S"),
-        source(sku="MCD-20017-0071", grade="B"),
-        source(sku="MCD-20017-0071", site="英国", grade="B"),
-        source(sku="DAS-100530-0121", grade="A"),
-        source(sku="DAS-00123-0121", grade="A"),
-        source(sku="DAS-123-0121", grade="A"),
+        source(sku="DAS-10053-0121", **graded("A")),
+        source(sku="JMH-10053-0121-YXQ", **graded("S")),
+        source(sku="MCD-20017-0071", **graded("B")),
+        source(sku="MCD-20017-0071", site="英国", **graded("B")),
+        source(sku="DAS-100530-0121", **graded("A")),
+        source(sku="DAS-00123-0121", **graded("A")),
+        source(sku="DAS-123-0121", **graded("A")),
     ])
 
 
@@ -61,7 +61,7 @@ def test_export_all_and_selected_use_identical_multi_filters(isolated):
 
 def test_history_missing_middle_matches_without_recalculation_or_dedup(isolated, monkeypatch):
     install_rows(isolated)
-    rows, meta, warnings = service.load_calculated_inventory()
+    rows, meta, warnings, _ = service.load_calculated_inventory()
     rows = [row for row in rows if row["sku_middle_code"] == "00123"]
     rows[0].pop("sku_middle_code")
     rows[0]["history_origin"] = "EXCEL_IMPORT"

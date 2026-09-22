@@ -31,7 +31,6 @@ function harness(options = {}) {
     computed, ref, checkPermi: () => options.allowed !== false,
     query: {},
     importEbayInventoryHistory: async file => { calls.push(['history', file]); return options.response || { data: {} } },
-    importEbayInventoryGrades: async file => { calls.push(['grades', file]); return options.response || { data: {} } },
     importEbayInventoryPrices: async file => {
       calls.push(['prices', file])
       if (options.request) return options.request()
@@ -70,13 +69,15 @@ test('history import accepts original 27MB file and reads uploaded date without 
   assert.equal(view.api.importFile.value, null)
 })
 
-test('price and grade imports compile and expose safe update rules with explicit refresh', () => {
+test('price import compiles and exposes safe update rules with explicit refresh', () => {
   const result = compileTemplate({ source: parsed.descriptor.template.content,
     filename: filename.pathname, id: 'inventory-price-import-test',
     compilerOptions: { bindingMetadata: script.bindings } })
   assert.deepEqual(result.errors, [])
   assert.match(source, /command="prices".*导入产品单价/)
-  assert.match(source, /command="grades".*导入产品等级/)
+  // 等级改为计算字段，导入入口已移除。
+  assert.doesNotMatch(source, /command="grades"/)
+  assert.doesNotMatch(source, /导入产品等级/)
   assert.match(source, /产品代码/)
   assert.match(source, /单价\(默认采购价\)/)
   assert.match(source, /第二段纯数字/)
@@ -96,10 +97,10 @@ test('opening another import mode clears the selected file and preserves result 
   view.api.handleImportFileChange({ raw: file })
   assert.equal(view.api.importFile.value.name, file.name)
   view.api.importResultMode.value = 'prices'
-  view.api.openImportDialog('grades')
+  view.api.openImportDialog('history')
   assert.equal(view.api.importFile.value, null)
   assert.equal(view.api.importResultMode.value, 'prices')
-  assert.equal(view.api.activeImportConfig.value.label, '产品等级')
+  assert.equal(view.api.activeImportConfig.value.label, '库存历史')
 })
 
 test('price import dispatches once and displays dedup counts and unmatched-middle warnings', async () => {
@@ -119,16 +120,6 @@ test('price import dispatches once and displays dedup counts and unmatched-middl
   assert.equal(view.api.importWarnings.value[0], '非数字中间段已保存')
   assert.equal(view.queries.length, 1)
   assert.match(view.successes[0], /产品单价已导入.*刷新/)
-})
-
-test('grade import retains its own route, warning summary and valid-row behavior', async () => {
-  const view = harness({ response: { data: { imported_rows: 2, duplicate_rows: 1, skipped_rows: 3 } } })
-  view.api.openImportDialog('grades')
-  view.api.handleImportFileChange({ raw: file })
-  await view.api.handleImport()
-  assert.equal(view.calls[0][0], 'grades')
-  assert.match(view.api.importResultSummary.value, /更新 2 条.*重复 1 条.*无效 3 条/)
-  assert.match(view.successes[0], /产品等级已导入/)
 })
 
 test('invalid files only warn and never report an import success', () => {
@@ -189,22 +180,25 @@ test('unmounted view does not display a late successful import or read another s
   assert.equal(view.queries.length, 0)
 })
 
-test('API sends both import types as multipart without client date or operator', async () => {
+test('API sends price and history imports as multipart without client date or operator', async () => {
   const apiSource = fs.readFileSync(new URL('../src/api/operations/ebay/inventoryDetail.js', import.meta.url), 'utf8')
     .replace(/^import .*\n/gm, '').replace(/^export /gm, '')
   const sent = []
   const context = vm.createContext({ FormData, request: payload => { sent.push(payload); return Promise.resolve({}) } })
-  vm.runInContext(apiSource + '\nglobalThis.api = { importEbayInventoryPrices, importEbayInventoryGrades }', context)
+  vm.runInContext(apiSource + '\nglobalThis.api = { importEbayInventoryPrices, importEbayInventoryHistory }', context)
   const workbook = new Blob(['test-data'])
   await context.api.importEbayInventoryPrices(workbook)
-  await context.api.importEbayInventoryGrades(workbook)
-  assert.deepEqual(sent.map(item => item.url), ['/finance/ebay-inventory-detail/prices/import', '/finance/ebay-inventory-detail/grades/import'])
+  await context.api.importEbayInventoryHistory(workbook)
+  // 等级导入接口已随计算等级下线，这里只剩单价与历史两条上传链路。
+  assert.deepEqual(sent.map(item => item.url),
+    ['/finance/ebay-inventory-detail/prices/import', '/finance/ebay-inventory-detail/history/import'])
   for (const item of sent) {
     assert.equal(item.method, 'post')
     assert.deepEqual([...item.data.keys()], ['file'])
     assert.equal(await item.data.get('file').text(), 'test-data')
     assert.equal(item.headers.repeatSubmit, false)
     assert.equal(item.headers['Content-Type'], 'multipart/form-data')
-    assert.equal(item.timeout, 120000)
   }
+  // 历史文件上限50MB，超时本来就比单价长，按各自接口校验而不是写死同一个值。
+  assert.deepEqual(sent.map(item => item.timeout), [120000, 300000])
 })

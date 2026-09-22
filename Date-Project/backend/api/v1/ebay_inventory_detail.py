@@ -14,7 +14,7 @@ from backend.services import ebay_inventory_pivot_service as pivot_service
 from backend.services import ebay_inventory_history_import_service as history_import_service
 from backend.services.ebay_inventory_pivot_export_service import export_pivot
 from backend.services.ebay_inventory_detail_export_service import EXCEL_CONTENT_TYPE, export_inventory
-from backend.services.ebay_inventory_grade_parser import MAX_FILE_BYTES
+from backend.services.ebay_inventory_workbook import MAX_FILE_BYTES
 
 LOG = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/finance/ebay-inventory-detail", dependencies=[Depends(require_internal_access)])
@@ -113,22 +113,6 @@ def export_history(start_date: str | None = Query(None, max_length=10), end_date
         })
     except Exception as exc:
         raise _failure(exc, "历史透视导出") from exc
-
-
-@router.post("/grades/import")
-async def import_grades(request: Request, file: UploadFile = File(...), operator: str | None = Query(None, max_length=64)):
-    # 有界读取，避免一次read()先把任意大文件装入内存；解析/写库放线程池。
-    filename = file.filename or "grades.xlsx"
-    try:
-        content = await file.read(MAX_FILE_BYTES + 1)
-        if len(content) > MAX_FILE_BYTES:
-            raise ValueError("等级文件不能超过10MB")
-        result = await run_in_threadpool(service.import_grades, content, filename, operator)
-        return success_response(result, request_id=request.state.request_id, message="等级导入完成")
-    except Exception as exc:
-        raise _failure(exc, "等级导入") from exc
-    finally:
-        await file.close()
 
 
 @router.post("/prices/import")

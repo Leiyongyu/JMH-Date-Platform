@@ -13,7 +13,7 @@ from openpyxl import load_workbook
 
 from backend.repositories import ebay_inventory_pivot_repository as repository
 from backend.repositories.performance_repository import named_lock
-from backend.services.ebay_inventory_grade_parser import ERROR_VALUES, WORKBOOK_ERRORS
+from backend.services.ebay_inventory_workbook import ERROR_VALUES, WORKBOOK_ERRORS
 
 MAX_FILE_BYTES = 50 * 1024 * 1024
 SHEETS = {"库存明细持续更新-US": "美国", "库存明细持续更新-DE": "德国", "库存明细持续更新-UK": "英国"}

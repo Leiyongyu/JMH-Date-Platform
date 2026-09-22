@@ -123,15 +123,6 @@ public class EbayInventoryDetailController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayInventoryDetail:import')")
-    @Log(title = "Ebay库存明细产品等级导入", businessType = BusinessType.IMPORT)
-    @PostMapping("/grades/import")
-    public AjaxResult importGrades(@RequestParam("file") MultipartFile file,
-            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
-    {
-        return success(client.importGrades(file, getUsername(), requestId).get("data"));
-    }
-
-    @PreAuthorize("@ss.hasPermi('operations:ebayInventoryDetail:import')")
     @Log(title = "Ebay库存明细产品单价导入", businessType = BusinessType.IMPORT)
     @PostMapping("/prices/import")
     public AjaxResult importPrices(@RequestParam("file") MultipartFile file,

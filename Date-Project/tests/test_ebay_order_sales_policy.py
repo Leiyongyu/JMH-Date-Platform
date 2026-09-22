@@ -96,7 +96,7 @@ def test_actual_sales_ctes_exclude_voided_and_upper_date_boundary():
     assert params == (date(2026, 8, 22), date(2026, 9, 21), date(2026, 6, 1), date(2026, 9, 1))
     db = sqlite3.connect(":memory:")
     try:
-        db.execute("CREATE TABLE dwd_ebay_sku_analysis_order (site_name TEXT,inventory_sku TEXT,payment_time TEXT,purchase_quantity NUMERIC,shipping_status TEXT)")
+        db.execute("CREATE TABLE dwd_ebay_sku_analysis_order (site_name TEXT,inventory_sku TEXT,payment_time TEXT,purchase_quantity NUMERIC,shipping_status TEXT,order_profit_cny NUMERIC,paid_amount_cny NUMERIC,refund_amount_cny NUMERIC)")
         entries = [
             ("2026-08-21 23:59:59", 100, "已发货"),
             ("2026-08-22 00:00:00", 2, "已发货"),
@@ -110,7 +110,7 @@ def test_actual_sales_ctes_exclude_voided_and_upper_date_boundary():
             ("2026-08-31 23:59:59", 13, "已发货"),
             ("2026-07-01 00:00:00", 900, "已作废"),
         ]
-        db.executemany("INSERT INTO dwd_ebay_sku_analysis_order VALUES ('德国','DAS-10053-0121',?,?,?)", entries)
+        db.executemany("INSERT INTO dwd_ebay_sku_analysis_order VALUES ('德国','DAS-10053-0121',?,?,?,0,0,0)", entries)
         # Execute the production SELECT bodies, not a separately rewritten predicate.
         for name, bounds, expected in [
             ("recent_sales", params[:2], 23),
@@ -119,6 +119,8 @@ def test_actual_sales_ctes_exclude_voided_and_upper_date_boundary():
             body = sql.split(name + " AS (", 1)[1].split("\n        ),", 1)[0]
             body = body.replace("%s", "?").replace("%%", "%")
             actual = db.execute(body, tuple(str(day) for day in bounds)).fetchall()
-            assert actual == [("德国", "DAS-10053-0121", expected)]
+            # 本用例只校验作废过滤与日期边界；月度CTE另外带的利润/销售额列
+            # 由利润率用例覆盖，这里不比对列数。
+            assert [row[:3] for row in actual] == [("德国", "DAS-10053-0121", expected)]
     finally:
         db.close()

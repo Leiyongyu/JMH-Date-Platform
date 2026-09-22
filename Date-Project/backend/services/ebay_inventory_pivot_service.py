@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 
+from backend.repositories import ebay_inventory_detail_repository as detail_repository
 from backend.repositories import ebay_inventory_pivot_repository as repository
 from backend.repositories.performance_repository import named_lock
 from backend.services.ebay_inventory_detail_service import CHINA, load_calculated_inventory
@@ -68,12 +69,15 @@ def capture_snapshot(expected_inventory_batch: str | None = None, trigger_type="
     with named_lock("inventory:ebay-pivot") as acquired:
         if not acquired:
             raise ValueError("历史透视正在生成，请稍后重试")
-        items, metadata, warnings = load_calculated_inventory()
+        items, metadata, warnings, sales_candidates = load_calculated_inventory()
         batch = metadata.get("inventory_batch_id")
         if not batch or not items:
             raise ValueError("没有可用的成功库存快照，不生成空白历史")
         if expected_inventory_batch and expected_inventory_batch != batch:
             raise ValueError("库存批次已变化，未将其他批次误记为本次任务历史")
+        # 重新计算同时抬高历史最大月销高水位：只升不降，由SQL的GREATEST保证。
+        # 放在写快照之前，快照里的等级与页面下次看到的保持同一口径。
+        detail_repository.raise_max_monthly_sales(sales_candidates)
         groups = aggregate_inventory(items)
         generated = datetime.now(CHINA)
         stat_date = generated.date()

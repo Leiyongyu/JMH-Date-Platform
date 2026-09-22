@@ -22,9 +22,9 @@ test('sales help excludes voided rows and describes calendar days instead of the
   assert.match(inventoryColumnHelp.average_monthly_sales_3m.formula, /排除.*已作废/)
 })
 
-test('all 30 columns have source API, source table, formula and empty handling', () => {
-  assert.equal(columnKeys.length, 30)
-  assert.equal(new Set(columnKeys).size, 30)
+test('all 32 columns have source API, source table, formula and empty handling', () => {
+  assert.equal(columnKeys.length, 32)
+  assert.equal(new Set(columnKeys).size, 32)
   assert.deepEqual(Object.keys(inventoryColumnHelp).sort(), [...columnKeys].sort())
   for (const key of columnKeys) {
     for (const field of ['sourceApi', 'sourceTable', 'formula', 'emptyHandling']) {
@@ -90,7 +90,12 @@ test('stock lineage uses only the latest successful weekly batch and preserves w
 
 test('lineage distinguishes Excel imports, reserved fields and monetary missing values', () => {
   assert.match(inventoryColumnHelp.sales_qty_30d.sourceApi, /Excel.*非 eBay 在线销量接口/)
-  assert.match(inventoryColumnHelp.grade.sourceApi, /Excel等级表导入/)
+  // 等级不再上传，改为由历史最大月销与利润率算出，因此不再是Excel来源。
+  assert.match(inventoryColumnHelp.grade.sourceApi, /不再需要上传等级表/)
+  assert.match(inventoryColumnHelp.grade.formula, /历史最大月销≤4/)
+  assert.match(inventoryColumnHelp.grade.emptyHandling, /不会判为E/)
+  assert.match(inventoryColumnHelp.profit_rate.formula, /order_profit_cny/)
+  assert.match(inventoryColumnHelp.max_monthly_sales.formula, /当月尚未结束不参与/)
   assert.match(inventoryColumnHelp.owner.sourceApi, /Excel/)
   assert.match(inventoryColumnHelp.owner.emptyHandling, /未分配/)
   assert.match(inventoryColumnHelp.procurement_plan_quantity.sourceApi, /业务默认值/)

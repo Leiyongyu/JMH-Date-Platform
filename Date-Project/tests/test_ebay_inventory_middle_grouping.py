@@ -8,7 +8,7 @@ from openpyxl import load_workbook
 from backend.services import ebay_inventory_detail_service as service
 from backend.services import ebay_inventory_detail_export_service as export
 from backend.services import ebay_inventory_pivot_service as pivot
-from test_ebay_inventory_detail import isolated, source, rent
+from test_ebay_inventory_detail import graded, isolated, source, rent
 
 
 def product(sku="DAS-10053-0121", site="英国", **extra):
@@ -149,18 +149,52 @@ def test_stable_representative_alias_filters_keep_whole_group_and_sort_before_pa
     assert service.list_inventory(page_size=1)["items"][0] == first["items"][0]
 
 
-def test_grade_fills_from_alias_and_future_conflicts_are_visible(isolated, monkeypatch):
-    a = product(grade=None)
-    b = product(sku="DAS-10053-0121-YXQ", grade="S")
-    isolated([a, b])
-    assert service.list_inventory()["items"][0]["grade"] == "S"
-    a["grade"] = "A"
-    monkeypatch.setattr(service, "_ebay_assignment", lambda sku, *args: ("甲" if sku.endswith("YXQ") else "乙", "BRAND"))
+def test_merged_grade_recalculates_from_pooled_profit_and_pooled_monthly_sales(isolated):
+    """合并行的等级必须用合计重算，不能取任一成员SKU的等级。
+
+    两个成员各自 K=10、J=0.25（单独看都是A）；合并后同月销量相加 K=20，
+    利润率仍是 50/200=0.25，落到 K<=29 档 → 仍是A。关键是等级来自合计值，
+    而不是从成员那里继承。
+    """
+    a = product(**graded("A"))
+    b = product(sku="DAS-10053-0121-YXQ", **graded("A"))
     isolated([a, b])
     row = service.list_inventory()["items"][0]
+    assert row["merged_sku_count"] == 2
+    assert row["max_monthly_sales"] == "20"        # 10+10，同一自然月相加
+    assert row["profit_rate"] == "0.25"            # 50/200，不是两个0.25取平均
+    assert row["grade"] == "A"
+
+
+def test_merged_grade_can_differ_from_every_member_grade(isolated):
+    """成员单看都不是S，合并后销量够高就该评S；这正是不能继承成员等级的原因。"""
+    a = product(**graded("C"))                      # K=10, J=0.15 → C
+    b = product(sku="DAS-10053-0121-YXQ", **graded("A"))   # K=10, J=0.25 → A
+    isolated([a, b])
+    row = service.list_inventory()["items"][0]
+    assert row["max_monthly_sales"] == "20"
+    assert row["profit_rate"] == "0.2"             # (15+25)/(100+100)
+    assert row["grade"] == "A"                     # K<=29 且 J>=0.2
+
+
+def test_zero_sales_amount_gives_no_grade_instead_of_lowest_grade(isolated):
+    """三月销售额为0时除不出利润率，页面显示--，不能当成"利润率低"评到E。"""
+    isolated([product(three_month_profit_cny=Decimal("0"),
+                      three_month_paid_amount_cny=Decimal("0"))])
+    row = service.list_inventory()["items"][0]
+    assert row["profit_rate"] is None
     assert row["grade"] is None
-    assert row["owner"] == "未分配"
-    assert "等级不同" in row["merge_warning"] and "负责人不同" in row["merge_warning"]
+
+
+def test_history_max_month_takes_best_month_not_latest_or_total(isolated):
+    """跨月取最大，不是取最近一个月，也不是全部历史求和。"""
+    row_source = product()
+    isolated([row_source], monthly=[
+        {"site": row_source["site"], "sku": row_source["sku"], "stat_month": "2026-05", "sales_qty": Decimal("47")},
+        {"site": row_source["site"], "sku": row_source["sku"], "stat_month": "2026-06", "sales_qty": Decimal("12")},
+        {"site": row_source["site"], "sku": row_source["sku"], "stat_month": "2026-07", "sales_qty": Decimal("31")},
+    ])
+    assert service.list_inventory()["items"][0]["max_monthly_sales"] == "47"
 
 
 def test_duplicate_full_sku_is_not_silently_double_counted(isolated):
@@ -171,7 +205,7 @@ def test_duplicate_full_sku_is_not_silently_double_counted(isolated):
 
 def test_pivot_uses_shared_middle_price_for_all_merged_inventory(isolated):
     isolated([product(), {**product(sku="DAS-10053-0121-YXQ"), "imported_unit_price": None}])
-    rows, _, _ = service.load_calculated_inventory()
+    rows, _, _, _ = service.load_calculated_inventory()
     assert rows[0]["missing_price_sku_count"] == 0
     group = pivot.aggregate_inventory(rows)[0]
     assert group["sku_count"] == 1
@@ -182,7 +216,7 @@ def test_pivot_uses_shared_middle_price_for_all_merged_inventory(isolated):
 def test_pivot_keeps_missing_price_count_when_no_middle_price_exists(isolated):
     isolated([{**product(), "imported_unit_price": None},
               {**product(sku="DAS-10053-0121-YXQ"), "imported_unit_price": None}])
-    rows, _, _ = service.load_calculated_inventory()
+    rows, _, _, _ = service.load_calculated_inventory()
     assert rows[0]["missing_price_sku_count"] == 2
     group = pivot.aggregate_inventory(rows)[0]
     assert group["sku_count"] == 1
@@ -192,7 +226,7 @@ def test_pivot_keeps_missing_price_count_when_no_middle_price_exists(isolated):
 
 def test_pivot_and_selected_excel_use_the_same_merged_values(isolated, monkeypatch):
     isolated([product(), product(sku="DAS-10053-0121-YXQ"), product(site="德国")])
-    rows, _, _ = service.load_calculated_inventory()
+    rows, _, _, _ = service.load_calculated_inventory()
     groups = pivot.aggregate_inventory(rows)
     assert sum(group["sku_count"] for group in groups) == 2
     assert sum(group["overseas_total_quantity"] for group in groups) == Decimal(90)
@@ -219,3 +253,64 @@ def test_old_history_not_rewritten_and_grouped_history_alias_search_is_read_only
                   "merged_sku_count": 2, "sales_qty_30d": Decimal(24)}]
     row = service.list_inventory(stat_date="2026-09-16", sku="10053")["items"][0]
     assert row["sales_qty_30d"] == "24"
+
+
+def floor(site, key_type, key, value):
+    return {"site": site, "product_key_type": key_type, "product_key": key,
+            "max_monthly_sales": Decimal(value)}
+
+
+def test_high_water_wins_when_orders_no_longer_contain_the_peak_month(isolated):
+    """只升不降：订单表里算得到的最大值低于已存高水位时，保持高水位。
+
+    业务场景就是这个——订单表只有2026-05起的数据，更早的历史高点只存在
+    于高水位表里，重算不能把它抹掉。
+    """
+    row = product(sku="DAS-10756-0121", site="德国")
+    isolated([row], monthly=[{"site": "德国", "sku": row["sku"], "stat_month": "2026-06",
+                              "sales_qty": Decimal("35")}],
+             max_floor=[floor("德国", "MIDDLE", "10756", "197")])
+    item = service.list_inventory()["items"][0]
+    assert item["max_monthly_sales"] == "197"
+    assert item["max_monthly_sales_source"] == "HISTORY_HIGH_WATER"
+
+
+def test_current_orders_win_when_they_exceed_the_stored_high_water(isolated):
+    row = product(sku="DAS-10756-0121", site="德国")
+    isolated([row], monthly=[{"site": "德国", "sku": row["sku"], "stat_month": "2026-06",
+                              "sales_qty": Decimal("240")}],
+             max_floor=[floor("德国", "MIDDLE", "10756", "197")])
+    item = service.list_inventory()["items"][0]
+    assert item["max_monthly_sales"] == "240"
+    assert item["max_monthly_sales_source"] == "ORDERS"
+
+
+def test_high_water_raises_the_grade_it_would_otherwise_lower(isolated):
+    """销量偏低会把等级整体拉低，这正是要存高水位的原因。"""
+    inputs = {"three_month_profit_cny": Decimal("21"), "three_month_paid_amount_cny": Decimal("100")}
+    row = product(sku="DAS-10756-0121", site="德国", **inputs)
+    monthly = [{"site": "德国", "sku": row["sku"], "stat_month": "2026-06", "sales_qty": Decimal("3")}]
+    isolated([row], monthly=monthly)
+    assert service.list_inventory()["items"][0]["grade"] == "D"   # K=3 → ≤4档，0.21≥0.15
+    isolated([row], monthly=monthly, max_floor=[floor("德国", "MIDDLE", "10756", "197")])
+    assert service.list_inventory()["items"][0]["grade"] == "S"   # K=197 → ≥30档，0.21≥0.2
+
+
+def test_high_water_key_falls_back_to_full_sku_without_a_numeric_middle_code(isolated):
+    row = product(sku="PLAIN", site="德国")
+    isolated([row], monthly=[], max_floor=[floor("德国", "SKU", "PLAIN", "88")])
+    assert service.list_inventory()["items"][0]["max_monthly_sales"] == "88"
+
+
+def test_high_water_candidates_use_merged_key_and_earliest_peak_month(isolated):
+    a = product(sku="BMW-10053-0121", site="德国")
+    b = product(sku="JMH-10053-0121", site="德国")
+    isolated([a, b], monthly=[
+        {"site": "德国", "sku": a["sku"], "stat_month": "2026-06", "sales_qty": Decimal("20")},
+        {"site": "德国", "sku": b["sku"], "stat_month": "2026-06", "sales_qty": Decimal("20")},
+        {"site": "德国", "sku": a["sku"], "stat_month": "2026-07", "sales_qty": Decimal("40")},
+    ])
+    _, _, _, candidates = service.load_calculated_inventory()
+    assert candidates == [{"site": "德国", "product_key_type": "MIDDLE", "product_key": "10053",
+                           # 06月两个SKU相加也是40，与07月并列；取更早的月份保证可重复。
+                           "max_monthly_sales": Decimal("40"), "peak_month": "2026-06"}]

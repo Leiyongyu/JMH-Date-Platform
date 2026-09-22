@@ -11,7 +11,8 @@ from backend.repositories import ebay_inventory_detail_repository as repository
 from backend.repositories import ebay_inventory_price_repository as price_repository
 from backend.repositories import ebay_inventory_pivot_repository as history_repository
 from backend.repositories import inventory_report_etl_repository as owner_repository
-from backend.services.ebay_inventory_grade_parser import normalize_site, parse_grades
+from backend.services.ebay_inventory_grade_rule import calculate_grade
+from backend.services.ebay_inventory_workbook import normalize_site
 from backend.services.ebay_inventory_price_parser import parse_prices
 from backend.services.inventory_report_etl_service import (
     _ebay_assignment, _ebay_product_sku_map, _ebay_rule_map,
@@ -32,6 +33,7 @@ SORT_FIELDS = set(PLACEHOLDER_FIELDS + QUANTITY_FIELDS + PRICE_FIELDS) | {
     "site", "sku", "brand", "product_name", "grade", "owner", "average_daily_sales_30d", "average_monthly_sales_3m",
     "in_stock_sales_ratio", "total_stock_sales_ratio", "total_stock_sales_ratio_months", "warehouse_rent_30d_cny",
     "overseas_max_age_days", "purchase_quantity", "total_duration_months", "last_sold_at",
+    "profit_rate", "max_monthly_sales",
 }
 
 
@@ -169,8 +171,66 @@ def _rent_totals(rent_rows, rates, rate_month):
     return totals, errors, warnings
 
 
-def _build_items(source_rows, rent_rows, rates, metadata, owner_rules, sku_map):
+def _monthly_sales_map(monthly_rows) -> dict[tuple, dict[str, Decimal]]:
+    """按站点+完整SKU归集每个自然月的销量，供合并后取历史最大月销。"""
+    result: dict[tuple, dict[str, Decimal]] = defaultdict(dict)
+    for row in monthly_rows or []:
+        month = _text(row.get("stat_month"))
+        if not month:
+            continue
+        key = (_text(row.get("site")), _text(row.get("sku")).upper())
+        months = result[key]
+        months[month] = months.get(month, ZERO) + _decimal(row.get("sales_qty"))
+    return result
+
+
+def max_monthly_sales_candidates(items) -> list[dict[str, Any]]:
+    """把本次算出的各合并行月度峰值整理成高水位候选，低于已存值的由SQL丢弃。
+
+    peak_month 取达到该峰值的自然月；多个月并列时取最早的那个，保证同样的
+    输入总是写出同一个月份，重复执行"重新计算"不会让月份来回跳。
+    """
+    candidates = []
+    for item in items:
+        months = item.get("monthly_sales") or {}
+        if not months:
+            continue
+        peak = max(months.values())
+        if peak <= ZERO:
+            continue
+        site, key_type, key = _product_key(item["site"], item["sku"])
+        candidates.append({
+            "site": site, "product_key_type": key_type, "product_key": key,
+            "max_monthly_sales": peak,
+            "peak_month": min(month for month, value in months.items() if value == peak),
+        })
+    return candidates
+
+
+def _max_sales_floor_map(floor_rows) -> dict[tuple, Decimal]:
+    """高水位按站点+合并键归集，键与 _product_key 同构。"""
+    result: dict[tuple, Decimal] = {}
+    for row in floor_rows or []:
+        key = (_text(row.get("site")), _text(row.get("product_key_type")).upper(),
+               _text(row.get("product_key")))
+        if not key[0] or key[1] not in {"MIDDLE", "SKU"} or not key[2]:
+            continue
+        value = _decimal(row.get("max_monthly_sales"))
+        if key not in result or value > result[key]:
+            result[key] = value
+    return result
+
+
+def _profit_rate(profit: Decimal, paid_amount: Decimal) -> Decimal | None:
+    """销售额为0时除不出比率，返回None；页面显示--，等级也不给评级。"""
+    return None if paid_amount == ZERO else profit / paid_amount
+
+
+def _build_items(source_rows, rent_rows, rates, metadata, owner_rules, sku_map,
+                 monthly_rows=None, max_floor_rows=None):
     """先按原SKU计算，再按站点+中间码汇总；筛选和分页必须在汇总之后。"""
+    monthly_sales = _monthly_sales_map(monthly_rows)
+    sales_floor = _max_sales_floor_map(max_floor_rows)
     aliases = defaultdict(set)
     for row in source_rows:
         aliases[(_text(row["site"]), rent_sku_key(row["sku"]))].add(_text(row["sku"]).upper())
@@ -220,11 +280,20 @@ def _build_items(source_rows, rent_rows, rates, metadata, owner_rules, sku_map):
         elif not has_rent:
             rent_warning = "没有谷仓仓租明细快照"
         rent_amount = None if rent_warning else rents.get(match_key, ZERO)
+        three_month_profit = _decimal(source.get("three_month_profit_cny"))
+        three_month_paid = _decimal(source.get("three_month_paid_amount_cny"))
+        profit_rate = _profit_rate(three_month_profit, three_month_paid)
+        months = monthly_sales.get((site, _text(sku).upper()), {})
+        max_monthly_sales = max(months.values()) if months else ZERO
         item = {
             "site": site, "sku": sku, "brand": sku.split("-", 1)[0].upper(),
             "sku_middle_code": sku_middle_code(sku),
             "product_name": _text(source.get("product_name")) or None,
-            "grade": _text(source.get("grade")) or None,
+            "monthly_sales": months,
+            "three_month_profit_cny": three_month_profit,
+            "three_month_paid_amount_cny": three_month_paid,
+            "profit_rate": profit_rate,
+            "max_monthly_sales": max_monthly_sales,
             "overseas_in_transit_quantity": overseas_transit,
             "overseas_sellable_quantity": overseas_available,
             "overseas_total_quantity": overseas_total,
@@ -259,6 +328,17 @@ def _build_items(source_rows, rent_rows, rates, metadata, owner_rules, sku_map):
         }
         items.append(item)
     items = _merge_product_items(items)
+    for item in items:
+        # 历史最大月销只升不降：订单表里能算到的是"现有月份的最大值"，
+        # 早于订单表起始月的历史高点只存在于高水位表里，两者取大。
+        # 等级必须在取完下限之后再算，否则会按偏低的销量评级。
+        floor = sales_floor.get(_product_key(item["site"], item["sku"]))
+        if floor is not None and floor > item["max_monthly_sales"]:
+            item["max_monthly_sales"] = floor
+            item["max_monthly_sales_source"] = "HISTORY_HIGH_WATER"
+        else:
+            item["max_monthly_sales_source"] = "ORDERS"
+        item["grade"] = calculate_grade(item["max_monthly_sales"], item["profit_rate"])
     missing_prices = sum(item["price_warning"] is not None for item in items)
     if missing_prices:
         warnings.append(f"{missing_prices}条库存记录未匹配有效上传单价；缺失货值不计入汇总，可悬浮查看原因")
@@ -289,15 +369,26 @@ def _merge_product_items(items):
         row["missing_rent_key_count"] = len({item["rent_match_key"] for item in members
                                              if item["warehouse_rent_30d_cny"] is None})
         row["brand_aliases"] = sorted({item["brand"] for item in members if item.get("brand")})
-        row["grade_aliases"] = sorted({item["grade"] for item in members if item.get("grade")})
         row["merge_warning"] = None
         if len(members) == 1:
             result.append(row)
             continue
 
         notes = []
-        for field in QUANTITY_FIELDS + ("sales_qty_3m",):
+        for field in QUANTITY_FIELDS + ("sales_qty_3m", "three_month_profit_cny",
+                                        "three_month_paid_amount_cny"):
             row[field] = sum((item[field] for item in members), ZERO)
+        # 利润率按合并后的总利润/总销售额重算，不能对各SKU的比率取平均。
+        row["profit_rate"] = _profit_rate(row["three_month_profit_cny"],
+                                          row["three_month_paid_amount_cny"])
+        # 历史最大月销：先把同中间码各SKU在同一自然月的销量相加，再取最大的那个月，
+        # 即"这个产品卖得最好的一个月卖了多少"；不是各SKU峰值相加或取其中最大。
+        merged_months: dict[str, Decimal] = {}
+        for item in members:
+            for month, quantity in (item.get("monthly_sales") or {}).items():
+                merged_months[month] = merged_months.get(month, ZERO) + quantity
+        row["monthly_sales"] = merged_months
+        row["max_monthly_sales"] = max(merged_months.values()) if merged_months else ZERO
         sales, sales_3m = row["sales_qty_30d"], row["sales_qty_3m"]
         row["average_daily_sales_30d"] = sales / Decimal(30)
         row["average_monthly_sales_3m"] = sales_3m / Decimal(3)
@@ -311,9 +402,6 @@ def _merge_product_items(items):
             values = [item[field] for item in members if item.get(field) is not None]
             row[field] = max(values) if values else None
         row["product_name"] = next((item["product_name"] for item in members if item.get("product_name")), None)
-        row["grade"] = row["grade_aliases"][0] if len(row["grade_aliases"]) == 1 else None
-        if len(row["grade_aliases"]) > 1:
-            notes.append("合并SKU的等级不同：" + "、".join(row["grade_aliases"]) + "，等级显示--")
         owners = {_text(item.get("owner")) or "未分配" for item in members}
         if len(owners) > 1:
             row["owner"], row["owner_match_source"] = "未分配", "MERGED_CONFLICT"
@@ -370,12 +458,17 @@ def _round_item(item: dict) -> dict:
 
 def load_calculated_inventory():
     """Unfiltered, unrounded Decimal rows shared by the live view and daily history."""
-    source_rows, metadata, rent_rows, rates = repository.read_snapshot()
+    source_rows, metadata, rent_rows, rates, monthly_rows, max_floor_rows = repository.read_snapshot()
     owner_month = datetime.now(CHINA).strftime("%Y-%m")
     raw_rules = owner_repository.owner_rules(owner_month, "ebay") if source_rows else []
     rules = _ebay_rule_map(raw_rules)
     sku_map = _ebay_product_sku_map(owner_month, include_next=False) if source_rows else {}
-    items, warnings = _build_items(source_rows, rent_rows, rates, metadata, rules, sku_map)
+    items, warnings = _build_items(source_rows, rent_rows, rates, metadata, rules, sku_map,
+                                   monthly_rows, max_floor_rows)
+    # 先取高水位候选，再剥掉月度明细：它是dict，既不能进JSON响应，也不能进历史快照。
+    sales_candidates = max_monthly_sales_candidates(items)
+    for item in items:
+        item.pop("monthly_sales", None)
     if "inventory_batch_id" in metadata and not metadata["inventory_batch_id"]:
         warnings.append("没有可用的成功周报库存快照，请先执行仓位库存明细周报任务；不回退旧库存表")
     if source_rows and not raw_rules:
@@ -383,7 +476,7 @@ def load_calculated_inventory():
     metadata = {**metadata, "owner_rule_month": owner_month,
                 "grouping_policy": "site_middle_code_v1", "source_sku_count": len(source_rows),
                 "product_group_count": len(items)}
-    return items, metadata, warnings
+    return items, metadata, warnings, sales_candidates
 
 
 def _filter_values(value, label, *, uppercase=False, numeric=False):
@@ -424,18 +517,17 @@ def list_inventory(*, site=None, sku=None, brand=None, grade=None, page=1, page_
         items, metadata, warnings = history_repository.read_inventory_day(stat_date)
     else:
         # Retain the internal live calculation path; the page explicitly requests history.
-        items, metadata, warnings = load_calculated_inventory()
+        items, metadata, warnings, _ = load_calculated_inventory()
     sites = sorted({_text(row["site"]) for row in items})
     brands = sorted({value for row in items for value in row.get("brand_aliases", [row["brand"]]) if value})
-    grades = sorted({value for row in items for value in row.get("grade_aliases", [row.get("grade")]) if value})
+    grades = sorted({_text(row.get("grade")) for row in items if row.get("grade")})
     site_filter = normalize_site(site) if site else ""
     items = [row for row in items
              if (not site_filter or row["site"] == site_filter)
              and (not sku_filter or sku_filter.intersection(_row_middle_codes(row)))
              and (not brand_filter or brand_filter.intersection(
                  _text(value).upper() for value in (row.get("brand_aliases") or [row.get("brand")])))
-             and (not grade_filter or grade_filter.intersection(
-                 _text(value) for value in (row.get("grade_aliases") or [row.get("grade")])))]
+             and (not grade_filter or _text(row.get("grade")) in grade_filter)]
     if selected_keys:
         def selection_key(row):
             return (normalize_site(row["site"]), _text(row.get("sku")).upper(), _text(row.get("record_key")))
@@ -470,15 +562,6 @@ def list_inventory(*, site=None, sku=None, brand=None, grade=None, page=1, page_
                          "rent_rate_month": metadata.get("rent_pull_month"), "warnings": warnings,
                          "row_scope": "指定统计日期冻结明细" if stat_date else "最新成功周报批次中七个eBay仓库的站点+中间码汇总；无有效中间码保留完整SKU"},
             "summary": _round_item(summary)}
-
-
-def import_grades(content: bytes, filename: str, operator: str | None = None):
-    result = parse_grades(content, filename)
-    filename = PurePosixPath(filename.replace("\\", "/")).name[:255]
-    rows = result.pop("rows")
-    imported = repository.upsert_grades(rows, _text(operator)[:64] or "SYSTEM", filename)
-    return {"imported_rows": imported, **result,
-            "message": "按站点+完整SKU更新有效等级；错误行和文件未包含的SKU保留原等级"}
 
 
 def import_prices(content: bytes, filename: str, operator: str | None = None):

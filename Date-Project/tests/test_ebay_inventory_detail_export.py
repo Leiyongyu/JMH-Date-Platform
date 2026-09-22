@@ -8,7 +8,7 @@ from openpyxl import load_workbook
 from backend.services import ebay_inventory_detail_export_service as export_service
 
 
-def test_export_contains_all_30_columns_numeric_cells_and_safe_text(monkeypatch):
+def test_export_contains_all_32_columns_numeric_cells_and_safe_text(monkeypatch):
     data = {"items": [{
         "site": "德国", "sku": "=1+1", "brand": "FRD", "grade": "A",
         "sku_middle_code": "00123",
@@ -31,7 +31,7 @@ def test_export_contains_all_30_columns_numeric_cells_and_safe_text(monkeypatch)
     workbook = load_workbook(BytesIO(content), data_only=False)
     try:
         sheet = workbook["Ebay库存明细"]
-        assert sheet.max_column == len(export_service.COLUMNS) == 30
+        assert sheet.max_column == len(export_service.COLUMNS) == 32
         assert sheet.max_row == 2
         assert tuple(cell.value for cell in sheet[1]) == tuple(column[1] for column in export_service.COLUMNS)
         columns = {field: index for index, (field, _, _) in enumerate(export_service.COLUMNS, 1)}
@@ -61,7 +61,7 @@ def test_export_contains_all_30_columns_numeric_cells_and_safe_text(monkeypatch)
         assert sheet.cell(2, columns["unit_price_tax"]).value is None
         assert sheet.cell(2, columns["total_duration_months"]).value is None
         assert sheet.freeze_panes == "C2"
-        assert sheet.auto_filter.ref == "A1:AD2"
+        assert sheet.auto_filter.ref == "A1:AF2"
         assert sheet.cell(2, columns["stat_date"]).value == "2026-09-16"
         assert sheet.page_setup.paperSize == 8  # OOXML A3, including write-only exports.
         assert sheet.page_setup.orientation == "landscape"
@@ -204,7 +204,7 @@ def test_overseas_highest_age_exports_integer_numeric_or_blank(monkeypatch, valu
     try:
         columns = {field: index for index, (field, _, _) in enumerate(export_service.COLUMNS, 1)}
         cell = workbook.active.cell(2, columns["overseas_max_age_days"])
-        assert workbook.active.max_column == 30
+        assert workbook.active.max_column == 32
         if value is None:
             assert cell.value is None
         else:

@@ -68,10 +68,22 @@ export const inventoryColumnHelp = {
     emptyHandling: '最新订单名称为空且产品资料没有唯一非空名称（缺失或名称冲突）时返回null，显示--。'
   },
   grade: {
-    sourceApi: 'Excel等级表导入，非外部接口。系统入口：POST /finance/ebay-inventory-detail/grades/import；文件包含SKU、站点、等级。',
-    sourceTable: 'date-project.ebay_inventory_detail_grade.grade',
-    formula: '按站点＋完整SKU匹配已导入等级，保留等级原值；不使用补货2.0的计算等级。导入只更新文件中的有效键。',
-    emptyHandling: '没有匹配等级时返回null，显示--；导入的无效行不覆盖已有等级。'
+    sourceApi: '派生字段，不再需要上传等级表；由本页的历史最大月销与利润率实时计算。',
+    sourceTable: '无独立配置表；输入为本页的 max_monthly_sales 与 profit_rate。',
+    formula: '按业务方公式分档：历史最大月销≤4时，利润率≥15%为D，否则E；≤9时依次为15%→C、10%→D、其余E；≤14时依次为30%/20%→A、18%→B、15%→C、10%/5%→D、其余E；≤19与≤29两档相同，依次为30%→S、20%→A、18%→B、15%/10%→C、5%→D、其余E；≥30时依次为20%→S、18%→B、15%/10%→C、5%→D、其余E。区间为「销量≤n」与「利润率≥x」，边界值算在本档内。',
+    emptyHandling: '三个月销售额为0时利润率除不出来，等级显示--，不会判为E；历史无销量按0计，落入最低销量档。'
+  },
+  profit_rate: {
+    sourceApi: `派生字段，与补货2.0同一算式，复用订单来源：${orderImport}`,
+    sourceTable: `${orderTable}（order_profit_cny、paid_amount_cny、refund_amount_cny、shipping_status）`,
+    formula: '利润率＝近3个完整自然月的order_profit_cny总和 ÷（同期paid_amount_cny总和 − 发货状态含“已退款”的refund_amount_cny总和）。与补货2.0的算式一致，差别是本页按库存明细的统一约定排除发货状态含“已作废”的订单，因此同一SKU两页数值可能略有差异。返回原始比值，页面与Excel只设置百分比格式。',
+    emptyHandling: '分母为0（近三月无销售额）时返回null，显示--，不按0处理，也不参与等级评定。'
+  },
+  max_monthly_sales: {
+    sourceApi: `派生字段，复用销量来源：${orderImport}`,
+    sourceTable: `${orderTable}（payment_time、purchase_quantity）`,
+    formula: '历史最大月销＝按自然月汇总该商品的purchase_quantity后，取历史上最高的那个月份值，且只升不降。统计全部完整自然月，当月尚未结束不参与；排除发货状态包含“已作废”的订单；只统计当前库存中仍存在的站点＋SKU。该值另存于高水位表 dws_ebay_inventory_max_monthly_sales（按站点＋中间码，无合法中间码时按站点＋完整SKU），每次点击“重新计算”时用本次算出的月度峰值与已存值取较大者更新，因此订单表里已经看不到的历史高点不会被抹掉。',
+    emptyHandling: '从未售出且没有高水位记录时显示0，不显示--；0是真实的“没卖过”，会落入最低销量档参与等级评定。'
   },
   overseas_in_transit_quantity: {
     sourceApi: inventoryApi,
@@ -219,7 +231,9 @@ for (const key of sumFields) {
 }
 inventoryColumnHelp.brand.formula += ' 合并行展示代表SKU的品牌；品牌筛选可命中任一成员品牌，返回完整合并行。'
 inventoryColumnHelp.product_name.formula += ' 合并后按代表SKU排序取首个有值的名称。'
-inventoryColumnHelp.grade.formula += ' 合并行取唯一非空等级；成员等级不同则显示--并提示，不任意挑选。等级筛选命中任一成员后返回整组。'
+inventoryColumnHelp.grade.formula += ' 合并行用合计值重算等级，不继承任一成员SKU的等级：先得到合并后的利润率与历史最大月销，再套同一张分档表。'
+inventoryColumnHelp.profit_rate.formula += ' 合并行按成员利润之和÷成员销售额之和重算，不对各成员的比率取平均。'
+inventoryColumnHelp.max_monthly_sales.formula += ' 合并行先把同中间码各成员SKU在同一自然月的销量相加，再取最大的那个月，即“这个产品卖得最好的一个月卖了多少”，不是各成员峰值相加或取其中最大；高水位也按合并后的键保存，取值时与本次算出的峰值取较大者。'
 inventoryColumnHelp.owner.formula += ' 合并SKU负责人一致时保留；若将来出现不一致，合并行归入未分配并提示，不任意转移个人货值。'
 inventoryColumnHelp.overseas_max_age_days.formula += ' 最终在同站点＋中间码的成员SKU间取最大有效库龄。'
 inventoryColumnHelp.average_monthly_sales_3m.formula += ' 合并时先汇总所有成员的三月总销量，再除以3；不累加已舍入均销量。'

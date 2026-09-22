@@ -36,10 +36,6 @@ export function exportEbayInventoryDetail(data) {
   })
 }
 
-export function importEbayInventoryGrades(file) {
-  return importEbayInventoryFile('grades', file)
-}
-
 export function importEbayInventoryPrices(file) {
   return importEbayInventoryFile('prices', file)
 }

@@ -30,7 +30,7 @@ function harness(permissions = ['import', 'export']) {
   return { context, api: context.menu, exports, imports }
 }
 
-test('single split control compiles, with direct export and four menu actions', () => {
+test('single split control compiles, with direct export and three menu actions', () => {
   const result = compileTemplate({ source: descriptor.template.content, filename: file.pathname,
     id: 'transfer-menu-test', compilerOptions: { bindingMetadata: script.bindings } })
   assert.deepEqual(result.errors, [])
@@ -38,7 +38,9 @@ test('single split control compiles, with direct export and four menu actions', 
   assert.match(source, /class="transfer-primary"[\s\S]*?@click="handleExport"/)
   assert.match(source, /:disabled="exportUnavailable"/)
   assert.match(source, /<el-dropdown trigger="click" :disabled="transferBusy" @command="handleTransferCommand"/)
-  for (const name of ['export', 'grades', 'prices', 'history']) assert.match(source, new RegExp(`command="${name}"`))
+  for (const name of ['export', 'prices', 'history']) assert.match(source, new RegExp(`command="${name}"`))
+  // 等级改为计算字段后，导入产品等级入口已移除。
+  assert.doesNotMatch(source, /command="grades"/)
   assert.doesNotMatch(descriptor.template.content, /@click="openImportDialog\(/)
 })
 
@@ -46,7 +48,8 @@ test('each command dispatches to the existing action, unknown commands do nothin
   const h = harness()
   for (const command of ['export', 'grades', 'prices', 'history', 'unknown']) h.api.handleTransferCommand(command)
   assert.deepEqual(h.exports, [true])
-  assert.deepEqual(h.imports, ['grades', 'prices', 'history'])
+  // 'grades' 已下线，应与 'unknown' 一样被忽略，不能再触发导入。
+  assert.deepEqual(h.imports, ['prices', 'history'])
 })
 
 test('empty, not-ready and dirty results block export without blocking imports', () => {
@@ -68,9 +71,9 @@ test('permissions stay independent for menu visibility and dispatch', () => {
     assert.equal(h.api.canImportData.value, permissions.includes('import'))
     assert.equal(h.api.canExportData.value, permissions.includes('export'))
     h.api.handleTransferCommand('export')
-    for (const command of ['grades', 'prices', 'history']) h.api.handleTransferCommand(command)
+    for (const command of ['prices', 'history']) h.api.handleTransferCommand(command)
     assert.equal(h.exports.length, permissions.includes('export') ? 1 : 0)
-    assert.equal(h.imports.length, permissions.includes('import') ? 3 : 0)
+    assert.equal(h.imports.length, permissions.includes('import') ? 2 : 0)
   }
 })
 
@@ -78,7 +81,7 @@ test('loading, importing, exporting or recalculating disables every menu action'
   for (const field of ['loading', 'importing', 'exporting', 'recalculating']) {
     const h = harness()
     h.context[field].value = true
-    for (const command of ['export', 'grades', 'prices', 'history']) h.api.handleTransferCommand(command)
+    for (const command of ['export', 'prices', 'history']) h.api.handleTransferCommand(command)
     assert.equal(h.api.transferBusy.value, true)
     assert.equal(h.exports.length + h.imports.length, 0)
   }

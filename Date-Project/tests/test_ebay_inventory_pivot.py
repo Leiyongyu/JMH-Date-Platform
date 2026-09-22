@@ -179,7 +179,7 @@ def capture(monkeypatch):
     def load():
         assert state["held"]
         state["events"].append(("load",))
-        return state["rows"], metadata, ["one warning"]
+        return state["rows"], metadata, ["one warning"], state.get("candidates", [])
 
     def save(header, groups, inventory_items):
         assert state["held"]
@@ -193,6 +193,9 @@ def capture(monkeypatch):
     monkeypatch.setattr(service, "named_lock", lock)
     monkeypatch.setattr(service, "load_calculated_inventory", loader)
     monkeypatch.setattr(service.repository, "replace_day", saver)
+    raiser = MagicMock(side_effect=lambda rows: state["events"].append(("raise_high_water",)) or len(rows))
+    monkeypatch.setattr(service.detail_repository, "raise_max_monthly_sales", raiser)
+    state.update(raiser=raiser)
     state.update(loader=loader, saver=saver)
     return state
 
@@ -213,7 +216,10 @@ def test_capture_uses_generation_today_not_source_snapshot_day_and_lock_spans_sa
     assert result["snapshot_id"] == 42
     assert result["group_count"] == len(groups) == 1
     assert capture["events"] == [
-        ("lock", "inventory:ebay-pivot"), ("load",), ("save",), ("unlock", "inventory:ebay-pivot"),
+        # 抬高历史最大月销的写入也必须在同一把锁内，且在写快照之前完成，
+        # 否则快照里的等级会用旧下限，和页面下次看到的对不上。
+        ("lock", "inventory:ebay-pivot"), ("load",), ("raise_high_water",), ("save",),
+        ("unlock", "inventory:ebay-pivot"),
     ]
 
 
@@ -523,19 +529,19 @@ def test_shared_loader_returns_unfiltered_unrounded_decimal_rows_and_month_metad
     product_map = MagicMock(return_value=sku_map)
     build = MagicMock(return_value=(raw_items, []))
     monkeypatch.setattr(detail_service, "datetime", FrozenDatetime)
-    monkeypatch.setattr(detail_service.repository, "read_snapshot", lambda: (source, source_metadata, [], {}))
+    monkeypatch.setattr(detail_service.repository, "read_snapshot", lambda: (source, source_metadata, [], {}, [], []))
     monkeypatch.setattr(detail_service.owner_repository, "owner_rules", owner_rules)
     monkeypatch.setattr(detail_service, "_ebay_rule_map", rule_map)
     monkeypatch.setattr(detail_service, "_ebay_product_sku_map", product_map)
     monkeypatch.setattr(detail_service, "_build_items", build)
-    items, metadata, warnings = detail_service.load_calculated_inventory()
+    items, metadata, warnings, _ = detail_service.load_calculated_inventory()
     assert items is raw_items
     assert items[0]["overseas_sellable_value"] == D("0.004")
     assert len(items) == 2
     owner_rules.assert_called_once_with("2026-09", "ebay")
     rule_map.assert_called_once_with(raw_rules)
     product_map.assert_called_once_with("2026-09", include_next=False)
-    build.assert_called_once_with(source, [], {}, source_metadata, rules, sku_map)
+    build.assert_called_once_with(source, [], {}, source_metadata, rules, sku_map, [], [])
     assert metadata["owner_rule_month"] == "2026-09"
     assert metadata["rent_pull_month"] == "2026-08"
     assert source_metadata == original_metadata
@@ -546,10 +552,10 @@ def test_shared_loader_empty_snapshot_skips_owner_queries_and_emits_warning(monk
     owner_rules = MagicMock()
     sku_map = MagicMock()
     monkeypatch.setattr(detail_service.repository, "read_snapshot",
-                        lambda: ([], {"inventory_batch_id": None}, [], {}))
+                        lambda: ([], {"inventory_batch_id": None}, [], {}, [], []))
     monkeypatch.setattr(detail_service.owner_repository, "owner_rules", owner_rules)
     monkeypatch.setattr(detail_service, "_ebay_product_sku_map", sku_map)
-    items, metadata, warnings = detail_service.load_calculated_inventory()
+    items, metadata, warnings, _ = detail_service.load_calculated_inventory()
     assert items == []
     owner_rules.assert_not_called()
     sku_map.assert_not_called()

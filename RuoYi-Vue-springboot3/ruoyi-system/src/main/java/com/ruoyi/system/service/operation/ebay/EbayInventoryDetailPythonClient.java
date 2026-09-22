@@ -65,11 +65,6 @@ public class EbayInventoryDetailPythonClient extends PythonHttpSupport
         }
     }
 
-    public Map<String, Object> importGrades(MultipartFile file, String operator, String requestId)
-    {
-        return importFile("/grades/import", "产品等级", file, operator, requestId);
-    }
-
     public Map<String, Object> importPrices(MultipartFile file, String operator, String requestId)
     {
         return importFile("/prices/import", "产品单价", file, operator, requestId);

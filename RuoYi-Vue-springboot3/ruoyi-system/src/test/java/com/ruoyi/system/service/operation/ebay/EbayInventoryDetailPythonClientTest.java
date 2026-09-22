@@ -124,7 +124,7 @@ class EbayInventoryDetailPythonClientTest
     }
 
     @Test
-    void priceImportPreservesServerValidationErrorAndGradeImportRoute()
+    void priceImportPreservesServerValidationErrorAndPostsOperator()
     {
         var file = new MockMultipartFile("file", "prices.xlsx", "application/octet-stream", new byte[] { 80, 75 });
         responseStatus = 400;
@@ -134,9 +134,9 @@ class EbayInventoryDetailPythonClientTest
 
         responseStatus = 200;
         responseBody = "{\"code\":0,\"data\":{\"imported_rows\":1}}".getBytes(StandardCharsets.UTF_8);
-        client.importGrades(file, "grade-user", "grade-trace");
-        assertEquals("/api/v1/finance/ebay-inventory-detail/grades/import", receivedPath);
-        assertEquals("grade-user", query().get("operator"));
+        client.importPrices(file, "price-user", "price-trace");
+        assertEquals("/api/v1/finance/ebay-inventory-detail/prices/import", receivedPath);
+        assertEquals("price-user", query().get("operator"));
     }
 
     @Test
