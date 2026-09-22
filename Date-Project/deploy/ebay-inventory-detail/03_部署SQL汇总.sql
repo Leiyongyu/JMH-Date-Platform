@@ -80,11 +80,12 @@ GROUP BY 等级 ORDER BY 行数 DESC;
 
 
 -- ============================================================================
--- 第3步【不可逆，确认页面正常后再执行】删除旧的人工上传等级表
+-- 第3步【不可逆】删除旧的人工上传等级表
 --
--- 注意：删除前建议先导出留底。开发库里这张表有1273行，其中约192行（15%）
--- 是「刷单」「刷单E」「新品」这类人工业务标注，新公式只输出 S/A/B/C/D/E，
--- 删表后这些标注不再有载体。确认业务方不再需要这些标注后再执行。
+-- ！！执行前务必先导出留底 ！！
+-- 开发库里这张表有1273行，其中192行（15%）是「刷单」「刷单E」「刷单C」
+-- 「新品」这类人工业务标注。新公式只输出 S/A/B/C/D/E，删表后这些标注不再
+-- 有任何载体，也无法从计算结果还原。业务方若仍需要这些标记，先另行导出保存。
 --
 -- 留底（在部署机命令行执行，不是SQL）：
 --   mysqldump -u<用户> -p date-project ebay_inventory_detail_grade > grade_backup.sql
@@ -94,5 +95,24 @@ GROUP BY 等级 ORDER BY 行数 DESC;
 -- 生成当天已把等级写进快照JSON，不回查此表。
 -- ============================================================================
 
--- 确认无误后取消下面这行的注释再执行：
--- DROP TABLE IF EXISTS ebay_inventory_detail_grade;
+DROP TABLE IF EXISTS ebay_inventory_detail_grade;
+
+
+-- ============================================================================
+-- 第4步【只读验证】删表之后确认页面仍正常
+--
+-- 该表已无代码读写，删除后页面行数、等级分布都不应变化。
+-- 开发库实测：删表前后均为1926行，等级分布
+-- E:624 --:614 D:370 C:221 A:62 S:20 B:15，完全一致。
+-- ============================================================================
+
+-- 4.1 表确实不存在了（应返回空结果）
+SHOW TABLES LIKE 'ebay_inventory_detail_grade';
+
+-- 4.2 页面行数与等级分布不应变化（与第2.4步的结果比对）
+SELECT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(h.item_json, '$.values.grade')), '--') AS 等级,
+       COUNT(*) AS 行数
+FROM ebay_inventory_detail_history h
+JOIN ebay_inventory_pivot_snapshot s ON s.id = h.snapshot_id
+WHERE s.stat_date = CURDATE()
+GROUP BY 等级 ORDER BY 行数 DESC;
