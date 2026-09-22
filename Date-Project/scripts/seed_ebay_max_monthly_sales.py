@@ -1,8 +1,9 @@
 """用业务方表格为"历史最大月销"高水位种入初值；默认只试算，不写库。
 
-订单表 dwd_ebay_sku_analysis_order 只从2026-05起，更早的历史高点算不出来，
-只能从业务方既有表格导入一次。之后由页面"重新计算"按只升不降维护，不需要
-再跑本脚本。
+多数情况下用不到：deploy/ebay-inventory-detail/04_回填历史最大月销.sql 会扫描
+全部订单历史滑动取最大，已能覆盖业务方表格里的数（实测中间码10756德国回填出
+199，业务方表格为197）。只有当峰值早于订单表起始月、回填也够不到时，才需要
+用本脚本从外部表格补。种入的值没有对应窗口，peak_window_end 置空。
 
 用法：
     python scripts/seed_ebay_max_monthly_sales.py <xlsx路径> [--sheet Sheet4] [--apply]
@@ -87,11 +88,12 @@ def apply_rows(rows: list[dict]) -> int:
     """只升不降：低于或等于已存值的不覆盖，由 GREATEST 保证可重复执行。"""
     query = f"""
         INSERT INTO {TABLE}
-            (site,product_key_type,product_key,max_monthly_sales,peak_month,value_source)
+            (site,product_key_type,product_key,max_monthly_sales,peak_window_end,value_source)
         VALUES (%(site)s,%(product_key_type)s,%(product_key)s,%(max_monthly_sales)s,NULL,'SEEDED')
         ON DUPLICATE KEY UPDATE
             value_source=IF(VALUES(max_monthly_sales)>max_monthly_sales,'SEEDED',value_source),
-            peak_month=IF(VALUES(max_monthly_sales)>max_monthly_sales,NULL,peak_month),
+            -- 种入的值来自外部表格，不知道对应哪个30天窗口，峰值窗口置空。
+            peak_window_end=IF(VALUES(max_monthly_sales)>max_monthly_sales,NULL,peak_window_end),
             max_monthly_sales=GREATEST(max_monthly_sales,VALUES(max_monthly_sales))
     """
     with db_connection() as connection:

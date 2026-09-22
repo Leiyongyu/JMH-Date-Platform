@@ -260,7 +260,7 @@ def floor(site, key_type, key, value):
             "max_monthly_sales": Decimal(value)}
 
 
-def test_high_water_wins_when_orders_no_longer_contain_the_peak_month(isolated):
+def test_high_water_wins_when_current_window_is_lower(isolated):
     """只升不降：订单表里算得到的最大值低于已存高水位时，保持高水位。
 
     业务场景就是这个——订单表只有2026-05起的数据，更早的历史高点只存在

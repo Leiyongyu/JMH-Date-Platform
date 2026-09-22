@@ -33,14 +33,14 @@ CREATE TABLE IF NOT EXISTS dws_ebay_inventory_max_monthly_sales (
     product_key_type VARCHAR(16) NOT NULL COMMENT '键类型：MIDDLE=站点+中间码，SKU=站点+完整SKU（无合法中间码时）',
     product_key VARCHAR(255) NOT NULL COMMENT 'product_key_type为MIDDLE时是数字中间码文本（保留前导零）；为SKU时是大写完整SKU',
     max_monthly_sales DECIMAL(30,6) NOT NULL COMMENT '历史最大自然月销量；只升不降，仅当某月总销量超过此值时更新',
-    peak_month CHAR(7) NULL COMMENT '产生当前高点的自然月YYYY-MM；种入的初值可为空',
+    peak_window_end DATE NULL COMMENT '产生当前高点的30天窗口右端（开区间）；窗口为[本列-30, 本列)，种入的初值可为空',
     value_source VARCHAR(16) NOT NULL DEFAULT 'CALCULATED' COMMENT '当前值来源：CALCULATED=订单表算出，SEEDED=业务表格种入',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后更新时间',
     PRIMARY KEY (id),
     UNIQUE KEY uk_max_monthly_sales_product (site, product_key_type, product_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='Ebay库存明细历史最大月销高水位，按站点+中间码保存，只升不降';
+  COMMENT='Ebay库存明细历史最大30天滚动销量高水位，按站点+中间码保存，只升不降';
 
 
 -- ============================================================================
@@ -59,10 +59,10 @@ SELECT COUNT(*) AS 高水位行数,
        MAX(updated_at)                  AS 最后更新
 FROM dws_ebay_inventory_max_monthly_sales;
 
--- 2.2 峰值月份分布；不应包含当前未结束的自然月
-SELECT peak_month AS 峰值月, COUNT(*) AS 行数
-FROM dws_ebay_inventory_max_monthly_sales
-GROUP BY peak_month ORDER BY peak_month;
+-- 2.2 峰值窗口右端不应晚于今天
+SELECT MIN(peak_window_end) AS 最早, MAX(peak_window_end) AS 最晚,
+       SUM(peak_window_end > CURDATE()) AS 晚于今天_应为0
+FROM dws_ebay_inventory_max_monthly_sales;
 
 -- 2.3 本次「重新计算」是否落了快照
 SELECT stat_date AS 统计日, generated_at AS 生成时间,
