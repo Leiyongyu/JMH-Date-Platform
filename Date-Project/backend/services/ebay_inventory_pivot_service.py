@@ -76,21 +76,12 @@ def capture_snapshot(expected_inventory_batch: str | None = None, trigger_type="
         if expected_inventory_batch and expected_inventory_batch != batch:
             raise ValueError("库存批次已变化，未将其他批次误记为本次任务历史")
         generated = datetime.now(CHINA)
-        # 一个库存批次只留一份历史：已经捕获过就到此为止，不再写库。
-        #
-        # 早先的写法是"沿用那天的统计日期覆盖"，会把当时那份真实观测抹掉——
-        # 实测把 2026-09-16 的快照覆盖成了 09-22 的数据却仍挂 09-16 的日期，
-        # 于是那行的 sales_qty_30d 对应的根本不是 [09-16-30, 09-16) 这个窗口。
-        # 历史快照是回填高水位的数据源，污染它等于污染历史最大月销。
-        captured = repository.stat_date_for_batch(batch)
-        if captured is not None:
-            return {"stat_date": captured.isoformat(), "snapshot_id": None,
-                    "group_count": 0, "item_count": len(items), "inventory_batch_id": batch,
-                    "skipped": True,
-                    "message": f"本批库存已于{captured.isoformat()}留档，本次只刷新页面数据，未重复写入历史"}
         stat_date = generated.date()
         groups = aggregate_inventory(items)
-        # 高水位在该批次首次捕获时记一次观测，与"刷新一次就是一次"一致。
+        # 每次重新计算都按当天写入，窗口与日期始终一致；写完再把这个库存批次
+        # 先前留下的那份历史删掉，保证"一个批次只留一份"。
+        # 页面读的就是最新快照（前端始终传 statDate=latest，从不走实时计算），
+        # 所以这里必须真的写库，跳过不写会让页面永远停在旧数据上。
         detail_repository.raise_max_monthly_sales(sales_candidates)
         snapshot_id = repository.replace_day({
             "stat_date": stat_date, "stat_month": stat_date.strftime("%Y-%m"),
@@ -100,7 +91,9 @@ def capture_snapshot(expected_inventory_batch: str | None = None, trigger_type="
             "trigger_type": str(trigger_type)[:32], "item_count": len(items),
             "metadata": {**metadata, "warnings": warnings, "amount_aggregation_policy": "sum_present_v1"},
         }, groups, items)
+        replaced = repository.drop_batch_snapshots(batch, stat_date)
         return {"stat_date": stat_date.isoformat(), "snapshot_id": snapshot_id,
+                "replaced_stat_dates": [day.isoformat() for day in replaced],
                 "group_count": len(groups), "item_count": len(items), "inventory_batch_id": batch}
 
 

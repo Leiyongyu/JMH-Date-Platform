@@ -27,21 +27,36 @@ def _json_default(value):
     raise TypeError(type(value).__name__)
 
 
-def stat_date_for_batch(inventory_batch_id):
-    """该库存批次是否已经捕获过；返回当时的统计日期，没有则None。
+def drop_batch_snapshots(inventory_batch_id, keep_stat_date):
+    """删掉该库存批次除 keep_stat_date 以外的全部历史，返回删掉的统计日期。
 
-    一个周报批次只应产生一份历史。重复点"重新计算"要覆盖原来那一天，
-    而不是按当天新开一个统计日期——否则连着几天刷新就会攒出几份内容
-    完全相同的历史行（同批次、同库存快照日、同行数）。
+    一个周报批次只留一份历史。重复点"重新计算"时按当天重新写入，并把这个
+    批次先前留下的那份删掉，于是不会攒出几份内容相同的历史行。
+
+    不能反过来"沿用旧统计日期覆盖"：那样写进去的是今天这个30天窗口的数，
+    却挂着旧日期，该行的 sales_qty_30d 对应的窗口就对不上了。历史快照是
+    回填历史最大月销的数据源，日期与窗口错位等于污染那个字段。
     """
     if not inventory_batch_id:
-        return None
-    with db_connection() as connection, connection.cursor() as cursor:
-        cursor.execute(
-            f"SELECT MIN(stat_date) stat_date FROM {HEADER} WHERE inventory_batch_id=%s",
-            (inventory_batch_id,))
-        row = cursor.fetchone()
-    return (row or {}).get("stat_date")
+        return []
+    with db_connection() as connection:
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT id,stat_date FROM {HEADER}"
+                    f" WHERE inventory_batch_id=%s AND stat_date<>%s",
+                    (inventory_batch_id, keep_stat_date))
+                stale = list(cursor.fetchall())
+                for row in stale:
+                    cursor.execute(f"DELETE FROM {DETAIL} WHERE snapshot_id=%s", (row["id"],))
+                    cursor.execute(f"DELETE FROM {INVENTORY_DETAIL} WHERE snapshot_id=%s", (row["id"],))
+                    cursor.execute(f"DELETE FROM {HEADER} WHERE id=%s", (row["id"],))
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    return [row["stat_date"] for row in stale]
 
 
 def replace_day(header: dict, groups: list[dict], inventory_items: list[dict]) -> int:

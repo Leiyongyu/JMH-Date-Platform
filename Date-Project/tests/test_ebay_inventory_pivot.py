@@ -195,9 +195,11 @@ def capture(monkeypatch):
     monkeypatch.setattr(service.repository, "replace_day", saver)
     raiser = MagicMock(side_effect=lambda rows: state["events"].append(("raise_high_water",)) or len(rows))
     monkeypatch.setattr(service.detail_repository, "raise_max_monthly_sales", raiser)
-    finder = MagicMock(side_effect=lambda batch: state.get("captured_on"))
-    monkeypatch.setattr(service.repository, "stat_date_for_batch", finder)
-    state.update(raiser=raiser, finder=finder)
+    dropper = MagicMock(side_effect=lambda batch, keep: (
+        state["events"].append(("drop_old", keep)) or
+        [d for d in state.get("captured_on") or [] if d != keep]))
+    monkeypatch.setattr(service.repository, "drop_batch_snapshots", dropper)
+    state.update(raiser=raiser, dropper=dropper)
     state.update(loader=loader, saver=saver)
     return state
 
@@ -220,8 +222,9 @@ def test_capture_uses_generation_today_not_source_snapshot_day_and_lock_spans_sa
     assert capture["events"] == [
         # 抬高历史最大月销的写入也必须在同一把锁内，且在写快照之前完成，
         # 否则快照里的等级会用旧下限，和页面下次看到的对不上。
+        # 删旧统计日排在写入之后，中途失败不会留下空窗。
         ("lock", "inventory:ebay-pivot"), ("load",), ("raise_high_water",), ("save",),
-        ("unlock", "inventory:ebay-pivot"),
+        ("drop_old", date(2026, 9, 16)), ("unlock", "inventory:ebay-pivot"),
     ]
 
 
@@ -564,21 +567,26 @@ def test_shared_loader_empty_snapshot_skips_owner_queries_and_emits_warning(monk
     assert any("没有可用的成功周报库存快照" in warning for warning in warnings)
 
 
-def test_recapturing_the_same_batch_writes_nothing_at_all(capture):
-    """同一个库存批次只留一份历史；已捕获过就完全不写库。
+def test_recapturing_the_same_batch_rewrites_today_and_drops_the_old_day(capture):
+    """同一个库存批次只留一份历史：按当天重写，再删掉该批次先前那份。
 
-    绝不能"沿用那天的统计日期覆盖"：那会把当时那份真实观测抹掉，让该行的
-    sales_qty_30d 对应到另一个窗口。历史快照是回填高水位的数据源，
-    污染它等于污染历史最大月销。
+    两条都不能少——
+    页面读的是最新快照（前端始终传 statDate=latest，从不实时计算），
+    所以必须真的写库，跳过不写会让页面永远停在旧数据上；
+    而写入必须用当天的日期，"沿用旧日期覆盖"会让该行的 sales_qty_30d
+    对应到另一个窗口，进而污染以它为数据源的历史最大月销。
     """
-    capture["captured_on"] = date(2026, 9, 16)      # 该批次上次是在16号捕获的
+    capture["captured_on"] = [date(2026, 9, 7), date(2026, 9, 16)]
     result = service.capture_snapshot()
-    assert result["stat_date"] == "2026-09-16" and result["skipped"] is True
-    assert "已于2026-09-16留档" in result["message"]
-    capture["saver"].assert_not_called()            # 一行历史都不能动
-    capture["raiser"].assert_not_called()           # 也不重复观测高水位
-    assert ("save",) not in capture["events"]
-    assert ("raise_high_water",) not in capture["events"]
+    header = capture["saver"].call_args.args[0]
+    assert result["stat_date"] == "2026-09-16"          # FrozenDatetime 的当天
+    assert header["stat_date"] == date(2026, 9, 16)
+    assert header["generated_at"] == datetime(2026, 9, 16, 8, 9, 10)
+    capture["saver"].assert_called_once()               # 必须写
+    capture["raiser"].assert_called_once()
+    # 先写当天、再删该批次的其它统计日，避免中途失败留下空窗。
+    assert capture["events"].index(("save",)) < capture["events"].index(("drop_old", date(2026, 9, 16)))
+    assert result["replaced_stat_dates"] == ["2026-09-07"]
 
 
 def test_first_capture_of_a_batch_opens_today_and_records_one_observation(capture):
@@ -586,7 +594,7 @@ def test_first_capture_of_a_batch_opens_today_and_records_one_observation(captur
     capture["captured_on"] = None
     result = service.capture_snapshot()
     assert result["stat_date"] == "2026-09-16"      # FrozenDatetime 的当天
-    assert result.get("skipped") is not True
+    assert result["replaced_stat_dates"] == []     # 没有旧的可删
     capture["saver"].assert_called_once()
     capture["raiser"].assert_called_once()
     assert ("raise_high_water",) in capture["events"]
