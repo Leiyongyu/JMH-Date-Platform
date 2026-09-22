@@ -84,9 +84,11 @@ SELECT best.site, best.product_key_type, best.product_key,
 FROM best
 WHERE best.max_qty > 0
 ON DUPLICATE KEY UPDATE
-    peak_window_end = IF(VALUES(max_monthly_sales) > max_monthly_sales,
+    -- 用 >= 而不是 >：值相等时也把窗口补上。旧口径（自然月）留下的行只有数值、
+    -- 没有窗口，相等时若不写就会一直空着。计算结果是确定的，重复执行仍然幂等。
+    peak_window_end = IF(VALUES(max_monthly_sales) >= max_monthly_sales,
                          VALUES(peak_window_end), peak_window_end),
-    value_source    = IF(VALUES(max_monthly_sales) > max_monthly_sales,
+    value_source    = IF(VALUES(max_monthly_sales) >= max_monthly_sales,
                          'CALCULATED', value_source),
     max_monthly_sales = GREATEST(max_monthly_sales, VALUES(max_monthly_sales));
 
