@@ -290,6 +290,46 @@ public class SyncAlertService
 
     // ==================== 内部 ====================
 
+    /** Credential reminders: daily dedup; failed deliveries release the key for retry. */
+    public boolean sendCredentialReminder(String eventKey, String content)
+    {
+        if (!canSend()) return false;
+        String key = ALERT_PREFIX + "ebay-credential:" + hash(eventKey);
+        RedisCache redis = null;
+        boolean claimed = false;
+        try
+        {
+            redis = SpringUtils.getBean(RedisCache.class);
+            claimed = redis.setCacheObjectIfAbsent(key, "1", 23, TimeUnit.HOURS);
+            if (!claimed) return true;
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            String body = mapper.writeValueAsString(Map.of("msgtype", "markdown", "markdown", Map.of("content", content)));
+            var request = HttpRequest.newBuilder(URI.create(webhookUrl)).timeout(Duration.ofSeconds(30))
+                    .header("Content-Type", "application/json; charset=utf-8")
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
+            var response = HTTP.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() != 200 || mapper.readTree(response.body()).path("errcode").asInt(-1) != 0)
+                throw new IllegalStateException("notification delivery rejected");
+            LOG.info("eBay凭证更新提醒已发送");
+            return true;
+        }
+        catch (InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+            LOG.warn("eBay凭证更新提醒被中断");
+        }
+        catch (Exception e)
+        {
+            LOG.warn("eBay凭证更新提醒失败，异常类型={}，未输出Webhook或响应正文", e.getClass().getSimpleName());
+        }
+        if (claimed && redis != null)
+        {
+            try { redis.deleteObject(key); }
+            catch (Exception ignored) { LOG.warn("eBay凭证提醒去重标记释放失败"); }
+        }
+        return false;
+    }
+
     private void post(String markdown)
     {
         try

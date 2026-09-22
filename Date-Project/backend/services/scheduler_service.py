@@ -4,6 +4,9 @@ from datetime import datetime
 from uuid import uuid4
 
 from backend.repositories import performance_repository as repo
+from backend.services.ebay_token_health_service import (
+    TASK_CODE as EBAY_HEALTH_TASK_CODE, check_ebay_token_health,
+)
 from backend.services.ebay_store_listing_sync_service import (
     TASK_CODE as EBAY_STORE_LISTING_TASK_CODE,
     TASK_NAME as EBAY_STORE_LISTING_TASK_NAME,
@@ -68,6 +71,7 @@ OPENING_INVENTORY_TASK_CODE = (
 )
 OPENING_INVENTORY_TASK_NAME = "月度库存次月月初库存填充"
 TASK_CODES = {
+    EBAY_HEALTH_TASK_CODE,
     EBAY_STORE_LISTING_TASK_CODE,
     AMZ_LISTING_RAW_TASK_CODE,
     GOODCANG_STORAGE_TASK_CODE,
@@ -114,6 +118,8 @@ def run_scheduler_task(
         raise ValueError("未知任务编码")
     if weekly_snapshot_only and task_code != WEEKLY_INVENTORY_TASK_CODE:
         raise ValueError("仅周报任务支持已有快照生成")
+    if task_code == EBAY_HEALTH_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
+        raise ValueError("密钥健康检查只检查当前状态，不接受历史日期")
     if task_code == AMZ_LISTING_RAW_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
         raise ValueError("AMZ原始刊登只拉取当前完整数据，不接受历史月份或日期筛选")
     if task_code == EBAY_STORE_LISTING_TASK_CODE and any(value is not None for value in (stat_month, start_date, end_date)):
@@ -152,7 +158,9 @@ def run_scheduler_task(
                 trigger_type=trigger_type,
             )
         else:
-            if task_code == EBAY_STORE_LISTING_TASK_CODE:
+            if task_code == EBAY_HEALTH_TASK_CODE:
+                lock_name = "ebay:token-health:check"
+            elif task_code == EBAY_STORE_LISTING_TASK_CODE:
                 lock_name = "ebay:store-listing:replace"
             elif task_code == AMZ_LISTING_RAW_TASK_CODE:
                 lock_name = "lingxing:amz-listing-raw:replace"
@@ -176,6 +184,9 @@ def run_scheduler_task(
             with repo.named_lock(lock_name) as acquired:
                 if not acquired:
                     task_name = (
+                        "eBay密钥健康检查"
+                        if task_code == EBAY_HEALTH_TASK_CODE
+                        else
                         EBAY_STORE_LISTING_TASK_NAME
                         if task_code == EBAY_STORE_LISTING_TASK_CODE
                         else
@@ -202,7 +213,9 @@ def run_scheduler_task(
                     raise SchedulerTaskAlreadyRunning(
                         f"{task_name}正在执行"
                     )
-                if task_code == EBAY_STORE_LISTING_TASK_CODE:
+                if task_code == EBAY_HEALTH_TASK_CODE:
+                    result = check_ebay_token_health()
+                elif task_code == EBAY_STORE_LISTING_TASK_CODE:
                     result = sync_ebay_store_listings()
                 elif task_code == AMZ_LISTING_RAW_TASK_CODE:
                     result = sync_amz_listing_raw()

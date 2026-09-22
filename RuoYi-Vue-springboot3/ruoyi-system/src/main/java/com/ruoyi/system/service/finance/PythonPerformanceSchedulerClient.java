@@ -60,6 +60,35 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run("ebay_store_listing_sync", null, requestId);
     }
 
+    public Map<String, Object> runEbayTokenHealth(String requestId)
+    {
+        return run("ebay_token_health_check", null, requestId);
+    }
+
+    /** Read sanitized local credential expiry metadata; never fetch tokens or listings. */
+    public Map<String, Object> ebayCredentialExpiry(String requestId)
+    {
+        try
+        {
+            HttpResponse<String> response = httpClient.send(baseRequest(
+                    "/api/v1/internal/scheduler/ebay-credentials/expiry", requestId).GET().build(),
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            Map<String, Object> json = parseJson(response.body());
+            if (response.statusCode() != 200 || integer(json.get("code"), -1) != 0)
+                throw new IllegalStateException("eBay凭证有效期检查失败，HTTP=" + response.statusCode());
+            return json;
+        }
+        catch (InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("eBay凭证有效期检查被中断");
+        }
+        catch (Exception e)
+        {
+            throw new IllegalStateException("eBay凭证有效期检查失败；未输出敏感响应");
+        }
+    }
+
     public Map<String, Object> runAmzListingRaw(String requestId)
     {
         return run("lingxing_amz_listing_raw_sync", null, requestId);
