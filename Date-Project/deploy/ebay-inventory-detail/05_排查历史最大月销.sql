@@ -5,8 +5,31 @@
 -- ============================================================================
 
 USE `date-project`;
-SET NAMES utf8mb4;
+-- 必须带 COLLATE：MySQL8 的 utf8mb4 默认连接排序规则是 utf8mb4_0900_ai_ci，
+-- 而本项目所有表都是 utf8mb4_unicode_ci。用户变量的 coercibility 与列同为 2，
+-- 两边不一致时无法裁决，下面的 `= @key` 会报 1267。字面量是 4、列赢，所以不受影响。
+SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 SET @key = '20192';
+
+
+-- 【0】排序规则自检（1267报错时先看这里）
+--
+-- 预期：三张表的 site / sku / product_key 列全是 utf8mb4_unicode_ci，
+--       连接排序规则也是 utf8mb4_unicode_ci（由上面的 SET NAMES 保证）。
+-- 某张表是 utf8mb4_0900_ai_ci → 它是在别处建的/从别的库导入的，与项目约定不符，
+--   本文件的显式 COLLATE 已能跑通；想根治可以：
+--   ALTER TABLE <表名> CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+--   应用代码对这张高水位表只做整表SELECT与INSERT，不跨表比较字符串，改不改都不影响页面。
+SELECT TABLE_NAME AS 表, COLUMN_NAME AS 列, COLLATION_NAME AS 排序规则
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = 'date-project'
+  AND TABLE_NAME IN ('dws_ebay_inventory_max_monthly_sales',
+                     'ebay_inventory_detail_history',
+                     'ebay_inventory_pivot_snapshot')
+  AND COLLATION_NAME IS NOT NULL
+ORDER BY 表, 列;
+
+SELECT @@collation_connection AS 连接排序规则, @@collation_database AS 库默认排序规则;
 
 
 -- 【1】高水位表里这个中间码现在存的是什么
@@ -23,7 +46,7 @@ SELECT site                                        AS 站点,
        value_source                                AS 来源,
        updated_at                                  AS 最后更新
 FROM dws_ebay_inventory_max_monthly_sales
-WHERE product_key = @key
+WHERE product_key = @key COLLATE utf8mb4_unicode_ci
 ORDER BY site;
 
 
@@ -43,7 +66,7 @@ FROM ebay_inventory_detail_history h
 JOIN ebay_inventory_pivot_snapshot s ON s.id = h.snapshot_id
 WHERE LOCATE('-', h.sku) > 0
   AND REGEXP_REPLACE(SUBSTRING_INDEX(SUBSTRING_INDEX(h.sku,'-',2),'-',-1),
-                     '^[[:space:]]+|[[:space:]]+$','') = @key
+                     '^[[:space:]]+|[[:space:]]+$','') = @key COLLATE utf8mb4_unicode_ci
 GROUP BY s.stat_date, h.site, s.trigger_type
 ORDER BY 近30天销量 DESC, s.stat_date;
 
@@ -65,7 +88,10 @@ ORDER BY s.stat_date;
 
 -- 【4】坏批次 2026-09-07 是否残留
 --
--- 预期：三个数都是 0。任何一个不为 0，先把之前那四条 DELETE 补执行完再回填。
+-- 预期：前两个数是 0。不为 0 就先把之前那四条 DELETE 补执行完再回填。
+-- 第三个数「算出行但无窗口」不是 0 也正常（本地实测 3 行）：那是旧「自然月／订单表
+-- 滑动窗口」口径留下的残留，值比现口径能算出的高 1~2，高水位只升不降所以留着。
+-- 想彻底按现口径重算，见文件末尾的「可选：整表重基线」。
 SELECT (SELECT COUNT(*) FROM ebay_inventory_pivot_snapshot
          WHERE stat_date = '2026-09-07')                                AS 残留快照,
        (SELECT COUNT(*) FROM dws_ebay_inventory_max_monthly_sales
@@ -124,7 +150,7 @@ FROM best b
 LEFT JOIN dws_ebay_inventory_max_monthly_sales w
        ON w.site = b.site AND w.product_key_type = b.product_key_type
       AND w.product_key = b.product_key
-WHERE b.product_key = @key;
+WHERE b.product_key = @key COLLATE utf8mb4_unicode_ci;
 
 
 -- 【6】全表范围的同一个比对：还有多少行「回填能算出更大值但库里偏小」
@@ -171,3 +197,17 @@ LEFT JOIN dws_ebay_inventory_max_monthly_sales w
       AND w.product_key = b.product_key
 WHERE b.max_qty > 0
   AND (w.max_monthly_sales IS NULL OR b.max_qty > w.max_monthly_sales);
+
+
+-- ============================================================================
+-- 可选：整表按现口径重基线（会降低部分行的值，**不可逆**，先想清楚再跑）
+--
+-- 背景：高水位表是「只升不降」的，历史上跑过旧口径（自然月 / 订单表滑动窗口）的
+-- 行，值会比现口径「各统计日期近30天销量取最大」更高，之后再也降不下来。
+-- 本地实测 2058 行里有 159 行（7.7%）高于现口径结果，最多高 12。
+--
+-- 只有在你确认「历史最大月销就该严格等于各统计日期近30天销量的最大值」时才执行。
+-- SEEDED 的种入行不动，只重算 CALCULATED 的。
+-- ============================================================================
+-- DELETE FROM dws_ebay_inventory_max_monthly_sales WHERE value_source = 'CALCULATED';
+-- 然后重新执行 04_回填历史最大月销.sql
