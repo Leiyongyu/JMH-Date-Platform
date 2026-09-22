@@ -75,16 +75,23 @@ def capture_snapshot(expected_inventory_batch: str | None = None, trigger_type="
             raise ValueError("没有可用的成功库存快照，不生成空白历史")
         if expected_inventory_batch and expected_inventory_batch != batch:
             raise ValueError("库存批次已变化，未将其他批次误记为本次任务历史")
-        groups = aggregate_inventory(items)
         generated = datetime.now(CHINA)
-        # 一个库存批次只占一个统计日期：已捕获过就覆盖原来那天，不按当天新开。
+        # 一个库存批次只留一份历史：已经捕获过就到此为止，不再写库。
+        #
+        # 早先的写法是"沿用那天的统计日期覆盖"，会把当时那份真实观测抹掉——
+        # 实测把 2026-09-16 的快照覆盖成了 09-22 的数据却仍挂 09-16 的日期，
+        # 于是那行的 sales_qty_30d 对应的根本不是 [09-16-30, 09-16) 这个窗口。
+        # 历史快照是回填高水位的数据源，污染它等于污染历史最大月销。
         captured = repository.stat_date_for_batch(batch)
-        stat_date = captured or generated.date()
-        if captured is None:
-            # 高水位只在该批次首次捕获时记一次观测。重复刷新不应被当成新的
-            # 一次观测——否则同一个30天窗口会被反复提交，虽然GREATEST不会
-            # 改变结果，但"刷新一次就是一次"的语义会失真。
-            detail_repository.raise_max_monthly_sales(sales_candidates)
+        if captured is not None:
+            return {"stat_date": captured.isoformat(), "snapshot_id": None,
+                    "group_count": 0, "item_count": len(items), "inventory_batch_id": batch,
+                    "skipped": True,
+                    "message": f"本批库存已于{captured.isoformat()}留档，本次只刷新页面数据，未重复写入历史"}
+        stat_date = generated.date()
+        groups = aggregate_inventory(items)
+        # 高水位在该批次首次捕获时记一次观测，与"刷新一次就是一次"一致。
+        detail_repository.raise_max_monthly_sales(sales_candidates)
         snapshot_id = repository.replace_day({
             "stat_date": stat_date, "stat_month": stat_date.strftime("%Y-%m"),
             "generated_at": generated.replace(tzinfo=None), "inventory_batch_id": batch,

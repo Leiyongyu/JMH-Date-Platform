@@ -564,23 +564,20 @@ def test_shared_loader_empty_snapshot_skips_owner_queries_and_emits_warning(monk
     assert any("没有可用的成功周报库存快照" in warning for warning in warnings)
 
 
-def test_recapturing_the_same_batch_overwrites_that_day_and_skips_high_water(capture, monkeypatch):
-    """同一个库存批次只占一个统计日期，重复刷新不新开一天、也不重复观测。
+def test_recapturing_the_same_batch_writes_nothing_at_all(capture):
+    """同一个库存批次只留一份历史；已捕获过就完全不写库。
 
-    历史上这里是按"点刷新那天"开日期，连着三天刷新就攒出三份内容完全相同的
-    历史行（同批次、同库存快照日、同行数）。现在改为：该批次已捕获过就覆盖
-    当时那一天；高水位只在首次捕获时记一次，符合"刷新一次就是一次"。
+    绝不能"沿用那天的统计日期覆盖"：那会把当时那份真实观测抹掉，让该行的
+    sales_qty_30d 对应到另一个窗口。历史快照是回填高水位的数据源，
+    污染它等于污染历史最大月销。
     """
     capture["captured_on"] = date(2026, 9, 16)      # 该批次上次是在16号捕获的
     result = service.capture_snapshot()
-    header = capture["saver"].call_args.args[0]
-    assert result["stat_date"] == "2026-09-16"      # 不是生成当天的9月16日之后那天
-    assert header["stat_date"] == date(2026, 9, 16)
-    assert header["stat_month"] == "2026-09"
-    # 生成时间仍记录本次重算的时刻，只有统计日期沿用原来那天。
-    assert header["generated_at"] == datetime(2026, 9, 16, 8, 9, 10)
-    capture["finder"].assert_called_once_with(header["inventory_batch_id"])
-    capture["raiser"].assert_not_called()
+    assert result["stat_date"] == "2026-09-16" and result["skipped"] is True
+    assert "已于2026-09-16留档" in result["message"]
+    capture["saver"].assert_not_called()            # 一行历史都不能动
+    capture["raiser"].assert_not_called()           # 也不重复观测高水位
+    assert ("save",) not in capture["events"]
     assert ("raise_high_water",) not in capture["events"]
 
 
@@ -589,5 +586,7 @@ def test_first_capture_of_a_batch_opens_today_and_records_one_observation(captur
     capture["captured_on"] = None
     result = service.capture_snapshot()
     assert result["stat_date"] == "2026-09-16"      # FrozenDatetime 的当天
+    assert result.get("skipped") is not True
+    capture["saver"].assert_called_once()
     capture["raiser"].assert_called_once()
     assert ("raise_high_water",) in capture["events"]
