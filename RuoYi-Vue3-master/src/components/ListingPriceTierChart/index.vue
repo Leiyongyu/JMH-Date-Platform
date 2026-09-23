@@ -18,7 +18,15 @@
           <el-option v-for="s in report.shops || []" :key="s" :label="s" :value="s" />
         </el-select>
       </div>
-      <div class="summary"><span><b>{{ report.shop_count }}</b> 个店铺</span><span><b>{{ report.total_sku_count.toLocaleString() }}</b> SKU</span></div>
+      <div class="summary">
+        <span><b>{{ report.shop_count }}</b> 个店铺</span>
+        <span :title="report.distinct_sku_count != null ? '同一SKU铺在多个店铺时按店铺分别计数' : ''">
+          <b>{{ report.total_sku_count.toLocaleString() }}</b> {{ report.distinct_sku_count != null ? '个店铺SKU' : 'SKU' }}
+        </span>
+        <span v-if="report.distinct_sku_count != null" title="去掉店铺维度后的商品数">
+          <b>{{ report.distinct_sku_count.toLocaleString() }}</b> 个去重SKU
+        </span>
+      </div>
       <div class="legend"><span v-for="(tier, i) in definitions" :key="tier.name" :title="`${tier.name}：${tier.range}`"><i :style="{ background: colors[i] }" />{{ tier.short }}</span></div>
       <div v-if="report.stale" class="warning">源数据、汇率或月份已更新，请重新统计。</div>
       <div v-if="presentation.usesFx && report.missing_currencies.length" class="warning">{{ report.missing_currencies.join('、') }} 在汇率表中没有任何可用汇率，相关记录未归档。</div>

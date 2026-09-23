@@ -185,3 +185,16 @@ test('店铺没有子节点时不渲染展开控件', async () => {
  assert.match(amz, /<details class="shop-row">/)
  assert.match(amz, /class="site-row"/)
 })
+
+test('eBay 卡片同时显示店铺SKU数与去重SKU数；AMZ 保持原样', async () => {
+ const { shop } = nodesOf('ebay')
+ const ebay = await html('ebay', {state:'READY',items:[{...shop,children:[]}],shop_count:35,
+   total_sku_count:435,distinct_sku_count:291,rate_month:'',missing_currencies:[]})
+ assert.match(ebay, /435/);assert.match(ebay, /个店铺SKU/)
+ // 只写 435 会被读成「有435个商品」，实际只有291个。
+ assert.match(ebay, /291/);assert.match(ebay, /个去重SKU/)
+
+ const amz = await html('amz', {state:'READY',items:[nodesOf('amz').shop],shop_count:1,
+   total_sku_count:2,rate_month:'2026-09',missing_currencies:[]})
+ assert.doesNotMatch(amz, /个去重SKU/);assert.doesNotMatch(amz, /个店铺SKU/)
+})

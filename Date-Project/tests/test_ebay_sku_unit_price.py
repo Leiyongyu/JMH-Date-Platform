@@ -161,12 +161,13 @@ def test_year_filter_passed_through(monkeypatch):
 
 # ------------------------------------------------------ 月份与店铺筛选
 
-def breakdown(monkeypatch, items, months=("2026-09","2026-08"), shops=("店铺A","店铺B")):
+def breakdown(monkeypatch, items, months=("2026-09","2026-08"), shops=("店铺A","店铺B"), distinct=0):
     captured = {}
     def fake(stat_month="", shop=""):
         captured["args"] = (stat_month, shop)
         return dict(stat_month=stat_month or months[0], months=list(months),
-                    shops=list(shops), reg_date="2026-09-23", items=items)
+                    shops=list(shops), reg_date="2026-09-23", items=items,
+                    distinct_sku_count=distinct)
     monkeypatch.setattr(repo, "tier_breakdown", fake)
     return captured
 
@@ -235,3 +236,23 @@ def test_unknown_tier_number_is_refused(monkeypatch):
     breakdown(monkeypatch, [tier("店铺A", 9, 1)])
     with pytest.raises(ValueError, match="档位异常"):
         api.read_report()
+
+
+def test_report_separates_shop_sku_pairs_from_distinct_skus(monkeypatch):
+    """同一SKU铺在多个店铺时按店铺分别计数；页面要同时看得到去重后的商品数。
+
+    实测 2026-09：435 个店铺SKU 只对应 291 个不同商品，只显示 435 会被读成
+    「有435个商品」。
+    """
+    breakdown(monkeypatch, [tier("店铺A", 3, 2), tier("店铺B", 3, 1)], distinct=2)
+    result = api.read_report()
+    assert result["total_sku_count"] == 3        # 店铺SKU组合数
+    assert result["distinct_sku_count"] == 2     # 去重商品数
+
+
+def test_distinct_count_defaults_to_zero_when_missing(monkeypatch):
+    monkeypatch.setattr(repo, "tier_breakdown",
+                        lambda stat_month="", shop="": dict(stat_month="2026-09", months=["2026-09"],
+                                                            shops=["店铺A"], reg_date="2026-09-23",
+                                                            items=[tier("店铺A", 2, 1)]))
+    assert api.read_report()["distinct_sku_count"] == 0

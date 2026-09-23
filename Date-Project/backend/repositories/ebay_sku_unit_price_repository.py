@@ -170,7 +170,8 @@ def tier_breakdown(stat_month="", shop=""):
         available = months(cursor)
         month = stat_month.strip() or (available[0] if available else "")
         if not month:
-            return dict(stat_month="", months=[], shops=[], reg_date="", items=[])
+            return dict(stat_month="", months=[], shops=[], reg_date="", items=[],
+                        distinct_sku_count=0)
         args = [month]
         clause = "stat_month=%s"
         if shop.strip():
@@ -184,5 +185,10 @@ def tier_breakdown(stat_month="", shop=""):
             f"SELECT shop,tier_no,COUNT(*) AS sku_count,SUM(total_qty) AS total_qty,"
             f"SUM(defect_qty) AS defect_qty FROM {TABLE} WHERE {clause} "
             f"GROUP BY shop,tier_no ORDER BY shop,tier_no", args)
+        items = list(cursor.fetchall())
+        # 行数是「店铺SKU」组合数：同一个SKU铺在N个店铺就算N行。页面上要同时
+        # 显示去重SKU数，否则「435 SKU」会被读成有435个不同的商品（实际291个）。
+        cursor.execute(f"SELECT COUNT(DISTINCT sku) AS n FROM {TABLE} WHERE {clause}", args)
+        distinct_skus = int((cursor.fetchone() or {}).get("n") or 0)
         return dict(stat_month=month, months=available, shops=shops,
-                    reg_date=str(reg_date or ""), items=list(cursor.fetchall()))
+                    reg_date=str(reg_date or ""), items=items, distinct_sku_count=distinct_skus)

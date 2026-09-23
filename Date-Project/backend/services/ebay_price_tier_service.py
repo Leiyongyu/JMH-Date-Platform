@@ -77,7 +77,9 @@ def read_report(month='', shop=''):
         stat_month=data['stat_month'], unit_price_month=data['stat_month'],
         unit_price_reg_date=data['reg_date'], shop=shop.strip(),
         shop_count=len(items), site_group_count=0,
-        total_sku_count=sum(totals), unclassified_sku_count=0, missing_sku_rows=0,
+        # total_sku_count 是店铺SKU组合数（同一SKU铺在N个店铺算N个），
+        # distinct_sku_count 才是去重后的商品数，两个都给页面。
+        total_sku_count=sum(totals), distinct_sku_count=data.get('distinct_sku_count', 0), unclassified_sku_count=0, missing_sku_rows=0,
         invalid_price_rows=0, missing_rate_rows=0, missing_shop_rows=0,
         missing_currencies=[], rate_month='', rates={}, rate_months={},
         source_listing_count=sum(totals),
