@@ -14,24 +14,54 @@ TABLE = "dws_ebay_sku_unit_price"
 SOURCE_TABLE = "ods_feishu_bad_transaction_listing"
 _BATCH_SIZE = 500
 
-# 每个统计月份只认该月最大的那个登记日期：源表每周三更新，一个月里有4~5批，
-# 要的是最新那批的口径，不是把整月几批混在一起加总。
+# 一个统计月份里源表有4~5批（每周三一批）。三条规则，缺一不可：
+#
+# 1. SKU全集取整月的并集，不是只取最后一批。实测2026-09四批合起来有1062个
+#    店铺SKU，只看最后一批只有435个，会丢掉627个。
+#
+# 2. 交易量与不良量在同一个店铺SKU上跨批次取 MAX，绝不相加。源表给的是评估
+#    窗口内的累计数，同一个SKU每批都会重报一次：BMW-30034-0046 三批分别是
+#    6、7、7，相加得20，实际只有7。
+#
+# 3. 单价取该店铺SKU**自己**最大登记日期那一批的 金额÷数量。不能拿整月最大量
+#    去配另一批的金额——那是两批的数字，比值没有意义。
+#    （数字并非单调递增：BMW-30213-0071 的不良量走过 1→2→1，是滚动窗口；
+#     实测372个多批次店铺SKU里有80个的最大量不在最后一批。）
+#
+# 同一批次内同一店铺SKU的多个刊登（不同物品编号）仍然相加——那是不同刊登的
+# 成交，本来就该合并。所以是"批次内求和、批次间取最大"。
 _AGGREGATE_SQL = f"""
-    WITH latest AS (
-        SELECT DATE_FORMAT(reg_date,'%%Y-%%m') AS stat_month, MAX(reg_date) AS reg_date
-        FROM {SOURCE_TABLE} WHERE reg_date IS NOT NULL
-        GROUP BY DATE_FORMAT(reg_date,'%%Y-%%m')
+    WITH per_batch AS (
+        -- 源表里的店铺名带首尾空白，个别还夹着换行（实测有 ' allteile-motor'、
+        -- '  superturbo-store'，以及一个以换行开头的）。不清掉会把同一个店铺
+        -- 拆成两个。ODS 保持原样，只在这里归一。
+        -- 用 CHAR(10)/CHAR(13) 而不是转义字面量：这段SQL是Python的f-string，
+        -- 写反斜杠n会在拼串时变成真的换行，把上面的注释截断。
+        SELECT DATE_FORMAT(b.reg_date,'%%Y-%%m') AS stat_month,
+               TRIM(BOTH FROM REPLACE(REPLACE(b.shop, CHAR(10), ' '), CHAR(13), ' ')) AS shop,
+               TRIM(b.sku) AS sku, b.reg_date,
+               COUNT(*) AS listing_count,
+               SUM(CAST(NULLIF(TRIM(b.total_amount),'') AS DECIMAL(20,6))) AS total_amount,
+               SUM(CAST(NULLIF(TRIM(b.total_qty),'')    AS DECIMAL(20,6))) AS total_qty,
+               SUM(CAST(NULLIF(TRIM(b.defect_qty),'')   AS DECIMAL(20,6))) AS defect_qty
+        FROM {SOURCE_TABLE} b
+        WHERE b.reg_date IS NOT NULL
+          AND b.shop IS NOT NULL AND TRIM(b.shop) <> ''
+          AND b.sku  IS NOT NULL AND TRIM(b.sku)  <> ''
+        GROUP BY 1, 2, 3, b.reg_date
+    ),
+    ranked AS (
+        SELECT p.*, ROW_NUMBER() OVER (PARTITION BY p.stat_month, p.shop, p.sku
+                                       ORDER BY p.reg_date DESC) AS rn,
+               MAX(p.total_qty)  OVER (PARTITION BY p.stat_month, p.shop, p.sku) AS peak_qty,
+               MAX(p.defect_qty) OVER (PARTITION BY p.stat_month, p.shop, p.sku) AS peak_defect
+        FROM per_batch p
     )
-    SELECT l.stat_month, b.shop, b.sku, l.reg_date,
-           COUNT(*) AS listing_count,
-           SUM(CAST(NULLIF(TRIM(b.total_amount),'') AS DECIMAL(20,6))) AS total_amount,
-           SUM(CAST(NULLIF(TRIM(b.total_qty),'')    AS DECIMAL(20,6))) AS total_qty,
-           SUM(CAST(NULLIF(TRIM(b.defect_qty),'')   AS DECIMAL(20,6))) AS defect_qty
-    FROM {SOURCE_TABLE} b
-    JOIN latest l ON l.stat_month = DATE_FORMAT(b.reg_date,'%%Y-%%m') AND l.reg_date = b.reg_date
-    WHERE b.shop IS NOT NULL AND TRIM(b.shop) <> ''
-      AND b.sku  IS NOT NULL AND TRIM(b.sku)  <> ''
-    GROUP BY l.stat_month, b.shop, b.sku, l.reg_date
+    SELECT stat_month, shop, sku, reg_date, listing_count,
+           total_amount AS price_amount, total_qty AS price_qty,
+           peak_qty  AS total_qty,
+           peak_defect AS defect_qty
+    FROM ranked WHERE rn = 1
 """
 
 
@@ -43,12 +73,13 @@ def aggregate(cursor, months=None):
     sql, args = _AGGREGATE_SQL, ()
     if months:
         placeholders = ",".join(["%s"] * len(months))
-        sql = f"{_AGGREGATE_SQL} HAVING l.stat_month IN ({placeholders})"
+        sql = f"{_AGGREGATE_SQL} AND stat_month IN ({placeholders})"
         args = tuple(months)
     cursor.execute(sql, args)
     rows, skipped = [], 0
     for row in cursor.fetchall():
-        amount, qty = row["total_amount"], row["total_qty"]
+        # 单价用该店铺SKU自己最大登记日期那一批的金额与数量，两者同批才可比。
+        amount, qty = row["price_amount"], row["price_qty"]
         # 总交易量为0或缺失就算不出单价；丢掉并计数，不拿0或NULL冒充价格。
         if qty is None or qty <= 0 or amount is None or amount < 0:
             skipped += 1
@@ -57,7 +88,10 @@ def aggregate(cursor, months=None):
         rows.append({
             "stat_month": row["stat_month"], "shop": row["shop"], "sku": row["sku"],
             "reg_date": row["reg_date"], "listing_count": row["listing_count"],
-            "total_amount": amount, "total_qty": qty, "defect_qty": row["defect_qty"] or 0,
+            "total_amount": amount,
+            # 交易量与不良量取整月最大，不是单价那一批的值：同一SKU跨批次重报，
+            # 相加会翻倍，取最后一批又会漏掉峰值出现在中间批次的情况。
+            "total_qty": row["total_qty"] or 0, "defect_qty": row["defect_qty"] or 0,
             "unit_price": price,
             # 档位逻辑只此一处，与页面分档共用同一套阈值。
             "tier_no": engine.tier_index(price, "USD") + 1,

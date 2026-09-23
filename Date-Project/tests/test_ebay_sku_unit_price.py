@@ -9,10 +9,16 @@ from backend.services import ebay_price_tier_service as api
 from backend.services import listing_price_tier_service as engine
 
 
-def agg(month, shop, sku, amount, qty, defect=1, listings=1, reg="2026-09-23"):
+def agg(month, shop, sku, amount, qty, defect=1, listings=1, reg="2026-09-23",
+        peak_qty=None, peak_defect=None):
+    """模拟SQL的输出：price_* 来自该SKU自己最大登记日期那一批，
+    total_qty/defect_qty 是整月各批次的最大值。"""
     return {"stat_month": month, "shop": shop, "sku": sku, "reg_date": reg,
-            "listing_count": listings, "total_amount": Decimal(amount),
-            "total_qty": Decimal(qty), "defect_qty": Decimal(defect)}
+            "listing_count": listings,
+            "price_amount": None if amount is None else Decimal(amount),
+            "price_qty": None if qty is None else Decimal(qty),
+            "total_qty": Decimal(peak_qty if peak_qty is not None else qty),
+            "defect_qty": Decimal(peak_defect if peak_defect is not None else defect)}
 
 
 def cursor_with(rows):
@@ -55,23 +61,44 @@ def test_tier_follows_the_same_bounds_as_the_page(amount, qty, tier):
 @pytest.mark.parametrize("amount,qty", [("100", "0"), ("100", None), (None, "5"), ("-1", "5")])
 def test_unusable_rows_are_skipped_not_priced_as_zero(amount, qty):
     """总交易量为0算不出单价，丢掉并计数，不拿0冒充价格。"""
-    rows, skipped = repo.aggregate(cursor_with([agg("2026-09", "s", "k", amount or "0", qty or "0")
-                                                | {"total_amount": None if amount is None else Decimal(amount),
-                                                   "total_qty": None if qty is None else Decimal(qty)}]))
+    rows, skipped = repo.aggregate(cursor_with([
+        agg("2026-09", "s", "k", amount, qty, peak_qty="1", peak_defect="1")]))
     assert rows == [] and skipped == 1
 
 
-def test_only_the_latest_batch_of_each_month_is_used():
-    """源表每周三更新，一个月有4~5批；SQL用MAX(reg_date)只取该月最新那批。"""
-    assert "MAX(reg_date)" in repo._AGGREGATE_SQL
-    assert "DATE_FORMAT(reg_date,'%%Y-%%m')" in repo._AGGREGATE_SQL
+def test_sku_universe_is_the_whole_month_not_just_the_last_batch():
+    """SKU全集取整月并集：只看最后一批会漏掉当月出现过、末批没出现的SKU。"""
+    assert "ROW_NUMBER() OVER" in repo._AGGREGATE_SQL and "rn = 1" in repo._AGGREGATE_SQL
+    assert "ORDER BY p.reg_date DESC" in repo._AGGREGATE_SQL
+
+
+def test_quantities_take_month_max_never_sum_across_batches():
+    """同一店铺SKU每批都重报一次累计数，跨批次相加会翻倍，必须取最大。"""
+    assert "MAX(p.total_qty)  OVER" in repo._AGGREGATE_SQL
+    assert "MAX(p.defect_qty) OVER" in repo._AGGREGATE_SQL
+
+
+def test_shop_name_whitespace_is_normalised():
+    """源表店铺名带首尾空白甚至换行，不清掉会把同一个店铺拆成两个。"""
+    assert "TRIM(BOTH FROM REPLACE(REPLACE(b.shop, CHAR(10)" in repo._AGGREGATE_SQL
+
+
+def test_price_comes_from_that_skus_own_latest_batch_while_qty_is_month_max():
+    """单价与交易量来自不同口径：单价同批可比，交易量取整月峰值。"""
+    rows, _ = repo.aggregate(cursor_with([
+        agg("2026-09", "店铺A", "SKU-1", "397.5715", "7", reg="2026-09-16",
+            peak_qty="7", peak_defect="2")]))
+    row = rows[0]
+    assert round(float(row["unit_price"]), 2) == 56.80     # 397.5715 / 7，同一批
+    assert float(row["total_qty"]) == 7                    # 整月最大，不是 6+7+7=20
+    assert float(row["defect_qty"]) == 2                   # 峰值在中间批次
 
 
 def test_months_filter_narrows_the_aggregate():
     cursor = cursor_with([])
     repo.aggregate(cursor, ["2026-09"])
     sql, args = cursor.execute.call_args.args
-    assert "HAVING l.stat_month IN (%s)" in sql and args == ("2026-09",)
+    assert "AND stat_month IN (%s)" in sql and args == ("2026-09",)
 
 
 # ------------------------------------------------------------ 分档候选
