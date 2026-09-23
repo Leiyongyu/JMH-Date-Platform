@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from backend.config import settings
 from backend.database import db_connection
+from backend.repositories import ebay_sku_unit_price_repository as unit_price
 from backend.services import listing_price_tier_service as engine
 
 HEAD = 'dws_listing_cny_price_report'
@@ -55,13 +56,21 @@ def context(cursor,platform):
     # 也让 read_report 的 stale 比对能发现"汇率换月了"。
     rate_months = {r['currency_code'].strip().upper(): r['rate_month'] for r in picked}
     shops = {}
+    extra = {}
     if platform == 'ebay':
-        # 原始表按月累积，报表只看最新那个月；往月的数据留给趋势报表。
-        cursor.execute('''SELECT stat_month,seller_user_id,seller_account,row_count,sync_batch_id,pulled_at
-                          FROM ods_ebay_store_listing_state
-                          WHERE stat_month=(SELECT MAX(stat_month) FROM ods_ebay_store_listing_state)
-                          ORDER BY seller_user_id''')
-        state = list(cursor.fetchall())
+        # eBay不再走在售刊登表：单价改由飞书不良交易刊登表的成交额/成交量算出，
+        # 金额本来就是美元，不需要汇率。这里只记录用的是哪个月的单价表。
+        # 变量名不能叫 month——那是汇率月份，覆盖了 rate_month 就会写错。
+        price_month = unit_price.latest_month(cursor)
+        if not price_month:
+            state = []
+        else:
+            cursor.execute(f'''SELECT %s AS stat_month, MAX(reg_date) AS reg_date,
+                                      COUNT(*) AS row_count, COUNT(DISTINCT shop) AS shop_count,
+                                      MAX(computed_at) AS computed_at
+                               FROM {unit_price.TABLE} WHERE stat_month=%s''', (price_month, price_month))
+            state = [cursor.fetchone()]
+            extra = dict(unit_price_month=price_month, unit_price_reg_date=state[0]['reg_date'])
     else:
         cursor.execute('SELECT sync_batch_id,row_count,pulled_at,published_at FROM ods_lingxing_amz_listing_state WHERE id=1')
         state = cursor.fetchone()
@@ -71,28 +80,19 @@ def context(cursor,platform):
             sid = str(row['sid'])
             if sid in shops and shops[sid] != row: raise ValueError('AMZ店铺sid对应多个不同店铺，请先检查店铺数据')
             shops[sid] = row
-    return decode(dumps(dict(rate_month=month,rates=rates,rate_months=rate_months,source=state,shops=shops)))
+    return decode(dumps(dict(rate_month=month,rates=rates,rate_months=rate_months,source=state,shops=shops,**extra)))
 
 
 def source(cursor,platform,ctx):
-    if not ctx['source']: raise ValueError('尚无完整原始刊登数据，请先完成商品同步')
+    if not ctx['source']: raise ValueError('尚无可用的SKU单价数据，请先同步飞书不良交易刊登表')
     if platform == 'ebay':
-        # 月份取自state，与行数校验同源：漏了这个过滤会把各月相加，
-        # 下面的逐账号行数校验会当场报"行数不完整"，不会算出成倍的数字。
         month = ctx['source'][0]['stat_month']
-        cursor.execute('''SELECT seller_user_id,seller_account,item_id,sku,site,current_price,currency,variations_json,sync_batch_id
-                          FROM ods_ebay_store_listing_latest WHERE stat_month=%s''',(month,))
-        rows = list(cursor.fetchall())
-        expected = {s['seller_user_id']:s for s in ctx['source']}
-        counts = dict.fromkeys(expected,0)
-        for row in rows:
-            state = expected.get(row['seller_user_id'])
-            if not state or row['sync_batch_id']!=state['sync_batch_id'] or row['seller_account']!=state['seller_account']:
-                raise ValueError('eBay原始数据与发布批次不一致，保留旧报表')
-            counts[row['seller_user_id']] += 1
-        if any(counts[k]!=v['row_count'] for k,v in expected.items()): raise ValueError('eBay原始数据行数不完整，保留旧报表')
-        empty = [dict(store_key=s['seller_user_id'],store_name=s['seller_account']) for s in ctx['source']]
-        return engine.ebay_candidates(rows),empty,len(rows)
+        rows = unit_price.unit_prices(cursor, month)
+        if len(rows) != ctx['source'][0]['row_count']:
+            raise ValueError('SKU单价行数与统计口径不一致，保留旧报表')
+        # 源表没有站点字段，只能按店铺分组；给一个占位站点让树状结构照常渲染。
+        empty = [dict(store_key=row['shop'],store_name=row['shop']) for row in rows]
+        return engine.unit_price_candidates(rows),empty,len(rows)
     cursor.execute('SELECT sync_batch_id,COUNT(*) n FROM ods_lingxing_amz_listing_latest GROUP BY sync_batch_id')
     batches = cursor.fetchall()
     expected = ctx['source']
@@ -114,6 +114,11 @@ def rebuild(platform):
         cursor.execute('SELECT GET_LOCK(%s,0) acquired',(lock,))
         if cursor.fetchone()['acquired']!=1: raise ReportBusy('本平台报表正在计算，请稍后再试')
         try:
+            if platform == 'ebay':
+                # 先把单价表按飞书不良交易刊登表重算一遍，再分档。
+                # 必须在 begin() 之前：REPEATABLE READ 一开事务就定快照，
+                # 之后写的数据这个事务是看不见的。用的是另一条连接，锁仍然握着。
+                refreshed = unit_price.refresh()
             begin(connection,cursor)
             ctx = context(cursor,platform)
             candidates,empty,count = source(cursor,platform,ctx)
@@ -132,6 +137,11 @@ def rebuild(platform):
             report.update(platform=platform,rate_month=ctx['rate_month'],rates=ctx['rates'],
                           rate_months=ctx['rate_months'],source_listing_count=count,
                           report_id=str(uuid4()),generated_at=datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S'))
+            if platform == 'ebay':
+                # 页面要能说清这份报表用的是哪个月、哪一批登记日期的单价。
+                report.update(unit_price_month=ctx.get('unit_price_month', ''),
+                              unit_price_reg_date=str(ctx.get('unit_price_reg_date', '')),
+                              unit_price_refresh=refreshed)
             values = []
             for parent in report['items']:
                 for node in [parent]+parent['children']:

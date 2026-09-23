@@ -3,7 +3,10 @@
            :style="{ '--tier-count': definitions.length }">
     <header>
       <div><span class="eyebrow">{{ platformLabel }} · {{ currencyLabel }}价格结构</span><h2 :id="`price-tier-${platform}`">店铺 SKU 价格分层</h2></div>
-      <el-button size="small" icon="Refresh" circle :disabled="loading" title="用汇率表中各币种最新可用汇率重新计算本地数据，不拉取接口" aria-label="重新统计价格分层" @click="load(true)" />
+      <div class="actions">
+        <el-button v-if="platform === 'ebay'" size="small" @click="structureOpen = true">产品结构</el-button>
+        <el-button size="small" icon="Refresh" circle :disabled="loading" :title="refreshTitle" aria-label="重新统计价格分层" @click="load(true)" />
+      </div>
     </header>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <template v-else-if="report?.state === 'READY'">
@@ -62,6 +65,7 @@
       <p class="rules">每格：SKU数量 / 当前店铺或站点占比。店铺数量为站点明细之和，跨站点分别计数；百分比按各自有效SKU总数重新计算，不相加。百分比舍入合计可能不恰好100%。</p>
       <template #footer><el-button @click="detailsOpen = false">关闭</el-button></template>
     </el-dialog>
+    <ProductStructure v-if="platform === 'ebay'" v-model="structureOpen" />
   </section>
 </template>
 
@@ -69,6 +73,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { getListingPriceTier, refreshListingPriceTier } from '@/api/operations/listingPriceTier'
 import { pricePresentation } from './presentation'
+import ProductStructure from './ProductStructure.vue'
 const props = defineProps({ platform: { type: String, required: true, validator: v => ['amz', 'ebay'].includes(v) } })
 const platformLabel = computed(() => props.platform === 'amz' ? 'AMAZON' : 'EBAY')
 const presentation = computed(() => pricePresentation(props.platform))
@@ -77,6 +82,7 @@ const report = ref(null)
 const loading = ref(false)
 const error = ref('')
 const detailsOpen = ref(false)
+const structureOpen = ref(false)
 const keyword = ref('')
 // 七档要七种颜色；人民币只用前五个，色序不变，改档位数不影响AMZ报表的观感。
 const palette = ['#67b8ae', '#629dce', '#666cc6', '#b07baf', '#d79b5e', '#c9756a', '#8a8f98']
@@ -88,9 +94,14 @@ const definitions = computed(() => presentation.value.names.map((name, i) => ({
 const colors = computed(() => palette.slice(0, definitions.value.length))
 // 美元7档的表头只有「0-5」这种短字，收窄后弹窗仍不需要横向滚动；人民币5档保持164。
 const tierColumnWidth = computed(() => definitions.value.length > 5 ? 112 : 164)
+const refreshTitle = computed(() => props.platform === 'ebay'
+  ? '先按飞书不良交易刊登表重算SKU美元单价，再重新分档；不拉取任何外部接口'
+  : '用汇率表中各币种最新可用汇率重新计算本地数据，不拉取接口')
 const ruleDescription = computed(() => `${props.platform === 'amz'
   ? 'AMZ来源：ods_lingxing_amz_listing_latest.landed_price（含促销、运费、积分）；仅status=1且is_delete=0，按完整seller_sku统计。店铺去掉与country_code一致的国家后缀，展开保留各站点。'
-  : 'eBay来源：GetMyeBaySelling的ods_ebay_store_listing_latest.current_price；多规格按变体SKU及价格，不重复计父商品。'}按dim_lingxing_currency_month.${presentation.value.rateField}换算${currencyLabel.value}${props.platform === 'ebay' ? '（美元原价不换算）' : ''}，不截断汇率，分档前不舍入。店铺+站点内完整SKU取最低有效${currencyLabel.value}价格、只计一次，跨站点相加。0为有效价格；缺SKU或价格异常单独提示、不计入占比；汇率按币种回退取最新可用月份，全无汇率才拒绝发布；不按中间码合并、不排除PC。刷新只重新计算本地统计仓库，不拉接口。`)
+  : ''}${props.platform === 'ebay'
+  ? 'eBay来源：飞书多维表格「不良交易刊登」，每周三更新一批。单价=该统计月份内最大登记日期那一批、按店铺+SKU汇总的「总交易额」÷「总交易量」，金额本身就是美元，不做任何汇率换算。同一SKU在不同店铺售价不同，故按店铺分别归档、不合并。该源表只收录有不良交易的刊登，不是全部在售商品，所以这里看到的是问题刊登的价格结构；源表没有站点字段，只能按店铺统计。点刷新会先重算单价表再分档。'
+  : `按dim_lingxing_currency_month.${presentation.value.rateField}换算${currencyLabel.value}，不截断汇率，分档前不舍入。店铺+站点内完整SKU取最低有效${currencyLabel.value}价格、只计一次，跨站点相加。0为有效价格；缺SKU或价格异常单独提示、不计入占比；汇率按币种回退取最新可用月份，全无汇率才拒绝发布；不按中间码合并、不排除PC。刷新只重新计算本地统计仓库，不拉接口。`}`)
 const rateMonths = computed(() => report.value?.rate_months || {})
 const fallbackCurrencies = computed(() => Object.entries(rateMonths.value)
   .filter(([, month]) => month && month !== report.value?.rate_month).map(([code]) => code).sort())
@@ -161,6 +172,7 @@ details[open] > summary::before { content: '▾'; }
 .sku-unit { font-size: 9px; font-weight: 400; color: var(--el-text-color-secondary); }
 .tier-values b, .tier-values small { display: block; white-space: nowrap; }
 .tier-values small { color: var(--el-text-color-secondary); font-size: 10px; }
+.actions { display: flex; align-items: center; gap: 6px; }
 .warning { color: var(--el-color-warning-dark-2); font-size: 10px; line-height: 1.5; max-height: 35px; overflow-y: auto; }
 footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--el-border-color-lighter); padding-top: 6px; margin-top: 5px; font-size: 10px; color: var(--el-text-color-secondary); }
 footer span, .generated { cursor: help; }

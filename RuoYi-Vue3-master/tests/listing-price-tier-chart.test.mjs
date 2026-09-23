@@ -33,8 +33,11 @@ async function html(platform,report,error='') {
  const currentDefinitions=definitionsOf(platform)
  const app=Vue.createSSRApp({render,setup:()=>({platform,platformLabel:platform.toUpperCase(),currencyLabel:presentation.label,presentation,report,error,loading:false,load(){},definitions:currentDefinitions,
  colors:currentDefinitions.map((_,i)=>'c'+i),nodeTitle:n=>n.store_name,tierTitle:t=>t.label,anomalyText:()=>'',detailsOpen:false,keyword:'',visibleShops:[],rateDescription:'各币种最新my_rate',ruleDescription:'按人民币分组',
- rateMonths:report?.rate_months || {},fallbackCurrencies:fallbackOf(report)})})
+ rateMonths:report?.rate_months || {},fallbackCurrencies:fallbackOf(report),
+ refreshTitle:'重新统计',structureOpen:false})})
  for(const name of ['el-button','el-input','el-table','el-table-column','el-dialog']) app.component(name,{setup:(_, {slots})=>()=>name==='el-dialog'?null:Vue.h('span',slots.default?.())})
+ // 产品结构弹窗是独立组件，这里只关心它挂没挂上，内容由它自己的用例覆盖。
+ app.component('ProductStructure',{setup:()=>()=>Vue.h('div',{class:'product-structure-stub'})})
  app.component('el-alert',{props:['title'],setup:p=>()=>Vue.h('aside',p.title)})
  app.component('el-empty',{props:['description'],setup:p=>()=>Vue.h('aside',p.description)})
  app.directive('loading',{})
@@ -118,4 +121,24 @@ test('USD uses rate_org, CNY retains my_rate and mismatched cached currency is r
  assert.match(pricePresentation('ebay').formula,/其他原币价格×该币种rate_org÷USDrate_org/)
  assert.match(source,/next.target_currency \|\| 'CNY'/)
  assert.match(source,/报表币种与当前口径不一致/)
+})
+
+test('eBay 多一个产品结构按钮并挂载弹窗；AMZ 没有', async () => {
+ const report = {state:'READY',items:[],shop_count:0,total_sku_count:0,rate_month:'2026-09',missing_currencies:[]}
+ const ebay = await html('ebay', report)
+ assert.match(ebay, /产品结构/)
+ assert.match(ebay, /product-structure-stub/)
+ const amz = await html('amz', report)
+ // 数据源是飞书不良交易刊登表，AMZ 没有对应表，不该出现这个入口。
+ assert.doesNotMatch(amz, /产品结构/)
+ assert.doesNotMatch(amz, /product-structure-stub/)
+})
+
+test('eBay 口径说明改成飞书单价来源，不再提汇率换算', () => {
+ const source = fs.readFileSync(new URL('../src/components/ListingPriceTierChart/index.vue', import.meta.url), 'utf8')
+ assert.match(source, /不良交易刊登/)
+ assert.match(source, /总交易额.*总交易量/)
+ assert.match(source, /不做任何汇率换算/)
+ // 必须写明覆盖面，否则会被当成全部在售商品的价格结构。
+ assert.match(source, /只收录有不良交易的刊登/)
 })

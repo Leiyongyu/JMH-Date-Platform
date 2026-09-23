@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from backend.api.deps import require_internal_access
 from backend.repositories.listing_price_tier_repository import ReportBusy
 from backend.schemas.responses import success_response
-from backend.services.ebay_price_tier_service import read_report, refresh_report
+from backend.services.ebay_price_tier_service import product_structure, read_report, refresh_report
 
 LOG = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/v1/finance/ebay-price-tier', dependencies=[Depends(require_internal_access)])
@@ -30,3 +30,12 @@ def summary(request: Request):
 @router.post('/refresh')
 def refresh(request: Request):
     return _run(refresh_report, request)
+
+
+@router.get('/product-structure')
+def structure(request: Request, year: str = ''):
+    """产品结构：各月各价格档的不良交易率。不分店铺，看总的。
+
+    year 为空则返回全部月份；给了就只返回该年。
+    """
+    return _run(lambda: product_structure(year), request)

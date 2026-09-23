@@ -25,6 +25,15 @@ public class EbayPriceTierController extends BaseController
         return success(pythonClient.ebayPriceTierSummary(requestId).get("data"));
     }
 
+    /** 产品结构：各月各价格档的不良交易率，只读，不触发任何重算。 */
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list')")
+    @GetMapping("/product-structure")
+    public AjaxResult productStructure(@RequestParam(value = "year", required = false) String year,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        return success(pythonClient.ebayProductStructure(year, requestId).get("data"));
+    }
+
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list')")
     @PostMapping("/refresh")
     public AjaxResult refresh(@RequestHeader(value = "X-Request-ID", required = false) String requestId)

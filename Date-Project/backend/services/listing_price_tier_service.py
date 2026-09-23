@@ -5,9 +5,13 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
 from fractions import Fraction
 
 VERSION = 2
-# 3->4：美元档位由5档改为7档，旧快照按旧档位存着，版本号必须跟着走，
-# 否则 read_report 会把5档数据套到7档标签上。
-USD_VERSION = 4
+# 3->4：美元档位由5档改为7档。
+# 4->5：单价来源由 eBay 在售刊登的挂牌价（需换汇）改为飞书不良交易刊登表的
+#       成交额/成交量（本来就是美元，不换汇），店铺不再拆站点。口径完全不同，
+#       旧快照必须判为过期，否则会把两套口径的数字画在同一张图上。
+USD_VERSION = 5
+# 源表没有站点字段，只按店铺分组；给一个占位站点让树状结构照常渲染。
+UNIT_PRICE_SITE = '全部店铺合计'
 LABELS = ('低价引流层', '基础走量层', '利润核心层', '高客单层', '专业/稀缺层')
 # 美元档位不用业务分层叫法，直接显示价格段。
 USD_LABELS = ('0-5', '5-20', '20-50', '50-100', '100-200', '200-500', '500以上')
@@ -87,6 +91,18 @@ def ebay_candidates(rows):
                            currency=text(money.get('currency')).upper(), sku=text(item.get('sku')), price=money.get('value'), missing_shop=False)
         except (ValueError, TypeError, AttributeError):
             raise ValueError('eBay原始规格结构异常，保留旧报表') from None
+
+
+def unit_price_candidates(rows):
+    """SKU单价表 -> 分档候选。单价本来就是美元，标成USD让换汇整条链路短路。
+
+    每行已经是"某店铺某SKU"的一个价格，不再有变体/多刊登的展开——
+    同店铺同SKU的多个刊登在算单价时就按合计额除合计量合并过了。
+    """
+    for row in rows:
+        yield dict(store_key=text(row['shop']), store_name=text(row['shop']),
+                   site=UNIT_PRICE_SITE, currency='USD', sku=text(row['sku']),
+                   price=row['unit_price'], missing_shop=False)
 
 
 def amz_shop(sid, shops):
