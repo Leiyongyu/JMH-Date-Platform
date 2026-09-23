@@ -50,9 +50,9 @@ def test_two_accounts_same_item_and_sku_kept_separate(monkeypatch):
     assert [r['seller']['userId'] for r in records] == ['user-a', 'user-a', 'b']
     replace.assert_called_once()
     assert client.close.call_count == 2
-    values = dict(zip(repo.FIELDS, repo.record_values(records[0], 'batch', datetime.now()), strict=True))
+    values = dict(zip(repo.FIELDS, repo.record_values(records[0], 'batch', datetime(2026, 9, 21)), strict=True))
     assert values['current_price'] == '12.3400' and values['quantity_sold'] is None
-    assert '<Future>x</Future>' in values['raw_xml']
+    assert values['stat_month'] == '2026-09'
 
 
 def test_all_pages_and_final_short_page(monkeypatch):
@@ -243,14 +243,15 @@ def db(monkeypatch):
 
 def test_delete_scoped_to_stable_account_and_commit_state_together(monkeypatch):
     connection, cursor, record, accounts = db(monkeypatch)
-    pulled_at = datetime(2026, 9, 21, 16, 32, 19)
-    repo.replace_snapshots([record], accounts, batch_id='b', pulled_at=pulled_at)
+    repo.replace_snapshots([record], accounts, batch_id='b', pulled_at=datetime(2026, 9, 21, 16, 32, 19))
     delete = [c for c in cursor.execute.call_args_list if c.args[0].startswith('DELETE')]
-    # latest整账号清空；历史只清该账号当月那一份，其他月份不能被碰。
-    assert len(delete) == 2
-    assert delete[0].args == (f'DELETE FROM {repo.TABLE} WHERE seller_user_id=%s', ('user-a',))
-    assert delete[1].args == (
-        f'DELETE FROM {repo.MONTHLY_TABLE} WHERE stat_month=%s AND seller_user_id=%s', ('2026-09', 'user-a'))
+    # 按月累积：只清该账号**本月**那一份，往月历史和别的账号一行不动。
+    assert len(delete) == 1
+    assert delete[0].args == (f'DELETE FROM {repo.TABLE} WHERE stat_month=%s AND seller_user_id=%s',
+                              ('2026-09', 'user-a'))
+    # 行数校验也必须带月份，否则会把往月的行一起数进来。
+    counts = [c for c in cursor.execute.call_args_list if c.args[0].startswith('SELECT COUNT')]
+    assert counts and all('stat_month=%s' in c.args[0] for c in counts)
     connection.commit.assert_called_once()
     connection.rollback.assert_not_called()
 
@@ -293,58 +294,35 @@ def test_repository_rolls_back_every_failure(monkeypatch, failure):
     connection.commit.assert_not_called()
 
 
-def test_monthly_archive_written_in_same_transaction_as_latest(monkeypatch):
-    """留档与latest同事务、同一批记录投影而来，共有字段逐字相同。"""
+def test_written_row_carries_month_and_variations(monkeypatch):
     connection, cursor, record, accounts = db(monkeypatch)
-    pulled_at = datetime(2026, 9, 21, 16, 32, 19)
-    result = repo.replace_snapshots([record], accounts, batch_id='b', pulled_at=pulled_at)
-    assert result['monthly_rows'] == result['ods_rows'] == 1
-    assert result['stat_month'] == '2026-09'
-    inserts = {call.args[0].split()[2]: call.args[1] for call in cursor.executemany.call_args_list}
-    assert repo.TABLE in inserts and repo.MONTHLY_TABLE in inserts
-    latest = dict(zip(repo.FIELDS, inserts[repo.TABLE][0]))
-    monthly = dict(zip(repo.MONTHLY_FIELDS, inserts[repo.MONTHLY_TABLE][0]))
-    assert monthly['stat_month'] == '2026-09'
-    # 共有字段不重新算、不重新序列化，一律取自同一行。
-    for field in set(repo.MONTHLY_FIELDS) & set(repo.FIELDS):
-        assert monthly[field] == latest[field], field
-    connection.commit.assert_called_once()
-    # 空店也要落状态行，否则趋势图分不清"当月空店"和"当月没同步"。
-    state_sql = [c.args[0] for c in cursor.execute.call_args_list if repo.MONTHLY_STATE_TABLE in c.args[0]]
-    assert len(state_sql) == 1
-
-
-def test_archive_month_follows_pull_time_not_today():
-    """补跑上个月的数据要落在上个月，不能落在跑的那天。"""
-    assert repo.stat_month(datetime(2026, 8, 31, 23, 59, 59)) == '2026-08'
-    assert repo.stat_month(datetime(2026, 9, 1, 0, 0, 0)) == '2026-09'
-
-
-def test_monthly_row_count_mismatch_rolls_back_everything(monkeypatch):
-    """历史留档少写一行就整批回滚，不允许latest有而历史没有。"""
-    connection, cursor, record, accounts = db(monkeypatch)
-    cursor.fetchone.side_effect = [{'n': 1}, {'n': 0}]
-    with pytest.raises(ValueError, match='历史留档'):
-        repo.replace_snapshots([record], accounts, batch_id='b', pulled_at=datetime.now())
-    connection.rollback.assert_called_once()
-    connection.commit.assert_not_called()
+    result = repo.replace_snapshots([record], accounts, batch_id='b',
+                                    pulled_at=datetime(2026, 9, 21, 16, 32, 19))
+    assert result['stat_month'] == '2026-09' and result['ods_rows'] == 1
+    row = dict(zip(repo.FIELDS, cursor.executemany.call_args.args[1][0], strict=True))
+    assert row['stat_month'] == '2026-09'
+    assert row['sync_batch_id'] == 'b'
+    # state 也按月留行，row_count=0 的空店同样有行，趋势图才分得清"空店"和"没同步"。
+    state = [c for c in cursor.execute.call_args_list if repo.STATE_TABLE in c.args[0]
+             and c.args[0].lstrip().startswith('INSERT')]
+    assert len(state) == 1 and state[0].args[1][0] == '2026-09'
 
 
 def test_archive_drops_xml_and_metadata_but_never_variations():
-    """留档砍掉的必须只是冗余：XML、响应元数据、与扁平列重复的normalized_json。"""
-    dropped = set(repo.FIELDS) - set(repo.MONTHLY_FIELDS)
-    assert dropped == {'raw_xml', 'response_meta_json', 'normalized_json', 'source_page', 'api_total'}
+    """砍掉的必须只是冗余：XML、响应元数据、与扁平列重复的normalized_json。"""
+    dropped = {'raw_xml', 'response_meta_json', 'normalized_json', 'source_page', 'api_total'}
+    assert not (dropped & set(repo.FIELDS))
     # 变体是扁平列里没有的，必须另有去处，否则多规格刊登会塌缩成一个SKU。
-    assert 'variations_json' in repo.MONTHLY_FIELDS
+    assert 'variations_json' in repo.FIELDS and 'stat_month' in repo.FIELDS
 
 
 def test_variations_kept_verbatim_without_their_own_raw_xml():
     """变体只剥raw_xml，sku/价格/数量原样保留——分档直接读这些。"""
-    payload = repo.variations_payload(repo.dumps({'sku': 'P', 'variations': [
+    payload = repo.variations_payload({'sku': 'P', 'variations': [
         {'sku': 'A-1', 'price': {'value': '4.99', 'currency': 'GBP'},
          'quantity': 25, 'quantity_sold': 3, 'raw_xml': '<Variation>...</Variation>'},
         {'sku': 'A-2', 'price': {'value': '9.99', 'currency': 'GBP'},
-         'quantity': 1, 'quantity_sold': 0, 'raw_xml': '<Variation>...</Variation>'}]}))
+         'quantity': 1, 'quantity_sold': 0, 'raw_xml': '<Variation>...</Variation>'}]})
     variations = json.loads(payload)
     assert [v['sku'] for v in variations] == ['A-1', 'A-2']
     assert [v['price'] for v in variations] == [{'value': '4.99', 'currency': 'GBP'},
@@ -353,8 +331,14 @@ def test_variations_kept_verbatim_without_their_own_raw_xml():
     assert all('raw_xml' not in v for v in variations)
 
 
-@pytest.mark.parametrize('normalized', [{'sku': 'P'}, {'sku': 'P', 'variations': []},
-                                        {'sku': 'P', 'variations': None}])
-def test_no_variations_archives_null_not_empty_array(normalized):
+@pytest.mark.parametrize('item', [{'sku': 'P'}, {'sku': 'P', 'variations': []},
+                                  {'sku': 'P', 'variations': None}])
+def test_no_variations_stores_null_not_empty_array(item):
     """没有变体就存NULL，别拿空数组占位——统计时要能直接判空。"""
-    assert repo.variations_payload(repo.dumps(normalized)) is None
+    assert repo.variations_payload(item) is None
+
+
+def test_archive_month_follows_pull_time_not_today():
+    """补跑上个月的数据要落在上个月，不能落在跑的那天。"""
+    assert repo.stat_month(datetime(2026, 8, 31, 23, 59, 59)) == '2026-08'
+    assert repo.stat_month(datetime(2026, 9, 1, 0, 0, 0)) == '2026-09'

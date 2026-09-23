@@ -79,16 +79,35 @@ def test_amz_landed_price_not_other_price_status_and_store_merge():
 
 
 def test_ebay_variants_no_parent_double_count():
-    row=dict(seller_user_id='a',seller_account='shop',sku='parent',site='DE',current_price='1',currency='EUR',normalized_json={'variations':[
-        {'sku':'a','price':{'value':'100','currency':'EUR'}},{'sku':'b','price':{'value':'200','currency':'EUR'}}]})
+    row=dict(seller_user_id='a',seller_account='shop',sku='parent',site='DE',current_price='1',currency='EUR',
+             variations_json=[{'sku':'a','price':{'value':'100','currency':'EUR'}},
+                              {'sku':'b','price':{'value':'200','currency':'EUR'}}])
     result=service.summarize(service.ebay_candidates([row]),{'EUR':'7.6'})
     assert result['total_sku_count']==2
     assert result['items'][0]['tiers'][2]['sku_count']==1 and result['items'][0]['tiers'][3]['sku_count']==1
 
 
-@pytest.mark.parametrize('data',['bad',None,[],{'variations':{}},{'variations':[None]}])
+def test_no_variations_falls_back_to_parent_row():
+    """无变体存的是NULL，不是异常：退回用父级的sku与价格，只算一个SKU。"""
+    row=dict(seller_user_id='a',seller_account='shop',sku='parent',site='DE',
+             current_price='100',currency='EUR',variations_json=None)
+    result=service.summarize(service.ebay_candidates([row]),{'EUR':'7.6'})
+    assert result['total_sku_count']==1
+
+
+def test_variations_json_accepts_text_column():
+    """MySQL的JSON列取出来可能是str，也可能已是对象，两种都要能吃。"""
+    row=dict(seller_user_id='a',seller_account='shop',sku='parent',site='DE',current_price='1',currency='EUR',
+             variations_json='[{"sku":"a","price":{"value":"100","currency":"EUR"}}]')
+    assert service.summarize(service.ebay_candidates([row]),{'EUR':'7.6'})['total_sku_count']==1
+
+
+@pytest.mark.parametrize('data',['bad',{'variations':{}},{},[None],[{'sku':'a','price':'x'}]])
 def test_bad_variant_structure_fails(data):
-    with pytest.raises(ValueError): list(service.ebay_candidates([{'normalized_json':data}]))
+    # 行本身是完整的，坏的只有 variations_json，避免误测成"行缺字段"。
+    row=dict(seller_user_id='a',seller_account='shop',sku='parent',site='DE',
+             current_price='1',currency='EUR',variations_json=data)
+    with pytest.raises(ValueError): list(service.ebay_candidates([row]))
 
 
 def mocks(monkeypatch):

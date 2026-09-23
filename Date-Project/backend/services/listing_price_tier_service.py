@@ -74,9 +74,11 @@ def tiers(counts, target_currency='CNY'):
 def ebay_candidates(rows):
     for row in rows:
         try:
-            data = row['normalized_json']
-            data = json.loads(data) if isinstance(data, str) else data
-            variations = data.get('variations', [])
+            # 原始表不再存整份normalized_json（其余键与扁平列重复），只留变体数组。
+            # NULL 表示这条刊登没有变体，退回用父级的sku与价格，不是数据异常。
+            variations = row['variations_json']
+            if isinstance(variations, str): variations = json.loads(variations)
+            if variations is None: variations = []
             if not isinstance(variations, list): raise ValueError()
             candidates = variations or [{'sku': row.get('sku'), 'price': {'value': row.get('current_price'), 'currency': row.get('currency')}}]
             for item in candidates:

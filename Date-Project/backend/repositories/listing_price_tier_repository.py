@@ -56,7 +56,11 @@ def context(cursor,platform):
     rate_months = {r['currency_code'].strip().upper(): r['rate_month'] for r in picked}
     shops = {}
     if platform == 'ebay':
-        cursor.execute('SELECT seller_user_id,seller_account,row_count,sync_batch_id,pulled_at FROM ods_ebay_store_listing_state ORDER BY seller_user_id')
+        # 原始表按月累积，报表只看最新那个月；往月的数据留给趋势报表。
+        cursor.execute('''SELECT stat_month,seller_user_id,seller_account,row_count,sync_batch_id,pulled_at
+                          FROM ods_ebay_store_listing_state
+                          WHERE stat_month=(SELECT MAX(stat_month) FROM ods_ebay_store_listing_state)
+                          ORDER BY seller_user_id''')
         state = list(cursor.fetchall())
     else:
         cursor.execute('SELECT sync_batch_id,row_count,pulled_at,published_at FROM ods_lingxing_amz_listing_state WHERE id=1')
@@ -73,8 +77,11 @@ def context(cursor,platform):
 def source(cursor,platform,ctx):
     if not ctx['source']: raise ValueError('尚无完整原始刊登数据，请先完成商品同步')
     if platform == 'ebay':
-        cursor.execute('''SELECT seller_user_id,seller_account,item_id,sku,site,current_price,currency,normalized_json,sync_batch_id
-                          FROM ods_ebay_store_listing_latest''')
+        # 月份取自state，与行数校验同源：漏了这个过滤会把各月相加，
+        # 下面的逐账号行数校验会当场报"行数不完整"，不会算出成倍的数字。
+        month = ctx['source'][0]['stat_month']
+        cursor.execute('''SELECT seller_user_id,seller_account,item_id,sku,site,current_price,currency,variations_json,sync_batch_id
+                          FROM ods_ebay_store_listing_latest WHERE stat_month=%s''',(month,))
         rows = list(cursor.fetchall())
         expected = {s['seller_user_id']:s for s in ctx['source']}
         counts = dict.fromkeys(expected,0)
