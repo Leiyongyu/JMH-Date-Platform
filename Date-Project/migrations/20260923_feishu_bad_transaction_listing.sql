@@ -2,8 +2,9 @@
 --
 -- 来源：https://scnmv3if5x1t.feishu.cn/base/UjvXbOPJTalrRKsmZKpcUjQ5nEe
 --       ?table=tbl4j735kfsuqcHl&view=vewohlM1T4
--- 业务节奏：每周三更新一批，按「登记日期」区分批次。实测全表 10655 条、
---           26 个登记日期（2026-03-31 起每周一批，每批 350~490 条）。
+-- 业务节奏：每周三更新一批，按「登记日期」区分批次。实测全表 10670 条、
+--           26 个登记日期（2026-04-01 起每周一批，每批 350~490 条）。
+--           另有 422 条登记日期为空，不归属任何批次。
 --
 -- 列名用英文 snake_case、注释写飞书原字段名，与本库其它表一致；
 -- 类型按飞书字段类型一一对应，不擅自改写：
@@ -64,10 +65,12 @@ CREATE TABLE IF NOT EXISTS ods_feishu_bad_transaction_listing (
   COMMENT='飞书多维表格「不良交易刊登」本地副本；按飞书record_id增量upsert，每周三更新一批';
 
 
--- 同步任务登记。cron 每周三 09:30（北京时间），业务方周三更新完之后再拉。
+-- 同步任务登记。cron 每周三 18:00（北京时间），业务方周三更新完之后再拉。
+-- 真正的触发由 Java 侧 Quartz 负责（见 deploy/feishu-bad-transaction/），
+-- 这里登记的是 Python 侧的任务目录，两边的 cron 要保持一致。
 INSERT INTO scheduler_task(task_code,task_name,cron_expression,enabled,description)
-VALUES('feishu_bad_transaction_sync','飞书不良交易刊登每周同步','0 30 9 ? * WED',1,
- '每周三北京时间09:30。默认只拉飞书视图vewohlM1T4那一批（当周约370条），'
+VALUES('feishu_bad_transaction_sync','飞书不良交易刊登每周同步','0 0 18 ? * WED',1,
+ '每周三北京时间18:00。默认只拉飞书视图vewohlM1T4那一批（当周约370条），'
  '按record_id增量upsert，内容未变的行不写。全量回填用 scripts/feishu_bad_transaction_backfill.py。')
 ON DUPLICATE KEY UPDATE task_name=VALUES(task_name),cron_expression=VALUES(cron_expression),
                         description=VALUES(description);

@@ -38,6 +38,53 @@ public class PerformancePythonClient extends PythonHttpSupport
         return get("/amz-owner-sku/summary", Map.of(), requestId);
     }
 
+    /** Only fixed report paths may be proxied to Python. */
+    public Map<String, Object> productNature(String platform, String view, Map<String, String> params, String requestId)
+    {
+        if (!java.util.Set.of("amz", "ebay").contains(platform)
+                || !java.util.Set.of("summary", "groups", "owners", "details", "history", "compare").contains(view))
+            throw new IllegalArgumentException("商品性质报表路径无效");
+        Map<String, String> allowed = new LinkedHashMap<>();
+        for (String key : java.util.List.of("month", "group_code", "owner_key", "nature", "sku", "page", "page_size",
+                "base_month", "target_month", "scope", "start_month", "end_month", "include_current", "segment_key", "batch_id"))
+        {
+            if (StringUtils.hasText(params.get(key))) allowed.put(key, params.get(key));
+        }
+        return get("/" + platform + "-owner-sku/nature/" + view, allowed, requestId);
+    }
+
+    public Map<String, Object> captureHomeProductNature(String requestId)
+    {
+        try
+        {
+            HttpRequest request = baseRequest("/home-inventory/product-nature-snapshot", requestId)
+                    .POST(HttpRequest.BodyPublishers.noBody()).build();
+            return sendJson(request, false);
+        }
+        catch (Exception e) { throw asRuntime(e); }
+    }
+
+    public Map<String, Object> homeInventorySummary(String month, String requestId)
+    {
+        return get("/home-inventory/summary", StringUtils.hasText(month) ? Map.of("month", month) : Map.of(), requestId);
+    }
+
+    public Map<String, Object> homeInventorySku(String month, String requestId)
+    {
+        return get("/home-inventory/sku", Map.of("month", month), requestId);
+    }
+
+    public Map<String, Object> captureHomeInventorySku(String requestId)
+    {
+        try
+        {
+            HttpRequest request = baseRequest("/home-inventory/sku-snapshot", requestId)
+                    .POST(HttpRequest.BodyPublishers.noBody()).build();
+            return sendJson(request, false);
+        }
+        catch (Exception e) { throw asRuntime(e); }
+    }
+
     public Map<String, Object> ebayOwnerSkuSummary(String requestId)
     {
         return get("/ebay-owner-sku/summary", Map.of(), requestId);

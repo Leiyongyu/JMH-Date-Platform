@@ -551,6 +551,7 @@ def init_database() -> None:
         project_root / "migrations" / "20260918_ebay_store_listing.sql",
         project_root / "migrations" / "20260919_ebay_token_health.sql",
         project_root / "migrations" / "20260919_listing_cny_price_tier.sql",
+        project_root / "migrations" / "20260921_home_inventory_dashboard.sql",
         project_root / "migrations" / "20260921_ebay_usd_price_tier.sql",
     ]
     schema = "\n".join(

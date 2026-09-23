@@ -8,6 +8,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
+import java.util.Map;
 
 /** 首页 eBay 在售 SKU 统计，独立校验 eBay 补货2.0查看权限。 */
 @RestController
@@ -26,5 +29,13 @@ public class EbayOwnerSkuController extends BaseController
     public AjaxResult summary(@RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
         return success(pythonClient.ebayOwnerSkuSummary(requestId).get("data"));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list')")
+    @GetMapping("/nature/{view:summary|groups|owners|details|history|compare}")
+    public AjaxResult nature(@PathVariable String view, @RequestParam Map<String, String> params,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        return success(pythonClient.productNature("ebay", view, params, requestId).get("data"));
     }
 }

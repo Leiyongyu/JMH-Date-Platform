@@ -65,6 +65,11 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run("ebay_token_health_check", null, requestId);
     }
 
+    public Map<String, Object> runFeishuBadTransaction(String requestId)
+    {
+        return run("feishu_bad_transaction_sync", null, requestId);
+    }
+
     /** Read sanitized local credential expiry metadata; never fetch tokens or listings. */
     public Map<String, Object> ebayCredentialExpiry(String requestId)
     {
