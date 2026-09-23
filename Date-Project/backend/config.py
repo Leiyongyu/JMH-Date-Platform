@@ -76,6 +76,22 @@ class Settings:
     goodcang_request_timeout_sec: int = int(os.getenv("GOODCANG_REQUEST_TIMEOUT_SEC", "30"))
     goodcang_min_request_interval_sec: float = float(os.getenv("GOODCANG_MIN_REQUEST_INTERVAL_SEC", "1.2"))
     goodcang_max_retries: int = int(os.getenv("GOODCANG_MAX_RETRIES", "3"))
+    # 飞书开放平台（多维表格）。自建应用用 app_id/app_secret 换 tenant_access_token。
+    # 国际版租户把 FEISHU_ENDPOINT 改成 https://open.larksuite.com。
+    feishu_endpoint: str = os.getenv("FEISHU_ENDPOINT", "https://open.feishu.cn")
+    feishu_app_id: str = field(default_factory=lambda: os.getenv("FEISHU_APP_ID", ""), repr=False)
+    feishu_app_secret: str = field(default_factory=lambda: os.getenv("FEISHU_APP_SECRET", ""), repr=False)
+    # 提前多少秒把令牌当作过期，避免卡在边界上用到刚失效的令牌。
+    feishu_token_refresh_before_sec: int = int(os.getenv("FEISHU_TOKEN_REFRESH_BEFORE_SEC", "300"))
+    feishu_request_timeout_sec: int = int(os.getenv("FEISHU_REQUEST_TIMEOUT_SEC", "30"))
+    feishu_min_request_interval_sec: float = float(os.getenv("FEISHU_MIN_REQUEST_INTERVAL_SEC", "0.2"))
+    feishu_max_retries: int = int(os.getenv("FEISHU_MAX_RETRIES", "3"))
+    # 多维表格「查询记录」单页上限就是500。
+    feishu_page_size: int = int(os.getenv("FEISHU_PAGE_SIZE", "500"))
+    # 卖家级别表：取自多维表格地址 /base/<app_token>?table=<table_id>&view=<view_id>
+    feishu_seller_level_app_token: str = os.getenv("FEISHU_SELLER_LEVEL_APP_TOKEN", "")
+    feishu_seller_level_table_id: str = os.getenv("FEISHU_SELLER_LEVEL_TABLE_ID", "")
+    feishu_seller_level_view_id: str = os.getenv("FEISHU_SELLER_LEVEL_VIEW_ID", "")
     shop_source_database: str = os.getenv("SHOP_SOURCE_DATABASE", "jmh_data_platform")
     python_internal_api_token: str = os.getenv(
         "PYTHON_INTERNAL_API_TOKEN",
