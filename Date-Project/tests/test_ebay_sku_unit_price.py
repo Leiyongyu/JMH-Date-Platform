@@ -21,9 +21,10 @@ def agg(month, shop, sku, amount, qty, defect=1, listings=1, reg="2026-09-23",
             "defect_qty": Decimal(peak_defect if peak_defect is not None else defect)}
 
 
-def cursor_with(rows):
+def cursor_with(rows, shops=()):
+    """第一次 fetchall 是 shop_aliases 查店铺名，第二次才是聚合结果。"""
     cursor = MagicMock()
-    cursor.fetchall.return_value = rows
+    cursor.fetchall.side_effect = [[{"shop": s} for s in shops], rows]
     return cursor
 
 
@@ -31,7 +32,7 @@ def cursor_with(rows):
 
 def test_unit_price_is_amount_over_qty_per_shop():
     """同一SKU不同店铺单价不同，必须分店铺算——实测FRD-70361-4-0734就是这样。"""
-    rows, skipped = repo.aggregate(cursor_with([
+    rows, skipped, _ = repo.aggregate(cursor_with([
         agg("2026-09", "Celestio-eBay-Allteile-Motor", "FRD-70361-4-0734", "419.826971", "18"),
         agg("2026-09", "帝蓝泰江-ebay-AOE-Master", "FRD-70361-4-0734", "379.822291", "19"),
         agg("2026-09", "ebay-帝蓝泰江pieces_saleshop", "FRD-70361-4-0734", "415.994015", "16"),
@@ -52,7 +53,7 @@ def test_unit_price_is_amount_over_qty_per_shop():
     ("100", "2", 4), ("499.99", "1", 6), ("500", "1", 7), ("1000", "1", 7),
 ])
 def test_tier_follows_the_same_bounds_as_the_page(amount, qty, tier):
-    rows, _ = repo.aggregate(cursor_with([agg("2026-09", "s", "k", amount, qty)]))
+    rows, _, _ = repo.aggregate(cursor_with([agg("2026-09", "s", "k", amount, qty)]))
     assert rows[0]["tier_no"] == tier
     # 档位逻辑只此一处，与页面分档共用同一套阈值。
     assert rows[0]["tier_no"] == engine.tier_index(rows[0]["unit_price"], "USD") + 1
@@ -61,31 +62,31 @@ def test_tier_follows_the_same_bounds_as_the_page(amount, qty, tier):
 @pytest.mark.parametrize("amount,qty", [("100", "0"), ("100", None), (None, "5"), ("-1", "5")])
 def test_unusable_rows_are_skipped_not_priced_as_zero(amount, qty):
     """总交易量为0算不出单价，丢掉并计数，不拿0冒充价格。"""
-    rows, skipped = repo.aggregate(cursor_with([
+    rows, skipped, _ = repo.aggregate(cursor_with([
         agg("2026-09", "s", "k", amount, qty, peak_qty="1", peak_defect="1")]))
     assert rows == [] and skipped == 1
 
 
 def test_sku_universe_is_the_whole_month_not_just_the_last_batch():
     """SKU全集取整月并集：只看最后一批会漏掉当月出现过、末批没出现的SKU。"""
-    assert "ROW_NUMBER() OVER" in repo._AGGREGATE_SQL and "rn = 1" in repo._AGGREGATE_SQL
-    assert "ORDER BY p.reg_date DESC" in repo._AGGREGATE_SQL
+    assert "ROW_NUMBER() OVER" in repo.AGGREGATE_TEMPLATE and "rn = 1" in repo.AGGREGATE_TEMPLATE
+    assert "ORDER BY p.reg_date DESC" in repo.AGGREGATE_TEMPLATE
 
 
 def test_quantities_take_month_max_never_sum_across_batches():
     """同一店铺SKU每批都重报一次累计数，跨批次相加会翻倍，必须取最大。"""
-    assert "MAX(p.total_qty)  OVER" in repo._AGGREGATE_SQL
-    assert "MAX(p.defect_qty) OVER" in repo._AGGREGATE_SQL
+    assert "MAX(p.total_qty)  OVER" in repo.AGGREGATE_TEMPLATE
+    assert "MAX(p.defect_qty) OVER" in repo.AGGREGATE_TEMPLATE
 
 
 def test_shop_name_whitespace_is_normalised():
     """源表店铺名带首尾空白甚至换行，不清掉会把同一个店铺拆成两个。"""
-    assert "TRIM(BOTH FROM REPLACE(REPLACE(b.shop, CHAR(10)" in repo._AGGREGATE_SQL
+    assert "CHAR(10)" in repo.SHOP_EXPR and "TRIM(BOTH ',' FROM" in repo.SHOP_EXPR
 
 
 def test_price_comes_from_that_skus_own_latest_batch_while_qty_is_month_max():
     """单价与交易量来自不同口径：单价同批可比，交易量取整月峰值。"""
-    rows, _ = repo.aggregate(cursor_with([
+    rows, _, _ = repo.aggregate(cursor_with([
         agg("2026-09", "店铺A", "SKU-1", "397.5715", "7", reg="2026-09-16",
             peak_qty="7", peak_defect="2")]))
     row = rows[0]
@@ -98,7 +99,7 @@ def test_months_filter_narrows_the_aggregate():
     cursor = cursor_with([])
     repo.aggregate(cursor, ["2026-09"])
     sql, args = cursor.execute.call_args.args
-    assert "AND stat_month IN (%s)" in sql and args == ("2026-09",)
+    assert "AND stat_month IN (%s)" in sql and args[-1] == "2026-09"
 
 
 # ------------------------------------------------------------ 分档候选
@@ -283,3 +284,51 @@ def test_distinct_count_defaults_to_zero_when_missing(monkeypatch):
                                                             shops=["店铺A"], reg_date="2026-09-23",
                                                             items=[tier("店铺A", 2, 1)]))
     assert api.read_report()["distinct_sku_count"] == 0
+
+
+# -------------------------------------------------------------- 店铺改名归一
+
+def aliases_from(names):
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [{"shop": n} for n in names]
+    return repo.shop_aliases(cursor)
+
+
+def test_renamed_shop_merges_into_the_new_name():
+    """业务方在 2026-09-23 那批给店铺加了公司前缀，历史批次仍是短名。
+
+    不归一的话同一个店铺被当成两家，SKU 也被拆成两份（实测9月店铺数虚增到73）。
+    """
+    aliases, warnings = aliases_from(["Aplus-Shop", "帝蓝泰江-ebay-Aplus-Shop"])
+    assert aliases == {"Aplus-Shop": "帝蓝泰江-ebay-Aplus-Shop"} and warnings == []
+
+
+def test_ambiguous_suffix_is_left_alone_and_reported():
+    """一个短名能匹配到多个长名时不合并——宁可少合也不能错合。"""
+    aliases, warnings = aliases_from(["shop", "A-shop", "B-shop"])
+    assert aliases == {} and len(warnings) == 1 and "shop" in warnings[0]
+
+
+def test_alias_chain_points_at_the_final_name():
+    aliases, _ = aliases_from(["c", "b-c", "a-b-c"])
+    # b-c -> a-b-c；c 匹配到两个，属于歧义不合并。
+    assert aliases.get("b-c") == "a-b-c"
+
+
+def test_whitespace_and_leading_comma_cleaned_before_matching():
+    """源表有 ' allteile-motor'、', stellar-hub' 这类脏值，不清掉会拆成两个店铺。"""
+    assert repo._clean_name("  allteile-motor ") == "allteile-motor"
+    assert repo._clean_name(", stellar-hub") == "stellar-hub"
+    assert repo._clean_name(chr(10) + ", stellar-hub") == "stellar-hub"
+
+
+def test_no_aliases_means_plain_cleaning_only():
+    """业务方把历史批次改成新名之后短名消失，映射自然变空，SQL退回纯清洗。"""
+    sql, params = repo._aggregate_sql({})
+    assert params == [] and "CASE" not in sql.split("FROM")[0]
+
+
+def test_alias_map_becomes_case_expression_with_bound_params():
+    sql, params = repo._aggregate_sql({"旧": "新"})
+    assert "CASE" in sql and "WHEN %s THEN %s" in sql
+    assert params == ["旧", "新"]

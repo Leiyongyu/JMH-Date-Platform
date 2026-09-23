@@ -30,15 +30,71 @@ _BATCH_SIZE = 500
 #
 # 同一批次内同一店铺SKU的多个刊登（不同物品编号）仍然相加——那是不同刊登的
 # 成交，本来就该合并。所以是"批次内求和、批次间取最大"。
-_AGGREGATE_SQL = f"""
+# 店铺名清洗：去掉换行、首尾空白，以及开头残留的逗号（源表里有 ', stellar-hub'
+# 这种值）。ODS 保持原样，只在这里归一。
+SHOP_EXPR = "TRIM(BOTH ',' FROM TRIM(BOTH FROM REPLACE(REPLACE(b.shop, CHAR(10), ' '), CHAR(13), ' ')))"
+
+
+def _clean_name(name):
+    """与 SHOP_EXPR 等价的 Python 版，用来在内存里推导改名映射。"""
+    text = str(name or "")
+    for char in (chr(10), chr(13)):
+        text = text.replace(char, " ")
+    return text.strip().strip(",").strip()
+
+
+def shop_aliases(cursor):
+    """从数据里自动推导「旧店铺名 -> 新店铺名」。
+
+    业务方在 2026-09-23 那批把店铺统一加了公司前缀（Aplus-Shop ->
+    帝蓝泰江-ebay-Aplus-Shop），历史批次仍是短名。不归一的话同一个店铺会被
+    当成两家，SKU 也被拆成两份（实测9月店铺数从37虚增到73）。
+
+    规则：清洗后，若 A 是且仅是一个更长的 B 的后缀，则 A 视作 B。
+    匹配到多个就不合并并记进 warnings——宁可少合也不能错合。
+    等业务方把历史批次改成新名，短名消失，这个映射自然变空，行为不变。
+    """
+    cursor.execute(f"SELECT DISTINCT {SHOP_EXPR} AS shop "
+                   f"FROM {SOURCE_TABLE} b WHERE b.shop IS NOT NULL")
+    names = sorted({_clean_name(r["shop"]) for r in cursor.fetchall()} - {""})
+    aliases, warnings = {}, []
+    for short in names:
+        longer = [n for n in names if n != short and n.lower().endswith(short.lower())]
+        if len(longer) == 1:
+            aliases[short] = longer[0]
+        elif longer:
+            warnings.append(f"店铺「{short}」同时是 {len(longer)} 个店铺名的后缀，未合并：{'、'.join(longer)}")
+    # 合并成多级链条时一路指到最终名，避免 A->B 而 B->C 时 A 停在 B。
+    for short in list(aliases):
+        seen = {short}
+        while aliases.get(aliases[short]) and aliases[short] not in seen:
+            seen.add(aliases[short])
+            aliases[short] = aliases[aliases[short]]
+    return aliases, warnings
+
+
+def _aggregate_sql(aliases):
+    """拼出聚合SQL；aliases 把旧店铺名映射到新名，空映射时退化成纯清洗。
+
+    别名用 CASE 而不是建映射表：这份映射是从数据里推出来的，业务方把历史批次
+    改成新名之后它自然变空，不需要谁去维护一张表。
+    """
+    shop = SHOP_EXPR
+    if aliases:
+        whens = " ".join(["WHEN %s THEN %s"] * len(aliases))
+        shop = f"CASE {shop} {whens} ELSE {shop} END"
+    params = [value for pair in aliases.items() for value in pair]
+    return AGGREGATE_TEMPLATE.format(shop_expr=shop), params
+
+
+AGGREGATE_TEMPLATE = f"""
     WITH per_batch AS (
-        -- 源表里的店铺名带首尾空白，个别还夹着换行（实测有 ' allteile-motor'、
-        -- '  superturbo-store'，以及一个以换行开头的）。不清掉会把同一个店铺
-        -- 拆成两个。ODS 保持原样，只在这里归一。
+        -- 店铺名先清洗（换行、首尾空白、开头逗号），再按 shop_aliases 归一到
+        -- 改名后的新名。不做这两步，同一个店铺会被当成两家、SKU也被拆成两份。
         -- 用 CHAR(10)/CHAR(13) 而不是转义字面量：这段SQL是Python的f-string，
         -- 写反斜杠n会在拼串时变成真的换行，把上面的注释截断。
         SELECT DATE_FORMAT(b.reg_date,'%%Y-%%m') AS stat_month,
-               TRIM(BOTH FROM REPLACE(REPLACE(b.shop, CHAR(10), ' '), CHAR(13), ' ')) AS shop,
+               {{shop_expr}} AS shop,
                TRIM(b.sku) AS sku, b.reg_date,
                COUNT(*) AS listing_count,
                SUM(CAST(NULLIF(TRIM(b.total_amount),'') AS DECIMAL(20,6))) AS total_amount,
@@ -70,11 +126,13 @@ def aggregate(cursor, months=None):
 
     months 为 None 时算全部月份（首次建表/回填）；给了就只算这些月份（每周刷新）。
     """
-    sql, args = _AGGREGATE_SQL, ()
+    aliases, alias_warnings = shop_aliases(cursor)
+    sql, params = _aggregate_sql(aliases)
     if months:
         placeholders = ",".join(["%s"] * len(months))
-        sql = f"{_AGGREGATE_SQL} AND stat_month IN ({placeholders})"
-        args = tuple(months)
+        sql = f"{sql} AND stat_month IN ({placeholders})"
+        params += list(months)
+    args = tuple(params)
     cursor.execute(sql, args)
     rows, skipped = [], 0
     for row in cursor.fetchall():
@@ -96,7 +154,7 @@ def aggregate(cursor, months=None):
             # 档位逻辑只此一处，与页面分档共用同一套阈值。
             "tier_no": engine.tier_index(price, "USD") + 1,
         })
-    return rows, skipped
+    return rows, skipped, alias_warnings
 
 
 def refresh(months=None):
@@ -117,7 +175,8 @@ def refresh(months=None):
         try:
             connection.begin()
             with connection.cursor() as cursor:
-                rows, skipped = aggregate(cursor, months)
+                rows, skipped, alias_warnings = aggregate(cursor, months)
+                alias_count = len(shop_aliases(cursor)[0])
                 touched = sorted({row["stat_month"] for row in rows})
                 for offset in range(0, len(rows), _BATCH_SIZE):
                     chunk = rows[offset:offset + _BATCH_SIZE]
@@ -128,7 +187,9 @@ def refresh(months=None):
         except Exception:
             connection.rollback()
             raise
-    return {"months": touched, "rows": len(rows), "skipped_rows": skipped, "removed_rows": removed}
+    return {"months": touched, "rows": len(rows), "skipped_rows": skipped,
+            "removed_rows": removed, "shop_aliases": alias_count,
+            "warnings": alias_warnings}
 
 
 def _drop_stale(cursor, months, seen):
