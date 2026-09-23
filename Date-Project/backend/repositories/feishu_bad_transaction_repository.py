@@ -91,6 +91,7 @@ def upsert(rows, *, batches=(), synced_at=None):
                                    [synced_at] + [row["record_id"] for row in chunk])
 
                 deleted = _reconcile(cursor, batches, {row["record_id"] for row in rows})
+                _verify_written(cursor, [row["record_id"] for row in rows])
             connection.commit()
         except Exception:
             connection.rollback()
@@ -116,3 +117,23 @@ def _reconcile(cursor, batches, seen):
             cursor.execute(f"DELETE FROM {TABLE} WHERE record_id IN ({placeholders})", chunk)
             deleted += cursor.rowcount
     return deleted
+
+
+def _verify_written(cursor, record_ids):
+    """写完确认这批 record_id 在库里一条不少，少了就整批回滚。
+
+    防的是"静默少行"：record_id 大小写敏感，主键列若用了大小写不敏感的排序
+    规则，rec...AHp 和 rec...ahP 会撞成同一行，后写的变成 UPDATE 前一条，
+    行数对不上却不报错。这里当场拦住，而不是等人去对数才发现。
+    """
+    found = 0
+    for offset in range(0, len(record_ids), _BATCH_SIZE):
+        chunk = record_ids[offset:offset + _BATCH_SIZE]
+        placeholders = ",".join(["%s"] * len(chunk))
+        cursor.execute(f"SELECT COUNT(*) AS n FROM {TABLE} WHERE record_id IN ({placeholders})", chunk)
+        found += cursor.fetchone()["n"]
+    if found != len(record_ids):
+        raise ValueError(
+            f"写入行数校验失败：本次{len(record_ids)}条，库里只查到{found}条。"
+            f"最常见的原因是 record_id 列不是大小写敏感排序规则（应为utf8mb4_bin），"
+            f"导致只差大小写的记录撞主键。已整批回滚。")

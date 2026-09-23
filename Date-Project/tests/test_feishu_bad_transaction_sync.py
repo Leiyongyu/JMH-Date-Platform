@@ -113,6 +113,9 @@ def db(monkeypatch, existing=None):
     # 第一次 fetchall 是查已有指纹，之后是批次清理时查该批次的全部id。
     cursor.fetchall.side_effect = [rows, []]
     cursor.rowcount = 0
+    # 写后行数校验查的是 COUNT(*)，参数就是这一段 record_id；默认按参数个数返回，
+    # 也就是"一条不少"。专门的用例再覆盖对不上的情况。
+    cursor.fetchone.side_effect = lambda: {"n": len(cursor.execute.call_args.args[1])}
     return connection, cursor
 
 
@@ -220,3 +223,28 @@ def test_task_registered_in_scheduler():
     from backend.services import scheduler_service
     assert service.TASK_CODE in scheduler_service.TASK_CODES
     assert scheduler_service.TASK_SPECS[service.TASK_CODE].name == service.TASK_NAME
+
+
+def test_row_count_mismatch_after_write_rolls_back(monkeypatch):
+    """静默少行必须当场炸出来：record_id 大小写敏感，主键排序规则不对会撞行。
+
+    实测飞书里就有 rec277zuUdLAHp 与 rec277zuUdLahP 这种只差大小写的两条；
+    主键若是 utf8mb4_unicode_ci，后写的会变成 UPDATE 前一条，行数少了却不报错。
+    """
+    connection, cursor = db(monkeypatch)
+    cursor.fetchone.side_effect = None
+    cursor.fetchone.return_value = {"n": 1}   # 写了2条，只查到1条
+    with pytest.raises(ValueError, match="utf8mb4_bin"):
+        repo.upsert(rows_for(("r1", "0.5"), ("r2", "0.6")), batches=[],
+                    synced_at=dt.datetime(2026, 9, 23))
+    connection.rollback.assert_called_once()
+    connection.commit.assert_not_called()
+
+
+def test_row_count_match_commits(monkeypatch):
+    connection, cursor = db(monkeypatch)
+    cursor.fetchone.side_effect = None
+    cursor.fetchone.return_value = {"n": 2}
+    repo.upsert(rows_for(("r1", "0.5"), ("r2", "0.6")), batches=[],
+                synced_at=dt.datetime(2026, 9, 23))
+    connection.commit.assert_called_once()

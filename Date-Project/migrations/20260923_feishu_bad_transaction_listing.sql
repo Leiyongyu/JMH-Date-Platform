@@ -23,7 +23,12 @@ USE `date-project`;
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS ods_feishu_bad_transaction_listing (
-  record_id            VARCHAR(32)  NOT NULL COMMENT '飞书记录ID，表内唯一且稳定，作为增量更新的主键',
+  -- 必须是二进制排序规则：飞书的 record_id 大小写敏感，实测存在
+  -- rec277zuUdLAHp 与 rec277zuUdLahP 这种只差大小写的两条记录。
+  -- 用本库默认的 utf8mb4_unicode_ci 会让它们在主键上撞车，
+  -- 后写的那条变成 UPDATE 前一条，静默少行且每次同步来回翻。
+  record_id            VARCHAR(32) COLLATE utf8mb4_bin NOT NULL
+                       COMMENT '飞书记录ID，表内唯一且稳定，作为增量更新的主键；大小写敏感',
   reg_date             DATE         NULL     COMMENT '飞书字段「登记日期」；批次标识，每周三一批。实测全表有419条为空',
   shop                 VARCHAR(128) NULL     COMMENT '飞书字段「店铺」',
   evaluate_date        VARCHAR(32)  NULL     COMMENT '飞书字段「评估日期」；飞书侧是文本不是日期，原样存',
@@ -63,6 +68,16 @@ CREATE TABLE IF NOT EXISTS ods_feishu_bad_transaction_listing (
   KEY idx_item (item_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='飞书多维表格「不良交易刊登」本地副本；按飞书record_id增量upsert，每周三更新一批';
+
+
+-- ============================================================================
+-- 已经按旧定义建过表的话，补执行这一条把主键改成大小写敏感。
+-- 改完必须重跑一次全量回填，把之前被大小写撞掉的行补回来。
+-- 表是新建的（CREATE TABLE IF NOT EXISTS 刚生效）则本条无副作用。
+-- ============================================================================
+ALTER TABLE ods_feishu_bad_transaction_listing
+  MODIFY COLUMN record_id VARCHAR(32) COLLATE utf8mb4_bin NOT NULL
+    COMMENT '飞书记录ID，表内唯一且稳定，作为增量更新的主键；大小写敏感';
 
 
 -- 同步任务登记。cron 每周三 18:00（北京时间），业务方周三更新完之后再拉。
