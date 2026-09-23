@@ -164,3 +164,24 @@ test('产品结构折线是点到点直线，不做平滑', () => {
  // 断点不能连起来，否则没有成交的月份会被画成一段假趋势。
  assert.doesNotMatch(source, /connectNulls\s*:/)
 })
+
+test('店铺没有子节点时不渲染展开控件', async () => {
+ const { shop } = nodesOf('ebay')
+ // eBay 的店铺就是最细粒度，后端不再返回同值的占位子节点。
+ const flat = { ...shop, children: [] }
+ const out = await html('ebay', {state:'READY',items:[flat],shop_count:1,total_sku_count:2,
+                                 rate_month:'',missing_currencies:[]})
+ assert.doesNotMatch(out, /<details/)
+ assert.doesNotMatch(out, /<summary/)
+ assert.doesNotMatch(out, /class="site-row"/)
+ // 店铺本身的数字照常显示。
+ assert.match(out, /store/)
+ assert.match(out, /100.00%/)
+
+ // AMZ 有真实站点，展开控件要保留。
+ const tree = nodesOf('amz').shop
+ const amz = await html('amz', {state:'READY',items:[tree],shop_count:1,total_sku_count:2,
+                                rate_month:'2026-09',missing_currencies:[]})
+ assert.match(amz, /<details class="shop-row">/)
+ assert.match(amz, /class="site-row"/)
+})

@@ -64,9 +64,9 @@ def read_report(month='', shop=''):
     items = []
     for store, bucket in per_shop.items():
         parent = _node(store, bucket['counts'], bucket['qty'], bucket['defect'], 'SHOP', '')
-        # 源表没有站点字段，只能按店铺统计；保留一层同值子节点让树状结构照常展开。
-        parent['children'] = [_node(store, bucket['counts'], bucket['qty'], bucket['defect'],
-                                    'SITE', service.UNIT_PRICE_SITE)]
+        # 源表没有站点字段，店铺就是最细粒度；不造和店铺行同值的占位子节点，
+        # 否则页面会多出一个展开箭头，点开看到的是一模一样的数字。
+        parent['children'] = []
         items.append(parent)
     items.sort(key=lambda p: (-p['group_sku_count'], p['store_name']))
 
@@ -76,7 +76,7 @@ def read_report(month='', shop=''):
         target_currency='USD', items=items, months=data['months'], shops=data['shops'],
         stat_month=data['stat_month'], unit_price_month=data['stat_month'],
         unit_price_reg_date=data['reg_date'], shop=shop.strip(),
-        shop_count=len(items), site_group_count=len(items),
+        shop_count=len(items), site_group_count=0,
         total_sku_count=sum(totals), unclassified_sku_count=0, missing_sku_rows=0,
         invalid_price_rows=0, missing_rate_rows=0, missing_shop_rows=0,
         missing_currencies=[], rate_month='', rates={}, rate_months={},

@@ -24,9 +24,10 @@
       <div v-if="presentation.usesFx && report.missing_currencies.length" class="warning">{{ report.missing_currencies.join('、') }} 在汇率表中没有任何可用汇率，相关记录未归档。</div>
       <div v-if="presentation.usesFx && fallbackCurrencies.length" class="warning" :title="rateDescription">{{ fallbackCurrencies.join('、') }} 使用的不是 {{ report.rate_month }} 的汇率，已回退到该币种最近有值的月份。</div>
       <div v-if="report.unclassified_sku_count || report.missing_sku_rows || report.invalid_price_rows || report.missing_shop_rows" class="warning" :title="anomalyText(report)">{{ anomalyText(report) }}</div>
-      <div class="chart-scroll" tabindex="0" role="region" :aria-label="`${platformLabel}店铺价格分层，展开查看站点`">
-        <details v-for="shop in report.items" :key="shop.node_id" class="shop-row">
-          <summary :title="nodeTitle(shop)">
+      <div class="chart-scroll" tabindex="0" role="region" :aria-label="`${platformLabel}店铺价格分层`">
+        <component :is="shop.children?.length ? 'details' : 'div'"
+                   v-for="shop in report.items" :key="shop.node_id" class="shop-row">
+          <component :is="shop.children?.length ? 'summary' : 'div'" :title="nodeTitle(shop)">
             <div class="store-heading"><span>{{ shop.store_name }}</span><b>{{ shop.group_sku_count.toLocaleString() }}</b></div>
             <div class="stack"><span v-for="(tier, i) in shop.tiers" :key="tier.tier_no" :style="{ flex: tier.sku_count, background: colors[i] }" :title="tierTitle(tier)" /></div>
             <div class="tier-values">
@@ -36,8 +37,8 @@
                 <small>{{ tier.sku_percent }}%</small>
               </span>
             </div>
-          </summary>
-          <div v-for="child in shop.children" :key="child.node_id" class="site-row" :title="nodeTitle(child)">
+          </component>
+          <div v-for="child in shop.children || []" :key="child.node_id" class="site-row" :title="nodeTitle(child)">
             <div class="store-heading"><span>{{ child.site || '未知站点' }} · {{ child.currencies.join('/') }}</span><b>{{ child.group_sku_count }}</b></div>
             <div class="stack"><span v-for="(tier, i) in child.tiers" :key="tier.tier_no" :style="{ flex: tier.sku_count, background: colors[i] }" :title="tierTitle(tier)" /></div>
             <div class="tier-values">
@@ -48,7 +49,7 @@
               </span>
             </div>
           </div>
-        </details>
+        </component>
         <el-empty v-if="!report.items.length" :image-size="40" description="当前没有可统计的在售商品" />
       </div>
       <footer><span :title="rateDescription">{{ sourceLabel }} ⓘ</span><el-button link type="primary" size="small" @click="detailsOpen = true">展开报表</el-button></footer>
@@ -59,8 +60,8 @@
     <el-dialog v-model="detailsOpen" :title="`${platformLabel} 店铺${currencyLabel}价格分层`" width="min(1450px, 96vw)" append-to-body>
       <p class="rules">{{ ruleDescription }}</p>
       <p class="rules">{{ rateDescription }}</p>
-      <div class="filters"><el-input v-model="keyword" clearable placeholder="搜索店铺名称" style="width: 260px" /><span>{{ visibleShops.length }} 个店铺；点击箭头展开站点明细</span></div>
-      <el-table :data="visibleShops" row-key="node_id" :tree-props="{ children: 'children' }" max-height="540" border stripe>
+      <div class="filters"><el-input v-model="keyword" clearable placeholder="搜索店铺名称" style="width: 260px" /><span>{{ visibleShops.length }} 个店铺{{ treeProps.children ? '；点击箭头展开站点明细' : '' }}</span></div>
+      <el-table :data="visibleShops" row-key="node_id" :tree-props="treeProps" max-height="540" border stripe>
         <el-table-column label="店铺 / 站点" min-width="225" fixed show-overflow-tooltip><template #default="{ row }">{{ row.scope === 'SHOP' ? row.store_name : row.site || '未知站点' }}</template></el-table-column>
         <el-table-column label="原币种" width="115"><template #default="{ row }">{{ row.currencies.join('/') || '--' }}</template></el-table-column>
         <el-table-column prop="group_sku_count" label="归档SKU" width="95" align="right" />
@@ -105,6 +106,9 @@ const definitions = computed(() => presentation.value.names.map((name, i) => ({
 const colors = computed(() => palette.slice(0, definitions.value.length))
 // 美元7档的表头只有「0-5」这种短字，收窄后弹窗仍不需要横向滚动；人民币5档保持164。
 const tierColumnWidth = computed(() => definitions.value.length > 5 ? 112 : 164)
+// eBay 的店铺就是最细粒度，没有子节点；挂上 tree-props 会白占一列展开位。
+const treeProps = computed(() => report.value?.items?.some(s => s.children?.length)
+  ? { children: 'children' } : {})
 const refreshTitle = computed(() => props.platform === 'ebay'
   ? '先按飞书不良交易刊登表重算SKU美元单价，再重新分档；不拉取任何外部接口'
   : '用汇率表中各币种最新可用汇率重新计算本地数据，不拉取接口')
