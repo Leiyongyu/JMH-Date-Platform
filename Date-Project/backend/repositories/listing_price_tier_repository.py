@@ -37,8 +37,10 @@ def begin(connection,cursor):
 
 
 def context(cursor,platform):
+    if platform == 'ebay':
+        return ebay_context(cursor)
     month = datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m')
-    rate_field = 'rate_org' if platform == 'ebay' else 'my_rate'
+    rate_field = 'my_rate'
     # 每个币种各自取"不晚于当月、且该字段有正值"的最新一个月，作为兜底：
     # 月度汇率同步还没跑时不至于整份报表卡住，同币种也不会被另一个币种的
     # 缺失连累。不取未来月份——预先录入的下月汇率此刻尚未生效。
@@ -56,31 +58,36 @@ def context(cursor,platform):
     # 也让 read_report 的 stale 比对能发现"汇率换月了"。
     rate_months = {r['currency_code'].strip().upper(): r['rate_month'] for r in picked}
     shops = {}
-    extra = {}
-    if platform == 'ebay':
-        # eBay不再走在售刊登表：单价改由飞书不良交易刊登表的成交额/成交量算出，
-        # 金额本来就是美元，不需要汇率。这里只记录用的是哪个月的单价表。
-        # 变量名不能叫 month——那是汇率月份，覆盖了 rate_month 就会写错。
-        price_month = unit_price.latest_month(cursor)
-        if not price_month:
-            state = []
-        else:
-            cursor.execute(f'''SELECT %s AS stat_month, MAX(reg_date) AS reg_date,
-                                      COUNT(*) AS row_count, COUNT(DISTINCT shop) AS shop_count,
-                                      MAX(computed_at) AS computed_at
-                               FROM {unit_price.TABLE} WHERE stat_month=%s''', (price_month, price_month))
-            state = [cursor.fetchone()]
-            extra = dict(unit_price_month=price_month, unit_price_reg_date=state[0]['reg_date'])
-    else:
-        cursor.execute('SELECT sync_batch_id,row_count,pulled_at,published_at FROM ods_lingxing_amz_listing_state WHERE id=1')
-        state = cursor.fetchone()
-        db = settings.shop_source_database.replace('`','``')
-        cursor.execute(f"SELECT sid,store_name,country_code FROM `{db}`.shop_list WHERE platform_code='10001' ORDER BY sid")
-        for row in cursor.fetchall():
-            sid = str(row['sid'])
-            if sid in shops and shops[sid] != row: raise ValueError('AMZ店铺sid对应多个不同店铺，请先检查店铺数据')
-            shops[sid] = row
-    return decode(dumps(dict(rate_month=month,rates=rates,rate_months=rate_months,source=state,shops=shops,**extra)))
+    cursor.execute('SELECT sync_batch_id,row_count,pulled_at,published_at FROM ods_lingxing_amz_listing_state WHERE id=1')
+    state = cursor.fetchone()
+    db = settings.shop_source_database.replace('`','``')
+    cursor.execute(f"SELECT sid,store_name,country_code FROM `{db}`.shop_list WHERE platform_code='10001' ORDER BY sid")
+    for row in cursor.fetchall():
+        sid = str(row['sid'])
+        if sid in shops and shops[sid] != row: raise ValueError('AMZ店铺sid对应多个不同店铺，请先检查店铺数据')
+        shops[sid] = row
+    return decode(dumps(dict(rate_month=month,rates=rates,rate_months=rate_months,source=state,shops=shops)))
+
+
+def ebay_context(cursor):
+    """eBay 不碰汇率表：单价由飞书不良交易刊登表算出，本身就是美元。
+
+    context 会被整体存进 source_context_json，read_report 拿它比对判 stale。
+    以前这里塞着全部币种的汇率，结果任何一个币种的汇率一变，eBay 报表就被判
+    「请重新统计」——而它根本不用汇率。现在只比对单价表的状态，
+    单价真的重算了才提示刷新。
+    """
+    month = unit_price.latest_month(cursor)
+    if not month:
+        return decode(dumps(dict(rate_month='',rates={},rate_months={},source=[],shops={})))
+    cursor.execute(f'''SELECT %s AS stat_month, MAX(reg_date) AS reg_date,
+                              COUNT(*) AS row_count, COUNT(DISTINCT shop) AS shop_count,
+                              MAX(computed_at) AS computed_at
+                       FROM {unit_price.TABLE} WHERE stat_month=%s''', (month, month))
+    state = [cursor.fetchone()]
+    return decode(dumps(dict(rate_month='',rates={},rate_months={},source=state,shops={},
+                             unit_price_month=month,unit_price_reg_date=state[0]['reg_date'],
+                             unit_price_shop_count=state[0]['shop_count'])))
 
 
 def source(cursor,platform,ctx):

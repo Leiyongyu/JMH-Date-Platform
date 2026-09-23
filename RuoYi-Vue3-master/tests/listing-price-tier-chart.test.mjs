@@ -34,7 +34,8 @@ async function html(platform,report,error='') {
  const app=Vue.createSSRApp({render,setup:()=>({platform,platformLabel:platform.toUpperCase(),currencyLabel:presentation.label,presentation,report,error,loading:false,load(){},definitions:currentDefinitions,
  colors:currentDefinitions.map((_,i)=>'c'+i),nodeTitle:n=>n.store_name,tierTitle:t=>t.label,anomalyText:()=>'',detailsOpen:false,keyword:'',visibleShops:[],rateDescription:'各币种最新my_rate',ruleDescription:'按人民币分组',
  rateMonths:report?.rate_months || {},fallbackCurrencies:fallbackOf(report),
- refreshTitle:'重新统计',structureOpen:false})})
+ refreshTitle:'重新统计',structureOpen:false,
+ sourceLabel:presentation.usesFx?`汇率 ${report?.rate_month||'--'} · ${presentation.rateField}`:`单价 ${report?.unit_price_month||'--'} · 批次 ${report?.unit_price_reg_date||'--'}`})})
  for(const name of ['el-button','el-input','el-table','el-table-column','el-dialog']) app.component(name,{setup:(_, {slots})=>()=>name==='el-dialog'?null:Vue.h('span',slots.default?.())})
  // 产品结构弹窗是独立组件，这里只关心它挂没挂上，内容由它自己的用例覆盖。
  app.component('ProductStructure',{setup:()=>()=>Vue.h('div',{class:'product-structure-stub'})})
@@ -64,13 +65,17 @@ test('stale and missing rates have visible warnings',async()=>{
  const out=await html('amz',{state:'READY',items:[],shop_count:0,total_sku_count:0,stale:true,missing_currencies:['GBP']})
  assert.match(out,/月份已更新/);assert.match(out,/GBP 在汇率表中没有任何可用汇率/)
  // 当月没同步时回退到旧月份：不拦报表，但必须显式说明用的不是当月汇率。
- const fell=await html('ebay',{state:'READY',items:[],shop_count:0,total_sku_count:0,rate_month:'2026-10',
+ const fell=await html('amz',{state:'READY',items:[],shop_count:0,total_sku_count:0,rate_month:'2026-10',
   missing_currencies:[],rate_months:{EUR:'2026-09',GBP:'2026-09',USD:'2026-10'}})
  assert.match(fell,/EUR、GBP 使用的不是 2026-10 的汇率/)
  // 全部取自当月时不应出现这条提示。
- const current=await html('ebay',{state:'READY',items:[],shop_count:0,total_sku_count:0,rate_month:'2026-09',
+ const current=await html('amz',{state:'READY',items:[],shop_count:0,total_sku_count:0,rate_month:'2026-09',
   missing_currencies:[],rate_months:{EUR:'2026-09',USD:'2026-09'}})
  assert.doesNotMatch(current,/使用的不是/)
+ // eBay 不用汇率，汇率相关提示一律不出现。
+ const noFx=await html('ebay',{state:'READY',items:[],shop_count:0,total_sku_count:0,rate_month:'2026-10',
+  missing_currencies:['GBP'],rate_months:{EUR:'2026-09',USD:'2026-10'}})
+ assert.doesNotMatch(noFx,/使用的不是/);assert.doesNotMatch(noFx,/没有任何可用汇率/)
  assert.match(await html('ebay',{state:'EMPTY',items:[]}),/尚未生成美元报表/)
  assert.match(await html('ebay',null,'出错'),/出错/)
 })
@@ -104,7 +109,13 @@ test('homepage gives price charts a separate half-width second row; no platform 
  assert.match(source,/row-key="node_id"/)
 })
 
-test('USD uses rate_org, CNY retains my_rate and mismatched cached currency is rejected',()=>{
+test('eBay 不再用汇率，AMZ 仍用 my_rate；缓存币种不符要拒绝',()=>{
+ // eBay 单价来自飞书成交额/成交量，本身就是美元。
+ assert.equal(pricePresentation('ebay').usesFx,false)
+ assert.equal(pricePresentation('ebay').rateField,'')
+ assert.match(pricePresentation('ebay').formula,/总交易额.*总交易量/)
+ assert.match(pricePresentation('ebay').formula,/不做任何汇率换算/)
+ assert.equal(pricePresentation('amz').usesFx,true)
  assert.deepEqual(pricePresentation('ebay').ranges,['$0–<5','$5–<20','$20–<50','$50–<100','$100–<200','$200–<500','≥ $500'])
  assert.deepEqual(pricePresentation('ebay').names,['0-5','5-20','20-50','50-100','100-200','200-500','500以上'])
  // 美元7档、人民币5档；四个数组长度必须一致，否则前端按下标取名取色会越界。
@@ -115,10 +126,8 @@ test('USD uses rate_org, CNY retains my_rate and mismatched cached currency is r
   assert.equal(pres.compacts.length,pres.names.length)
   assert.equal(pres.ranges.length,pres.names.length)
  }
- assert.equal(pricePresentation('ebay').rateField,'rate_org')
  assert.equal(pricePresentation('amz').rateField,'my_rate')
  assert.deepEqual(pricePresentation('amz').ranges,ranges)
- assert.match(pricePresentation('ebay').formula,/其他原币价格×该币种rate_org÷USDrate_org/)
  assert.match(source,/next.target_currency \|\| 'CNY'/)
  assert.match(source,/报表币种与当前口径不一致/)
 })

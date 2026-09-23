@@ -154,7 +154,8 @@ def test_source_amz_uses_exact_raw_table_and_active_filter():
     with pytest.raises(ValueError):repo.source(cur,'amz',dict(source={'sync_batch_id':'b','row_count':20},shops={}))
 
 
-@pytest.mark.parametrize('platform,field', [('ebay','rate_org'), ('amz','my_rate')])
+# 汇率只剩AMZ在用：eBay单价来自飞书成交额/成交量，本身就是美元。
+@pytest.mark.parametrize('platform,field', [('amz','my_rate')])
 def test_month_context_falls_back_to_each_currency_latest_month(platform,field):
     """汇率按币种各取最新可用月份；当月没同步时回退，不再整份卡住。
 
@@ -281,3 +282,28 @@ def test_current_month_gap_falls_back_instead_of_blocking(monkeypatch):
     assert result['rate_month'] == '2026-10'
     assert result['rate_months'] == {'EUR': '2026-09', 'USD': '2026-08'}
     conn.commit.assert_called_once()
+
+
+def test_ebay_context_never_touches_the_currency_table():
+    """eBay 的 context 不读汇率表，也不把汇率放进 source_context_json。
+
+    以前塞了全部币种的汇率，结果任何一个币种一变，eBay报表就被判「请重新统计」，
+    而它根本不用汇率。现在只比对单价表的状态。
+    """
+    cur=MagicMock()
+    # 第一次 fetchone 是 latest_month 查最大月份，第二次才是该月的汇总。
+    cur.fetchone.side_effect=[{'m':'2026-09'},
+                              {'stat_month':'2026-09','reg_date':'2026-09-23',
+                               'row_count':435,'shop_count':35,'computed_at':'2026-09-23 16:00:00'}]
+    ctx=repo.context(cur,'ebay')
+    assert all('dim_lingxing_currency_month' not in c.args[0] for c in cur.execute.call_args_list)
+    assert ctx['rates']=={} and ctx['rate_months']=={} and ctx['rate_month']==''
+    assert ctx['unit_price_month']=='2026-09' and ctx['unit_price_reg_date']=='2026-09-23'
+    assert ctx['source'][0]['row_count']==435
+
+
+def test_ebay_context_empty_when_unit_price_table_has_no_month():
+    cur=MagicMock()
+    cur.fetchone.return_value={'m':None}
+    ctx=repo.context(cur,'ebay')
+    assert ctx['source']==[] and ctx['rates']=={}

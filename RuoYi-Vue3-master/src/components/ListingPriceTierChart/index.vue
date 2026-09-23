@@ -13,8 +13,8 @@
       <div class="summary"><span><b>{{ report.shop_count }}</b> 个店铺</span><span><b>{{ report.total_sku_count.toLocaleString() }}</b> SKU</span></div>
       <div class="legend"><span v-for="(tier, i) in definitions" :key="tier.name" :title="`${tier.name}：${tier.range}`"><i :style="{ background: colors[i] }" />{{ tier.short }}</span></div>
       <div v-if="report.stale" class="warning">源数据、汇率或月份已更新，请重新统计。</div>
-      <div v-if="report.missing_currencies.length" class="warning">{{ report.missing_currencies.join('、') }} 在汇率表中没有任何可用汇率，相关记录未归档。</div>
-      <div v-if="fallbackCurrencies.length" class="warning" :title="rateDescription">{{ fallbackCurrencies.join('、') }} 使用的不是 {{ report.rate_month }} 的汇率，已回退到该币种最近有值的月份。</div>
+      <div v-if="presentation.usesFx && report.missing_currencies.length" class="warning">{{ report.missing_currencies.join('、') }} 在汇率表中没有任何可用汇率，相关记录未归档。</div>
+      <div v-if="presentation.usesFx && fallbackCurrencies.length" class="warning" :title="rateDescription">{{ fallbackCurrencies.join('、') }} 使用的不是 {{ report.rate_month }} 的汇率，已回退到该币种最近有值的月份。</div>
       <div v-if="report.unclassified_sku_count || report.missing_sku_rows || report.invalid_price_rows || report.missing_shop_rows" class="warning" :title="anomalyText(report)">{{ anomalyText(report) }}</div>
       <div class="chart-scroll" tabindex="0" role="region" :aria-label="`${platformLabel}店铺价格分层，展开查看站点`">
         <details v-for="shop in report.items" :key="shop.node_id" class="shop-row">
@@ -43,7 +43,7 @@
         </details>
         <el-empty v-if="!report.items.length" :image-size="40" description="当前没有可统计的在售商品" />
       </div>
-      <footer><span :title="rateDescription">汇率 {{ report.rate_month }} · {{ presentation.rateField }} ⓘ</span><el-button link type="primary" size="small" @click="detailsOpen = true">展开报表</el-button></footer>
+      <footer><span :title="rateDescription">{{ sourceLabel }} ⓘ</span><el-button link type="primary" size="small" @click="detailsOpen = true">展开报表</el-button></footer>
       <div class="generated" :title="ruleDescription">统计 {{ report.generated_at }} · 口径 ⓘ</div>
     </template>
     <el-empty v-else :image-size="45" :description="`尚未生成${currencyLabel}报表，请重新统计`" />
@@ -105,7 +105,13 @@ const ruleDescription = computed(() => `${props.platform === 'amz'
 const rateMonths = computed(() => report.value?.rate_months || {})
 const fallbackCurrencies = computed(() => Object.entries(rateMonths.value)
   .filter(([, month]) => month && month !== report.value?.rate_month).map(([code]) => code).sort())
-const rateDescription = computed(() => `统计月份 ${report.value?.rate_month || '--'}；${presentation.value.formula}。使用的${presentation.value.rateField}：${Object.entries(report.value?.rates || {}).map(([k, v]) => `${k} ${v ?? '--'}${rateMonths.value[k] ? `（${rateMonths.value[k]}）` : ''}`).join('、')}。每个币种各自取不晚于统计月份、且有正值的最新一个月，当月尚未同步时自动回退到上一次有汇率的月份；不取未来月份。某币种任何月份都没有汇率才判定为缺失并拒绝发布。`)
+// eBay 已不用汇率，页脚与悬浮说明都改成单价来源；AMZ 保持原样。
+const sourceLabel = computed(() => presentation.value.usesFx
+  ? `汇率 ${report.value?.rate_month || '--'} · ${presentation.value.rateField}`
+  : `单价 ${report.value?.unit_price_month || '--'} · 批次 ${report.value?.unit_price_reg_date || '--'}`)
+const rateDescription = computed(() => presentation.value.usesFx
+  ? `统计月份 ${report.value?.rate_month || '--'}；${presentation.value.formula}。使用的${presentation.value.rateField}：${Object.entries(report.value?.rates || {}).map(([k, v]) => `${k} ${v ?? '--'}${rateMonths.value[k] ? `（${rateMonths.value[k]}）` : ''}`).join('、')}。每个币种各自取不晚于统计月份、且有正值的最新一个月，当月尚未同步时自动回退到上一次有汇率的月份；不取未来月份。某币种任何月份都没有汇率才判定为缺失并拒绝发布。`
+  : `统计月份 ${report.value?.unit_price_month || '--'}，来源批次（登记日期）${report.value?.unit_price_reg_date || '--'}。${presentation.value.formula}。不读取任何汇率表，汇率变动不影响本报表。`)
 const visibleShops = computed(() => (report.value?.items || []).filter(p => p.store_name.toLowerCase().includes(keyword.value.trim().toLowerCase())))
 const tierTitle = t => `${t.label} ${t.range}：${t.sku_count} SKU / ${t.sku_percent}%`
 const anomalyText = n => [n.unclassified_sku_count ? `${n.unclassified_sku_count}个SKU未归档` : '', n.missing_sku_rows ? `${n.missing_sku_rows}条缺SKU` : '', n.invalid_price_rows ? `${n.invalid_price_rows}条价格/站点异常` : '', n.missing_rate_rows ? `${n.missing_rate_rows}条无可用汇率` : '', n.missing_shop_rows ? `${n.missing_shop_rows}条店铺未匹配` : ''].filter(Boolean).join('；')

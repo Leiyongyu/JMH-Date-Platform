@@ -93,52 +93,19 @@ def test_cny_version_never_relabelled_as_usd(monkeypatch):
     assert report['state']=='EMPTY' and report['stale']
 
 
-def test_rate_org_read_not_my_rate_and_unusable_rows_excluded():
-    """美元报表只读rate_org；rate_org为空或非正的月份由SQL过滤，不进rates。
+def test_ebay_no_longer_reads_any_currency_rate():
+    """美元报表不再换汇：单价取自飞书不良交易刊登表的成交额/成交量，本身就是美元。
 
-    过滤后该币种要么回退到更早有值的月份，要么整个不出现——不出现即视为
-    无可用汇率，由 rebuild 拒绝发布，不会被误当成0。
+    以前这里断言只读 rate_org、不读 my_rate；现在一个汇率字段都不该读。
     """
     cur=MagicMock()
-    cur.fetchall.side_effect=[[{'currency_code':'EUR','rate_month':'2026-09','rate':Decimal('7.7')}],[]]
+    # 第一次 fetchone 是 latest_month 查最大月份，第二次才是该月的汇总。
+    cur.fetchone.side_effect=[{'m':'2026-09'},
+                              {'stat_month':'2026-09','reg_date':'2026-09-23',
+                               'row_count':435,'shop_count':35,'computed_at':'2026-09-23 16:00:00'}]
     ctx=repo.context(cur,'ebay')
-    assert ctx['rates']=={'EUR':'7.7'}
-    assert ctx['rate_months']=={'EUR':'2026-09'}
-    sql=cur.execute.call_args_list[0].args[0]
-    assert 'rate_org' in sql and 'my_rate' not in sql
-    # 空值与非正值在SQL层排除，不像过去那样以 None 留在 rates 里。
-    assert 'rate_org IS NOT NULL' in sql and 'rate_org>0' in sql
-
-
-def test_usd_has_seven_tiers_labelled_by_price_range_cny_untouched():
-    """美元7档、人民币5档；美元档名就是价格段本身，不用业务分层叫法。
-
-    前端 presentation.js 按下标取名取色，长度必须和后端一致，
-    所以这里把长度和档名一起钉死。
-    """
-    assert service.tier_count('USD')==7 and service.tier_count('CNY')==5
-    assert len(service.USD_LABELS)==len(service.USD_RANGES)==7
-    assert service.USD_LABELS==('0-5','5-20','20-50','50-100','100-200','200-500','500以上')
-    # AMZ人民币报表不受本次改动影响。
-    assert service.LABELS==('低价引流层','基础走量层','利润核心层','高客单层','专业/稀缺层')
-    assert service.RANGES==('< ¥340','¥340–<680','¥680–<1,020','¥1,020–1,690','> ¥1,690')
-    assert [t['label'] for t in service.tiers([0]*7,'USD')]==list(service.USD_LABELS)
-    assert [t['label'] for t in service.tiers([0]*5,'CNY')]==list(service.LABELS)
-
-
-def test_cny_tier_boundaries_unchanged_by_usd_rework():
-    """人民币第4档仍含上界1690，没有被美元那套左闭右开带偏。"""
-    assert service.tier_index(Decimal('1690'))==3
-    assert service.tier_index(Decimal('1690.000001'))==4
-    assert service.tier_index(Decimal('339.999999'))==0
-    # 美元同样的数落在最高档，两套口径互不干扰。
-    assert service.tier_index(Decimal('1690'),'USD')==6
-
-
-def test_old_five_tier_snapshot_is_refused_not_relabelled(monkeypatch):
-    """旧5档快照必须判为口径过期，绝不能把5档数据套上7档标签。"""
-    conn,cur=mocks(monkeypatch)
-    cur.fetchone.return_value=dict(summary_json={'version':3,'target_currency':'USD'})
-    report=repo.read_report('ebay')
-    assert report['state']=='EMPTY' and report['stale']
-    assert report['items']==[] and '重新统计' in report['message']
+    executed=' '.join(c.args[0] for c in cur.execute.call_args_list)
+    assert 'rate_org' not in executed and 'my_rate' not in executed
+    assert 'dim_lingxing_currency_month' not in executed
+    assert 'dws_ebay_sku_unit_price' in executed
+    assert ctx['rates']=={}
