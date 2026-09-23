@@ -229,3 +229,25 @@ def test_list_fields_paginates_and_returns_definitions():
 ])
 def test_field_text_flattens_common_shapes(value, expected):
     assert field_text(value) == expected
+
+
+def test_list_tables_returns_name_and_id():
+    """一个多维表格里有多张数据表；同步之前要先知道有哪些、叫什么。"""
+    pages = [{"code": 0, "data": {"items": [{"table_id": "tbl4cDY58uZmiYU1", "name": "卖家级别"},
+                                            {"table_id": "tbl1LMzO4AQyvlBg", "name": "待处理刊登"}],
+                                  "has_more": False}}]
+    instance, calls = client(token_then(pages))
+    with instance:
+        tables = instance.list_tables("App1")
+    assert [t["name"] for t in tables] == ["卖家级别", "待处理刊登"]
+    assert calls[1].method == "GET" and str(calls[1].url).endswith("/apps/App1/tables?page_size=100")
+
+
+def test_list_tables_paginates():
+    pages = [{"code": 0, "data": {"items": [{"table_id": "t1", "name": "一"}],
+                                  "has_more": True, "page_token": "p2"}},
+             {"code": 0, "data": {"items": [{"table_id": "t2", "name": "二"}], "has_more": False}}]
+    instance, calls = client(token_then(pages))
+    with instance:
+        assert len(instance.list_tables("App1")) == 2
+    assert "page_token=p2" in str(calls[2].url)

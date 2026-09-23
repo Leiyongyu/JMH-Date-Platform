@@ -21,6 +21,7 @@ import httpx
 from backend.config import settings
 
 TOKEN_PATH = "/open-apis/auth/v3/tenant_access_token/internal"
+TABLES_PATH = "/open-apis/bitable/v1/apps/{app_token}/tables"
 RECORDS_PATH = "/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records/search"
 FIELDS_PATH = "/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/fields"
 LOG = logging.getLogger(__name__)
@@ -147,20 +148,28 @@ class FeishuClient:
 
     # ------------------------------------------------------------ 多维表格
 
+    def list_tables(self, app_token):
+        """这个多维表格里有哪些数据表，形如 {"table_id":"tbl...","name":"卖家级别表"}。"""
+        path = TABLES_PATH.format(app_token=app_token)
+        return self._paged(path, {"page_size": 100})
+
     def list_fields(self, app_token, table_id):
         """表的字段定义：字段名、类型、是否主键。设计入库表结构时用。"""
-        path = FIELDS_PATH.format(app_token=app_token, table_id=table_id)
+        return self._paged(FIELDS_PATH.format(app_token=app_token, table_id=table_id), {"page_size": 100})
+
+    def _paged(self, path, query):
+        """GET 类元数据接口的通用翻页；游标没推进就停下，不然会无限翻同一页。"""
         items, page_token = [], ""
         for _ in range(MAX_PAGES):
-            query = {"page_size": 100}
+            params = dict(query)
             if page_token:
-                query["page_token"] = page_token
-            data = self._call("GET", path, query=query)
+                params["page_token"] = page_token
+            data = self._call("GET", path, query=params)
             items.extend(data.get("items") or [])
             page_token = data.get("page_token") or ""
             if not data.get("has_more") or not page_token:
                 return items
-        raise FeishuRequestError(f"字段翻页超过{MAX_PAGES}页，疑似分页游标未推进；接口={path}")
+        raise FeishuRequestError(f"翻页超过{MAX_PAGES}页，疑似分页游标未推进；接口={path}")
 
     def iter_records(self, app_token, table_id, view_id=""):
         """按视图顺序逐条产出记录，形如 {"record_id": "rec...", "fields": {...}}。
