@@ -243,9 +243,14 @@ def db(monkeypatch):
 
 def test_delete_scoped_to_stable_account_and_commit_state_together(monkeypatch):
     connection, cursor, record, accounts = db(monkeypatch)
-    repo.replace_snapshots([record], accounts, batch_id='b', pulled_at=datetime.now())
+    pulled_at = datetime(2026, 9, 21, 16, 32, 19)
+    repo.replace_snapshots([record], accounts, batch_id='b', pulled_at=pulled_at)
     delete = [c for c in cursor.execute.call_args_list if c.args[0].startswith('DELETE')]
-    assert len(delete) == 1 and delete[0].args == (f'DELETE FROM {repo.TABLE} WHERE seller_user_id=%s', ('user-a',))
+    # latest整账号清空；历史只清该账号当月那一份，其他月份不能被碰。
+    assert len(delete) == 2
+    assert delete[0].args == (f'DELETE FROM {repo.TABLE} WHERE seller_user_id=%s', ('user-a',))
+    assert delete[1].args == (
+        f'DELETE FROM {repo.MONTHLY_TABLE} WHERE stat_month=%s AND seller_user_id=%s', ('2026-09', 'user-a'))
     connection.commit.assert_called_once()
     connection.rollback.assert_not_called()
 
@@ -267,7 +272,8 @@ def test_new_trading_id_publishes_after_no_conflicts(monkeypatch):
     connection, cursor, record, accounts = db(monkeypatch)
     accounts[0]['userId'] = 'trading:' + 'a' * 64
     record['seller']['userId'] = accounts[0]['userId']
-    cursor.fetchone.side_effect = [None, None, {'n':1}]
+    # 两次身份冲突探测 + latest行数校验 + 历史留档行数校验
+    cursor.fetchone.side_effect = [None, None, {'n':1}, {'n':1}]
     assert repo.replace_snapshots([record], accounts, batch_id='b', pulled_at=datetime.now())['ods_rows'] == 1
     connection.commit.assert_called_once()
 
@@ -283,5 +289,39 @@ def test_repository_rolls_back_every_failure(monkeypatch, failure):
         record['seller'] = {'userId': 'unexpected', 'username': 'b'}
     with pytest.raises((RuntimeError, ValueError)):
         repo.replace_snapshots([] if failure == 'missing_record' else [record], accounts, batch_id='b', pulled_at=datetime.now())
+    connection.rollback.assert_called_once()
+    connection.commit.assert_not_called()
+
+
+def test_monthly_archive_written_in_same_transaction_as_latest(monkeypatch):
+    """历史留档与latest同事务、同一批记录，多存一个留档月份列。"""
+    connection, cursor, record, accounts = db(monkeypatch)
+    pulled_at = datetime(2026, 9, 21, 16, 32, 19)
+    result = repo.replace_snapshots([record], accounts, batch_id='b', pulled_at=pulled_at)
+    assert result['monthly_rows'] == result['ods_rows'] == 1
+    assert result['stat_month'] == '2026-09'
+    inserts = {call.args[0].split()[2]: call.args[1] for call in cursor.executemany.call_args_list}
+    assert repo.TABLE in inserts and repo.MONTHLY_TABLE in inserts
+    latest_row, monthly_row = inserts[repo.TABLE][0], inserts[repo.MONTHLY_TABLE][0]
+    # 留档行 = 月份 + 与latest逐字段相同的值，不重新算、不重新序列化。
+    assert monthly_row == ('2026-09', *latest_row)
+    connection.commit.assert_called_once()
+    # 空店也要落状态行，否则趋势图分不清"当月空店"和"当月没同步"。
+    state_sql = [c.args[0] for c in cursor.execute.call_args_list if repo.MONTHLY_STATE_TABLE in c.args[0]]
+    assert len(state_sql) == 1
+
+
+def test_archive_month_follows_pull_time_not_today():
+    """补跑上个月的数据要落在上个月，不能落在跑的那天。"""
+    assert repo.stat_month(datetime(2026, 8, 31, 23, 59, 59)) == '2026-08'
+    assert repo.stat_month(datetime(2026, 9, 1, 0, 0, 0)) == '2026-09'
+
+
+def test_monthly_row_count_mismatch_rolls_back_everything(monkeypatch):
+    """历史留档少写一行就整批回滚，不允许latest有而历史没有。"""
+    connection, cursor, record, accounts = db(monkeypatch)
+    cursor.fetchone.side_effect = [{'n': 1}, {'n': 0}]
+    with pytest.raises(ValueError, match='历史留档'):
+        repo.replace_snapshots([record], accounts, batch_id='b', pulled_at=datetime.now())
     connection.rollback.assert_called_once()
     connection.commit.assert_not_called()

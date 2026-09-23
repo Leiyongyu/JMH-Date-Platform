@@ -8,6 +8,10 @@ from backend.database import db_connection
 
 TABLE = 'ods_ebay_store_listing_latest'
 STATE_TABLE = 'ods_ebay_store_listing_state'
+# 按月留档：latest表每次同步先删后插，不留档就查不了趋势。同步任务每月跑一次，
+# 所以一个月一份；同月补跑按(月份,账号)先删后插，仍然只留一份。
+MONTHLY_TABLE = 'ods_ebay_store_listing_monthly'
+MONTHLY_STATE_TABLE = 'ods_ebay_store_listing_state_monthly'
 FIELDS = ('seller_user_id', 'seller_account', 'item_id', 'sku', 'title', 'site',
           'current_price', 'currency', 'buy_it_now_price', 'buy_it_now_currency',
           'quantity', 'quantity_available', 'quantity_sold', 'watch_count', 'listing_type',
@@ -34,13 +38,24 @@ def record_values(record, batch_id, pulled_at):
             item['raw_xml'], batch_id, pulled_at)
 
 
+def stat_month(pulled_at):
+    """留档月份取自拉取时间，不取当前日期：补跑时才会落在本来那个月。"""
+    return pulled_at.strftime('%Y-%m')
+
+
 def replace_snapshots(records, accounts, *, batch_id, pulled_at):
-    """All requested accounts publish together. Unrequested accounts are untouched."""
+    """All requested accounts publish together. Unrequested accounts are untouched.
+
+    历史留档与latest在同一事务、同一批内存记录里写，不存在latest成功而历史漏写。
+    """
     expected = {a['userId']: a['row_count'] for a in accounts}
     if not expected or len(expected) != len(accounts):
         raise ValueError('发布账号为空或重复')
     names = {a['userId']: a['username'] for a in accounts}
+    month = stat_month(pulled_at)
     sql = f"INSERT INTO {TABLE} (" + ','.join(f'`{f}`' for f in FIELDS) + ') VALUES (' + ','.join(['%s'] * len(FIELDS)) + ')'
+    monthly_sql = (f"INSERT INTO {MONTHLY_TABLE} (`stat_month`," + ','.join(f'`{f}`' for f in FIELDS)
+                   + ') VALUES (' + ','.join(['%s'] * (len(FIELDS) + 1)) + ')')
     with db_connection() as connection:
         try:
             connection.begin()
@@ -61,6 +76,10 @@ def replace_snapshots(records, accounts, *, batch_id, pulled_at):
                 for user_id in expected:
                     cursor.execute(f'DELETE FROM {TABLE} WHERE seller_user_id=%s', (user_id,))
                     deleted += cursor.rowcount
+                    # 同月补跑时先清掉该账号当月的旧留档，保证"每月只保存一份"。
+                    # 只删本账号本月，其他账号和其他月份不受影响。
+                    cursor.execute(f'DELETE FROM {MONTHLY_TABLE} WHERE stat_month=%s AND seller_user_id=%s',
+                                   (month, user_id))
                 counts = dict.fromkeys(expected, 0)
                 iterator = iter(records)
                 while chunk := list(islice(iterator, 200)):
@@ -69,21 +88,38 @@ def replace_snapshots(records, accounts, *, batch_id, pulled_at):
                         if seller['userId'] not in expected or names[seller['userId']] != seller['username']:
                             raise ValueError('发布记录账号与已验证账号不一致')
                         counts[seller['userId']] += 1
-                    cursor.executemany(sql, [record_values(r, batch_id, pulled_at) for r in chunk])
+                    values = [record_values(r, batch_id, pulled_at) for r in chunk]
+                    cursor.executemany(sql, values)
+                    cursor.executemany(monthly_sql, [(month, *row) for row in values])
                 if counts != expected:
                     raise ValueError('发布行数与已校验源数据不一致')
                 for account in accounts:
                     cursor.execute(f'SELECT COUNT(*) AS n FROM {TABLE} WHERE seller_user_id=%s', (account['userId'],))
                     if cursor.fetchone()['n'] != account['row_count']:
                         raise ValueError('数据库写入行数校验失败')
+                    # 历史留档与latest必须逐账号一致，差一行就整批回滚，不留半份历史。
+                    cursor.execute(f'SELECT COUNT(*) AS n FROM {MONTHLY_TABLE} WHERE stat_month=%s AND seller_user_id=%s',
+                                   (month, account['userId']))
+                    if cursor.fetchone()['n'] != account['row_count']:
+                        raise ValueError('历史留档写入行数校验失败')
                     cursor.execute(f'''INSERT INTO {STATE_TABLE}
                         (seller_user_id,seller_account,row_count,sync_batch_id,pulled_at,published_at)
                         VALUES (%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE
                         seller_account=VALUES(seller_account),row_count=VALUES(row_count),
                         sync_batch_id=VALUES(sync_batch_id),pulled_at=VALUES(pulled_at),published_at=VALUES(published_at)''',
                         (account['userId'], account['username'], account['row_count'], batch_id, pulled_at, account['published_at']))
+                    # row_count=0 也要留行：趋势图要能区分"当月空店"和"当月没同步"。
+                    cursor.execute(f'''INSERT INTO {MONTHLY_STATE_TABLE}
+                        (stat_month,seller_user_id,seller_account,row_count,sync_batch_id,pulled_at,published_at)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE
+                        seller_account=VALUES(seller_account),row_count=VALUES(row_count),
+                        sync_batch_id=VALUES(sync_batch_id),pulled_at=VALUES(pulled_at),
+                        published_at=VALUES(published_at),archived_at=CURRENT_TIMESTAMP''',
+                        (month, account['userId'], account['username'], account['row_count'], batch_id,
+                         pulled_at, account['published_at']))
             connection.commit()
-            return {'ods_rows': sum(counts.values()), 'inserted_rows': sum(counts.values()), 'deleted_rows': deleted}
+            return {'ods_rows': sum(counts.values()), 'inserted_rows': sum(counts.values()),
+                    'deleted_rows': deleted, 'monthly_rows': sum(counts.values()), 'stat_month': month}
         except Exception:
             connection.rollback()
             raise
