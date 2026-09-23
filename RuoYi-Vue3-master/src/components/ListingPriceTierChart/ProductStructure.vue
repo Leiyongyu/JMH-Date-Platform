@@ -61,7 +61,10 @@ function option() {
     xAxis: { type: 'category', data: months.value, axisLabel: { fontSize: 11 } },
     yAxis: { type: 'value', axisLabel: { fontSize: 11, formatter: v => (v * 100).toFixed(0) + '%' } },
     series: series.value.map((item, i) => ({
-      name: item.label, type: 'line', smooth: true,
+      // 直线段而不是平滑曲线：平滑会在两个月份之间插出实际不存在的弧线，
+      // 看起来像中间还有别的取值；这里每个月只有一个观测点，点到点连直线才准。
+      name: item.label, type: 'line', smooth: false,
+      showSymbol: true, symbol: 'circle', symbolSize: 5,
       // 后端把"该档该月没有成交"返回成 null，这里保持 null 让线断开，
       // 不要 connectNulls，否则会在没有数据的月份之间画出一段假趋势。
       data: item.points.map(p => p === null ? null : Number(p)),

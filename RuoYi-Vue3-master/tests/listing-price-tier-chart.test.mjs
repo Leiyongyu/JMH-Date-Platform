@@ -153,3 +153,14 @@ test('eBay 口径说明改成飞书单价来源，不再提汇率换算', () => 
  // 必须写明覆盖面，否则会被当成全部在售商品的价格结构。
  assert.match(source, /只收录有不良交易的刊登/)
 })
+
+test('产品结构折线是点到点直线，不做平滑', () => {
+ const source = fs.readFileSync(new URL('../src/components/ListingPriceTierChart/ProductStructure.vue', import.meta.url), 'utf8')
+ // 平滑曲线会在两个月份之间插出实际不存在的取值，看趋势时容易误读。
+ assert.match(source, /smooth: false/)
+ assert.doesNotMatch(source, /smooth: true/)
+ // 每个月一个观测点，点要看得见。
+ assert.match(source, /showSymbol: true/)
+ // 断点不能连起来，否则没有成交的月份会被画成一段假趋势。
+ assert.doesNotMatch(source, /connectNulls\s*:/)
+})
