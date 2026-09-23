@@ -155,7 +155,9 @@ def read_report(platform):
     head_table, detail_table = (USD_HEAD, USD_DETAIL) if platform == 'ebay' else (HEAD, DETAIL)
     expected_version = engine.USD_VERSION if platform == 'ebay' else engine.VERSION
     currency = 'USD' if platform == 'ebay' else 'CNY'
-    ranges = engine.USD_RANGES if platform == 'ebay' else engine.RANGES
+    # 档位数随币种变（人民币5档、美元7档），不能再写死5。
+    labels, ranges = engine.labels_for(currency), engine.ranges_for(currency)
+    size = len(labels)
     with db_connection() as connection,connection.cursor() as cursor:
         begin(connection,cursor)
         cursor.execute(f'SELECT * FROM {head_table} WHERE platform=%s',(platform,))
@@ -169,9 +171,9 @@ def read_report(platform):
         for row in cursor.fetchall():
             node = nodes.setdefault(row['node_id'],dict(decode(row['node_json']),tiers=[]))
             i = row['tier_no']-1
-            if i not in range(5): raise ValueError('统计仓库档位异常，请重新统计')
-            node['tiers'].append(dict(tier_no=i+1,label=engine.LABELS[i],range=ranges[i],sku_count=row['sku_count'],sku_percent=str(row['sku_percent'])))
-        if any(len(n['tiers'])!=5 or sum(t['sku_count'] for t in n['tiers'])!=n['group_sku_count'] for n in nodes.values()):
+            if i not in range(size): raise ValueError('统计仓库档位异常，请重新统计')
+            node['tiers'].append(dict(tier_no=i+1,label=labels[i],range=ranges[i],sku_count=row['sku_count'],sku_percent=str(row['sku_percent'])))
+        if any(len(n['tiers'])!=size or sum(t['sku_count'] for t in n['tiers'])!=n['group_sku_count'] for n in nodes.values()):
             raise ValueError('统计仓库不完整，请重新统计')
         parents = {n['store_key']:dict(n,children=[]) for n in nodes.values() if n['scope']=='SHOP'}
         for node in nodes.values():

@@ -11,10 +11,16 @@ const source=fs.readFileSync(file,'utf8')
 const {descriptor,errors}=parse(source)
 const render=new Function('Vue',compile(descriptor.template.content,{mode:'function',prefixIdentifiers:true}).code)(Vue)
 const ranges=['< ¥340','¥340–<680','¥680–<1,020','¥1,020–1,690','> ¥1,690']
-const definitions=['低价引流层','基础走量层','利润核心层','高客单层','专业/稀缺层'].map((name,i)=>({name,short:name,range:ranges[i]}))
-const tiers=definitions.map((d,i)=>({tier_no:i+1,label:d.name,range:d.range,sku_count:i?0:2,sku_percent:i?'0.00':'100.00'}))
-const child={node_id:'s',scope:'SITE',site:'DE',store_name:'store',currencies:['EUR'],group_sku_count:2,tiers}
-const shop={...child,node_id:'p',scope:'SHOP',site:'',children:[child]}
+// 档数随平台变（人民币5档、美元7档），夹具必须跟着 presentation 走，不能写死。
+function definitionsOf(platform) {
+ const p=pricePresentation(platform)
+ return p.names.map((name,i)=>({name,short:p.shorts[i],compact:p.compacts[i],range:p.ranges[i]}))
+}
+function nodesOf(platform) {
+ const tiers=definitionsOf(platform).map((d,i)=>({tier_no:i+1,label:d.name,range:d.range,sku_count:i?0:2,sku_percent:i?'0.00':'100.00'}))
+ const child={node_id:'s',scope:'SITE',site:'DE',store_name:'store',currencies:['EUR'],group_sku_count:2,tiers}
+ return {child,shop:{...child,node_id:'p',scope:'SHOP',site:'',children:[child]}}
+}
 function fallbackOf(report) {
  return Object.entries(report?.rate_months || {})
   .filter(([,month])=>month && month!==report?.rate_month).map(([code])=>code).sort()
@@ -24,9 +30,9 @@ async function html(platform,report,error='') {
  report=structuredClone(report)
  for(const parent of report?.items || []) for(const node of [parent,...(parent.children || [])])
   node.tiers.forEach((t,i)=>t.range=presentation.ranges[i])
- const currentDefinitions=definitions.map((d,i)=>({...d,range:presentation.ranges[i]}))
+ const currentDefinitions=definitionsOf(platform)
  const app=Vue.createSSRApp({render,setup:()=>({platform,platformLabel:platform.toUpperCase(),currencyLabel:presentation.label,presentation,report,error,loading:false,load(){},definitions:currentDefinitions,
- colors:['a','b','c','d','e'],nodeTitle:n=>n.store_name,tierTitle:t=>t.label,anomalyText:()=>'',detailsOpen:false,keyword:'',visibleShops:[],rateDescription:'各币种最新my_rate',ruleDescription:'按人民币分组',
+ colors:currentDefinitions.map((_,i)=>'c'+i),nodeTitle:n=>n.store_name,tierTitle:t=>t.label,anomalyText:()=>'',detailsOpen:false,keyword:'',visibleShops:[],rateDescription:'各币种最新my_rate',ruleDescription:'按人民币分组',
  rateMonths:report?.rate_months || {},fallbackCurrencies:fallbackOf(report)})})
  for(const name of ['el-button','el-input','el-table','el-table-column','el-dialog']) app.component(name,{setup:(_, {slots})=>()=>name==='el-dialog'?null:Vue.h('span',slots.default?.())})
  app.component('el-alert',{props:['title'],setup:p=>()=>Vue.h('aside',p.title)})
@@ -40,10 +46,13 @@ test('both platform chart compiles and retains compact layout',()=>{
  assert.deepEqual(compileTemplate({source:descriptor.template.content,filename:file.pathname,id:'price',compilerOptions:{bindingMetadata:script.bindings}}).errors,[])
  assert.match(source,/height: 360px/);assert.match(source,/overflow-y: auto/);assert.doesNotMatch(source,/v-html/)
 })
-test('AMZ CNY and eBay USD five tiers, collapsed stores and expandable sites',async()=>{
+test('AMZ CNY五档与eBay USD七档，店铺默认收起、站点可展开',async()=>{
  for(const p of ['amz','ebay']) {
-  const out=await html(p,{state:'READY',items:[shop],shop_count:1,total_sku_count:2,rate_month:'2026-09',missing_currencies:[]})
-  assert.match(out,new RegExp(pricePresentation(p).label+'价格结构'));assert.match(out,/利润核心层/);assert.match(out,/专业\/稀缺层/)
+  const out=await html(p,{state:'READY',items:[nodesOf(p).shop],shop_count:1,total_sku_count:2,rate_month:'2026-09',missing_currencies:[]})
+  assert.match(out,new RegExp(pricePresentation(p).label+'价格结构'))
+  // 人民币仍用业务分层叫法；美元直接显示价格段，不应再出现分层名。
+  if(p==='amz'){assert.match(out,/利润核心层/);assert.match(out,/专业\/稀缺层/)}
+  else{assert.match(out,/0-5/);assert.match(out,/500\+/);assert.doesNotMatch(out,/利润核心层/)}
   assert.match(out,/<details class="shop-row">/);assert.doesNotMatch(out,/<details[^>]*open/)
   assert.match(out,/DE · EUR/);assert.match(out,/100.00%/);assert.match(out,/展开报表/)
  }
@@ -65,15 +74,17 @@ test('stale and missing rates have visible warnings',async()=>{
 
 test('each store and expanded site shows platform currency ranges, counts and percentages without hover',async()=>{
  for(const platform of ['amz','ebay']) {
-  const out=await html(platform,{state:'READY',items:[shop],shop_count:1,total_sku_count:2,rate_month:'2026-09',missing_currencies:[]})
+  const out=await html(platform,{state:'READY',items:[nodesOf(platform).shop],shop_count:1,total_sku_count:2,rate_month:'2026-09',missing_currencies:[]})
   const values=[...out.matchAll(/<div class="tier-values">([\s\S]*?)<\/div>/g)].map(match=>match[1])
   assert.equal(values.length,2,'store summary and site details both have direct labels')
   for(const block of values) {
    const visibleRanges=[...block.matchAll(/<span class="tier-range"><i[^>]*><\/i>([^<]*)<\/span>/g)]
     .map(match=>match[1].replaceAll('&lt;','<').replaceAll('&gt;','>'))
-   assert.deepEqual(visibleRanges,pricePresentation(platform).ranges,'platform currency ranges must be visible text, not just title attributes')
+   // 卡片小字放紧凑档名（美元7列时带$的完整区间会折行）；精确区间留在悬浮提示里。
+   assert.deepEqual(visibleRanges,pricePresentation(platform).compacts,'platform price bands must be visible text, not just title attributes')
    assert.match(block,/>2 <span class="sku-unit">SKU<\/span>/)
-   assert.equal([...block.matchAll(/>0 <span class="sku-unit">SKU<\/span>/g)].length,4,'zero-count tiers keep their labels')
+   assert.equal([...block.matchAll(/>0 <span class="sku-unit">SKU<\/span>/g)].length,
+    pricePresentation(platform).names.length-1,'zero-count tiers keep their labels')
    assert.match(block,/<small>100.00%<\/small>/)
   }
  }
@@ -91,7 +102,16 @@ test('homepage gives price charts a separate half-width second row; no platform 
 })
 
 test('USD uses rate_org, CNY retains my_rate and mismatched cached currency is rejected',()=>{
- assert.deepEqual(pricePresentation('ebay').ranges,['< $50','$50–<100','$100–<150','$150–250','> $250'])
+ assert.deepEqual(pricePresentation('ebay').ranges,['$0–<5','$5–<20','$20–<50','$50–<100','$100–<200','$200–<500','≥ $500'])
+ assert.deepEqual(pricePresentation('ebay').names,['0-5','5-20','20-50','50-100','100-200','200-500','500以上'])
+ // 美元7档、人民币5档；四个数组长度必须一致，否则前端按下标取名取色会越界。
+ for(const platform of ['amz','ebay']) {
+  const pres=pricePresentation(platform)
+  assert.equal(pres.names.length,platform==='ebay'?7:5)
+  assert.equal(pres.shorts.length,pres.names.length)
+  assert.equal(pres.compacts.length,pres.names.length)
+  assert.equal(pres.ranges.length,pres.names.length)
+ }
  assert.equal(pricePresentation('ebay').rateField,'rate_org')
  assert.equal(pricePresentation('amz').rateField,'my_rate')
  assert.deepEqual(pricePresentation('amz').ranges,ranges)

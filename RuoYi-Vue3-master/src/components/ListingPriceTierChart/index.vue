@@ -1,5 +1,6 @@
 <template>
-  <section v-loading="loading" class="price-panel" :aria-labelledby="`price-tier-${platform}`">
+  <section v-loading="loading" class="price-panel" :aria-labelledby="`price-tier-${platform}`"
+           :style="{ '--tier-count': definitions.length }">
     <header>
       <div><span class="eyebrow">{{ platformLabel }} · {{ currencyLabel }}价格结构</span><h2 :id="`price-tier-${platform}`">店铺 SKU 价格分层</h2></div>
       <el-button size="small" icon="Refresh" circle :disabled="loading" title="用汇率表中各币种最新可用汇率重新计算本地数据，不拉取接口" aria-label="重新统计价格分层" @click="load(true)" />
@@ -19,7 +20,7 @@
             <div class="stack"><span v-for="(tier, i) in shop.tiers" :key="tier.tier_no" :style="{ flex: tier.sku_count, background: colors[i] }" :title="tierTitle(tier)" /></div>
             <div class="tier-values">
               <span v-for="(tier, i) in shop.tiers" :key="tier.tier_no" :title="tierTitle(tier)">
-                <span class="tier-range"><i :style="{ background: colors[i] }" />{{ tier.range }}</span>
+                <span class="tier-range"><i :style="{ background: colors[i] }" />{{ definitions[i].compact }}</span>
                 <b>{{ tier.sku_count.toLocaleString() }} <span class="sku-unit">SKU</span></b>
                 <small>{{ tier.sku_percent }}%</small>
               </span>
@@ -30,7 +31,7 @@
             <div class="stack"><span v-for="(tier, i) in child.tiers" :key="tier.tier_no" :style="{ flex: tier.sku_count, background: colors[i] }" :title="tierTitle(tier)" /></div>
             <div class="tier-values">
               <span v-for="(tier, i) in child.tiers" :key="tier.tier_no" :title="tierTitle(tier)">
-                <span class="tier-range"><i :style="{ background: colors[i] }" />{{ tier.range }}</span>
+                <span class="tier-range"><i :style="{ background: colors[i] }" />{{ definitions[i].compact }}</span>
                 <b>{{ tier.sku_count.toLocaleString() }} <span class="sku-unit">SKU</span></b>
                 <small>{{ tier.sku_percent }}%</small>
               </span>
@@ -52,7 +53,7 @@
         <el-table-column label="店铺 / 站点" min-width="225" fixed show-overflow-tooltip><template #default="{ row }">{{ row.scope === 'SHOP' ? row.store_name : row.site || '未知站点' }}</template></el-table-column>
         <el-table-column label="原币种" width="115"><template #default="{ row }">{{ row.currencies.join('/') || '--' }}</template></el-table-column>
         <el-table-column prop="group_sku_count" label="归档SKU" width="95" align="right" />
-        <el-table-column v-for="(tier, i) in definitions" :key="tier.name" min-width="164" align="right">
+        <el-table-column v-for="(tier, i) in definitions" :key="tier.name" :min-width="tierColumnWidth" align="right">
           <template #header><div>{{ tier.name }}</div><small>{{ tier.range }}</small></template>
           <template #default="{ row }"><b>{{ row.tiers[i].sku_count }}</b><span class="percent"> / {{ row.tiers[i].sku_percent }}%</span></template>
         </el-table-column>
@@ -77,14 +78,16 @@ const loading = ref(false)
 const error = ref('')
 const detailsOpen = ref(false)
 const keyword = ref('')
-const colors = ['#67b8ae', '#629dce', '#666cc6', '#b07baf', '#d79b5e']
-const definitions = computed(() => [
-  { name: '低价引流层', short: '引流' },
-  { name: '基础走量层', short: '走量' },
-  { name: '利润核心层', short: '核心' },
-  { name: '高客单层', short: '高客单' },
-  { name: '专业/稀缺层', short: '稀缺' }
-].map((tier, i) => ({ ...tier, range: presentation.value.ranges[i] })))
+// 七档要七种颜色；人民币只用前五个，色序不变，改档位数不影响AMZ报表的观感。
+const palette = ['#67b8ae', '#629dce', '#666cc6', '#b07baf', '#d79b5e', '#c9756a', '#8a8f98']
+const definitions = computed(() => presentation.value.names.map((name, i) => ({
+  name, short: presentation.value.shorts[i],
+  compact: presentation.value.compacts[i], range: presentation.value.ranges[i]
+})))
+// 人民币5档时取前5色，保持与改动前完全一致。
+const colors = computed(() => palette.slice(0, definitions.value.length))
+// 美元7档的表头只有「0-5」这种短字，收窄后弹窗仍不需要横向滚动；人民币5档保持164。
+const tierColumnWidth = computed(() => definitions.value.length > 5 ? 112 : 164)
 const ruleDescription = computed(() => `${props.platform === 'amz'
   ? 'AMZ来源：ods_lingxing_amz_listing_latest.landed_price（含促销、运费、积分）；仅status=1且is_delete=0，按完整seller_sku统计。店铺去掉与country_code一致的国家后缀，展开保留各站点。'
   : 'eBay来源：GetMyeBaySelling的ods_ebay_store_listing_latest.current_price；多规格按变体SKU及价格，不重复计父商品。'}按dim_lingxing_currency_month.${presentation.value.rateField}换算${currencyLabel.value}${props.platform === 'ebay' ? '（美元原价不换算）' : ''}，不截断汇率，分档前不舍入。店铺+站点内完整SKU取最低有效${currencyLabel.value}价格、只计一次，跨站点相加。0为有效价格；缺SKU或价格异常单独提示、不计入占比；汇率按币种回退取最新可用月份，全无汇率才拒绝发布；不按中间码合并、不排除PC。刷新只重新计算本地统计仓库，不拉接口。`)
@@ -153,7 +156,7 @@ details[open] > summary::before { content: '▾'; }
 .stack span { min-width: 0; }
 .site-row { padding: 9px 0 4px 12px; }
 .site-row .store-heading { margin: 0 0 5px; font-size: 10px; color: var(--el-text-color-secondary); }
-.tier-values { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; padding-top: 5px; font-size: 10px; font-variant-numeric: tabular-nums; }
+.tier-values { display: grid; grid-template-columns: repeat(var(--tier-count, 5), minmax(0, 1fr)); gap: 3px; padding-top: 5px; font-size: 10px; font-variant-numeric: tabular-nums; }
 .tier-range { display: block; color: var(--el-text-color-regular); line-height: 1.4; margin-bottom: 3px; overflow-wrap: anywhere; }
 .sku-unit { font-size: 9px; font-weight: 400; color: var(--el-text-color-secondary); }
 .tier-values b, .tier-values small { display: block; white-space: nowrap; }
