@@ -18,6 +18,14 @@ FIELDS = ('seller_user_id', 'seller_account', 'item_id', 'sku', 'title', 'site',
           'listing_duration', 'time_left', 'start_time', 'view_item_url', 'image_url',
           'source_page', 'api_total', 'response_meta_json', 'normalized_json', 'raw_xml',
           'sync_batch_id', 'pulled_at')
+# 留档不存 raw_xml / response_meta_json / normalized_json / source_page / api_total：
+# 前三个实测占 57MB，且抽样核对过 normalized_json 除 variations 外的键全部与扁平列
+# 重复；后两个只对当次拉取排障有意义。variations 不能丢，单拎成 variations_json。
+MONTHLY_FIELDS = ('stat_month', 'seller_user_id', 'seller_account', 'item_id', 'sku', 'title',
+                  'site', 'current_price', 'currency', 'buy_it_now_price', 'buy_it_now_currency',
+                  'quantity', 'quantity_available', 'quantity_sold', 'watch_count', 'listing_type',
+                  'listing_duration', 'time_left', 'start_time', 'view_item_url', 'image_url',
+                  'variations_json', 'sync_batch_id', 'pulled_at')
 
 
 class AccountIdentityConflict(ValueError):
@@ -43,6 +51,27 @@ def stat_month(pulled_at):
     return pulled_at.strftime('%Y-%m')
 
 
+def variations_payload(normalized_json):
+    """留档只保留变体数组，并剥掉每个变体自己的raw_xml；无变体返回None。
+
+    变体的sku与价格是扁平列没有的：报表在刊登有变体时按变体逐个统计、不用父级那行，
+    丢了会把多规格刊登塌缩成一个SKU，而且各变体价格不同，分档会错。
+    """
+    data = json.loads(normalized_json)
+    variations = data.get('variations') or []
+    if not variations:
+        return None
+    return dumps([{k: v for k, v in item.items() if k != 'raw_xml'} for item in variations])
+
+
+def monthly_values(values, month):
+    """从latest的整行值投影出留档行，保证两边逐字段同源，不重新解析接口数据。"""
+    row = dict(zip(FIELDS, values))
+    row['stat_month'] = month
+    row['variations_json'] = variations_payload(row['normalized_json'])
+    return tuple(row[field] for field in MONTHLY_FIELDS)
+
+
 def replace_snapshots(records, accounts, *, batch_id, pulled_at):
     """All requested accounts publish together. Unrequested accounts are untouched.
 
@@ -54,8 +83,8 @@ def replace_snapshots(records, accounts, *, batch_id, pulled_at):
     names = {a['userId']: a['username'] for a in accounts}
     month = stat_month(pulled_at)
     sql = f"INSERT INTO {TABLE} (" + ','.join(f'`{f}`' for f in FIELDS) + ') VALUES (' + ','.join(['%s'] * len(FIELDS)) + ')'
-    monthly_sql = (f"INSERT INTO {MONTHLY_TABLE} (`stat_month`," + ','.join(f'`{f}`' for f in FIELDS)
-                   + ') VALUES (' + ','.join(['%s'] * (len(FIELDS) + 1)) + ')')
+    monthly_sql = (f"INSERT INTO {MONTHLY_TABLE} (" + ','.join(f'`{f}`' for f in MONTHLY_FIELDS)
+                   + ') VALUES (' + ','.join(['%s'] * len(MONTHLY_FIELDS)) + ')')
     with db_connection() as connection:
         try:
             connection.begin()
@@ -90,7 +119,7 @@ def replace_snapshots(records, accounts, *, batch_id, pulled_at):
                         counts[seller['userId']] += 1
                     values = [record_values(r, batch_id, pulled_at) for r in chunk]
                     cursor.executemany(sql, values)
-                    cursor.executemany(monthly_sql, [(month, *row) for row in values])
+                    cursor.executemany(monthly_sql, [monthly_values(row, month) for row in values])
                 if counts != expected:
                     raise ValueError('发布行数与已校验源数据不一致')
                 for account in accounts:

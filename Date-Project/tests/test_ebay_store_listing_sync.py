@@ -294,7 +294,7 @@ def test_repository_rolls_back_every_failure(monkeypatch, failure):
 
 
 def test_monthly_archive_written_in_same_transaction_as_latest(monkeypatch):
-    """历史留档与latest同事务、同一批记录，多存一个留档月份列。"""
+    """留档与latest同事务、同一批记录投影而来，共有字段逐字相同。"""
     connection, cursor, record, accounts = db(monkeypatch)
     pulled_at = datetime(2026, 9, 21, 16, 32, 19)
     result = repo.replace_snapshots([record], accounts, batch_id='b', pulled_at=pulled_at)
@@ -302,9 +302,12 @@ def test_monthly_archive_written_in_same_transaction_as_latest(monkeypatch):
     assert result['stat_month'] == '2026-09'
     inserts = {call.args[0].split()[2]: call.args[1] for call in cursor.executemany.call_args_list}
     assert repo.TABLE in inserts and repo.MONTHLY_TABLE in inserts
-    latest_row, monthly_row = inserts[repo.TABLE][0], inserts[repo.MONTHLY_TABLE][0]
-    # 留档行 = 月份 + 与latest逐字段相同的值，不重新算、不重新序列化。
-    assert monthly_row == ('2026-09', *latest_row)
+    latest = dict(zip(repo.FIELDS, inserts[repo.TABLE][0]))
+    monthly = dict(zip(repo.MONTHLY_FIELDS, inserts[repo.MONTHLY_TABLE][0]))
+    assert monthly['stat_month'] == '2026-09'
+    # 共有字段不重新算、不重新序列化，一律取自同一行。
+    for field in set(repo.MONTHLY_FIELDS) & set(repo.FIELDS):
+        assert monthly[field] == latest[field], field
     connection.commit.assert_called_once()
     # 空店也要落状态行，否则趋势图分不清"当月空店"和"当月没同步"。
     state_sql = [c.args[0] for c in cursor.execute.call_args_list if repo.MONTHLY_STATE_TABLE in c.args[0]]
@@ -325,3 +328,33 @@ def test_monthly_row_count_mismatch_rolls_back_everything(monkeypatch):
         repo.replace_snapshots([record], accounts, batch_id='b', pulled_at=datetime.now())
     connection.rollback.assert_called_once()
     connection.commit.assert_not_called()
+
+
+def test_archive_drops_xml_and_metadata_but_never_variations():
+    """留档砍掉的必须只是冗余：XML、响应元数据、与扁平列重复的normalized_json。"""
+    dropped = set(repo.FIELDS) - set(repo.MONTHLY_FIELDS)
+    assert dropped == {'raw_xml', 'response_meta_json', 'normalized_json', 'source_page', 'api_total'}
+    # 变体是扁平列里没有的，必须另有去处，否则多规格刊登会塌缩成一个SKU。
+    assert 'variations_json' in repo.MONTHLY_FIELDS
+
+
+def test_variations_kept_verbatim_without_their_own_raw_xml():
+    """变体只剥raw_xml，sku/价格/数量原样保留——分档直接读这些。"""
+    payload = repo.variations_payload(repo.dumps({'sku': 'P', 'variations': [
+        {'sku': 'A-1', 'price': {'value': '4.99', 'currency': 'GBP'},
+         'quantity': 25, 'quantity_sold': 3, 'raw_xml': '<Variation>...</Variation>'},
+        {'sku': 'A-2', 'price': {'value': '9.99', 'currency': 'GBP'},
+         'quantity': 1, 'quantity_sold': 0, 'raw_xml': '<Variation>...</Variation>'}]}))
+    variations = json.loads(payload)
+    assert [v['sku'] for v in variations] == ['A-1', 'A-2']
+    assert [v['price'] for v in variations] == [{'value': '4.99', 'currency': 'GBP'},
+                                                {'value': '9.99', 'currency': 'GBP'}]
+    assert [v['quantity'] for v in variations] == [25, 1]
+    assert all('raw_xml' not in v for v in variations)
+
+
+@pytest.mark.parametrize('normalized', [{'sku': 'P'}, {'sku': 'P', 'variations': []},
+                                        {'sku': 'P', 'variations': None}])
+def test_no_variations_archives_null_not_empty_array(normalized):
+    """没有变体就存NULL，别拿空数组占位——统计时要能直接判空。"""
+    assert repo.variations_payload(repo.dumps(normalized)) is None
