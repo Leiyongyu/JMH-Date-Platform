@@ -171,14 +171,17 @@ class FeishuClient:
                 return items
         raise FeishuRequestError(f"翻页超过{MAX_PAGES}页，疑似分页游标未推进；接口={path}")
 
-    def iter_records(self, app_token, table_id, view_id=""):
+    def iter_records(self, app_token, table_id, view_id="", *, automatic_fields=False):
         """按视图顺序逐条产出记录，形如 {"record_id": "rec...", "fields": {...}}。
 
         用「查询记录」接口，它是当前版本；旧的 GET 列出记录接口官方已标注即将下线。
+
+        automatic_fields=True 时记录对象上会多出 created_time / last_modified_time
+        （毫秒时间戳）与创建人/修改人。表里没有"最后更新时间"这个可见字段时，
+        这是判断某条记录有没有变过的唯一依据，增量同步要靠它。
         """
         path = RECORDS_PATH.format(app_token=app_token, table_id=table_id)
-        # automatic_fields 指创建时间/创建人这类系统字段，卖家级别表用不上，不取。
-        body = {"automatic_fields": False}
+        body = {"automatic_fields": bool(automatic_fields)}
         if view_id:
             body["view_id"] = view_id
         page_token = ""
@@ -194,10 +197,10 @@ class FeishuClient:
                 return
         raise FeishuRequestError(f"记录翻页超过{MAX_PAGES}页，疑似分页游标未推进；接口={path}")
 
-    def fetch_records(self, app_token, table_id, view_id="", *, limit=None):
+    def fetch_records(self, app_token, table_id, view_id="", *, limit=None, automatic_fields=False):
         """一次性取回记录列表；limit 只用于探查，正式取数请用 iter_records。"""
         rows = []
-        for item in self.iter_records(app_token, table_id, view_id):
+        for item in self.iter_records(app_token, table_id, view_id, automatic_fields=automatic_fields):
             rows.append(item)
             if limit is not None and len(rows) >= limit:
                 break

@@ -15,6 +15,12 @@ from backend.services.ebay_store_listing_sync_service import (
     EbayStoreListingSyncError,
     sync_ebay_store_listings,
 )
+from backend.services.feishu_bad_transaction_sync_service import (
+    TASK_CODE as FEISHU_BAD_TRANSACTION_TASK_CODE,
+    TASK_NAME as FEISHU_BAD_TRANSACTION_TASK_NAME,
+    FeishuBadTransactionSyncError,
+    sync_feishu_bad_transactions,
+)
 from backend.services.amz_listing_raw_sync_service import (
     TASK_CODE as AMZ_LISTING_RAW_TASK_CODE,
     TASK_NAME as AMZ_LISTING_RAW_TASK_NAME,
@@ -131,6 +137,13 @@ TASK_SPECS: dict[str, TaskSpec] = {
             execute=lambda ctx: sync_ebay_store_listings(),
         ),
         TaskSpec(
+            code=FEISHU_BAD_TRANSACTION_TASK_CODE,
+            name=FEISHU_BAD_TRANSACTION_TASK_NAME,
+            period_args_error="飞书不良交易刊登按视图拉当周那一批，不接受历史月份或日期筛选",
+            lock_name=lambda ctx: "feishu:bad-transaction:sync",
+            execute=lambda ctx: sync_feishu_bad_transactions(),
+        ),
+        TaskSpec(
             code=AMZ_LISTING_RAW_TASK_CODE,
             name=AMZ_LISTING_RAW_TASK_NAME,
             period_args_error="AMZ原始刊登只拉取当前完整数据，不接受历史月份或日期筛选",
@@ -222,6 +235,7 @@ TASK_CODES = frozenset(TASK_SPECS)
 # 这些异常自带 stage/metrics，失败运行记录据此还原阶段和已处理行数。
 _STAGED_ERRORS = (
     EbayStoreListingSyncError,
+    FeishuBadTransactionSyncError,
     AmzListingRawSyncError,
     AmazonProfitEtlError,
     AmzSopEtlError,

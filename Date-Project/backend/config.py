@@ -92,6 +92,13 @@ class Settings:
     feishu_seller_level_app_token: str = os.getenv("FEISHU_SELLER_LEVEL_APP_TOKEN", "")
     feishu_seller_level_table_id: str = os.getenv("FEISHU_SELLER_LEVEL_TABLE_ID", "")
     feishu_seller_level_view_id: str = os.getenv("FEISHU_SELLER_LEVEL_VIEW_ID", "")
+    # 不良交易刊登表。视图筛的是当周那一批，增量同步只拉它；全量回填才不带视图。
+    feishu_bad_transaction_app_token: str = os.getenv(
+        "FEISHU_BAD_TRANSACTION_APP_TOKEN", "UjvXbOPJTalrRKsmZKpcUjQ5nEe")
+    feishu_bad_transaction_table_id: str = os.getenv(
+        "FEISHU_BAD_TRANSACTION_TABLE_ID", "tbl4j735kfsuqcHl")
+    feishu_bad_transaction_view_id: str = os.getenv(
+        "FEISHU_BAD_TRANSACTION_VIEW_ID", "vewohlM1T4")
     shop_source_database: str = os.getenv("SHOP_SOURCE_DATABASE", "jmh_data_platform")
     python_internal_api_token: str = os.getenv(
         "PYTHON_INTERNAL_API_TOKEN",
