@@ -75,24 +75,6 @@ def tiers(counts, target_currency='CNY'):
             for i, count in enumerate(counts)]
 
 
-def ebay_candidates(rows):
-    for row in rows:
-        try:
-            # 原始表不再存整份normalized_json（其余键与扁平列重复），只留变体数组。
-            # NULL 表示这条刊登没有变体，退回用父级的sku与价格，不是数据异常。
-            variations = row['variations_json']
-            if isinstance(variations, str): variations = json.loads(variations)
-            if variations is None: variations = []
-            if not isinstance(variations, list): raise ValueError()
-            candidates = variations or [{'sku': row.get('sku'), 'price': {'value': row.get('current_price'), 'currency': row.get('currency')}}]
-            for item in candidates:
-                money = item.get('price') or {}
-                yield dict(store_key=row['seller_user_id'], store_name=row['seller_account'], site=text(row.get('site')).upper(),
-                           currency=text(money.get('currency')).upper(), sku=text(item.get('sku')), price=money.get('value'), missing_shop=False)
-        except (ValueError, TypeError, AttributeError):
-            raise ValueError('eBay原始规格结构异常，保留旧报表') from None
-
-
 def unit_price_candidates(rows):
     """SKU单价表 -> 分档候选。单价本来就是美元，标成USD让换汇整条链路短路。
 

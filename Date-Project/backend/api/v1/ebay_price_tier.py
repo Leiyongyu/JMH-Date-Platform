@@ -23,13 +23,14 @@ def _run(action, request):
 
 
 @router.get('/summary')
-def summary(request: Request):
-    return _run(read_report, request)
+def summary(request: Request, month: str = '', shop: str = ''):
+    """month 为空取最新统计月份；shop 为空返回全部店铺。"""
+    return _run(lambda: read_report(month, shop), request)
 
 
 @router.post('/refresh')
-def refresh(request: Request):
-    return _run(refresh_report, request)
+def refresh(request: Request, month: str = '', shop: str = ''):
+    return _run(lambda: refresh_report(month, shop), request)
 
 
 @router.get('/product-structure')

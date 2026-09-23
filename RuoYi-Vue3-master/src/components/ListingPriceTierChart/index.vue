@@ -10,6 +10,14 @@
     </header>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <template v-else-if="report?.state === 'READY'">
+      <div v-if="platform === 'ebay'" class="filters-inline">
+        <el-select v-model="month" size="small" placeholder="统计月份" style="width: 116px" @change="load()">
+          <el-option v-for="m in report.months || []" :key="m" :label="m" :value="m" />
+        </el-select>
+        <el-select v-model="shop" size="small" clearable placeholder="全部店铺" style="width: 176px" @change="load()">
+          <el-option v-for="s in report.shops || []" :key="s" :label="s" :value="s" />
+        </el-select>
+      </div>
       <div class="summary"><span><b>{{ report.shop_count }}</b> 个店铺</span><span><b>{{ report.total_sku_count.toLocaleString() }}</b> SKU</span></div>
       <div class="legend"><span v-for="(tier, i) in definitions" :key="tier.name" :title="`${tier.name}：${tier.range}`"><i :style="{ background: colors[i] }" />{{ tier.short }}</span></div>
       <div v-if="report.stale" class="warning">源数据、汇率或月份已更新，请重新统计。</div>
@@ -84,6 +92,9 @@ const error = ref('')
 const detailsOpen = ref(false)
 const structureOpen = ref(false)
 const keyword = ref('')
+// eBay 的统计月份与店铺筛选；单价表按月存，任意历史月份都能查。
+const month = ref('')
+const shop = ref('')
 // 七档要七种颜色；人民币只用前五个，色序不变，改档位数不影响AMZ报表的观感。
 const palette = ['#67b8ae', '#629dce', '#666cc6', '#b07baf', '#d79b5e', '#c9756a', '#8a8f98']
 const definitions = computed(() => presentation.value.names.map((name, i) => ({
@@ -130,7 +141,11 @@ async function load(refresh = false) {
   loading.value = true
   error.value = ''
   try {
-    const response = await (refresh ? refreshListingPriceTier(props.platform) : getListingPriceTier(props.platform))
+    // 刷新只负责按飞书不良交易刊登表重算单价表，重算完再按当前筛选取数，
+    // 这样点刷新不会把用户选好的月份/店铺跳回默认值。
+    if (refresh) await refreshListingPriceTier(props.platform)
+    const params = props.platform === 'ebay' ? { month: month.value, shop: shop.value } : {}
+    const response = await getListingPriceTier(props.platform, params)
     if (!disposed) {
       const next = response.data
       if (next?.state === 'READY' && (next.target_currency || 'CNY') !== presentation.value.currency) {
@@ -139,6 +154,8 @@ async function load(refresh = false) {
         return
       }
       report.value = next
+      // 首次加载时后端不知道要哪个月，拿它给的最新月份回填选择器。
+      if (props.platform === 'ebay' && !month.value && next?.stat_month) month.value = next.stat_month
     }
   } catch (exception) {
     // 服务端会说明具体原因（例如某币种全无汇率、源批次不一致），直接透出来；
@@ -179,6 +196,7 @@ details[open] > summary::before { content: '▾'; }
 .tier-values b, .tier-values small { display: block; white-space: nowrap; }
 .tier-values small { color: var(--el-text-color-secondary); font-size: 10px; }
 .actions { display: flex; align-items: center; gap: 6px; }
+.filters-inline { display: flex; gap: 6px; margin-bottom: 6px; }
 .warning { color: var(--el-color-warning-dark-2); font-size: 10px; line-height: 1.5; max-height: 35px; overflow-y: auto; }
 footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--el-border-color-lighter); padding-top: 6px; margin-top: 5px; font-size: 10px; color: var(--el-text-color-secondary); }
 footer span, .generated { cursor: help; }

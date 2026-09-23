@@ -105,7 +105,9 @@ test('homepage gives price charts a separate half-width second row; no platform 
  assert.match(home,/\.price-dashboards \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
  assert.match(home,/@media \(max-width: 639px\) \{ \.owner-dashboards, \.price-dashboards/)
  assert.match(source,/refreshListingPriceTier\(props.platform\)/)
- assert.match(source,/getListingPriceTier\(props.platform\)/)
+ assert.match(source,/getListingPriceTier\(props.platform, params\)/)
+ // eBay 的月份/店铺筛选要真的传给后端，否则选了也只能看当前月。
+ assert.match(source,/month: month.value, shop: shop.value/)
  assert.match(source,/row-key="node_id"/)
 })
 

@@ -147,3 +147,42 @@ def defect_rate_by_tier(year=None):
         cursor.execute(f"SELECT DISTINCT LEFT(stat_month,4) AS y FROM {TABLE} ORDER BY y DESC")
         years = [r["y"] for r in cursor.fetchall()]
     return rows, years
+
+
+def months(cursor=None):
+    """单价表里有哪些统计月份，新到旧。页面的月份筛选器用它。"""
+    def query(cur):
+        cur.execute(f"SELECT DISTINCT stat_month FROM {TABLE} ORDER BY stat_month DESC")
+        return [r["stat_month"] for r in cur.fetchall()]
+    if cursor is not None:
+        return query(cursor)
+    with db_connection() as connection, connection.cursor() as cur:
+        return query(cur)
+
+
+def tier_breakdown(stat_month="", shop=""):
+    """某个月每个店铺每个档位的SKU数，直接从单价表聚合。
+
+    不读已发布的快照：单价表本身就是按月存的，任意历史月份都能当场算出来，
+    再维护一份按月的快照只会多一处可能不一致的地方。
+    """
+    with db_connection() as connection, connection.cursor() as cursor:
+        available = months(cursor)
+        month = stat_month.strip() or (available[0] if available else "")
+        if not month:
+            return dict(stat_month="", months=[], shops=[], reg_date="", items=[])
+        args = [month]
+        clause = "stat_month=%s"
+        if shop.strip():
+            clause += " AND shop=%s"
+            args.append(shop.strip())
+        cursor.execute(f"SELECT DISTINCT shop FROM {TABLE} WHERE stat_month=%s ORDER BY shop", (month,))
+        shops = [r["shop"] for r in cursor.fetchall()]
+        cursor.execute(f"SELECT MAX(reg_date) AS d FROM {TABLE} WHERE stat_month=%s", (month,))
+        reg_date = (cursor.fetchone() or {}).get("d")
+        cursor.execute(
+            f"SELECT shop,tier_no,COUNT(*) AS sku_count,SUM(total_qty) AS total_qty,"
+            f"SUM(defect_qty) AS defect_qty FROM {TABLE} WHERE {clause} "
+            f"GROUP BY shop,tier_no ORDER BY shop,tier_no", args)
+        return dict(stat_month=month, months=available, shops=shops,
+                    reg_date=str(reg_date or ""), items=list(cursor.fetchall()))

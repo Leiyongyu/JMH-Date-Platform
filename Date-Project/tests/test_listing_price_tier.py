@@ -78,38 +78,6 @@ def test_amz_landed_price_not_other_price_status_and_store_merge():
     assert service.amz_shop(9,shops)['missing_shop']
 
 
-def test_ebay_variants_no_parent_double_count():
-    row=dict(seller_user_id='a',seller_account='shop',sku='parent',site='DE',current_price='1',currency='EUR',
-             variations_json=[{'sku':'a','price':{'value':'100','currency':'EUR'}},
-                              {'sku':'b','price':{'value':'200','currency':'EUR'}}])
-    result=service.summarize(service.ebay_candidates([row]),{'EUR':'7.6'})
-    assert result['total_sku_count']==2
-    assert result['items'][0]['tiers'][2]['sku_count']==1 and result['items'][0]['tiers'][3]['sku_count']==1
-
-
-def test_no_variations_falls_back_to_parent_row():
-    """无变体存的是NULL，不是异常：退回用父级的sku与价格，只算一个SKU。"""
-    row=dict(seller_user_id='a',seller_account='shop',sku='parent',site='DE',
-             current_price='100',currency='EUR',variations_json=None)
-    result=service.summarize(service.ebay_candidates([row]),{'EUR':'7.6'})
-    assert result['total_sku_count']==1
-
-
-def test_variations_json_accepts_text_column():
-    """MySQL的JSON列取出来可能是str，也可能已是对象，两种都要能吃。"""
-    row=dict(seller_user_id='a',seller_account='shop',sku='parent',site='DE',current_price='1',currency='EUR',
-             variations_json='[{"sku":"a","price":{"value":"100","currency":"EUR"}}]')
-    assert service.summarize(service.ebay_candidates([row]),{'EUR':'7.6'})['total_sku_count']==1
-
-
-@pytest.mark.parametrize('data',['bad',{'variations':{}},{},[None],[{'sku':'a','price':'x'}]])
-def test_bad_variant_structure_fails(data):
-    # 行本身是完整的，坏的只有 variations_json，避免误测成"行缺字段"。
-    row=dict(seller_user_id='a',seller_account='shop',sku='parent',site='DE',
-             current_price='1',currency='EUR',variations_json=data)
-    with pytest.raises(ValueError): list(service.ebay_candidates([row]))
-
-
 def mocks(monkeypatch):
     conn,cur=MagicMock(),MagicMock(); conn.cursor.return_value.__enter__.return_value=cur
     ctx=MagicMock();ctx.__enter__.return_value=conn
@@ -202,11 +170,15 @@ def test_no_source_rate_fallback_or_new_platform_injection(monkeypatch):
     cur.execute.assert_not_called()
 
 
-@pytest.mark.parametrize('platform',['amz','ebay'])
-def test_api_auth_and_correct_platform(monkeypatch,platform):
+# eBay 有自己的实现（按月从单价表聚合），不再走通用的 read_report(platform)。
+@pytest.mark.parametrize('platform,module,args',[
+    ('amz', service, ('amz',)),
+    ('ebay', ebay_price_tier, ('', '')),
+])
+def test_api_auth_and_correct_platform(monkeypatch,platform,module,args):
     monkeypatch.setattr(deps,'settings',SimpleNamespace(python_internal_api_token='test'))
     read,refresh=MagicMock(return_value={'platform':platform}),MagicMock(return_value={'platform':platform})
-    monkeypatch.setattr(service,'read_report',read);monkeypatch.setattr(service,'refresh_report',refresh)
+    monkeypatch.setattr(module,'read_report',read);monkeypatch.setattr(module,'refresh_report',refresh)
     app=FastAPI();app.include_router(amz_price_tier.router);app.include_router(ebay_price_tier.router)
     with TestClient(app) as client:
         base='/api/v1/finance/'+platform+'-price-tier'
@@ -216,9 +188,21 @@ def test_api_auth_and_correct_platform(monkeypatch,platform):
         headers={'X-Internal-Token':'test'}
         assert client.get(base+'/summary',headers=headers).json()['data']['platform']==platform
         assert client.post(base+'/refresh',headers=headers).status_code==200
-        read.assert_called_once_with(platform);refresh.assert_called_once_with(platform)
+        read.assert_called_once_with(*args);refresh.assert_called_once_with(*args)
         refresh.side_effect=repo.ReportBusy('busy')
         assert client.post(base+'/refresh',headers=headers).status_code==409
+
+
+def test_ebay_summary_accepts_month_and_shop(monkeypatch):
+    """月份/店铺要真的透传到服务层，否则页面选了也只能看当前月。"""
+    monkeypatch.setattr(deps,'settings',SimpleNamespace(python_internal_api_token='test'))
+    read=MagicMock(return_value={'platform':'ebay'})
+    monkeypatch.setattr(ebay_price_tier,'read_report',read)
+    app=FastAPI();app.include_router(ebay_price_tier.router)
+    with TestClient(app) as client:
+        client.get('/api/v1/finance/ebay-price-tier/summary',
+                   params={'month':'2026-07','shop':'店铺A'},headers={'X-Internal-Token':'test'})
+    read.assert_called_once_with('2026-07','店铺A')
 
 
 @pytest.mark.parametrize(('platform', 'rates', 'missing'), [

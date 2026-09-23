@@ -19,10 +19,13 @@ public class EbayPriceTierController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list')")
+    /** month 为空取最新统计月份，shop 为空返回全部店铺。 */
     @GetMapping("/summary")
-    public AjaxResult summary(@RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    public AjaxResult summary(@RequestParam(value = "month", required = false) String month,
+            @RequestParam(value = "shop", required = false) String shop,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
-        return success(pythonClient.ebayPriceTierSummary(requestId).get("data"));
+        return success(pythonClient.ebayPriceTierSummary(month, shop, requestId).get("data"));
     }
 
     /** 产品结构：各月各价格档的不良交易率，只读，不触发任何重算。 */

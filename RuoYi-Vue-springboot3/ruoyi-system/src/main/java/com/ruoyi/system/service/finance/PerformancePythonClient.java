@@ -90,9 +90,10 @@ public class PerformancePythonClient extends PythonHttpSupport
         return get("/ebay-owner-sku/summary", Map.of(), requestId);
     }
 
-    public Map<String, Object> ebayPriceTierSummary(String requestId)
+    public Map<String, Object> ebayPriceTierSummary(String month, String shop, String requestId)
     {
-        return get("/ebay-price-tier/summary", Map.of(), requestId);
+        return get("/ebay-price-tier/summary",
+                Map.of("month", month == null ? "" : month, "shop", shop == null ? "" : shop), requestId);
     }
 
     public Map<String, Object> ebayProductStructure(String year, String requestId)

@@ -1,35 +1,102 @@
-"""兼容原eBay报表路由，读取独立美元七档统计。"""
+"""eBay 美元价格结构：直接从 SKU 单价表按月聚合，不再走发布快照。
+
+单价表 dws_ebay_sku_unit_price 本身就是按 月×店铺×SKU 存的，任意历史月份都能
+当场算出来。再维护一份按月的发布快照只会多一处可能不一致的地方，所以这里
+读什么就算什么；「刷新」做的事就是按飞书不良交易刊登表重算单价表。
+"""
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
+from backend.repositories import ebay_sku_unit_price_repository as unit_price
 from backend.services import listing_price_tier_service as service
 
-
-def read_report():
-    return service.read_report('ebay')
+CHINA = timezone(timedelta(hours=8))
 
 
-def refresh_report():
-    return service.refresh_report('ebay')
+def _percent(count, total):
+    if not total:
+        return '0.00'
+    return str((Decimal(count) * 100 / Decimal(total)).quantize(Decimal('.01'), rounding=ROUND_HALF_UP))
 
 
 def _rate(defect, total):
-    """不良交易率 = 不良交易量 / 总交易量，保留四位小数；总量为0时返回None。
-
-    返回 None 而不是 0：分母为0代表"这一档这个月没有成交"，
-    画线时该点应当断开，而不是画一条贴着0的假线。
-    """
+    """不良交易率；总量为0时返回None，画线时该点断开而不是贴着0画假线。"""
     if not total:
         return None
     return str((Decimal(defect) / Decimal(total)).quantize(Decimal('.0001'), rounding=ROUND_HALF_UP))
 
 
+def _node(store, counts, quantities, defects, scope, site):
+    total = sum(counts)
+    labels, ranges = service.USD_LABELS, service.USD_RANGES
+    return dict(
+        node_id=service.node_id(scope, store, site), store_key=store, store_name=store,
+        scope=scope, site=site, currencies=['USD'], group_sku_count=total,
+        unclassified_sku_count=0, missing_sku_rows=0, invalid_price_rows=0,
+        missing_rate_rows=0, missing_shop_rows=0, candidate_count=total,
+        tiers=[dict(tier_no=i + 1, label=labels[i], range=ranges[i], sku_count=counts[i],
+                    sku_percent=_percent(counts[i], total), total_qty=quantities[i],
+                    defect_qty=defects[i], defect_rate=_rate(defects[i], quantities[i]))
+               for i in range(len(labels))])
+
+
+def read_report(month='', shop=''):
+    """某个统计月份、每个店铺、每个价格档的SKU数与占比。
+
+    month 为空取最新月份；shop 为空则返回全部店铺。
+    """
+    size = len(service.USD_LABELS)
+    data = unit_price.tier_breakdown(month, shop)
+    if not data['stat_month']:
+        return dict(platform='ebay', state='EMPTY', items=[], stale=False, months=[], shops=[],
+                    message='尚无SKU单价数据，请先同步飞书不良交易刊登表并刷新')
+
+    per_shop = {}
+    for row in data['items']:
+        bucket = per_shop.setdefault(row['shop'], dict(counts=[0] * size, qty=[0] * size, defect=[0] * size))
+        index = int(row['tier_no']) - 1
+        if not 0 <= index < size:
+            raise ValueError('单价表档位异常，请重新刷新')
+        bucket['counts'][index] = int(row['sku_count'])
+        bucket['qty'][index] = int(row['total_qty'] or 0)
+        bucket['defect'][index] = int(row['defect_qty'] or 0)
+
+    items = []
+    for store, bucket in per_shop.items():
+        parent = _node(store, bucket['counts'], bucket['qty'], bucket['defect'], 'SHOP', '')
+        # 源表没有站点字段，只能按店铺统计；保留一层同值子节点让树状结构照常展开。
+        parent['children'] = [_node(store, bucket['counts'], bucket['qty'], bucket['defect'],
+                                    'SITE', service.UNIT_PRICE_SITE)]
+        items.append(parent)
+    items.sort(key=lambda p: (-p['group_sku_count'], p['store_name']))
+
+    totals = [sum(b['counts'][i] for b in per_shop.values()) for i in range(size)]
+    return dict(
+        platform='ebay', state='READY', stale=False, version=service.USD_VERSION,
+        target_currency='USD', items=items, months=data['months'], shops=data['shops'],
+        stat_month=data['stat_month'], unit_price_month=data['stat_month'],
+        unit_price_reg_date=data['reg_date'], shop=shop.strip(),
+        shop_count=len(items), site_group_count=len(items),
+        total_sku_count=sum(totals), unclassified_sku_count=0, missing_sku_rows=0,
+        invalid_price_rows=0, missing_rate_rows=0, missing_shop_rows=0,
+        missing_currencies=[], rate_month='', rates={}, rate_months={},
+        source_listing_count=sum(totals),
+        generated_at=datetime.now(CHINA).strftime('%Y-%m-%d %H:%M:%S'),
+    )
+
+
+def refresh_report(month='', shop=''):
+    """按飞书不良交易刊登表重算单价表，再返回分层结果。"""
+    refreshed = unit_price.refresh()
+    return dict(read_report(month, shop), unit_price_refresh=refreshed)
+
+
 def product_structure(year=''):
-    """各月各价格档的不良交易率，外加每月的总体线。
+    """各月各价格档的不良交易率，外加每月的总体线。不分店铺。
 
     口径提醒：分子分母都来自飞书「不良交易刊登」表，该表只收录有不良交易的刊登，
     所以这是"被标记刊登内部"的不良率（实测15~18%），不能与eBay官方面板对数。
     """
-    from backend.repositories import ebay_sku_unit_price_repository as unit_price
     rows, years = unit_price.defect_rate_by_tier(year.strip() or None)
 
     labels = service.USD_LABELS

@@ -157,3 +157,81 @@ def test_year_filter_passed_through(monkeypatch):
     assert seen == ["2025"]
     api.product_structure("")
     assert seen == ["2025", None]
+
+
+# ------------------------------------------------------ 月份与店铺筛选
+
+def breakdown(monkeypatch, items, months=("2026-09","2026-08"), shops=("店铺A","店铺B")):
+    captured = {}
+    def fake(stat_month="", shop=""):
+        captured["args"] = (stat_month, shop)
+        return dict(stat_month=stat_month or months[0], months=list(months),
+                    shops=list(shops), reg_date="2026-09-23", items=items)
+    monkeypatch.setattr(repo, "tier_breakdown", fake)
+    return captured
+
+
+def tier(shop, tier_no, sku_count, total=10, defect=1):
+    return {"shop": shop, "tier_no": tier_no, "sku_count": sku_count,
+            "total_qty": total, "defect_qty": defect}
+
+
+def test_report_groups_by_shop_with_percent(monkeypatch):
+    breakdown(monkeypatch, [tier("店铺A", 2, 2), tier("店铺A", 3, 6), tier("店铺B", 3, 1)])
+    result = api.read_report()
+    assert result["state"] == "READY" and result["shop_count"] == 2
+    assert result["total_sku_count"] == 9
+    top = result["items"][0]
+    assert top["store_name"] == "店铺A" and top["group_sku_count"] == 8
+    counts = [t["sku_count"] for t in top["tiers"]]
+    assert counts == [0, 2, 6, 0, 0, 0, 0]
+    # 占比按本店铺的归档SKU总数算，不是全平台。
+    assert top["tiers"][1]["sku_percent"] == "25.00"
+    assert top["tiers"][2]["sku_percent"] == "75.00"
+
+
+def test_month_and_shop_are_passed_through(monkeypatch):
+    captured = breakdown(monkeypatch, [tier("店铺A", 2, 1)])
+    api.read_report("2026-07", "店铺A")
+    assert captured["args"] == ("2026-07", "店铺A")
+
+
+def test_month_options_returned_so_the_page_can_offer_history(monkeypatch):
+    """筛选器的月份与店铺列表必须跟报表一起返回，否则页面没东西可选。"""
+    breakdown(monkeypatch, [tier("店铺A", 2, 1)])
+    result = api.read_report()
+    assert result["months"] == ["2026-09", "2026-08"]
+    assert result["shops"] == ["店铺A", "店铺B"]
+    assert result["unit_price_reg_date"] == "2026-09-23"
+
+
+def test_empty_unit_price_table_reports_empty_not_error(monkeypatch):
+    monkeypatch.setattr(repo, "tier_breakdown",
+                        lambda stat_month="", shop="": dict(stat_month="", months=[], shops=[],
+                                                            reg_date="", items=[]))
+    result = api.read_report()
+    assert result["state"] == "EMPTY" and result["items"] == []
+    assert "飞书" in result["message"]
+
+
+def test_report_declares_usd_and_no_fx(monkeypatch):
+    """页面靠 target_currency 判口径；rates 必须是空的，报表不再依赖汇率。"""
+    breakdown(monkeypatch, [tier("店铺A", 2, 1)])
+    result = api.read_report()
+    assert result["target_currency"] == "USD" and result["version"] == engine.USD_VERSION
+    assert result["rates"] == {} and result["rate_month"] == ""
+    assert result["missing_currencies"] == []
+
+
+def test_refresh_recomputes_unit_price_then_reads(monkeypatch):
+    calls = []
+    monkeypatch.setattr(repo, "refresh", lambda months=None: calls.append("refresh") or {"rows": 9})
+    breakdown(monkeypatch, [tier("店铺A", 2, 1)])
+    result = api.refresh_report("2026-08")
+    assert calls == ["refresh"] and result["unit_price_refresh"] == {"rows": 9}
+
+
+def test_unknown_tier_number_is_refused(monkeypatch):
+    breakdown(monkeypatch, [tier("店铺A", 9, 1)])
+    with pytest.raises(ValueError, match="档位异常"):
+        api.read_report()

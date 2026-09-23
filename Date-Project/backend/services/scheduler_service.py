@@ -9,12 +9,6 @@ from backend.repositories import performance_repository as repo
 from backend.services.ebay_token_health_service import (
     TASK_CODE as EBAY_HEALTH_TASK_CODE, check_ebay_token_health,
 )
-from backend.services.ebay_store_listing_sync_service import (
-    TASK_CODE as EBAY_STORE_LISTING_TASK_CODE,
-    TASK_NAME as EBAY_STORE_LISTING_TASK_NAME,
-    EbayStoreListingSyncError,
-    sync_ebay_store_listings,
-)
 from backend.services.feishu_bad_transaction_sync_service import (
     TASK_CODE as FEISHU_BAD_TRANSACTION_TASK_CODE,
     TASK_NAME as FEISHU_BAD_TRANSACTION_TASK_NAME,
@@ -130,13 +124,6 @@ TASK_SPECS: dict[str, TaskSpec] = {
             execute=lambda ctx: check_ebay_token_health(),
         ),
         TaskSpec(
-            code=EBAY_STORE_LISTING_TASK_CODE,
-            name=EBAY_STORE_LISTING_TASK_NAME,
-            period_args_error="eBay店铺商品仅拉取当前在售列表，不接受历史月份或日期",
-            lock_name=lambda ctx: "ebay:store-listing:replace",
-            execute=lambda ctx: sync_ebay_store_listings(),
-        ),
-        TaskSpec(
             code=FEISHU_BAD_TRANSACTION_TASK_CODE,
             name=FEISHU_BAD_TRANSACTION_TASK_NAME,
             period_args_error="飞书不良交易刊登按视图拉当周那一批，不接受历史月份或日期筛选",
@@ -234,7 +221,6 @@ TASK_CODES = frozenset(TASK_SPECS)
 
 # 这些异常自带 stage/metrics，失败运行记录据此还原阶段和已处理行数。
 _STAGED_ERRORS = (
-    EbayStoreListingSyncError,
     FeishuBadTransactionSyncError,
     AmzListingRawSyncError,
     AmazonProfitEtlError,
