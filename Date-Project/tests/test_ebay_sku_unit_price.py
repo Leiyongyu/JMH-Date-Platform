@@ -371,3 +371,54 @@ def test_full_recompute_drops_months_that_no_longer_produce_rows():
     import inspect
     source = inspect.getsource(repo.refresh)
     assert "_drop_all_stale" in source and "months is None" in source
+
+
+# ------------------------------------------------ 销量占比（图表2）
+
+def sales_stub(monkeypatch, months, buckets):
+    monkeypatch.setattr(repo, "sales_by_tier", lambda year=None: (months, buckets))
+    monkeypatch.setattr(repo, "defect_rate_by_tier", lambda year=None: ([], ["2026"]))
+
+
+def bucket(tiers, unmatched=0):
+    return {"tiers": {t: {"qty": q, "sku_count": 1} for t, q in tiers.items()},
+            "matched_qty": sum(tiers.values()), "unmatched_qty": unmatched,
+            "matched_skus": len(tiers), "unmatched_skus": 1 if unmatched else 0}
+
+
+def test_sales_share_sums_to_one_per_month(monkeypatch):
+    """堆叠百分比图：每个月各档相加必须是100%，看的是结构不是绝对量。"""
+    sales_stub(monkeypatch, ["2026-08"], {"2026-08": bucket({2: 25, 3: 50, 4: 25})})
+    sales = api.product_structure("2026")["sales"]
+    points = [s["points"][0] for s in sales["series"] if s["points"][0] is not None]
+    assert sum(float(p) for p in points) == 1.0
+    by_label = {s["label"]: s["points"][0] for s in sales["series"]}
+    assert by_label["5-20"] == "0.2500" and by_label["20-50"] == "0.5000"
+
+
+def test_unmatched_sales_excluded_from_denominator_but_reported(monkeypatch):
+    """配不上档位的销量不塞进任何一档，单列出来让页面说明覆盖率。"""
+    sales_stub(monkeypatch, ["2026-08"], {"2026-08": bucket({3: 40}, unmatched=60)})
+    sales = api.product_structure("2026")["sales"]
+    by_label = {s["label"]: s["points"][0] for s in sales["series"]}
+    # 分母是能配上的40，不是总量100。
+    assert by_label["20-50"] == "1.0000"
+    cover = sales["coverage"][0]
+    assert cover["matched_qty"] == 40 and cover["unmatched_qty"] == 60
+    assert cover["total_qty"] == 100 and cover["rate"] == "0.4000"
+
+
+def test_month_with_no_matched_sales_is_null_not_zero(monkeypatch):
+    sales_stub(monkeypatch, ["2026-08"], {"2026-08": bucket({}, unmatched=30)})
+    sales = api.product_structure("2026")["sales"]
+    assert all(s["points"][0] is None for s in sales["series"])
+
+
+def test_sales_source_is_the_replenishment_order_table():
+    """销量必须取自 eBay 补货2.0 的同一数据源，按付款时间归月。"""
+    assert repo.ORDER_TABLE == "dwd_ebay_sku_analysis_order"
+    assert "payment_time" in repo._SALES_SQL and "purchase_quantity" in repo._SALES_SQL
+    # 档位聚到SKU级再join：按店铺行直接join会让订单行按店铺数翻倍。
+    assert "GROUP BY stat_month, sku" in repo._SALES_SQL
+    # 不分站点。
+    assert "site_name" not in repo._SALES_SQL

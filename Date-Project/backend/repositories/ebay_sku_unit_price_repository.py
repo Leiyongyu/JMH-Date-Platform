@@ -330,3 +330,71 @@ def _drop_all_stale(cursor, seen):
         cursor.execute(f"DELETE FROM {TABLE} WHERE {clause}", args)
         removed += cursor.rowcount
     return removed
+
+
+ORDER_TABLE = "dwd_ebay_sku_analysis_order"
+
+# 销量按「付款时间」归月，档位按「登记日期」归月——两套时间基准各管各的：
+# 销量问的是"那个月卖了多少"，档位问的是"那个月这个SKU卖多少钱一件"。
+#
+# 单价表是按 月×店铺×SKU 存的，而订单表没有店铺维度，所以这里先把档位聚到
+# SKU 级：金额合计÷数量合计，即该SKU当月跨店铺的加权成交均价。直接JOIN
+# 每店铺的行会让订单行按店铺数翻倍（实测2026-09配出5831的销量，而当月总销量
+# 只有5752）。
+_SALES_SQL = f"""
+    WITH sku_price AS (
+        SELECT stat_month, sku,
+               SUM(total_amount)/NULLIF(SUM(total_qty),0) AS unit_price
+        FROM {TABLE}
+        GROUP BY stat_month, sku
+        HAVING SUM(total_qty) > 0
+    ),
+    sales AS (
+        SELECT DATE_FORMAT(o.payment_time,'%%Y-%%m') AS stat_month,
+               TRIM(o.inventory_sku) AS sku,
+               SUM(o.purchase_quantity) AS qty
+        FROM {ORDER_TABLE} o
+        WHERE o.payment_time IS NOT NULL
+          AND o.inventory_sku IS NOT NULL AND TRIM(o.inventory_sku) <> ''
+          {{year_clause}}
+        GROUP BY 1, 2
+    )
+    SELECT s.stat_month, s.sku, s.qty, p.unit_price
+    FROM sales s
+    LEFT JOIN sku_price p ON p.stat_month = s.stat_month AND p.sku = s.sku
+    ORDER BY s.stat_month
+"""
+
+
+def sales_by_tier(year=None):
+    """各月各价格档的销量与占比；不分站点、不分店铺，看总的。
+
+    匹配不上档位的销量单独计数（该SKU当月不在不良交易刊登表里，所以没有单价），
+    不塞进任何一档，也不当成0——页面要能说清这张图覆盖了多少比例的销量。
+    """
+    sql = _SALES_SQL.format(year_clause="AND o.payment_time >= %s AND o.payment_time < %s" if year else "")
+    args = (f"{int(year)}-01-01", f"{int(year) + 1}-01-01") if year else ()
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(sql, args)
+        rows = list(cursor.fetchall())
+    months, buckets = [], {}
+    for row in rows:
+        month = row["stat_month"]
+        if month not in buckets:
+            buckets[month] = {"tiers": {}, "matched_qty": 0, "unmatched_qty": 0,
+                              "matched_skus": 0, "unmatched_skus": 0}
+            months.append(month)
+        bucket = buckets[month]
+        qty = int(row["qty"] or 0)
+        if row["unit_price"] is None:
+            bucket["unmatched_qty"] += qty
+            bucket["unmatched_skus"] += 1
+            continue
+        # 档位逻辑只此一处，与页面分档、单价表共用同一套阈值。
+        tier = engine.tier_index(row["unit_price"], "USD") + 1
+        slot = bucket["tiers"].setdefault(tier, {"qty": 0, "sku_count": 0})
+        slot["qty"] += qty
+        slot["sku_count"] += 1
+        bucket["matched_qty"] += qty
+        bucket["matched_skus"] += 1
+    return sorted(months), buckets

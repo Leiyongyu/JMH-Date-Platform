@@ -122,9 +122,59 @@ def product_structure(year=''):
     # 总体线：所有档位合计，用来看整体趋势，与各档位线画在一起。
     series.append(dict(tier_no=0, label='总体',
                        points=[_rate(by_month[m]['defect_qty'], by_month[m]['total_qty']) for m in months]))
+    sales = _sales_share(year.strip() or None, labels)
+    # 两张图的月份轴取并集：销量按付款时间归月，不良率按登记日期归月，
+    # 两边覆盖的月份不一定一样，各画各的轴反而更实。
     return dict(
         months=months, years=years, year=year.strip(), series=series,
         details=[by_month[m] for m in months],
+        sales=sales,
         note='分子分母均取自飞书「不良交易刊登」表，该表只收录有不良交易的刊登，'
              '故此处的不良交易率高于eBay官方面板（后者分母含全部交易），仅可用于横向比较各价格档与趋势。',
     )
+
+
+def _sales_share(year, labels):
+    """不同价格段销售数量占比：销量按付款时间归月，档位按登记日期归月。
+
+    销量来自 eBay 补货2.0 的同一个数据源 dwd_ebay_sku_analysis_order，
+    不分站点、不分店铺，看总的。占比的分母只算能配上档位的那部分销量——
+    配不上的是当月不在不良交易刊登表里的SKU，没有单价就没有档位，
+    硬塞进某一档会把图画歪，所以单列出来让页面说明覆盖了多少。
+    """
+    from backend.repositories import ebay_sku_unit_price_repository as unit_price
+    months, buckets = unit_price.sales_by_tier(year)
+    series = []
+    for index, label in enumerate(labels):
+        tier = index + 1
+        points = []
+        for month in months:
+            bucket = buckets[month]
+            matched = bucket['matched_qty']
+            qty = bucket['tiers'].get(tier, {}).get('qty', 0)
+            points.append(_percent_ratio(qty, matched))
+        series.append(dict(tier_no=tier, label=label, points=points))
+    coverage = [dict(stat_month=m,
+                     matched_qty=buckets[m]['matched_qty'],
+                     unmatched_qty=buckets[m]['unmatched_qty'],
+                     total_qty=buckets[m]['matched_qty'] + buckets[m]['unmatched_qty'],
+                     rate=_percent_ratio(buckets[m]['matched_qty'],
+                                         buckets[m]['matched_qty'] + buckets[m]['unmatched_qty']))
+                for m in months]
+    return dict(
+        months=months, series=series, coverage=coverage,
+        quantities=[dict(stat_month=m,
+                         tiers={t: buckets[m]['tiers'].get(t, {}).get('qty', 0)
+                                for t in range(1, len(labels) + 1)})
+                    for m in months],
+        note='销量取自eBay补货2.0同一数据源（按付款时间归月，不分站点）；价格档来自'
+             '同月的SKU单价表（按登记日期归月）。两者都有的SKU才计入，占比的分母是'
+             '这部分销量，页面上标出了覆盖比例。',
+    )
+
+
+def _percent_ratio(part, whole):
+    """占比，保留四位小数；分母为0返回None，画图时该点断开。"""
+    if not whole:
+        return None
+    return str((Decimal(part) / Decimal(whole)).quantize(Decimal('.0001'), rounding=ROUND_HALF_UP))

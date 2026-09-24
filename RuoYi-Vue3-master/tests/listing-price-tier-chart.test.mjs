@@ -154,13 +154,25 @@ test('eBay 口径说明改成飞书单价来源，不再提汇率换算', () => 
  assert.match(source, /只收录有不良交易的刊登/)
 })
 
-test('产品结构折线是点到点直线，不做平滑', () => {
+test('产品结构一页三图、无明细表、保留年份筛选', () => {
  const source = fs.readFileSync(new URL('../src/components/ListingPriceTierChart/ProductStructure.vue', import.meta.url), 'utf8')
- // 平滑曲线会在两个月份之间插出实际不存在的取值，看趋势时容易误读。
+ // 三块面板并排；窄屏落一列。
+ assert.match(source, /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/)
+ assert.match(source, /不同价格段销售数量占比/)
+ assert.match(source, /不同价格段不良交易率/)
+ assert.match(source, /不同价格段转化率/)
+ // 只看图，不再渲染明细表。
+ assert.doesNotMatch(source, /<el-table/)
+ // 年份筛选保留。
+ assert.match(source, /v-model="year"/)
+})
+
+test('销量图是堆叠百分比柱，不良率图是点到点直线', () => {
+ const source = fs.readFileSync(new URL('../src/components/ListingPriceTierChart/ProductStructure.vue', import.meta.url), 'utf8')
+ assert.match(source, /type: 'bar', stack: 'total'/)
+ // 平滑曲线会在两个月之间插出实际不存在的取值。
  assert.match(source, /smooth: false/)
  assert.doesNotMatch(source, /smooth: true/)
- // 每个月一个观测点，点要看得见。
- assert.match(source, /showSymbol: true/)
  // 断点不能连起来，否则没有成交的月份会被画成一段假趋势。
  assert.doesNotMatch(source, /connectNulls\s*:/)
 })
