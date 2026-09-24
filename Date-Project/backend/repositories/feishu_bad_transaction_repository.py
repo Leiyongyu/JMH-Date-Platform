@@ -46,11 +46,15 @@ def existing_hashes(cursor, record_ids):
     return known
 
 
-def upsert(rows, *, batches=(), synced_at=None):
+def upsert(rows, *, batches=(), synced_at=None, full=False):
     """按 record_id 增量写入，并清理本次批次里飞书已删除的记录。
 
     内容没变的行只更新 last_synced_at，不动业务列、不动 last_changed_at——
     这样"上次真正变化是什么时候"才有意义。
+
+    full=True 表示本次拉的是整张表，那么飞书没有的行一律删掉，包括登记日期为空的。
+    按批次清理管不到没有登记日期的行，它们会永远残留：实测业务方把422行的空登记
+    日期补成了1999-01-01（等于删旧行建新行），本地那422行旧记录一条也没被清掉。
     """
     if not rows:
         return {"inserted_rows": 0, "updated_rows": 0, "unchanged_rows": 0, "deleted_rows": 0}
@@ -90,7 +94,9 @@ def upsert(rows, *, batches=(), synced_at=None):
                     cursor.execute(touch_sql.format(placeholders=placeholders),
                                    [synced_at] + [row["record_id"] for row in chunk])
 
-                deleted = _reconcile(cursor, batches, {row["record_id"] for row in rows})
+                seen = {row["record_id"] for row in rows}
+                deleted = (_reconcile_all(cursor, seen) if full
+                           else _reconcile(cursor, batches, seen))
                 _verify_written(cursor, [row["record_id"] for row in rows])
             connection.commit()
         except Exception:
@@ -137,3 +143,20 @@ def _verify_written(cursor, record_ids):
             f"写入行数校验失败：本次{len(record_ids)}条，库里只查到{found}条。"
             f"最常见的原因是 record_id 列不是大小写敏感排序规则（应为utf8mb4_bin），"
             f"导致只差大小写的记录撞主键。已整批回滚。")
+
+
+def _reconcile_all(cursor, seen):
+    """整表对齐：飞书没有的行全删，包括登记日期为空、归不到批次的那些。
+
+    只在全量拉取后调用——那时本次拉到的就是飞书的全部内容，删得有依据。
+    增量（只拉视图当周那批）绝不能走这里，否则会把没拉的历史批次全删光。
+    """
+    cursor.execute(f"SELECT record_id FROM {TABLE}")
+    stale = [r["record_id"] for r in cursor.fetchall() if r["record_id"] not in seen]
+    deleted = 0
+    for offset in range(0, len(stale), _BATCH_SIZE):
+        chunk = stale[offset:offset + _BATCH_SIZE]
+        placeholders = ",".join(["%s"] * len(chunk))
+        cursor.execute(f"DELETE FROM {TABLE} WHERE record_id IN ({placeholders})", chunk)
+        deleted += cursor.rowcount
+    return deleted

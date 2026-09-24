@@ -332,3 +332,19 @@ def test_alias_map_becomes_case_expression_with_bound_params():
     sql, params = repo._aggregate_sql({"旧": "新"})
     assert "CASE" in sql and "WHEN %s THEN %s" in sql
     assert params == ["旧", "新"]
+
+
+def test_placeholder_reg_date_is_excluded():
+    """没有真实登记日期的行不参与统计：业务方把空值填成了占位的 1999-01-01，
+    混进来会在月份选择器里多出一个「1999-01」的假月份。"""
+    assert "b.reg_date >= '{min_reg_date}'" in repo.AGGREGATE_TEMPLATE
+    assert repo.MIN_REG_DATE == "2020-01-01"
+    sql, _ = repo._aggregate_sql({})
+    assert "b.reg_date >= '2020-01-01'" in sql and "b.reg_date IS NOT NULL" in sql
+
+
+def test_alias_derivation_also_skips_placeholder_rows():
+    """占位批次里的旧店铺名不该参与映射推导，否则会把已经改好的名字又拉回去。"""
+    import inspect
+    source = inspect.getsource(repo.shop_aliases)
+    assert "MIN_REG_DATE" in source and "reg_date IS NOT NULL" in source

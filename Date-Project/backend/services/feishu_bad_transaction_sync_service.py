@@ -157,7 +157,9 @@ def sync_feishu_bad_transactions(*, full=False):
     # 只清理本次真正拉到的那些批次；登记日期为空的记录归不到批次，不参与清理。
     batches = sorted({row["reg_date"] for row in rows if row["reg_date"]})
 
-    metrics = repo.upsert(rows, batches=batches, synced_at=started)
+    # 全量拉取时按整表对齐：飞书删掉的行本地也要删，包括登记日期为空、
+    # 归不到批次的那些。只拉视图时绝不能这么做，会把没拉的历史批次删光。
+    metrics = repo.upsert(rows, batches=batches, synced_at=started, full=full)
     result = {
         "task_code": TASK_CODE, "mode": "FULL" if full else "VIEW",
         "fetched_rows": len(rows), "batches": [str(b) for b in batches],

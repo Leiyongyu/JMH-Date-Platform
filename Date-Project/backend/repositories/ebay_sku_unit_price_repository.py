@@ -33,6 +33,10 @@ _BATCH_SIZE = 500
 # 店铺名清洗：去掉换行、首尾空白，以及开头残留的逗号（源表里有 ', stellar-hub'
 # 这种值）。ODS 保持原样，只在这里归一。
 SHOP_EXPR = "TRIM(BOTH ',' FROM TRIM(BOTH FROM REPLACE(REPLACE(b.shop, CHAR(10), ' '), CHAR(13), ' ')))"
+# 没有真实登记日期的行不参与统计：它们归不到任何批次，混进来会多出一个假月份。
+# 业务方把原先空着的那批填成了占位日期 1999-01-01（实测419行），所以不能只判
+# NULL，还要挡住明显早于业务起始的占位值。源表最早的真实批次是 2026-04-01。
+MIN_REG_DATE = "2020-01-01"
 
 
 def _clean_name(name):
@@ -54,8 +58,9 @@ def shop_aliases(cursor):
     匹配到多个就不合并并记进 warnings——宁可少合也不能错合。
     等业务方把历史批次改成新名，短名消失，这个映射自然变空，行为不变。
     """
-    cursor.execute(f"SELECT DISTINCT {SHOP_EXPR} AS shop "
-                   f"FROM {SOURCE_TABLE} b WHERE b.shop IS NOT NULL")
+    cursor.execute(f"SELECT DISTINCT {SHOP_EXPR} AS shop FROM {SOURCE_TABLE} b "
+                   f"WHERE b.shop IS NOT NULL "
+                   f"AND b.reg_date IS NOT NULL AND b.reg_date >= '{MIN_REG_DATE}'")
     names = sorted({_clean_name(r["shop"]) for r in cursor.fetchall()} - {""})
     aliases, warnings = {}, []
     for short in names:
@@ -84,7 +89,7 @@ def _aggregate_sql(aliases):
         whens = " ".join(["WHEN %s THEN %s"] * len(aliases))
         shop = f"CASE {shop} {whens} ELSE {shop} END"
     params = [value for pair in aliases.items() for value in pair]
-    return AGGREGATE_TEMPLATE.format(shop_expr=shop), params
+    return AGGREGATE_TEMPLATE.format(shop_expr=shop, min_reg_date=MIN_REG_DATE), params
 
 
 AGGREGATE_TEMPLATE = f"""
@@ -101,7 +106,7 @@ AGGREGATE_TEMPLATE = f"""
                SUM(CAST(NULLIF(TRIM(b.total_qty),'')    AS DECIMAL(20,6))) AS total_qty,
                SUM(CAST(NULLIF(TRIM(b.defect_qty),'')   AS DECIMAL(20,6))) AS defect_qty
         FROM {SOURCE_TABLE} b
-        WHERE b.reg_date IS NOT NULL
+        WHERE b.reg_date IS NOT NULL AND b.reg_date >= '{{min_reg_date}}'
           AND b.shop IS NOT NULL AND TRIM(b.shop) <> ''
           AND b.sku  IS NOT NULL AND TRIM(b.sku)  <> ''
         GROUP BY 1, 2, 3, b.reg_date
