@@ -381,9 +381,10 @@ def sales_stub(monkeypatch, months, buckets):
 
 
 def bucket(tiers, unmatched=0):
-    return {"tiers": {t: {"qty": q, "sku_count": 1} for t, q in tiers.items()},
+    return {"tiers": {t: {"qty": q, "sku_count": 1, "order_rows": q} for t, q in tiers.items()},
             "matched_qty": sum(tiers.values()), "unmatched_qty": unmatched,
-            "matched_skus": len(tiers), "unmatched_skus": 1 if unmatched else 0}
+            "matched_skus": len(tiers), "unmatched_skus": 1 if unmatched else 0,
+            "matched_orders": sum(tiers.values()), "unmatched_orders": unmatched}
 
 
 def test_sales_share_sums_to_one_per_month(monkeypatch):
@@ -422,3 +423,20 @@ def test_sales_source_is_the_replenishment_order_table():
     assert "GROUP BY stat_month, sku" in repo._SALES_SQL
     # 不分站点。
     assert "site_name" not in repo._SALES_SQL
+
+
+def test_quantities_carry_absolute_numbers_beside_the_share(monkeypatch):
+    """光看百分比分不清是「卖得多」还是「基数小」，绝对量要一起给。"""
+    sales_stub(monkeypatch, ["2026-08"], {"2026-08": bucket({2: 25, 3: 75})})
+    q = api.product_structure("2026")["sales"]["quantities"][0]
+    assert q["matched_qty"] == 100 and q["matched_orders"] == 100
+    assert q["tiers"][3]["qty"] == 75 and q["tiers"][3]["order_rows"] == 75
+    assert q["tiers"][3]["sku_count"] == 1
+    # 没有销量的档位也要有一格，前端按档位下标取值不能越界。
+    assert q["tiers"][7] == {"qty": 0, "order_rows": 0, "sku_count": 0}
+
+
+def test_order_rows_used_because_distinct_orders_are_not_additive():
+    """一单多SKU时，各档的去重订单数相加会把同一单重复计，行数才可加。"""
+    assert "COUNT(*) AS order_rows" in repo._SALES_SQL
+    assert "COUNT(DISTINCT o.platform_order_no)" in repo._SALES_SQL
