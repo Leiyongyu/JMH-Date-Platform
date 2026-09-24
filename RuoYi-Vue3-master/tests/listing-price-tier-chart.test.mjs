@@ -247,3 +247,13 @@ test('产品结构接口把店铺拼成逗号串', () => {
  const source = fs.readFileSync(new URL('../src/api/operations/listingPriceTier.js', import.meta.url), 'utf8')
  assert.match(source, /shops: \(shops \|\| \[\]\)\.join\(','\)/)
 })
+
+test('订单一条都没带账号时只提示一次，不逐个标无销量', () => {
+ const source = fs.readFileSync(new URL('../src/components/ListingPriceTierChart/ProductStructure.vue', import.meta.url), 'utf8')
+ // 40个选项全标一遍是噪音，且"无销量"会被读成"这店没卖东西"。
+ assert.match(source, /noOrderAccounts/)
+ assert.match(source, /订单尚未按新模板上传/)
+ // 个别店铺对不上时才逐个标，措辞是"对不上"而不是"没卖"。
+ assert.match(source, /订单里无此账号/)
+ assert.doesNotMatch(source, /'无销量'/)
+})

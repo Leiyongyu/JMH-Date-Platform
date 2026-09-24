@@ -15,6 +15,7 @@
         </el-option>
       </el-select>
       <el-button size="small" :disabled="loading" @click="load">刷新</el-button>
+      <em v-if="noOrderAccounts" class="warn">订单尚未按新模板上传，按店铺筛只有不良交易率有数据</em>
       <span class="legend">
         <i v-for="(label, i) in labels" :key="label" :style="{ background: COLORS[i] }" :title="label" />
         <em>{{ labels.join(' · ') }}</em>
@@ -68,10 +69,19 @@ const salesTotal = computed(() => {
   return `　全年 ${qty.toLocaleString()} 件 / ${orders.toLocaleString()} 单`
 })
 
+// 一条订单都没带账号时，逐个标40遍"无销量"是噪音，还会被读成"这店没卖东西"。
+// 这种情况在选择器旁边说一次就够了，原因也只有一个：文件还没按新模板传。
+const noOrderAccounts = computed(() => {
+  const list = data.value?.shops || []
+  return list.length > 0 && list.every(s => !s.has_sales)
+})
+
 // 选项后面标一句话：哪家店在哪个源里没有数据，选了才不会以为是算错了。
+// 说"订单里无此账号"而不是"无销量"——差别在于前者是对不上，后者是真没卖。
 const shopOptions = computed(() => (data.value?.shops || []).map(s => ({
   ...s,
-  missing: [!s.has_sales && '无销量', !s.has_defect && '无不良交易', !s.has_tier && '无在售刊登']
+  missing: [!s.has_sales && !noOrderAccounts.value && '订单里无此账号',
+            !s.has_defect && '无不良交易', !s.has_tier && '无在售刊登']
     .filter(Boolean).join(' · '),
 })))
 
@@ -83,7 +93,8 @@ const shopDataHint = computed(() => {
   const rows = (data.value?.shop_coverage || []).filter(x => x.rate != null)
   const bad = rows.filter(x => Number(x.rate) < 0.5).map(x => x.stat_month)
   if (!bad.length) return ''
-  return `　${bad.join('、')} 这些月份的订单还是旧模板（没有「平台账号」列），按店铺筛会偏少或为空，需用新模板重传。`
+  return `　${bad.join('、')} 这些月份的订单还是旧模板（没有「平台账号」列），`
+    + '按店铺筛会偏少或为空，需用新模板重传。'
 })
 
 // 覆盖率 = 能配上价格档的销量 ÷ 当月总销量。配不上的是当月在售刊登里没有的
@@ -241,4 +252,5 @@ onBeforeUnmount(() => {
 .chart { width: 100%; height: 320px; }
 .note { font-size: 11px; color: var(--el-text-color-secondary); line-height: 1.6; margin: 6px 0 0; }
 .opt-hint { margin-left: 8px; color: var(--el-text-color-secondary); font-size: 11px; }
+.warn { font-style: normal; font-size: 11px; color: var(--el-color-warning-dark-2); }
 </style>
