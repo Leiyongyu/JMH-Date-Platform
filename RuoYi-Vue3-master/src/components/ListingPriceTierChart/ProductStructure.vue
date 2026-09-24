@@ -118,10 +118,6 @@ const panels = computed(() => [
     ready: (defect.value.months || []).length > 0,
     empty: '该年份没有可统计的不良交易',
     note: defect.value.note || '' },
-  { key: 'conversion', title: '不同价格段转化率',
-    ready: false,
-    empty: '转化率数据源尚未接入',
-    note: '转化率需要曝光/访问量数据，当前库里没有对应来源，接入后此处自动出图。' },
 ])
 
 function setChart(key, el) {
@@ -243,9 +239,9 @@ onBeforeUnmount(() => {
 .legend { display: flex; align-items: center; gap: 4px; margin-left: auto; color: var(--el-text-color-secondary); }
 .legend i { width: 11px; height: 8px; border-radius: 2px; display: inline-block; }
 .legend em { font-style: normal; margin-left: 6px; font-size: 11px; }
-/* 三图并排；窄屏自动落到一列，不横向滚动。 */
-.panels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-@media (max-width: 1100px) { .panels { grid-template-columns: 1fr; } }
+/* 两图并排；窄屏自动落到一列，不横向滚动。 */
+.panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }
 .panel { min-width: 0; }
 .panel h3 { font-size: 13px; font-weight: 600; margin: 0 0 6px; }
 .panel h3 small { font-weight: 400; font-size: 11px; color: var(--el-text-color-secondary); }

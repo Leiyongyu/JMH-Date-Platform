@@ -35,7 +35,7 @@ def refresh(request: Request, month: str = '', shop: str = ''):
 
 @router.get('/product-structure')
 def structure(request: Request, year: str = '', shops: str = ''):
-    """产品结构：销售数量占比、不良交易率、转化率。
+    """产品结构：销售数量占比、不良交易率。
 
     year 为空取最新一年；shops 是逗号分隔的店铺名，留空为整个eBay合计。
     """

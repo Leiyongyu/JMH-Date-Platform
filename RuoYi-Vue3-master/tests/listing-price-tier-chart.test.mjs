@@ -160,13 +160,14 @@ test('eBay 口径说明写清三层来源与换汇口径', () => {
  assert.match(source, /不拉接口/)
 })
 
-test('产品结构一页三图、无明细表、保留年份筛选', () => {
+test('产品结构一页两图、无明细表、保留年份筛选', () => {
  const source = fs.readFileSync(new URL('../src/components/ListingPriceTierChart/ProductStructure.vue', import.meta.url), 'utf8')
- // 三块面板并排；窄屏落一列。
- assert.match(source, /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/)
+ // 两块面板并排；窄屏落一列。
+ assert.match(source, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
  assert.match(source, /不同价格段销售数量占比/)
  assert.match(source, /不同价格段不良交易率/)
- assert.match(source, /不同价格段转化率/)
+ // 转化率按要求去掉了：曝光/访问量没有数据源，留个空面板只占位。
+ assert.doesNotMatch(source, /转化率/)
  // 只看图，不再渲染明细表。
  assert.doesNotMatch(source, /<el-table/)
  // 年份筛选保留。
