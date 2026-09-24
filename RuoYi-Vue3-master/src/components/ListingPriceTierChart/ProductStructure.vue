@@ -66,6 +66,10 @@ function setChart(key, el) {
   if (el) elements.set(key, el)
 }
 
+// 年份已经在上面筛过了，横坐标只留月份数字；类目值仍是完整的 2026-08，
+// 悬浮提示里看到的还是年月，不会丢上下文。
+const monthLabel = value => String(Number(String(value).slice(5)) || value)
+
 function salesOption() {
   const months = sales.value.months || []
   return {
@@ -73,7 +77,7 @@ function salesOption() {
       valueFormatter: v => v === null || v === undefined ? '--' : (v * 100).toFixed(1) + '%' },
     legend: { bottom: 0, itemWidth: 12, itemHeight: 8, textStyle: { fontSize: 10 } },
     grid: { left: 46, right: 12, top: 12, bottom: 44 },
-    xAxis: { type: 'category', data: months, axisLabel: { fontSize: 10, rotate: 45 } },
+    xAxis: { type: 'category', data: months, axisLabel: { fontSize: 11, formatter: monthLabel } },
     yAxis: { type: 'value', max: 1, axisLabel: { fontSize: 10, formatter: v => (v * 100).toFixed(0) + '%' } },
     // 堆叠百分比柱：每个月各档相加为100%，看的是结构而不是绝对量。
     series: (sales.value.series || []).map((item, i) => ({
@@ -91,7 +95,7 @@ function defectOption() {
       valueFormatter: v => v === null || v === undefined ? '--' : (v * 100).toFixed(2) + '%' },
     legend: { bottom: 0, itemWidth: 12, itemHeight: 8, textStyle: { fontSize: 10 } },
     grid: { left: 46, right: 12, top: 12, bottom: 44 },
-    xAxis: { type: 'category', data: months, axisLabel: { fontSize: 10, rotate: 45 } },
+    xAxis: { type: 'category', data: months, axisLabel: { fontSize: 11, formatter: monthLabel } },
     yAxis: { type: 'value', axisLabel: { fontSize: 10, formatter: v => (v * 100).toFixed(0) + '%' } },
     series: (defect.value.series || []).map((item, i) => ({
       // 点到点直线：平滑会在两个月之间插出实际不存在的取值。

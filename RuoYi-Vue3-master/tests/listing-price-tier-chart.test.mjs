@@ -177,6 +177,15 @@ test('销量图是堆叠百分比柱，不良率图是点到点直线', () => {
  assert.doesNotMatch(source, /connectNulls\s*:/)
 })
 
+test('横坐标只显示月份数字，类目值仍保留年月', () => {
+ const source = fs.readFileSync(new URL('../src/components/ListingPriceTierChart/ProductStructure.vue', import.meta.url), 'utf8')
+ assert.match(source, /formatter: monthLabel/)
+ // 年份已经筛过了，不用再在轴上重复；也就不需要旋转标签。
+ assert.doesNotMatch(source, /rotate: 45/)
+ // 取第6位起的月份并去掉前导零：2026-08 -> 8。
+ assert.match(source, /String\(value\)\.slice\(5\)/)
+})
+
 test('店铺没有子节点时不渲染展开控件', async () => {
  const { shop } = nodesOf('ebay')
  // eBay 的店铺就是最细粒度，后端不再返回同值的占位子节点。
