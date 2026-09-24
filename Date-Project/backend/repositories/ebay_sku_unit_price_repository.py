@@ -352,14 +352,16 @@ _SALES_SQL = f"""
     sales AS (
         SELECT DATE_FORMAT(o.payment_time,'%%Y-%%m') AS stat_month,
                TRIM(o.inventory_sku) AS sku,
-               SUM(o.purchase_quantity) AS qty
+               SUM(o.purchase_quantity) AS qty,
+               COUNT(*) AS order_rows,
+               COUNT(DISTINCT o.platform_order_no) AS order_count
         FROM {ORDER_TABLE} o
         WHERE o.payment_time IS NOT NULL
           AND o.inventory_sku IS NOT NULL AND TRIM(o.inventory_sku) <> ''
           {{year_clause}}
         GROUP BY 1, 2
     )
-    SELECT s.stat_month, s.sku, s.qty, p.unit_price
+    SELECT s.stat_month, s.sku, s.qty, s.order_rows, s.order_count, p.unit_price
     FROM sales s
     LEFT JOIN sku_price p ON p.stat_month = s.stat_month AND p.sku = s.sku
     ORDER BY s.stat_month
@@ -382,19 +384,26 @@ def sales_by_tier(year=None):
         month = row["stat_month"]
         if month not in buckets:
             buckets[month] = {"tiers": {}, "matched_qty": 0, "unmatched_qty": 0,
-                              "matched_skus": 0, "unmatched_skus": 0}
+                              "matched_skus": 0, "unmatched_skus": 0,
+                              "matched_orders": 0, "unmatched_orders": 0}
             months.append(month)
         bucket = buckets[month]
         qty = int(row["qty"] or 0)
+        # 订单行数是可加的；COUNT(DISTINCT 订单号) 跨SKU求和会把一单多SKU的订单
+        # 重复计，所以档位层面用行数，月份层面才给去重订单数。
+        rows_ = int(row["order_rows"] or 0)
         if row["unit_price"] is None:
             bucket["unmatched_qty"] += qty
             bucket["unmatched_skus"] += 1
+            bucket["unmatched_orders"] += rows_
             continue
         # 档位逻辑只此一处，与页面分档、单价表共用同一套阈值。
         tier = engine.tier_index(row["unit_price"], "USD") + 1
-        slot = bucket["tiers"].setdefault(tier, {"qty": 0, "sku_count": 0})
+        slot = bucket["tiers"].setdefault(tier, {"qty": 0, "sku_count": 0, "order_rows": 0})
         slot["qty"] += qty
         slot["sku_count"] += 1
+        slot["order_rows"] += rows_
         bucket["matched_qty"] += qty
         bucket["matched_skus"] += 1
+        bucket["matched_orders"] += rows_
     return sorted(months), buckets

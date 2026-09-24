@@ -161,11 +161,16 @@ def _sales_share(year, labels):
                      rate=_percent_ratio(buckets[m]['matched_qty'],
                                          buckets[m]['matched_qty'] + buckets[m]['unmatched_qty']))
                 for m in months]
+    # 图上悬浮时除了占比还要看得到绝对量：销量多少件、对应多少个订单行。
     return dict(
         months=months, series=series, coverage=coverage,
         quantities=[dict(stat_month=m,
-                         tiers={t: buckets[m]['tiers'].get(t, {}).get('qty', 0)
-                                for t in range(1, len(labels) + 1)})
+                         tiers={t: dict(qty=buckets[m]['tiers'].get(t, {}).get('qty', 0),
+                                        order_rows=buckets[m]['tiers'].get(t, {}).get('order_rows', 0),
+                                        sku_count=buckets[m]['tiers'].get(t, {}).get('sku_count', 0))
+                                for t in range(1, len(labels) + 1)},
+                         matched_qty=buckets[m]['matched_qty'],
+                         matched_orders=buckets[m]['matched_orders'])
                     for m in months],
         note='销量取自eBay补货2.0同一数据源（按付款时间归月，不分站点）；价格档来自'
              '同月的SKU单价表（按登记日期归月）。两者都有的SKU才计入，占比的分母是'

@@ -15,7 +15,7 @@
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <div v-else v-loading="loading" class="panels">
       <section v-for="panel in panels" :key="panel.key" class="panel">
-        <h3>{{ panel.title }}</h3>
+        <h3>{{ panel.title }}<small v-if="panel.subtitle">{{ panel.subtitle }}</small></h3>
         <div v-if="panel.ready" :ref="el => setChart(panel.key, el)" class="chart" />
         <el-empty v-else :image-size="38" :description="panel.empty" />
         <p class="note">{{ panel.note }}</p>
@@ -46,9 +46,18 @@ let observer = null
 const defect = computed(() => data.value || {})
 const sales = computed(() => data.value?.sales || {})
 const labels = computed(() => (defect.value.series || []).filter(s => s.tier_no !== 0).map(s => s.label))
+// 标题右边直接给出这一年的合计，省得逐月悬浮去加。
+const salesTotal = computed(() => {
+  const rows = sales.value.quantities || []
+  if (!rows.length) return ''
+  const qty = rows.reduce((sum, x) => sum + (x.matched_qty || 0), 0)
+  const orders = rows.reduce((sum, x) => sum + (x.matched_orders || 0), 0)
+  return `　全年 ${qty.toLocaleString()} 件 / ${orders.toLocaleString()} 单`
+})
 
 const panels = computed(() => [
   { key: 'sales', title: '不同价格段销售数量占比',
+    subtitle: salesTotal.value,
     ready: (sales.value.months || []).length > 0,
     empty: '该年份没有可统计的销量',
     note: sales.value.note || '' },
@@ -72,18 +81,39 @@ const monthLabel = value => String(Number(String(value).slice(5)) || value)
 
 function salesOption() {
   const months = sales.value.months || []
+  const qty = Object.fromEntries((sales.value.quantities || []).map(x => [x.stat_month, x]))
   return {
+    // 占比之外把绝对量也带上：光看百分比分不清是"卖得多"还是"基数小"。
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
-      valueFormatter: v => v === null || v === undefined ? '--' : (v * 100).toFixed(1) + '%' },
+      formatter: params => {
+        if (!params.length) return ''
+        const month = params[0].axisValue
+        const info = qty[month] || { tiers: {} }
+        const lines = params.filter(p => p.value !== null && p.value !== undefined).map(p => {
+          const tier = (sales.value.series || []).find(s => s.label === p.seriesName)
+          const cell = info.tiers?.[tier?.tier_no] || {}
+          return `${p.marker}${p.seriesName}　<b>${(p.value * 100).toFixed(1)}%</b>`
+            + `　${cell.qty ?? 0} 件 / ${cell.order_rows ?? 0} 单`
+        })
+        return `${month}　合计 ${info.matched_qty ?? 0} 件 / ${info.matched_orders ?? 0} 单<br/>`
+          + lines.join('<br/>')
+      } },
     legend: { bottom: 0, itemWidth: 12, itemHeight: 8, textStyle: { fontSize: 10 } },
     grid: { left: 46, right: 12, top: 12, bottom: 44 },
     xAxis: { type: 'category', data: months, axisLabel: { fontSize: 11, formatter: monthLabel } },
     yAxis: { type: 'value', max: 1, axisLabel: { fontSize: 10, formatter: v => (v * 100).toFixed(0) + '%' } },
     // 堆叠百分比柱：每个月各档相加为100%，看的是结构而不是绝对量。
     series: (sales.value.series || []).map((item, i) => ({
-      name: item.label, type: 'bar', stack: 'total', barMaxWidth: 26,
+      name: item.label, type: 'bar', stack: 'total', barMaxWidth: 30,
       data: item.points.map(p => p === null ? null : Number(p)),
       itemStyle: { color: COLORS[i] },
+      // 段太薄时标不下，只在占比够大的段上直接标销量件数。
+      label: {
+        show: true, fontSize: 9, color: '#fff', formatter: p => {
+          const cell = qty[months[p.dataIndex]]?.tiers?.[item.tier_no] || {}
+          return p.value >= 0.08 && cell.qty ? cell.qty : ''
+        },
+      },
     })),
   }
 }
@@ -165,6 +195,7 @@ onBeforeUnmount(() => {
 @media (max-width: 1100px) { .panels { grid-template-columns: 1fr; } }
 .panel { min-width: 0; }
 .panel h3 { font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+.panel h3 small { font-weight: 400; font-size: 11px; color: var(--el-text-color-secondary); }
 .chart { width: 100%; height: 320px; }
 .note { font-size: 11px; color: var(--el-text-color-secondary); line-height: 1.6; margin: 6px 0 0; }
 </style>
