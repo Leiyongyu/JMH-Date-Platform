@@ -445,15 +445,18 @@ def test_no_shop_selected_means_whole_ebay(monkeypatch):
 
 
 def test_each_table_gets_its_own_spelling_of_the_shop(monkeypatch):
-    """同一家店三张表写法不同，必须各传各的名字，不能把卖家账号硬塞给飞书表。"""
+    """订单与在售刊登用的都是 eBay 卖家账号，飞书那套带公司前缀。
+
+    不能把卖家账号硬塞给飞书表——那张表里一行都匹配不上。
+    """
     seen = {}
     structure(monkeypatch, sales=[sale("2026-08", "A", 10)],
               tiers={"2026-08": {"A": {"tier_no": 2}}},
-              directory=[entry("oyeah-motor", order="Oyeah-Motor",
+              directory=[entry("oyeah-motor", order="oyeah-motor",
                                feishu="帝蓝泰江-eBay-Oyeah Motor")],
               shops="oyeah-motor", captured=seen)
     assert seen["tier_shops"] == ["oyeah-motor"]
-    assert seen["sales_shops"] == ["Oyeah-Motor"]
+    assert seen["sales_shops"] == ["oyeah-motor"]
     assert seen["defect_shops"] == ["帝蓝泰江-eBay-Oyeah Motor"]
 
 
@@ -468,7 +471,7 @@ def test_multiple_shops_are_combined(monkeypatch):
 
 
 def test_shop_without_an_ebay_account_still_filters_sales(monkeypatch):
-    """没配 eBay 授权的店（实测 Global-Auto-Store、kelan）也要能选。
+    """没配 eBay 授权的店（实测 kelan）也要能选。
 
     它没有在售刊登，所以档位那张表不加条件——加了会把别的店的档位也滤掉，
     结果一个SKU都配不上档。
@@ -476,9 +479,9 @@ def test_shop_without_an_ebay_account_still_filters_sales(monkeypatch):
     seen = {}
     structure(monkeypatch, sales=[sale("2026-08", "A", 10)],
               tiers={"2026-08": {"A": {"tier_no": 2}}},
-              directory=[entry("Global-Auto-Store", account="", feishu="")],
-              shops="Global-Auto-Store", captured=seen)
-    assert seen["sales_shops"] == ["Global-Auto-Store"]
+              directory=[entry("kelan", account="", feishu="")],
+              shops="kelan", captured=seen)
+    assert seen["sales_shops"] == ["kelan"]
     assert seen["tier_shops"] == [] and seen["defect_shops"] == []
 
 
@@ -502,7 +505,11 @@ def directory_cursor(accounts, order_shops, feishu_shops):
 
 
 def test_directory_matches_across_case_separators_and_company_prefix():
-    """订单文件 Oyeah-Motor、账号 oyeah-motor、飞书带公司前缀，得认成一家。"""
+    """订单给的就是卖家账号，本来就相等；飞书带公司前缀，靠后缀匹配。
+
+    订单侧仍然走归一键而不是直接等值：源头哪天把大小写或连字符改了
+    （上一版模板给的就是 Oyeah-Motor），不至于订单对上了、飞书没对上。
+    """
     cursor = directory_cursor(["oyeah-motor", "autoteile-fast-ship"],
                               ["Oyeah-Motor", "autoteilefastship"],
                               ["帝蓝泰江-eBay-Oyeah Motor", "eBay-湘彦-DE-Autoteile-Fast-Ship"])
@@ -515,11 +522,11 @@ def test_directory_matches_across_case_separators_and_company_prefix():
 
 def test_shops_only_in_one_source_are_listed_on_their_own():
     """订单里在卖但没配 eBay 凭证的店要单独列出来，不能悄悄消失。"""
-    cursor = directory_cursor(["shopa"], ["ShopA", "Global-Auto-Store"], ["飞书-ShopA"])
+    cursor = directory_cursor(["shopa"], ["ShopA", "kelan"], ["飞书-ShopA"])
     found = {e["label"]: e for e in repo.shop_directory(cursor)}
-    assert set(found) == {"shopa", "Global-Auto-Store"}
-    assert found["Global-Auto-Store"]["has_tier"] is False
-    assert found["Global-Auto-Store"]["has_sales"] is True
+    assert set(found) == {"shopa", "kelan"}
+    assert found["kelan"]["has_tier"] is False
+    assert found["kelan"]["has_sales"] is True
 
 
 def test_ambiguous_suffix_is_not_merged():

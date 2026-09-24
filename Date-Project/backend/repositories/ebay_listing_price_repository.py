@@ -470,9 +470,9 @@ def sales_by_sku(cursor, year=None, shops=None):
     销量是毛销量（purchase_quantity），不扣退货——与 eBay 补货2.0 同口径，
     退货量单列一列，需要看净销量时自己减。
 
-    店铺列是 2026-09-24 才随数字酋长模板加上的。在那之前上传的批次
-    shop_name 是空串，按店铺筛时这些行一条都出不来——不是漏算，是源文件
-    当时就没有店铺，得用新模板把那些月份重传。sales_shop_coverage
+    平台账号列是 2026-09-24 才随数字酋长模板加上的。在那之前上传的批次
+    seller_account 是空串，按店铺筛时这些行一条都出不来——不是漏算，是源文件
+    当时就没有这一列，得用新模板把那些月份重传。sales_shop_coverage
     专门把这件事量出来给页面提示。
     """
     conditions = ""
@@ -481,7 +481,7 @@ def sales_by_sku(cursor, year=None, shops=None):
         conditions += " AND o.payment_time >= %s AND o.payment_time < %s"
         args += [f"{int(year)}-01-01", f"{int(year) + 1}-01-01"]
     if shops:
-        conditions += f" AND o.shop_name IN ({','.join(['%s'] * len(shops))})"
+        conditions += f" AND o.seller_account IN ({','.join(['%s'] * len(shops))})"
         args += list(shops)
     cursor.execute(_SALES_BY_SKU.format(year_clause=conditions), tuple(args))
     return list(cursor.fetchall())
@@ -491,7 +491,7 @@ def sales_shop_coverage(cursor, year=None):
     """各月订单里有多少销量带得上店铺名。页面按店铺筛时要据此提示。"""
     sql = (f"SELECT DATE_FORMAT(o.payment_time,'%%Y-%%m') AS stat_month,"
            f"       SUM(o.purchase_quantity) AS total_qty,"
-           f"       SUM(IF(TRIM(IFNULL(o.shop_name,''))<>'', o.purchase_quantity, 0)) AS shop_qty "
+           f"       SUM(IF(TRIM(IFNULL(o.seller_account,''))<>'', o.purchase_quantity, 0)) AS shop_qty "
            f"FROM {ORDER_TABLE} o WHERE o.payment_time IS NOT NULL")
     args = ()
     if year:
@@ -574,15 +574,21 @@ def source_pulled_at(cursor, stat_month):
 #
 # 同一家店在三张表里写法都不一样，改不动源头，只能在读取侧归一：
 #   在售刊登（档位）  seller_account   oyeah-motor
-#   订单（销量）      shop_name        Oyeah-Motor
+#   订单（销量）      seller_account   oyeah-motor        ← 模板里的「平台账号」
 #   飞书（不良量）    shop             帝蓝泰江-eBay-Oyeah Motor
+#
+# 订单那一列给的就是 eBay 卖家账号，和在售刊登一字不差，本可以直接等值join，
+# 所以**不需要映射表**——真正需要推导的只有飞书那一侧。仍然让订单也走归一键，
+# 是为了三边用同一条规则：源头哪天把大小写或连字符改了，不会出现
+# 「订单对上了、飞书没对上」这种一半一半的结果。
+#
 # 比对键只留字母数字并统一小写，抹平大小写、连字符、下划线、空格的差异；
 # 飞书那套带公司前缀，所以用「后缀匹配」而不是相等。规则本身只此一处，
 # 与飞书表内部的改名归一共用 _match_key。
 #
-# 实测 2026-09：37个卖家账号与飞书40个店名 1:1 全部对上、0歧义；订单文件里
-# 37个店名有35个对得上，Global-Auto-Store 与 kelan 没有 eBay 授权凭证，
-# 单独作为一家店列出来，不硬塞给别人。
+# 实测 2026-09：订单文件39个账号，其中37个与在售刊登完全相等；飞书40个店名
+# 与这37个账号 1:1 全部对上、0歧义。剩下 kelan（没配 eBay 授权凭证）与
+# Vco8TviLRZK（22行，像个token不像账号）各自单独列出来，不硬塞给别人。
 
 def _suffix_match(key, candidates):
     """candidates 里键以 key 结尾（或反之）且唯一的那一个；有歧义就不认。
@@ -609,7 +615,7 @@ def shop_directory(cursor):
         return sorted({str(r["v"]).strip() for r in cursor.fetchall() if str(r["v"] or "").strip()})
 
     accounts = distinct(f"SELECT DISTINCT seller_account AS v FROM {DWS_TABLE}")
-    order_shops = distinct(f"SELECT DISTINCT shop_name AS v FROM {ORDER_TABLE}")
+    order_shops = distinct(f"SELECT DISTINCT seller_account AS v FROM {ORDER_TABLE}")
     feishu_shops = distinct(f"SELECT DISTINCT shop AS v FROM {DEFECT_TABLE}")
     order_keys = {name: _match_key(name) for name in order_shops}
     feishu_keys = {name: _match_key(name) for name in feishu_shops}

@@ -128,48 +128,68 @@ def test_actual_sales_ctes_exclude_voided_and_upper_date_boundary():
 
 # --------------------------------------------------------------- 店铺名称列
 
-def test_shop_name_is_the_first_template_column():
-    """数字酋长 2026-09-24 起在最前面加了「店铺名称」。
+def test_platform_account_is_the_first_template_column():
+    """数字酋长 2026-09-24 起在最前面加了「平台账号」。
 
     模板校验是按位置逐列比对的，顺序错了会把整份文件拒掉，所以钉住第一列。
     """
-    assert orders.ORDER_TEMPLATE_COLUMNS[0] == "店铺名称"
+    assert orders.ORDER_TEMPLATE_COLUMNS[0] == "平台账号"
     assert orders.ORDER_TEMPLATE_COLUMNS[1] == "站点"
-    assert orders.SOURCE_COLUMN_MAP["店铺名称"] == "source_shop_name"
+    assert orders.SOURCE_COLUMN_MAP["平台账号"] == "source_platform_account"
 
 
 def test_old_template_without_shop_column_is_rejected_pointing_at_column_one():
     """旧模板必须被拒，且报错要指到第1列，不能只说"列数不对"。"""
-    old = [c for c in orders.ORDER_TEMPLATE_COLUMNS if c != "店铺名称"]
+    old = [c for c in orders.ORDER_TEMPLATE_COLUMNS if c != "平台账号"]
     with pytest.raises(ValueError) as error:
         orders._validate_order_template_columns(old, "旧模板.xlsx")
-    assert "第1列应为“店铺名称”" in str(error.value)
+    assert "第1列应为“平台账号”" in str(error.value)
 
 
-def test_shop_name_reaches_both_layers():
-    """ODS 存源文件原值，DWD 存清洗后的值，两边都要有。"""
-    frame = pd.DataFrame([{**order(), "店铺名称": "  Oyeah-Motor  "}])
+def test_seller_account_reaches_both_layers():
+    """ODS 存源文件原值，DWD 存清洗后的值，两边都要有。
+
+    这一列的值就是 eBay 卖家账号，与 dws_ebay_listing_price_tier.seller_account
+    完全相等，所以不需要映射表，DWD 那列也直接叫 seller_account。
+    """
+    frame = pd.DataFrame([{**order(), "平台账号": "  oyeah-motor  "}])
     valid, _ = orders._prepare_order_frame(frame)
     row = orders._row(valid.iloc[0], "batch", "f.xlsx", "Sheet1")
-    assert row["source_shop_name"] == "Oyeah-Motor"
-    assert row["shop_name"] == "Oyeah-Motor"
+    assert row["source_platform_account"] == "oyeah-motor"
+    assert row["seller_account"] == "oyeah-motor"
 
 
 @pytest.mark.parametrize("value", [None, "", "  ", "-", "nan"])
 def test_missing_shop_becomes_empty_string_not_a_fake_shop(value):
-    """源文件里确实有空店铺的行（实测5951行里369行是空的）。
+    """旧版文件里确实有空账号的行（实测5951行里369行是空的；改成平台账号后是0行）。
 
     空串的含义是"这行没有店铺"，按店铺筛时落进"未知店铺"，
     绝不能变成一家叫 nan 或 - 的店。
     """
-    frame = pd.DataFrame([{**order(), "店铺名称": value}])
+    frame = pd.DataFrame([{**order(), "平台账号": value}])
     valid, _ = orders._prepare_order_frame(frame)
-    assert orders._row(valid.iloc[0], "b", "f", "s")["shop_name"] == ""
+    assert orders._row(valid.iloc[0], "b", "f", "s")["seller_account"] == ""
 
 
-def test_shop_column_is_declared_in_the_schema_migration():
+def test_account_column_is_declared_in_the_schema_migration():
     """自动补列表里少了它，老库升级上来就没有这两列，上传会直接报字段不存在。"""
     import inspect
     source = inspect.getsource(orders._initialize_tables)
-    assert "source_shop_name" in source and "shop_name" in source
-    assert "idx_esa_dwd_shop_time" in source
+    assert "source_platform_account" in source and "seller_account" in source
+    assert "idx_esa_dwd_account_time" in source
+
+
+def test_the_short_lived_old_column_names_get_renamed_not_duplicated():
+    """当天先按「店铺名称」接过一版，跑过那一版的库里有两个旧列名。
+
+    改名而不是新增：两个列名指的是同一件事，留着旧列只会多一份永远是空的
+    数据，以后谁都说不清该读哪个。
+    """
+    assert orders._RENAMED_COLUMNS["dwd_ebay_sku_analysis_order"] == {
+        "shop_name": "seller_account"}
+    assert orders._RENAMED_COLUMNS["ods_ebay_sku_analysis_order_raw"] == {
+        "source_shop_name": "source_platform_account"}
+    import inspect
+    # 改名必须发生在补列之前，否则旧列还在、新列又被当成缺失加一遍。
+    source = inspect.getsource(orders._initialize_tables)
+    assert source.index("_rename_legacy_columns") < source.index("for table_name, columns in")

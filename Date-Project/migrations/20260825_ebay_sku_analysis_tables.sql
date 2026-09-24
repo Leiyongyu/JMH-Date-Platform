@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS ods_ebay_sku_analysis_order_raw (
   source_file_name VARCHAR(255) NOT NULL COMMENT '来源文件名',
   source_sheet VARCHAR(128) NOT NULL COMMENT '来源工作表',
   source_row INT NOT NULL COMMENT '来源Excel行号',
-  source_shop_name VARCHAR(191) DEFAULT NULL COMMENT 'Excel第一列原始店铺名称，2026-09-24起模板新增',
+  source_platform_account VARCHAR(191) DEFAULT NULL COMMENT 'Excel第一列原始平台账号，2026-09-24起模板新增',
   source_site_name VARCHAR(100) DEFAULT NULL COMMENT 'Excel第一列原始站点',
   platform_order_no VARCHAR(128) NOT NULL COMMENT '平台订单号',
   shipping_status VARCHAR(64) DEFAULT NULL COMMENT '发货状态',
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS dwd_ebay_sku_analysis_order (
   platform_order_no VARCHAR(128) NOT NULL COMMENT '平台订单号', inventory_sku VARCHAR(128) NOT NULL COMMENT '标准库存SKU', purchase_quantity DECIMAL(18,4) NOT NULL DEFAULT 0 COMMENT '购买数量',
   paid_amount_cny DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '已支付金额人民币', shipping_amount_cny DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '运费人民币',
   platform_fee_cny DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '平台费用人民币', order_profit_cny DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '订单利润（人民币，来自订单上传文件）', paid_amount_original DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '应收货款加应收运费原币（按订单SKU分摊）', shipping_amount_original DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '应收运费原币', refund_quantity DECIMAL(18,4) NOT NULL DEFAULT 0 COMMENT '退货数量，状态包含已退款或已作废', refund_amount_original DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '退款金额原币（按退款行分摊）', refund_amount_cny DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '退款金额人民币', shipping_status VARCHAR(64) DEFAULT NULL COMMENT '发货状态', currency_code VARCHAR(16) DEFAULT NULL COMMENT '币种', customer_id VARCHAR(255) DEFAULT NULL COMMENT '客户ID', site_code VARCHAR(32) NOT NULL COMMENT '标准站点代码', site_name VARCHAR(100) NOT NULL DEFAULT '其他' COMMENT '中文站点名称',
-  shop_name VARCHAR(191) NOT NULL DEFAULT '' COMMENT '店铺名称，取上传源数据；空串=该批次源文件没有店铺列',
+  seller_account VARCHAR(191) NOT NULL DEFAULT '' COMMENT 'eBay卖家账号，取上传源数据的平台账号；与dws_ebay_listing_price_tier.seller_account同义；空串=该批次源文件没有这一列',
   country_name VARCHAR(128) DEFAULT NULL COMMENT '国家名称',
   picture_url TEXT DEFAULT NULL COMMENT '图片链接，取上传源数据',
   product_name_cn VARCHAR(500) DEFAULT NULL COMMENT '产品名称（中文），取上传源数据',
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS dwd_ebay_sku_analysis_order (
   order_remark TEXT DEFAULT NULL COMMENT '原始订单备注，作为退款原因展示',
   import_batch_id VARCHAR(64) NOT NULL COMMENT '导入批次ID',
   source_row INT NOT NULL COMMENT '来源Excel行号', create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', PRIMARY KEY (id),
-  UNIQUE KEY uk_esa_dwd_month_row (stat_month, import_batch_id, source_row), KEY idx_esa_dwd_order_date (platform_order_no,payment_time), KEY idx_esa_dwd_time (payment_time), KEY idx_esa_dwd_sku (inventory_sku), KEY idx_esa_dwd_site (site_code), KEY idx_esa_dwd_site_sku_time (site_name,inventory_sku,payment_time), KEY idx_esa_dwd_return_time (refund_time,site_name,inventory_sku), KEY idx_esa_dwd_shop_time (shop_name,payment_time)
+  UNIQUE KEY uk_esa_dwd_month_row (stat_month, import_batch_id, source_row), KEY idx_esa_dwd_order_date (platform_order_no,payment_time), KEY idx_esa_dwd_time (payment_time), KEY idx_esa_dwd_sku (inventory_sku), KEY idx_esa_dwd_site (site_code), KEY idx_esa_dwd_site_sku_time (site_name,inventory_sku,payment_time), KEY idx_esa_dwd_return_time (refund_time,site_name,inventory_sku), KEY idx_esa_dwd_account_time (seller_account,payment_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DWD-eBay SKU分析订单清洗明细';
 
 CREATE TABLE IF NOT EXISTS ebay_sku_analysis_return_classification (

@@ -49,8 +49,9 @@ const COLORS = ['#4a72b0', '#e8913a', '#d6564f', '#6fbfb4', '#5aa25c', '#e5c04a'
 const visible = defineModel({ type: Boolean, default: false })
 const loading = ref(false), error = ref(''), data = ref(null)
 const year = ref(''), years = ref([])
-// 多选店铺；空数组=整个eBay合计。三个源表的店铺名写法不同，后端按
-// 「只留字母数字、统一小写」的键归一，这里只管把用户选的名字传回去。
+// 多选店铺；空数组=整个eBay合计。选项值是 eBay 卖家账号（订单和在售刊登
+// 用的都是它），飞书那套带公司前缀的店名由后端按归一键推导，这里只管把
+// 用户选的名字原样传回去。
 const shops = ref([])
 const charts = new Map(), elements = new Map()
 let observer = null
@@ -74,15 +75,15 @@ const shopOptions = computed(() => (data.value?.shops || []).map(s => ({
     .filter(Boolean).join(' · '),
 })))
 
-// 订单里带店铺名的销量占比。店铺列是2026-09-24随数字酋长模板才加上的，
+// 订单里带平台账号的销量占比。这一列是2026-09-24随数字酋长模板才加上的，
 // 之前上传的批次一律没有，按店铺筛时那些月份会整月为空——这不是算错，
-// 是源文件当时就没有店铺，得用新模板重传。
+// 是源文件当时就没有这一列，得用新模板重传。
 const shopDataHint = computed(() => {
   if (!shops.value.length) return ''
   const rows = (data.value?.shop_coverage || []).filter(x => x.rate != null)
   const bad = rows.filter(x => Number(x.rate) < 0.5).map(x => x.stat_month)
   if (!bad.length) return ''
-  return `　${bad.join('、')} 这些月份的订单还是旧模板（没有店铺列），按店铺筛会偏少或为空，需用新模板重传。`
+  return `　${bad.join('、')} 这些月份的订单还是旧模板（没有「平台账号」列），按店铺筛会偏少或为空，需用新模板重传。`
 })
 
 // 覆盖率 = 能配上价格档的销量 ÷ 当月总销量。配不上的是当月在售刊登里没有的
