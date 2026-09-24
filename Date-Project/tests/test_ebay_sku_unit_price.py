@@ -348,3 +348,26 @@ def test_alias_derivation_also_skips_placeholder_rows():
     import inspect
     source = inspect.getsource(repo.shop_aliases)
     assert "MIN_REG_DATE" in source and "reg_date IS NOT NULL" in source
+
+
+def test_match_ignores_case_and_separators():
+    """改名时大小写与分隔符都不一致，只按原样后缀匹配会漏掉985行。"""
+    assert repo._match_key("Ace-autoteile") == repo._match_key("ACE_Autoteile")
+    assert repo._match_key("treasures-zone") == repo._match_key("Treasures Zone")
+    aliases, warnings = aliases_from(["autoteile-hub", "帝蓝泰江-eBay-Autoteile Hub"])
+    assert aliases == {"autoteile-hub": "帝蓝泰江-eBay-Autoteile Hub"} and warnings == []
+    aliases, _ = aliases_from(["Ace-autoteile", "ace-autoteile", "ebay-湘彦-ACE_Autoteile"])
+    # 仅大小写不同的两个都归到带前缀的那个，而不是互相指。
+    assert aliases == {"Ace-autoteile": "ebay-湘彦-ACE_Autoteile",
+                       "ace-autoteile": "ebay-湘彦-ACE_Autoteile"}
+
+
+def test_full_recompute_drops_months_that_no_longer_produce_rows():
+    """整表重算时「本次没算出结果」等于「不该存在」。
+
+    按月清理管不到「整个月份消失」：加了登记日期下限后 1999-01 不再产出，
+    但它上一次算出的414行没人删，月份选择器里会一直挂着一个假月份。
+    """
+    import inspect
+    source = inspect.getsource(repo.refresh)
+    assert "_drop_all_stale" in source and "months is None" in source

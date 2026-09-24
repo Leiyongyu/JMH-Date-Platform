@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 from backend.database import db_connection
@@ -47,6 +48,11 @@ def _clean_name(name):
     return text.strip().strip(",").strip()
 
 
+def _match_key(name):
+    """比对用的键：只留字母数字并统一小写，抹平大小写与 -、_、空格的差异。"""
+    return re.sub(r"[^a-z0-9]", "", str(name).lower())
+
+
 def shop_aliases(cursor):
     """从数据里自动推导「旧店铺名 -> 新店铺名」。
 
@@ -54,17 +60,25 @@ def shop_aliases(cursor):
     帝蓝泰江-ebay-Aplus-Shop），历史批次仍是短名。不归一的话同一个店铺会被
     当成两家，SKU 也被拆成两份（实测9月店铺数从37虚增到73）。
 
-    规则：清洗后，若 A 是且仅是一个更长的 B 的后缀，则 A 视作 B。
-    匹配到多个就不合并并记进 warnings——宁可少合也不能错合。
-    等业务方把历史批次改成新名，短名消失，这个映射自然变空，行为不变。
+    规则：清洗后按「只留字母数字、统一小写」的键比对，若 A 的键是且仅是一个
+    更长的 B 的键的后缀，则 A 视作 B。匹配到多个就不合并并记进 warnings——
+    宁可少合也不能错合。等业务方把历史批次改成新名，短名消失，映射自然变空。
+
+    忽略大小写与分隔符是必要的，改名时这两样都不一致：
+      autoteile-hub   -> 帝蓝泰江-eBay-Autoteile Hub   （连字符 vs 空格，388行）
+      treasures-zone  -> 帝蓝泰江-eBay-Treasures Zone  （同上，378行）
+      Ace-autoteile   -> ebay-湘彦-ACE_Autoteile       （连字符 vs 下划线，且大小写不一，219行）
+    只按原样后缀匹配，这985行会被当成另外三家店。实测放宽后 20 对、0 歧义。
     """
     cursor.execute(f"SELECT DISTINCT {SHOP_EXPR} AS shop FROM {SOURCE_TABLE} b "
                    f"WHERE b.shop IS NOT NULL "
                    f"AND b.reg_date IS NOT NULL AND b.reg_date >= '{MIN_REG_DATE}'")
     names = sorted({_clean_name(r["shop"]) for r in cursor.fetchall()} - {""})
+    keys = {name: _match_key(name) for name in names}
     aliases, warnings = {}, []
     for short in names:
-        longer = [n for n in names if n != short and n.lower().endswith(short.lower())]
+        key = keys[short]
+        longer = [n for n in names if n != short and keys[n].endswith(key) and len(keys[n]) > len(key)]
         if len(longer) == 1:
             aliases[short] = longer[0]
         elif longer:
@@ -187,7 +201,11 @@ def refresh(months=None):
                     chunk = rows[offset:offset + _BATCH_SIZE]
                     cursor.executemany(insert_sql, [
                         tuple(row[c] for c in columns) + (computed_at,) for row in chunk])
-                removed = _drop_stale(cursor, touched, {(r["stat_month"], r["shop"], r["sku"]) for r in rows})
+                seen = {(r["stat_month"], r["shop"], r["sku"]) for r in rows}
+                # months=None 是整表重算，这时"本次没算出结果"就等于"不该存在"，
+                # 按整表清理。只算指定月份时仍按月清理，别动没算的月份。
+                removed = (_drop_all_stale(cursor, seen) if months is None
+                           else _drop_stale(cursor, touched, seen))
             connection.commit()
         except Exception:
             connection.rollback()
@@ -292,3 +310,23 @@ def tier_breakdown(stat_month="", shop=""):
         distinct_skus = int((cursor.fetchone() or {}).get("n") or 0)
         return dict(stat_month=month, months=available, shops=shops,
                     reg_date=str(reg_date or ""), items=items, distinct_sku_count=distinct_skus)
+
+
+def _drop_all_stale(cursor, seen):
+    """整表重算后，本次没算出来的行一律删掉。
+
+    按月清理管不到「整个月份不再产出结果」的情况：加了登记日期下限之后
+    1999-01 那个占位月份不再有行，但它上一次算出来的414行没人删，
+    月份选择器里会一直挂着一个假月份。
+    """
+    cursor.execute(f"SELECT stat_month,shop,sku FROM {TABLE}")
+    stale = [(r["stat_month"], r["shop"], r["sku"]) for r in cursor.fetchall()
+             if (r["stat_month"], r["shop"], r["sku"]) not in seen]
+    removed = 0
+    for offset in range(0, len(stale), _BATCH_SIZE):
+        chunk = stale[offset:offset + _BATCH_SIZE]
+        clause = " OR ".join(["(stat_month=%s AND shop=%s AND sku=%s)"] * len(chunk))
+        args = [value for triple in chunk for value in triple]
+        cursor.execute(f"DELETE FROM {TABLE} WHERE {clause}", args)
+        removed += cursor.rowcount
+    return removed
