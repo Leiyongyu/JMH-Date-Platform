@@ -258,3 +258,16 @@ test('订单一条都没带账号时只提示一次，不逐个标无销量', ()
  assert.match(source, /订单里无此账号/)
  assert.doesNotMatch(source, /'无销量'/)
 })
+
+test('店铺选择器有全选，且说明全选与不选不等价', () => {
+ const source = fs.readFileSync(new URL('../src/components/ListingPriceTierChart/ProductStructure.vue', import.meta.url), 'utf8')
+ // 用 el-select 的 header 插槽放全选框，不另起一个按钮挤工具栏。
+ assert.match(source, /<template #header>/)
+ assert.match(source, /allChecked/)
+ // 部分选中时要显示半选态，否则看不出"选了几家"。
+ assert.match(source, /:indeterminate="someChecked"/)
+ assert.match(source, /function toggleAll/)
+ // 全选40家只算这些账号名下的行；不选还含账号为空的行，两者数字可能不同。
+ assert.match(source, /allHint/)
+ assert.match(source, /账号为空的行/)
+})

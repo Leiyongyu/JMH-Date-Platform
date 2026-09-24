@@ -9,6 +9,12 @@
       <el-select v-model="shops" multiple collapse-tags collapse-tags-tooltip clearable
                  size="small" placeholder="全部店铺（整个eBay合计）" style="width: 260px"
                  @change="load">
+        <template #header>
+          <el-checkbox :model-value="allChecked" :indeterminate="someChecked"
+                       :title="allHint" @change="toggleAll">
+            全选（{{ shopOptions.length }} 家）
+          </el-checkbox>
+        </template>
         <el-option v-for="s in shopOptions" :key="s.value" :label="s.label" :value="s.value">
           <span>{{ s.label }}</span>
           <small v-if="s.missing" class="opt-hint">{{ s.missing }}</small>
@@ -84,6 +90,21 @@ const shopOptions = computed(() => (data.value?.shops || []).map(s => ({
             !s.has_defect && '无不良交易', !s.has_tier && '无在售刊登']
     .filter(Boolean).join(' · '),
 })))
+
+// 全选/清空。注意「全选40家」和「一家不选」不是一回事：全选只算这40个账号
+// 名下的行，账号为空的那些行（旧模板传的批次）会被排除；不选则是整个eBay合计，
+// 那些行也算进去。所以两者的数字可能不同，鼠标悬浮在全选上会说明这点。
+const allChecked = computed(() =>
+  shopOptions.value.length > 0 && shops.value.length === shopOptions.value.length)
+const someChecked = computed(() => shops.value.length > 0 && !allChecked.value)
+const allHint = computed(() =>
+  '全选=只统计这些账号名下的数据；一家不选=整个eBay合计，'
+  + '连账号为空的行（旧模板上传的批次）也算进去。两者的数字可能不同。')
+
+function toggleAll(checked) {
+  shops.value = checked ? shopOptions.value.map(item => item.value) : []
+  load()
+}
 
 // 订单里带平台账号的销量占比。这一列是2026-09-24随数字酋长模板才加上的，
 // 之前上传的批次一律没有，按店铺筛时那些月份会整月为空——这不是算错，
