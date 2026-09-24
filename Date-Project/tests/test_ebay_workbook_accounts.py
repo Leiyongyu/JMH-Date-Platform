@@ -7,6 +7,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from backend.ebay_api import accounts, workbook_accounts as module, EbayApiError
+from backend.services import ebay_store_listing_sync_service as sync
+from backend.repositories import ebay_store_listing_repository as repo
 from backend.api import deps
 from backend.api.v1 import internal_scheduler as api
 
@@ -92,6 +94,29 @@ def test_excel_source_takes_precedence_over_old_json(workbook, monkeypatch):
     workbook([row()])
     monkeypatch.setenv('EBAY_SELLER_ACCOUNTS', 'not valid json')
     assert len(accounts.configured_accounts()) == 1
+
+
+def test_identity_not_login_email_is_used_and_no_secret_persisted(workbook, monkeypatch):
+    workbook([row()])
+    client = MagicMock()
+    identity = {'username':'real-seller','userId':'stable-id'}
+    client.trading_identity.return_value = identity
+    client.active_listings_page.return_value = {'seller':identity,'ack':'Success','total_entries':1,'total_pages':1,
+        'items':[{'item_id':'1','raw_xml':'<Item/>','current_price':{'value':None,'currency':None},
+                  'buy_it_now_price':{'value':None,'currency':None}}]}
+    monkeypatch.setattr(sync, 'EbaySellerClient', lambda c:client)
+    saved=[]
+    def replace(records, completed, **kwargs):
+        saved.extend(records)
+        return {'ods_rows':len(saved)}
+    monkeypatch.setattr(repo,'replace_snapshots',replace)
+    assert sync.sync_ebay_store_listings()['ods_rows'] == 1
+    client.identity.assert_not_called()
+    client.trading_identity.assert_called_once_with(expected_login='login@example.invalid')
+    assert client.active_listings_page.call_args.kwargs['identity_source'] == 'trading'
+    assert client.active_listings_page.call_args.kwargs['expected_username'] == 'real-seller'
+    assert saved[0]['meta']['source_shop']['shop_name'] == 'Shop A'
+    assert SECRET not in json.dumps(saved)
 
 
 def test_expiry_endpoint_requires_internal_token(workbook, monkeypatch):

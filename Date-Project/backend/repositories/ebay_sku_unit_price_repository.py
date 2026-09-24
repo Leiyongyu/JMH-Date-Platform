@@ -1,7 +1,14 @@
-"""eBay SKU 美元单价表：由飞书不良交易刊登表算出，按月×店铺×SKU。
+"""eBay SKU 月度不良交易量与成交均价：由飞书不良交易刊登表算出，按月×店铺×SKU。
 
 单价 = 该月最大登记日期那一批里，按店铺+SKU 汇总的 总交易额 / 总交易量。
 源表金额本来就是美元，不换汇。
+
+读取方只剩产品结构的「不良交易率」那张图，它用的是这里的 total_qty 与
+defect_qty。价格档已经不由这张表定了——源表只收录**有不良交易的**刊登，
+SKU 远不全（实测 2026-09 只有 372 个 SKU，而同月在售刊登有 2023 个），
+拿它当价格结构的主表，看到的是问题刊登的价格分布而不是商品的价格分布。
+价格档现在统一来自在售刊登，见 ebay_listing_price_repository。
+unit_price / tier_no 两列仍然算着，作为这张表自己的口径留档。
 """
 from __future__ import annotations
 
@@ -245,28 +252,6 @@ def unit_prices(cursor, stat_month):
     return list(cursor.fetchall())
 
 
-def defect_rate_by_tier(year=None):
-    """产品结构：各月各档位的不良交易率，不分店铺。
-
-    分子分母都来自不良交易刊登表，所以这是「被标记刊登内部」的不良率，
-    与 eBay 官方面板的口径不同，页面上要注明。
-    """
-    sql = (f"SELECT stat_month,tier_no,COUNT(*) AS sku_count,"
-           f"SUM(total_qty) AS total_qty,SUM(defect_qty) AS defect_qty "
-           f"FROM {TABLE} ")
-    args = ()
-    if year:
-        sql += "WHERE stat_month LIKE %s "
-        args = (f"{year}-%",)
-    sql += "GROUP BY stat_month,tier_no ORDER BY stat_month,tier_no"
-    with db_connection() as connection, connection.cursor() as cursor:
-        cursor.execute(sql, args)
-        rows = list(cursor.fetchall())
-        cursor.execute(f"SELECT DISTINCT LEFT(stat_month,4) AS y FROM {TABLE} ORDER BY y DESC")
-        years = [r["y"] for r in cursor.fetchall()]
-    return rows, years
-
-
 def months(cursor=None):
     """单价表里有哪些统计月份，新到旧。页面的月份筛选器用它。"""
     def query(cur):
@@ -276,40 +261,6 @@ def months(cursor=None):
         return query(cursor)
     with db_connection() as connection, connection.cursor() as cur:
         return query(cur)
-
-
-def tier_breakdown(stat_month="", shop=""):
-    """某个月每个店铺每个档位的SKU数，直接从单价表聚合。
-
-    不读已发布的快照：单价表本身就是按月存的，任意历史月份都能当场算出来，
-    再维护一份按月的快照只会多一处可能不一致的地方。
-    """
-    with db_connection() as connection, connection.cursor() as cursor:
-        available = months(cursor)
-        month = stat_month.strip() or (available[0] if available else "")
-        if not month:
-            return dict(stat_month="", months=[], shops=[], reg_date="", items=[],
-                        distinct_sku_count=0)
-        args = [month]
-        clause = "stat_month=%s"
-        if shop.strip():
-            clause += " AND shop=%s"
-            args.append(shop.strip())
-        cursor.execute(f"SELECT DISTINCT shop FROM {TABLE} WHERE stat_month=%s ORDER BY shop", (month,))
-        shops = [r["shop"] for r in cursor.fetchall()]
-        cursor.execute(f"SELECT MAX(reg_date) AS d FROM {TABLE} WHERE stat_month=%s", (month,))
-        reg_date = (cursor.fetchone() or {}).get("d")
-        cursor.execute(
-            f"SELECT shop,tier_no,COUNT(*) AS sku_count,SUM(total_qty) AS total_qty,"
-            f"SUM(defect_qty) AS defect_qty FROM {TABLE} WHERE {clause} "
-            f"GROUP BY shop,tier_no ORDER BY shop,tier_no", args)
-        items = list(cursor.fetchall())
-        # 行数是「店铺SKU」组合数：同一个SKU铺在N个店铺就算N行。页面上要同时
-        # 显示去重SKU数，否则「435 SKU」会被读成有435个不同的商品（实际291个）。
-        cursor.execute(f"SELECT COUNT(DISTINCT sku) AS n FROM {TABLE} WHERE {clause}", args)
-        distinct_skus = int((cursor.fetchone() or {}).get("n") or 0)
-        return dict(stat_month=month, months=available, shops=shops,
-                    reg_date=str(reg_date or ""), items=items, distinct_sku_count=distinct_skus)
 
 
 def _drop_all_stale(cursor, seen):
@@ -331,79 +282,3 @@ def _drop_all_stale(cursor, seen):
         removed += cursor.rowcount
     return removed
 
-
-ORDER_TABLE = "dwd_ebay_sku_analysis_order"
-
-# 销量按「付款时间」归月，档位按「登记日期」归月——两套时间基准各管各的：
-# 销量问的是"那个月卖了多少"，档位问的是"那个月这个SKU卖多少钱一件"。
-#
-# 单价表是按 月×店铺×SKU 存的，而订单表没有店铺维度，所以这里先把档位聚到
-# SKU 级：金额合计÷数量合计，即该SKU当月跨店铺的加权成交均价。直接JOIN
-# 每店铺的行会让订单行按店铺数翻倍（实测2026-09配出5831的销量，而当月总销量
-# 只有5752）。
-_SALES_SQL = f"""
-    WITH sku_price AS (
-        SELECT stat_month, sku,
-               SUM(total_amount)/NULLIF(SUM(total_qty),0) AS unit_price
-        FROM {TABLE}
-        GROUP BY stat_month, sku
-        HAVING SUM(total_qty) > 0
-    ),
-    sales AS (
-        SELECT DATE_FORMAT(o.payment_time,'%%Y-%%m') AS stat_month,
-               TRIM(o.inventory_sku) AS sku,
-               SUM(o.purchase_quantity) AS qty,
-               COUNT(*) AS order_rows,
-               COUNT(DISTINCT o.platform_order_no) AS order_count
-        FROM {ORDER_TABLE} o
-        WHERE o.payment_time IS NOT NULL
-          AND o.inventory_sku IS NOT NULL AND TRIM(o.inventory_sku) <> ''
-          {{year_clause}}
-        GROUP BY 1, 2
-    )
-    SELECT s.stat_month, s.sku, s.qty, s.order_rows, s.order_count, p.unit_price
-    FROM sales s
-    LEFT JOIN sku_price p ON p.stat_month = s.stat_month AND p.sku = s.sku
-    ORDER BY s.stat_month
-"""
-
-
-def sales_by_tier(year=None):
-    """各月各价格档的销量与占比；不分站点、不分店铺，看总的。
-
-    匹配不上档位的销量单独计数（该SKU当月不在不良交易刊登表里，所以没有单价），
-    不塞进任何一档，也不当成0——页面要能说清这张图覆盖了多少比例的销量。
-    """
-    sql = _SALES_SQL.format(year_clause="AND o.payment_time >= %s AND o.payment_time < %s" if year else "")
-    args = (f"{int(year)}-01-01", f"{int(year) + 1}-01-01") if year else ()
-    with db_connection() as connection, connection.cursor() as cursor:
-        cursor.execute(sql, args)
-        rows = list(cursor.fetchall())
-    months, buckets = [], {}
-    for row in rows:
-        month = row["stat_month"]
-        if month not in buckets:
-            buckets[month] = {"tiers": {}, "matched_qty": 0, "unmatched_qty": 0,
-                              "matched_skus": 0, "unmatched_skus": 0,
-                              "matched_orders": 0, "unmatched_orders": 0}
-            months.append(month)
-        bucket = buckets[month]
-        qty = int(row["qty"] or 0)
-        # 订单行数是可加的；COUNT(DISTINCT 订单号) 跨SKU求和会把一单多SKU的订单
-        # 重复计，所以档位层面用行数，月份层面才给去重订单数。
-        rows_ = int(row["order_rows"] or 0)
-        if row["unit_price"] is None:
-            bucket["unmatched_qty"] += qty
-            bucket["unmatched_skus"] += 1
-            bucket["unmatched_orders"] += rows_
-            continue
-        # 档位逻辑只此一处，与页面分档、单价表共用同一套阈值。
-        tier = engine.tier_index(row["unit_price"], "USD") + 1
-        slot = bucket["tiers"].setdefault(tier, {"qty": 0, "sku_count": 0, "order_rows": 0})
-        slot["qty"] += qty
-        slot["sku_count"] += 1
-        slot["order_rows"] += rows_
-        bucket["matched_qty"] += qty
-        bucket["matched_skus"] += 1
-        bucket["matched_orders"] += rows_
-    return sorted(months), buckets

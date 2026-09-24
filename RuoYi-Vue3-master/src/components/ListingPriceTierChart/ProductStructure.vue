@@ -55,12 +55,23 @@ const salesTotal = computed(() => {
   return `　全年 ${qty.toLocaleString()} 件 / ${orders.toLocaleString()} 单`
 })
 
+// 覆盖率 = 能配上价格档的销量 ÷ 当月总销量。配不上的是当月在售刊登里没有的
+// SKU（已下架、或从没在配置的账号里上过架），它们不进任何一档，所以这个数
+// 必须写在图下面，否则占比看着像是全部销量的结构。
+const salesCoverage = computed(() => {
+  const rows = (sales.value.coverage || []).filter(x => x.rate != null)
+  if (!rows.length) return ''
+  const rates = rows.map(x => Number(x.rate) * 100)
+  const low = Math.min(...rates), high = Math.max(...rates)
+  return `　本图覆盖当年 ${low.toFixed(1)}%~${high.toFixed(1)}% 的销量。`
+})
+
 const panels = computed(() => [
   { key: 'sales', title: '不同价格段销售数量占比',
     subtitle: salesTotal.value,
     ready: (sales.value.months || []).length > 0,
     empty: '该年份没有可统计的销量',
-    note: sales.value.note || '' },
+    note: (sales.value.note || '') + salesCoverage.value },
   { key: 'defect', title: '不同价格段不良交易率',
     ready: (defect.value.months || []).length > 0,
     empty: '该年份没有可统计的不良交易',

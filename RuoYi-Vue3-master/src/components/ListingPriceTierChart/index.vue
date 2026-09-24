@@ -101,7 +101,7 @@ const error = ref('')
 const detailsOpen = ref(false)
 const structureOpen = ref(false)
 const keyword = ref('')
-// eBay 的统计月份与店铺筛选；单价表按月存，任意历史月份都能查。
+// eBay 的统计月份与店铺筛选；在售刊登按月留档，任意历史月份都能查。
 const month = ref('')
 const shop = ref('')
 // 七档要七种颜色；人民币只用前五个，色序不变，改档位数不影响AMZ报表的观感。
@@ -114,24 +114,22 @@ const definitions = computed(() => presentation.value.names.map((name, i) => ({
 const colors = computed(() => palette.slice(0, definitions.value.length))
 // 美元7档的表头只有「0-5」这种短字，收窄后弹窗仍不需要横向滚动；人民币5档保持164。
 const tierColumnWidth = computed(() => definitions.value.length > 5 ? 112 : 164)
-// eBay 的店铺就是最细粒度，没有子节点；挂上 tree-props 会白占一列展开位。
+// 没有站点明细时挂上 tree-props 会白占一列展开位；两个平台都按有无子节点判。
 const treeProps = computed(() => report.value?.items?.some(s => s.children?.length)
   ? { children: 'children' } : {})
 const refreshTitle = computed(() => props.platform === 'ebay'
-  ? '先按飞书不良交易刊登表重算SKU美元单价，再重新分档；不拉取任何外部接口'
+  ? '按已拉回的在售刊登重跑 ODS→DWD→DWS（拆变体、换汇、分档），并重算飞书不良交易量；不拉取任何外部接口'
   : '用汇率表中各币种最新可用汇率重新计算本地数据，不拉取接口')
 const ruleDescription = computed(() => `${props.platform === 'amz'
   ? 'AMZ来源：ods_lingxing_amz_listing_latest.landed_price（含促销、运费、积分）；仅status=1且is_delete=0，按完整seller_sku统计。店铺去掉与country_code一致的国家后缀，展开保留各站点。'
   : ''}${props.platform === 'ebay'
-  ? 'eBay来源：飞书多维表格「不良交易刊登」，每周三更新一批。单价=该统计月份内最大登记日期那一批、按店铺+SKU汇总的「总交易额」÷「总交易量」，金额本身就是美元，不做任何汇率换算。同一SKU在不同店铺售价不同，故按店铺分别归档、不合并。该源表只收录有不良交易的刊登，不是全部在售商品，所以这里看到的是问题刊登的价格结构；源表没有站点字段，只能按店铺统计。点刷新会先重算单价表再分档。'
+  ? 'eBay来源：官方Trading接口的在售刊登，每月5日05:00拉一次，按月留档（ods_ebay_store_listing_latest）。加工分三层：dwd_ebay_listing_sku 拆多规格变体、去空SKU/空站点、价格转数值；dws_ebay_listing_price_tier 按 dim_lingxing_currency_month.rate_org 把挂牌价换成美元并落七档，汇率取不晚于该统计月份、且有正值的最新一个月，原币就是美元时不经过汇率。同一店铺同一站点同一SKU挂多条刊登时取最低价只计一次；店铺行按SKU去重（取该店铺内最低档），站点行各站点分别计，所以店铺行不等于站点行相加。点刷新只重跑这三层，不拉接口。'
   : `按dim_lingxing_currency_month.${presentation.value.rateField}换算${currencyLabel.value}，不截断汇率，分档前不舍入。店铺+站点内完整SKU取最低有效${currencyLabel.value}价格、只计一次，跨站点相加。0为有效价格；缺SKU或价格异常单独提示、不计入占比；汇率按币种回退取最新可用月份，全无汇率才拒绝发布；不按中间码合并、不排除PC。刷新只重新计算本地统计仓库，不拉接口。`}`)
 const rateMonths = computed(() => report.value?.rate_months || {})
 const fallbackCurrencies = computed(() => Object.entries(rateMonths.value)
   .filter(([, month]) => month && month !== report.value?.rate_month).map(([code]) => code).sort())
-// eBay 已不用汇率，页脚与悬浮说明都改成单价来源；AMZ 保持原样。
-const sourceLabel = computed(() => presentation.value.usesFx
-  ? `汇率 ${report.value?.rate_month || '--'} · ${presentation.value.rateField}`
-  : `单价 ${report.value?.unit_price_month || '--'} · 批次 ${report.value?.unit_price_reg_date || '--'}`)
+// 两个平台都走汇率表：AMZ 按 my_rate 换人民币，eBay 按 rate_org 换美元。
+const sourceLabel = computed(() => `汇率 ${report.value?.rate_month || '--'} · ${presentation.value.rateField}`)
 const rateDescription = computed(() => presentation.value.usesFx
   ? `统计月份 ${report.value?.rate_month || '--'}；${presentation.value.formula}。使用的${presentation.value.rateField}：${Object.entries(report.value?.rates || {}).map(([k, v]) => `${k} ${v ?? '--'}${rateMonths.value[k] ? `（${rateMonths.value[k]}）` : ''}`).join('、')}。每个币种各自取不晚于统计月份、且有正值的最新一个月，当月尚未同步时自动回退到上一次有汇率的月份；不取未来月份。某币种任何月份都没有汇率才判定为缺失并拒绝发布。`
   : `统计月份 ${report.value?.unit_price_month || '--'}，来源批次（登记日期）${report.value?.unit_price_reg_date || '--'}。${presentation.value.formula}。不读取任何汇率表，汇率变动不影响本报表。`)

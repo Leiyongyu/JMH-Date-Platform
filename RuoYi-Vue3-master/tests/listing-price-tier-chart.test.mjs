@@ -72,10 +72,11 @@ test('stale and missing rates have visible warnings',async()=>{
  const current=await html('amz',{state:'READY',items:[],shop_count:0,total_sku_count:0,rate_month:'2026-09',
   missing_currencies:[],rate_months:{EUR:'2026-09',USD:'2026-09'}})
  assert.doesNotMatch(current,/使用的不是/)
- // eBay 不用汇率，汇率相关提示一律不出现。
- const noFx=await html('ebay',{state:'READY',items:[],shop_count:0,total_sku_count:0,rate_month:'2026-10',
+ // eBay 的挂牌价要换汇，所以这两条汇率提示对它同样有效。
+ const fx=await html('ebay',{state:'READY',items:[],shop_count:0,total_sku_count:0,rate_month:'2026-10',
   missing_currencies:['GBP'],rate_months:{EUR:'2026-09',USD:'2026-10'}})
- assert.doesNotMatch(noFx,/使用的不是/);assert.doesNotMatch(noFx,/没有任何可用汇率/)
+ assert.match(fx,/EUR 使用的不是 2026-10 的汇率/)
+ assert.match(fx,/GBP 在汇率表中没有任何可用汇率/)
  assert.match(await html('ebay',{state:'EMPTY',items:[]}),/尚未生成美元报表/)
  assert.match(await html('ebay',null,'出错'),/出错/)
 })
@@ -111,12 +112,13 @@ test('homepage gives price charts a separate half-width second row; no platform 
  assert.match(source,/row-key="node_id"/)
 })
 
-test('eBay 不再用汇率，AMZ 仍用 my_rate；缓存币种不符要拒绝',()=>{
- // eBay 单价来自飞书成交额/成交量，本身就是美元。
- assert.equal(pricePresentation('ebay').usesFx,false)
- assert.equal(pricePresentation('ebay').rateField,'')
- assert.match(pricePresentation('ebay').formula,/总交易额.*总交易量/)
- assert.match(pricePresentation('ebay').formula,/不做任何汇率换算/)
+test('eBay 用 rate_org 换美元，AMZ 用 my_rate；缓存币种不符要拒绝',()=>{
+ // eBay 的价格是在售刊登的挂牌价，原币是 EUR/GBP/USD，要换汇。
+ assert.equal(pricePresentation('ebay').usesFx,true)
+ assert.equal(pricePresentation('ebay').rateField,'rate_org')
+ assert.match(pricePresentation('ebay').formula,/rate_org\(原币\).*rate_org\(USD\)/)
+ // 原币就是美元时必须短路，否则乘一遍再除一遍会引入无谓的舍入。
+ assert.match(pricePresentation('ebay').formula,/不经过汇率/)
  assert.equal(pricePresentation('amz').usesFx,true)
  assert.deepEqual(pricePresentation('ebay').ranges,['$0–<5','$5–<20','$20–<50','$50–<100','$100–<200','$200–<500','≥ $500'])
  assert.deepEqual(pricePresentation('ebay').names,['0-5','5-20','20-50','50-100','100-200','200-500','500以上'])
@@ -145,13 +147,17 @@ test('eBay 多一个产品结构按钮并挂载弹窗；AMZ 没有', async () =>
  assert.doesNotMatch(amz, /product-structure-stub/)
 })
 
-test('eBay 口径说明改成飞书单价来源，不再提汇率换算', () => {
+test('eBay 口径说明写清三层来源与换汇口径', () => {
  const source = fs.readFileSync(new URL('../src/components/ListingPriceTierChart/index.vue', import.meta.url), 'utf8')
- assert.match(source, /不良交易刊登/)
- assert.match(source, /总交易额.*总交易量/)
- assert.match(source, /不做任何汇率换算/)
- // 必须写明覆盖面，否则会被当成全部在售商品的价格结构。
- assert.match(source, /只收录有不良交易的刊登/)
+ // 看报表的人要能顺着表名一层层往回查。
+ assert.match(source, /ods_ebay_store_listing_latest/)
+ assert.match(source, /dwd_ebay_listing_sku/)
+ assert.match(source, /dws_ebay_listing_price_tier/)
+ assert.match(source, /rate_org/)
+ // 店铺行按SKU去重、站点行分别计，两者不相等，不写清楚会被当成对不上账。
+ assert.match(source, /店铺行不等于站点行相加/)
+ // 刷新只重算本地三层，不碰接口——否则会有人以为点一下就去拉 eBay。
+ assert.match(source, /不拉接口/)
 })
 
 test('产品结构一页三图、无明细表、保留年份筛选', () => {
@@ -188,7 +194,9 @@ test('横坐标只显示月份数字，类目值仍保留年月', () => {
 
 test('店铺没有子节点时不渲染展开控件', async () => {
  const { shop } = nodesOf('ebay')
- // eBay 的店铺就是最细粒度，后端不再返回同值的占位子节点。
+ // 只筛到一个站点、或后端没返回站点明细时，不该白占一列展开位。
+ // （eBay 恢复在售刊登来源后站点明细是真数据，有站点时展开控件要在，
+ //   由上面那条「店铺默认收起、站点可展开」的用例覆盖。）
  const flat = { ...shop, children: [] }
  const out = await html('ebay', {state:'READY',items:[flat],shop_count:1,total_sku_count:2,
                                  rate_month:'',missing_currencies:[]})
