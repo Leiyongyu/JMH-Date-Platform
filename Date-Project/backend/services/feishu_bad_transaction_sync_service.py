@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import date, datetime, timedelta, timezone
+from uuid import uuid4
 
 from backend.config import settings
 from backend.integrations.feishu.client import FeishuClient, FeishuRequestError, field_text
@@ -170,6 +171,7 @@ def sync_feishu_bad_transactions(*, full=False, month=""):
 
     warnings = set()
     started = datetime.now(CHINA).replace(tzinfo=None)
+    batch_id = str(uuid4())
     try:
         with FeishuClient() as client:
             # 不再依赖视图：视图的筛选条件会被人改掉（实测重传整表后就失效了），
@@ -192,7 +194,14 @@ def sync_feishu_bad_transactions(*, full=False, month=""):
     result = {
         "task_code": TASK_CODE, "mode": "FULL" if full else "MONTH", "stat_month": month,
         "fetched_rows": len(rows), "batches": [str(b) for b in batches],
-        **metrics, "warnings": sorted(warnings),
+        **metrics,
+        # 调度框架记录运行结果时直接下标取这三个键（不是 .get），少一个就 KeyError，
+        # 表现为任务报 HTTP 502「内部任务执行失败: 'extract_rows'」——
+        # 而数据其实已经在上面那个事务里提交了，只是运行记录没写成。
+        "sync_batch_id": batch_id,
+        "extract_rows": len(rows),
+        "ods_rows": metrics["inserted_rows"] + metrics["updated_rows"] + metrics["unchanged_rows"],
+        "warnings": sorted(warnings),
     }
     LOG.info("飞书不良交易刊登同步完成 mode=%s 拉取=%s 新增=%s 更新=%s 未变=%s 删除=%s",
              result["mode"], result["fetched_rows"], metrics["inserted_rows"],

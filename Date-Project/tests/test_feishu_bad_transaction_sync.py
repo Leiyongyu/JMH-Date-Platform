@@ -321,3 +321,43 @@ def test_month_reconcile_scoped_to_that_month(monkeypatch):
     assert result["deleted_rows"] == 1
     scans = [c for c in cursor.execute.call_args_list if "DATE_FORMAT(reg_date" in c.args[0]]
     assert scans and scans[0].args[1] == ("2026-09",)
+
+
+def test_result_carries_the_keys_the_scheduler_indexes_directly(monkeypatch):
+    """调度框架写运行记录时直接下标取这几个键，不是 .get。
+
+    少一个就 KeyError，Java 侧看到的是 HTTP 502「内部任务执行失败: 'extract_rows'」，
+    而数据其实已经提交了——只是运行记录没写成，看起来像整个任务失败。
+    """
+    configure(monkeypatch)
+
+    class FakeClient:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def fetch_records(self, *a, **k): return [record()]
+
+    monkeypatch.setattr(service, "FeishuClient", lambda *a, **k: FakeClient())
+    monkeypatch.setattr(repo, "upsert", lambda *a, **k: dict(
+        inserted_rows=1, updated_rows=0, unchanged_rows=0, deleted_rows=0))
+    result = service.sync_feishu_bad_transactions(month="2026-09")
+    # 这三个是调度框架用 result[...] 取的，必须在
+    for key in ("extract_rows", "sync_batch_id", "ods_rows"):
+        assert key in result, key
+    assert result["extract_rows"] == 1
+    assert result["ods_rows"] == 1          # 新增+更新+未变，即本次确认在库的行数
+    assert len(result["sync_batch_id"]) == 36   # uuid4
+
+
+def test_ods_rows_counts_everything_confirmed_not_just_writes(monkeypatch):
+    """内容没变的行也算入库行数：它们确实在库里，只是不用重写。"""
+    configure(monkeypatch)
+
+    class FakeClient:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def fetch_records(self, *a, **k): return [record()]
+
+    monkeypatch.setattr(service, "FeishuClient", lambda *a, **k: FakeClient())
+    monkeypatch.setattr(repo, "upsert", lambda *a, **k: dict(
+        inserted_rows=2, updated_rows=3, unchanged_rows=5, deleted_rows=1))
+    assert service.sync_feishu_bad_transactions(month="2026-09")["ods_rows"] == 10
