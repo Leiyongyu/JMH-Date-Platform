@@ -5,8 +5,7 @@
   没有可见的「最后更新时间」字段，records/search 的 filter 只能过滤可见字段。
   所以增量落在两处：
 
-  1. 取数端：默认只拉业务方配的那个视图。该视图筛的是当周那一批（实测370条，
-     全表10655条），一次请求就够，不是每周把26周的历史重新拉一遍。
+  1. 取数端：只拉当月（实测2026-09是1630行，全表10722行），不是每周重拉全表。
   2. 写库端：按飞书 record_id upsert，并比对内容指纹；内容没变的行只更新
      last_synced_at，不改业务列、不动 last_changed_at。所以能分清
      「新增 / 更新 / 没变」，而不是每次全表重写。
@@ -14,14 +13,19 @@
   接口带 automatic_fields=True，顺带取回每条的 created_time / last_modified_time
   存下来，方便之后追"这条是哪天被业务改的"。
 
-同批次内消失的记录：本次拉到的登记日期批次里，库里有、飞书没有的记录会被删掉
-（业务方在飞书删了行，本地要跟着删）。其他批次一行不碰；登记日期为空的记录
-只 upsert、不参与这个清理，因为它们归不到任何批次。
+取数范围：默认只拉**当月**（按登记日期做服务端过滤），一个月4~5批。
+既覆盖本周新增，也带上业务方回头改的同月历史批次，而不用把整表一万多行重拉。
+不依赖视图——视图的筛选条件会被人改掉，实测业务方重传整表之后它就失效了，
+每周变成全表拉取。
+
+清理范围跟着取数范围走：按月拉就按月对齐（该月库里有、本次没拉到的删掉），
+全量拉就整表对齐（含登记日期为空的行）。绝不会动没拉到的月份。
 """
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+import re
+from datetime import date, datetime, timedelta, timezone
 
 from backend.config import settings
 from backend.integrations.feishu.client import FeishuClient, FeishuRequestError, field_text
@@ -130,23 +134,48 @@ def to_row(record, warnings):
     return row
 
 
-def sync_feishu_bad_transactions(*, full=False):
-    """同步一次。full=True 拉全表（首次回填用），否则只拉视图那一批。"""
+def month_filter(month):
+    """按「登记日期」落在某个统计月份做服务端过滤。
+
+    日期字段没有"属于某月"的算子，用 ExactDate 夹出一个左闭右开区间：
+    isGreater 给上月最后一天（等价于 >= 本月1号），isLess 给下月1号。
+    这样每周只拉当月那几批，不用把整表10000多行重拉一遍。
+    """
+    year, mon = int(month[:4]), int(month[5:7])
+    start = date(year, mon, 1)
+    nxt = date(year + (mon == 12), 1 if mon == 12 else mon + 1, 1)
+    stamp = lambda d: str(int(datetime(d.year, d.month, d.day, tzinfo=CHINA).timestamp() * 1000))
+    return {"conjunction": "and", "conditions": [
+        {"field_name": "登记日期", "operator": "isGreater",
+         "value": ["ExactDate", stamp(start - timedelta(days=1))]},
+        {"field_name": "登记日期", "operator": "isLess", "value": ["ExactDate", stamp(nxt)]},
+    ]}
+
+
+def sync_feishu_bad_transactions(*, full=False, month=""):
+    """同步一次。
+
+    full=True 拉全表（首次回填、或需要整表对齐时用）；
+    否则只拉某个统计月份，默认当月——源表每周三更新一批，一个月4~5批，
+    拉当月既能覆盖本周新增，也能带上业务方回头修改的同月历史批次。
+    """
     app_token = settings.feishu_bad_transaction_app_token
     table_id = settings.feishu_bad_transaction_table_id
-    view_id = "" if full else settings.feishu_bad_transaction_view_id
     if not app_token or not table_id:
         raise FeishuBadTransactionSyncError(
             "请先配置FEISHU_BAD_TRANSACTION_APP_TOKEN和FEISHU_BAD_TRANSACTION_TABLE_ID")
-    if not full and not view_id:
-        raise FeishuBadTransactionSyncError(
-            "增量同步要靠视图筛出当周那一批；请配置FEISHU_BAD_TRANSACTION_VIEW_ID，或用全量回填")
+    month = "" if full else (month.strip() or datetime.now(CHINA).strftime("%Y-%m"))
+    if month and not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise FeishuBadTransactionSyncError(f"统计月份格式应为YYYY-MM，收到：{month}")
 
     warnings = set()
     started = datetime.now(CHINA).replace(tzinfo=None)
     try:
         with FeishuClient() as client:
-            records = client.fetch_records(app_token, table_id, view_id, automatic_fields=True)
+            # 不再依赖视图：视图的筛选条件会被人改掉（实测重传整表后就失效了），
+            # 按登记日期过滤是确定的。
+            records = client.fetch_records(app_token, table_id, "", automatic_fields=True,
+                                           filter=None if full else month_filter(month))
     except FeishuRequestError as exc:
         raise FeishuBadTransactionSyncError(f"拉取飞书不良交易刊登失败；{exc}") from None
 
@@ -159,9 +188,9 @@ def sync_feishu_bad_transactions(*, full=False):
 
     # 全量拉取时按整表对齐：飞书删掉的行本地也要删，包括登记日期为空、
     # 归不到批次的那些。只拉视图时绝不能这么做，会把没拉的历史批次删光。
-    metrics = repo.upsert(rows, batches=batches, synced_at=started, full=full)
+    metrics = repo.upsert(rows, batches=batches, synced_at=started, full=full, month=month)
     result = {
-        "task_code": TASK_CODE, "mode": "FULL" if full else "VIEW",
+        "task_code": TASK_CODE, "mode": "FULL" if full else "MONTH", "stat_month": month,
         "fetched_rows": len(rows), "batches": [str(b) for b in batches],
         **metrics, "warnings": sorted(warnings),
     }

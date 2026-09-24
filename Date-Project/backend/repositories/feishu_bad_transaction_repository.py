@@ -46,7 +46,7 @@ def existing_hashes(cursor, record_ids):
     return known
 
 
-def upsert(rows, *, batches=(), synced_at=None, full=False):
+def upsert(rows, *, batches=(), synced_at=None, full=False, month=""):
     """按 record_id 增量写入，并清理本次批次里飞书已删除的记录。
 
     内容没变的行只更新 last_synced_at，不动业务列、不动 last_changed_at——
@@ -95,8 +95,14 @@ def upsert(rows, *, batches=(), synced_at=None, full=False):
                                    [synced_at] + [row["record_id"] for row in chunk])
 
                 seen = {row["record_id"] for row in rows}
-                deleted = (_reconcile_all(cursor, seen) if full
-                           else _reconcile(cursor, batches, seen))
+                if full:
+                    deleted = _reconcile_all(cursor, seen)
+                elif month:
+                    # 按月拉取时用月份对齐：整批在飞书被删光时，按批次清理会
+                    # 因为那个批次不在本次结果里而漏掉它，月份范围能覆盖到。
+                    deleted = _reconcile_month(cursor, month, seen)
+                else:
+                    deleted = _reconcile(cursor, batches, seen)
                 _verify_written(cursor, [row["record_id"] for row in rows])
             connection.commit()
         except Exception:
@@ -152,6 +158,20 @@ def _reconcile_all(cursor, seen):
     增量（只拉视图当周那批）绝不能走这里，否则会把没拉的历史批次全删光。
     """
     cursor.execute(f"SELECT record_id FROM {TABLE}")
+    stale = [r["record_id"] for r in cursor.fetchall() if r["record_id"] not in seen]
+    deleted = 0
+    for offset in range(0, len(stale), _BATCH_SIZE):
+        chunk = stale[offset:offset + _BATCH_SIZE]
+        placeholders = ",".join(["%s"] * len(chunk))
+        cursor.execute(f"DELETE FROM {TABLE} WHERE record_id IN ({placeholders})", chunk)
+        deleted += cursor.rowcount
+    return deleted
+
+
+def _reconcile_month(cursor, month, seen):
+    """该统计月份里，库里有、本次没拉到的记录删掉。别的月份一行不碰。"""
+    cursor.execute(f"SELECT record_id FROM {TABLE} "
+                   f"WHERE reg_date IS NOT NULL AND DATE_FORMAT(reg_date,'%%Y-%%m')=%s", (month,))
     stale = [r["record_id"] for r in cursor.fetchall() if r["record_id"] not in seen]
     deleted = 0
     for offset in range(0, len(stale), _BATCH_SIZE):

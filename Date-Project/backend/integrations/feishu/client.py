@@ -171,7 +171,7 @@ class FeishuClient:
                 return items
         raise FeishuRequestError(f"翻页超过{MAX_PAGES}页，疑似分页游标未推进；接口={path}")
 
-    def iter_records(self, app_token, table_id, view_id="", *, automatic_fields=False):
+    def iter_records(self, app_token, table_id, view_id="", *, automatic_fields=False, filter=None):
         """按视图顺序逐条产出记录，形如 {"record_id": "rec...", "fields": {...}}。
 
         用「查询记录」接口，它是当前版本；旧的 GET 列出记录接口官方已标注即将下线。
@@ -184,6 +184,10 @@ class FeishuClient:
         body = {"automatic_fields": bool(automatic_fields)}
         if view_id:
             body["view_id"] = view_id
+        # 服务端过滤：只把要的那部分拉回来，比拉全表再在本地筛省得多。
+        # 与 view_id 可以同时给，飞书会取交集。
+        if filter:
+            body["filter"] = filter
         page_token = ""
         for _ in range(MAX_PAGES):
             query = {"page_size": self.page_size}
@@ -197,10 +201,12 @@ class FeishuClient:
                 return
         raise FeishuRequestError(f"记录翻页超过{MAX_PAGES}页，疑似分页游标未推进；接口={path}")
 
-    def fetch_records(self, app_token, table_id, view_id="", *, limit=None, automatic_fields=False):
+    def fetch_records(self, app_token, table_id, view_id="", *, limit=None,
+                      automatic_fields=False, filter=None):
         """一次性取回记录列表；limit 只用于探查，正式取数请用 iter_records。"""
         rows = []
-        for item in self.iter_records(app_token, table_id, view_id, automatic_fields=automatic_fields):
+        for item in self.iter_records(app_token, table_id, view_id,
+                                      automatic_fields=automatic_fields, filter=filter):
             rows.append(item)
             if limit is not None and len(rows) >= limit:
                 break

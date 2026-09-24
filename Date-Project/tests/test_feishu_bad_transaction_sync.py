@@ -213,10 +213,10 @@ def test_duplicate_record_ids_abort_before_writing(monkeypatch):
     assert not written
 
 
-def test_view_required_for_incremental_mode(monkeypatch):
-    configure(monkeypatch, view="")
-    with pytest.raises(service.FeishuBadTransactionSyncError, match="视图"):
-        service.sync_feishu_bad_transactions()
+def test_bad_month_format_refused(monkeypatch):
+    configure(monkeypatch)
+    with pytest.raises(service.FeishuBadTransactionSyncError, match="YYYY-MM"):
+        service.sync_feishu_bad_transactions(month="2026/09")
 
 
 def test_task_registered_in_scheduler():
@@ -248,3 +248,76 @@ def test_row_count_match_commits(monkeypatch):
     repo.upsert(rows_for(("r1", "0.5"), ("r2", "0.6")), batches=[],
                 synced_at=dt.datetime(2026, 9, 23))
     connection.commit.assert_called_once()
+
+
+# ------------------------------------------------------------ 按月拉取
+
+def test_month_filter_brackets_the_calendar_month():
+    """日期字段没有「属于某月」的算子，用 ExactDate 夹出左闭右开区间。"""
+    f = service.month_filter("2026-09")
+    assert f["conjunction"] == "and" and len(f["conditions"]) == 2
+    lo, hi = f["conditions"]
+    assert lo["operator"] == "isGreater" and hi["operator"] == "isLess"
+    assert all(c["field_name"] == "登记日期" for c in f["conditions"])
+    # isGreater 给上月最后一天，等价于 >= 本月1号。
+    to_date = lambda c: dt.datetime.fromtimestamp(int(c["value"][1]) / 1000, service.CHINA).date()
+    assert to_date(lo) == dt.date(2026, 8, 31)
+    assert to_date(hi) == dt.date(2026, 10, 1)
+
+
+def test_december_rolls_over_to_next_year():
+    hi = service.month_filter("2026-12")["conditions"][1]
+    got = dt.datetime.fromtimestamp(int(hi["value"][1]) / 1000, service.CHINA).date()
+    assert got == dt.date(2027, 1, 1)
+
+
+def test_weekly_sync_pulls_the_current_month_not_the_view(monkeypatch):
+    """不再依赖视图：视图的筛选条件会被人改掉（实测重传整表后就失效了）。"""
+    configure(monkeypatch)
+    captured = {}
+
+    class FakeClient:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def fetch_records(self, app, table, view, **kw):
+            captured.update(view=view, filter=kw.get("filter"))
+            return []
+
+    monkeypatch.setattr(service, "FeishuClient", lambda *a, **k: FakeClient())
+    monkeypatch.setattr(repo, "upsert", lambda *a, **k: captured.update(upsert=k) or
+                        dict(inserted_rows=0, updated_rows=0, unchanged_rows=0, deleted_rows=0))
+    result = service.sync_feishu_bad_transactions(month="2026-09")
+    assert captured["view"] == ""                       # 不带视图
+    assert captured["filter"]["conditions"][0]["field_name"] == "登记日期"
+    assert captured["upsert"]["month"] == "2026-09"     # 按月对齐，不是按批次
+    assert result["mode"] == "MONTH" and result["stat_month"] == "2026-09"
+
+
+def test_full_pull_sends_no_filter(monkeypatch):
+    configure(monkeypatch)
+    captured = {}
+
+    class FakeClient:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def fetch_records(self, app, table, view, **kw):
+            captured.update(filter=kw.get("filter")); return []
+
+    monkeypatch.setattr(service, "FeishuClient", lambda *a, **k: FakeClient())
+    monkeypatch.setattr(repo, "upsert", lambda *a, **k: captured.update(upsert=k) or
+                        dict(inserted_rows=0, updated_rows=0, unchanged_rows=0, deleted_rows=0))
+    result = service.sync_feishu_bad_transactions(full=True)
+    assert captured["filter"] is None and captured["upsert"]["full"] is True
+    assert result["mode"] == "FULL"
+
+
+def test_month_reconcile_scoped_to_that_month(monkeypatch):
+    """整批在飞书被删光时，按批次清理会漏掉它，按月份范围才覆盖得到。"""
+    connection, cursor = db(monkeypatch)
+    cursor.fetchall.side_effect = [[], [{"record_id": "r1"}, {"record_id": "gone"}]]
+    cursor.rowcount = 1
+    result = repo.upsert(rows_for(("r1", "0.5")), month="2026-09",
+                         synced_at=dt.datetime(2026, 9, 23))
+    assert result["deleted_rows"] == 1
+    scans = [c for c in cursor.execute.call_args_list if "DATE_FORMAT(reg_date" in c.args[0]]
+    assert scans and scans[0].args[1] == ("2026-09",)
