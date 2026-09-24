@@ -5,6 +5,15 @@
       <el-select v-model="year" size="small" style="width: 116px" @change="load">
         <el-option v-for="y in years" :key="y" :label="`${y} 年`" :value="y" />
       </el-select>
+      <span>店铺</span>
+      <el-select v-model="shops" multiple collapse-tags collapse-tags-tooltip clearable
+                 size="small" placeholder="全部店铺（整个eBay合计）" style="width: 260px"
+                 @change="load">
+        <el-option v-for="s in shopOptions" :key="s.value" :label="s.label" :value="s.value">
+          <span>{{ s.label }}</span>
+          <small v-if="s.missing" class="opt-hint">{{ s.missing }}</small>
+        </el-option>
+      </el-select>
       <el-button size="small" :disabled="loading" @click="load">刷新</el-button>
       <span class="legend">
         <i v-for="(label, i) in labels" :key="label" :style="{ background: COLORS[i] }" :title="label" />
@@ -40,6 +49,9 @@ const COLORS = ['#4a72b0', '#e8913a', '#d6564f', '#6fbfb4', '#5aa25c', '#e5c04a'
 const visible = defineModel({ type: Boolean, default: false })
 const loading = ref(false), error = ref(''), data = ref(null)
 const year = ref(''), years = ref([])
+// 多选店铺；空数组=整个eBay合计。三个源表的店铺名写法不同，后端按
+// 「只留字母数字、统一小写」的键归一，这里只管把用户选的名字传回去。
+const shops = ref([])
 const charts = new Map(), elements = new Map()
 let observer = null
 
@@ -53,6 +65,24 @@ const salesTotal = computed(() => {
   const qty = rows.reduce((sum, x) => sum + (x.matched_qty || 0), 0)
   const orders = rows.reduce((sum, x) => sum + (x.matched_orders || 0), 0)
   return `　全年 ${qty.toLocaleString()} 件 / ${orders.toLocaleString()} 单`
+})
+
+// 选项后面标一句话：哪家店在哪个源里没有数据，选了才不会以为是算错了。
+const shopOptions = computed(() => (data.value?.shops || []).map(s => ({
+  ...s,
+  missing: [!s.has_sales && '无销量', !s.has_defect && '无不良交易', !s.has_tier && '无在售刊登']
+    .filter(Boolean).join(' · '),
+})))
+
+// 订单里带店铺名的销量占比。店铺列是2026-09-24随数字酋长模板才加上的，
+// 之前上传的批次一律没有，按店铺筛时那些月份会整月为空——这不是算错，
+// 是源文件当时就没有店铺，得用新模板重传。
+const shopDataHint = computed(() => {
+  if (!shops.value.length) return ''
+  const rows = (data.value?.shop_coverage || []).filter(x => x.rate != null)
+  const bad = rows.filter(x => Number(x.rate) < 0.5).map(x => x.stat_month)
+  if (!bad.length) return ''
+  return `　${bad.join('、')} 这些月份的订单还是旧模板（没有店铺列），按店铺筛会偏少或为空，需用新模板重传。`
 })
 
 // 覆盖率 = 能配上价格档的销量 ÷ 当月总销量。配不上的是当月在售刊登里没有的
@@ -71,7 +101,7 @@ const panels = computed(() => [
     subtitle: salesTotal.value,
     ready: (sales.value.months || []).length > 0,
     empty: '该年份没有可统计的销量',
-    note: (sales.value.note || '') + salesCoverage.value },
+    note: (sales.value.note || '') + salesCoverage.value + shopDataHint.value },
   { key: 'defect', title: '不同价格段不良交易率',
     ready: (defect.value.months || []).length > 0,
     empty: '该年份没有可统计的不良交易',
@@ -175,7 +205,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const response = await getEbayProductStructure(year.value)
+    const response = await getEbayProductStructure(year.value, shops.value)
     data.value = response.data
     years.value = response.data?.years || []
     // 首次打开时后端还不知道要哪一年，拿它给的最新一年回填选择器。
@@ -209,4 +239,5 @@ onBeforeUnmount(() => {
 .panel h3 small { font-weight: 400; font-size: 11px; color: var(--el-text-color-secondary); }
 .chart { width: 100%; height: 320px; }
 .note { font-size: 11px; color: var(--el-text-color-secondary); line-height: 1.6; margin: 6px 0 0; }
+.opt-hint { margin-left: 8px; color: var(--el-text-color-secondary); font-size: 11px; }
 </style>

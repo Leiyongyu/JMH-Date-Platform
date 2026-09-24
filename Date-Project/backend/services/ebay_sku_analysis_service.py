@@ -12,7 +12,11 @@ import pandas as pd
 
 from backend.database import db_connection
 
+# 键的顺序就是模板列顺序，_validate_order_template_columns 按位置逐列比对。
+# 2026-09-24 起数字酋长在最前面多了「店铺名称」一列，订单从此有了店铺维度——
+# 在这之前订单表只有站点、没有店铺，产品结构那几张图按店铺筛不了。
 SOURCE_COLUMN_MAP = {
+    "店铺名称": "source_shop_name",
     "站点": "source_site_name",
     "平台订单号": "platform_order_no",
     "发货状态": "shipping_status",
@@ -107,6 +111,11 @@ def _prepare_order_frame(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFram
     frame = frame.copy()
     frame["_source_row"] = range(2, len(frame) + 2)
     frame["_payment_time"] = pd.to_datetime(frame["付款时间"], errors="coerce")
+    # 店铺名称原样留在ODS，这里只去掉首尾空白与换行——大小写和连字符各家写法
+    # 不一：文件里是 Oyeah-Motor，eBay 卖家账号是 oyeah-motor，飞书里又是
+    # 帝蓝泰江-eBay-Oyeah Motor。三边归一放在读取侧按规范化键匹配，
+    # 明细层保留源文件的写法，出了问题还能逐行对回去。
+    frame["_shop"] = frame["店铺名称"].map(_identifier)
     frame["_source_site"] = frame["站点"].map(_identifier)
     frame["_site_name"] = frame.apply(
         lambda record: _site_name(record["_source_site"], record.get("币种")), axis=1
@@ -207,12 +216,12 @@ def _persist_orders(valid: pd.DataFrame, replaceable: pd.DataFrame, batch_id: st
                 (stat_month,payment_time,refund_time,platform_order_no,inventory_sku,purchase_quantity,paid_amount_cny,
                  shipping_amount_cny,platform_fee_cny,order_profit_cny,paid_amount_original,shipping_amount_original,
                  refund_quantity,refund_amount_original,refund_amount_cny,shipping_status,currency_code,customer_id,site_code,
-                 site_name,country_name,picture_url,product_name_cn,listing_url,order_remark,import_batch_id,source_row)
+                 site_name,shop_name,country_name,picture_url,product_name_cn,listing_url,order_remark,import_batch_id,source_row)
                 VALUES (%(stat_month)s,%(payment_time)s,%(refund_time)s,%(platform_order_no)s,%(inventory_sku)s,%(purchase_quantity)s,
                  %(paid_amount_cny)s,%(shipping_amount_cny)s,%(platform_fee_cny)s,%(order_profit_cny)s,%(paid_amount_original)s,
                  %(shipping_amount_original)s,%(refund_quantity)s,%(refund_amount_original)s,%(refund_amount_cny)s,
                  %(shipping_status)s,
-                 %(currency_code)s,%(customer_id)s,%(site_code)s,%(site_name)s,%(country_name)s,
+                 %(currency_code)s,%(customer_id)s,%(site_code)s,%(site_name)s,%(shop_name)s,%(country_name)s,
                  %(picture_url)s,%(product_name_cn)s,%(listing_url)s,%(order_remark)s,%(import_batch_id)s,%(source_row)s)""", rows)
             cursor.execute(
                 """INSERT INTO ebay_sku_analysis_import_batch
@@ -958,6 +967,7 @@ def _row(record, batch_id, file_name, sheet):
             "shipping_status": _text(record.get("发货状态")), "currency_code": _text(record.get("币种")),
             "exchange_rate": _decimal(record["_exchange"]), "customer_id": _text(record.get("客户ID")) or None,
             "site_code": record["_site_code"], "site_name": site_name,
+            "shop_name": record["_shop"],
             "country_name": site_name, "source_site_name": source_site or None}
 
 
@@ -997,6 +1007,7 @@ def _ensure_tables():
 def _initialize_tables():
     missing_columns = {
         "ods_ebay_sku_analysis_order_raw": {
+            "source_shop_name": "VARCHAR(191) DEFAULT NULL COMMENT 'Excel第一列原始店铺名称，2026-09-24起模板新增' AFTER source_row",
             "source_site_name": "VARCHAR(100) DEFAULT NULL COMMENT 'Excel第一列原始站点' AFTER source_row",
             "goods_receivable_cny": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '应收货款（订单级别，人民币）' AFTER goods_receivable_original",
             "shipping_receivable_cny": "DECIMAL(20,6) NOT NULL DEFAULT 0 COMMENT '应收运费（人民币）' AFTER shipping_receivable_original",
@@ -1016,6 +1027,9 @@ def _initialize_tables():
             "shipping_status": "VARCHAR(64) DEFAULT NULL COMMENT '发货状态' AFTER refund_amount_original",
             "currency_code": "VARCHAR(16) DEFAULT NULL COMMENT '币种' AFTER shipping_status",
             "site_name": "VARCHAR(100) NOT NULL DEFAULT '其他' COMMENT '中文站点名称' AFTER site_code",
+            # 空串代表「这批订单是2026-09-24模板之前上传的，源文件里没有店铺列」，
+            # 不是「没有店铺」。按店铺筛选时这些行落在"未知店铺"里，要重传才有。
+            "shop_name": "VARCHAR(191) NOT NULL DEFAULT '' COMMENT '店铺名称，取上传源数据；空串=该批次源文件没有店铺列' AFTER site_name",
             "picture_url": "TEXT DEFAULT NULL COMMENT '图片链接，取上传源数据' AFTER country_name",
             "product_name_cn": "VARCHAR(500) DEFAULT NULL COMMENT '产品名称（中文），取上传源数据' AFTER picture_url",
             "listing_url": "TEXT DEFAULT NULL COMMENT 'Listing链接，取上传源数据' AFTER product_name_cn",
@@ -1029,6 +1043,7 @@ def _initialize_tables():
         "dwd_ebay_sku_analysis_order": {
             "idx_esa_dwd_site_sku_time": "(site_name,inventory_sku,payment_time)",
             "idx_esa_dwd_return_time": "(refund_time,site_name,inventory_sku)",
+            "idx_esa_dwd_shop_time": "(shop_name,payment_time)",
         },
     }
     required_tables = {

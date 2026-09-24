@@ -96,9 +96,11 @@ public class PerformancePythonClient extends PythonHttpSupport
                 Map.of("month", month == null ? "" : month, "shop", shop == null ? "" : shop), requestId);
     }
 
-    public Map<String, Object> ebayProductStructure(String year, String requestId)
+    /** shops 为逗号分隔的店铺名，留空表示整个eBay合计。 */
+    public Map<String, Object> ebayProductStructure(String year, String shops, String requestId)
     {
-        return get("/ebay-price-tier/product-structure", Map.of("year", year == null ? "" : year), requestId);
+        return get("/ebay-price-tier/product-structure",
+                Map.of("year", year == null ? "" : year, "shops", shops == null ? "" : shops), requestId);
     }
 
     public Map<String, Object> amzPriceTierSummary(String requestId)

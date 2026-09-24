@@ -124,3 +124,52 @@ def test_actual_sales_ctes_exclude_voided_and_upper_date_boundary():
             assert [row[:3] for row in actual] == [("德国", "DAS-10053-0121", expected)]
     finally:
         db.close()
+
+
+# --------------------------------------------------------------- 店铺名称列
+
+def test_shop_name_is_the_first_template_column():
+    """数字酋长 2026-09-24 起在最前面加了「店铺名称」。
+
+    模板校验是按位置逐列比对的，顺序错了会把整份文件拒掉，所以钉住第一列。
+    """
+    assert orders.ORDER_TEMPLATE_COLUMNS[0] == "店铺名称"
+    assert orders.ORDER_TEMPLATE_COLUMNS[1] == "站点"
+    assert orders.SOURCE_COLUMN_MAP["店铺名称"] == "source_shop_name"
+
+
+def test_old_template_without_shop_column_is_rejected_pointing_at_column_one():
+    """旧模板必须被拒，且报错要指到第1列，不能只说"列数不对"。"""
+    old = [c for c in orders.ORDER_TEMPLATE_COLUMNS if c != "店铺名称"]
+    with pytest.raises(ValueError) as error:
+        orders._validate_order_template_columns(old, "旧模板.xlsx")
+    assert "第1列应为“店铺名称”" in str(error.value)
+
+
+def test_shop_name_reaches_both_layers():
+    """ODS 存源文件原值，DWD 存清洗后的值，两边都要有。"""
+    frame = pd.DataFrame([{**order(), "店铺名称": "  Oyeah-Motor  "}])
+    valid, _ = orders._prepare_order_frame(frame)
+    row = orders._row(valid.iloc[0], "batch", "f.xlsx", "Sheet1")
+    assert row["source_shop_name"] == "Oyeah-Motor"
+    assert row["shop_name"] == "Oyeah-Motor"
+
+
+@pytest.mark.parametrize("value", [None, "", "  ", "-", "nan"])
+def test_missing_shop_becomes_empty_string_not_a_fake_shop(value):
+    """源文件里确实有空店铺的行（实测5951行里369行是空的）。
+
+    空串的含义是"这行没有店铺"，按店铺筛时落进"未知店铺"，
+    绝不能变成一家叫 nan 或 - 的店。
+    """
+    frame = pd.DataFrame([{**order(), "店铺名称": value}])
+    valid, _ = orders._prepare_order_frame(frame)
+    assert orders._row(valid.iloc[0], "b", "f", "s")["shop_name"] == ""
+
+
+def test_shop_column_is_declared_in_the_schema_migration():
+    """自动补列表里少了它，老库升级上来就没有这两列，上传会直接报字段不存在。"""
+    import inspect
+    source = inspect.getsource(orders._initialize_tables)
+    assert "source_shop_name" in source and "shop_name" in source
+    assert "idx_esa_dwd_shop_time" in source

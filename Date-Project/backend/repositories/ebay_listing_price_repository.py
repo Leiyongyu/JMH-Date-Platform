@@ -390,22 +390,29 @@ def tier_breakdown(stat_month="", shop=""):
                     state=current, rates=rates, rate_months=rate_months, stale=stale)
 
 
-def sku_tiers(cursor, stat_month):
-    """某月每个SKU的档位，不分店铺不分站点；产品结构的两张图用它。
+def sku_tiers(cursor, stat_month, shops=None):
+    """某月每个SKU的档位，不分站点；产品结构的两张图用它。
 
     同一SKU在不同店铺/站点售价不同时取**最低价**那一档，与分层报表的
     店铺行用的是同一条规则。取平均会让一个站点的清仓价把整体拉低一档，
     取最高又会被某个站点的高价单挑起来，最低价至少是个确定的、
     页面上说得清的口径。
+
+    shops 给了就只看这几家店的挂牌价——筛店铺时销量也只算这几家，
+    两边得用同一批店，不然会拿甲店的价格给乙店的销量分档。
     """
-    cursor.execute(
-        f"""SELECT sku, MIN(price_usd) AS price_usd, MIN(tier_no) AS tier_no,
-                   COUNT(*) AS shop_site_count
-            FROM {DWS_TABLE} WHERE stat_month=%s GROUP BY sku""", (stat_month,))
+    sql = (f"SELECT sku, MIN(price_usd) AS price_usd, MIN(tier_no) AS tier_no,"
+           f"       COUNT(*) AS shop_site_count "
+           f"FROM {DWS_TABLE} WHERE stat_month=%s")
+    args = [stat_month]
+    if shops:
+        sql += f" AND seller_account IN ({','.join(['%s'] * len(shops))})"
+        args += list(shops)
+    cursor.execute(sql + " GROUP BY sku", args)
     return {row["sku"]: row for row in cursor.fetchall()}
 
 
-def sku_tier_lookup(cursor, wanted_months):
+def sku_tier_lookup(cursor, wanted_months, shops=None):
     """给一串统计月份，各自返回「SKU -> 档位」。
 
     某个月没有刊登快照时退回到**不晚于该月的最近一个有快照的月份**，
@@ -427,7 +434,7 @@ def sku_tier_lookup(cursor, wanted_months):
             source = earlier[-1] if earlier else ordered[0]
         used[month] = source
         if source not in cache:
-            cache[source] = sku_tiers(cursor, source)
+            cache[source] = sku_tiers(cursor, source, shops)
     return {month: cache[source] for month, source in used.items()}, used
 
 
@@ -457,34 +464,62 @@ _SALES_BY_SKU = f"""
 """
 
 
-def sales_by_sku(cursor, year=None):
-    """各月各SKU的销量与订单数；不分站点、不分店铺，看总的。
+def sales_by_sku(cursor, year=None, shops=None):
+    """各月各SKU的销量与订单数；不分站点，shops 为空则看全 eBay 合计。
 
     销量是毛销量（purchase_quantity），不扣退货——与 eBay 补货2.0 同口径，
     退货量单列一列，需要看净销量时自己减。
+
+    店铺列是 2026-09-24 才随数字酋长模板加上的。在那之前上传的批次
+    shop_name 是空串，按店铺筛时这些行一条都出不来——不是漏算，是源文件
+    当时就没有店铺，得用新模板把那些月份重传。sales_shop_coverage
+    专门把这件事量出来给页面提示。
     """
-    sql = _SALES_BY_SKU.format(
-        year_clause="AND o.payment_time >= %s AND o.payment_time < %s" if year else "")
-    args = (f"{int(year)}-01-01", f"{int(year) + 1}-01-01") if year else ()
-    cursor.execute(sql, args)
+    conditions = ""
+    args = []
+    if year:
+        conditions += " AND o.payment_time >= %s AND o.payment_time < %s"
+        args += [f"{int(year)}-01-01", f"{int(year) + 1}-01-01"]
+    if shops:
+        conditions += f" AND o.shop_name IN ({','.join(['%s'] * len(shops))})"
+        args += list(shops)
+    cursor.execute(_SALES_BY_SKU.format(year_clause=conditions), tuple(args))
     return list(cursor.fetchall())
 
 
-def defect_by_sku(cursor, year=None):
-    """各月各SKU的总交易量与不良交易量，来自飞书不良交易刊登表。
-
-    源表是按 月×店铺×SKU 存的，这里把店铺维度抹掉聚到SKU级：
-    档位现在由在售刊登定，而在售刊登的店铺命名（卖家账号）和飞书表里的
-    店铺名不是一套，硬对店铺只会对错。量本身跨店铺相加是对的。
-    """
-    sql = (f"SELECT stat_month, sku, SUM(total_qty) AS total_qty, "
-           f"SUM(defect_qty) AS defect_qty FROM {DEFECT_TABLE} ")
+def sales_shop_coverage(cursor, year=None):
+    """各月订单里有多少销量带得上店铺名。页面按店铺筛时要据此提示。"""
+    sql = (f"SELECT DATE_FORMAT(o.payment_time,'%%Y-%%m') AS stat_month,"
+           f"       SUM(o.purchase_quantity) AS total_qty,"
+           f"       SUM(IF(TRIM(IFNULL(o.shop_name,''))<>'', o.purchase_quantity, 0)) AS shop_qty "
+           f"FROM {ORDER_TABLE} o WHERE o.payment_time IS NOT NULL")
     args = ()
     if year:
-        sql += "WHERE stat_month LIKE %s "
-        args = (f"{year}-%",)
+        sql += " AND o.payment_time >= %s AND o.payment_time < %s"
+        args = (f"{int(year)}-01-01", f"{int(year) + 1}-01-01")
+    cursor.execute(sql + " GROUP BY 1 ORDER BY 1", args)
+    return list(cursor.fetchall())
+
+
+def defect_by_sku(cursor, year=None, shops=None):
+    """各月各SKU的总交易量与不良交易量，来自飞书不良交易刊登表。
+
+    源表是按 月×店铺×SKU 存的，不筛店铺时把店铺维度抹掉聚到SKU级；
+    筛了就只算这几家店。注意传进来的 shops 必须已经是**飞书那套店铺名**，
+    调用方用 shop_directory 换算过——这张表里是「帝蓝泰江-eBay-Oyeah Motor」，
+    不是 eBay 卖家账号 oyeah-motor，直接拿账号名来筛一行都匹配不上。
+    """
+    sql = (f"SELECT stat_month, sku, SUM(total_qty) AS total_qty, "
+           f"SUM(defect_qty) AS defect_qty FROM {DEFECT_TABLE} WHERE 1=1 ")
+    args = []
+    if year:
+        sql += "AND stat_month LIKE %s "
+        args.append(f"{year}-%")
+    if shops:
+        sql += f"AND shop IN ({','.join(['%s'] * len(shops))}) "
+        args += list(shops)
     sql += "GROUP BY stat_month, sku"
-    cursor.execute(sql, args)
+    cursor.execute(sql, tuple(args))
     return list(cursor.fetchall())
 
 
@@ -533,3 +568,106 @@ def source_pulled_at(cursor, stat_month):
     cursor.execute(f"SELECT MAX(pulled_at) AS t FROM {ODS_TABLE} WHERE stat_month=%s",
                    (stat_month,))
     return (cursor.fetchone() or {}).get("t")
+
+
+# ------------------------------------------------------------ 店铺名三边归一
+#
+# 同一家店在三张表里写法都不一样，改不动源头，只能在读取侧归一：
+#   在售刊登（档位）  seller_account   oyeah-motor
+#   订单（销量）      shop_name        Oyeah-Motor
+#   飞书（不良量）    shop             帝蓝泰江-eBay-Oyeah Motor
+# 比对键只留字母数字并统一小写，抹平大小写、连字符、下划线、空格的差异；
+# 飞书那套带公司前缀，所以用「后缀匹配」而不是相等。规则本身只此一处，
+# 与飞书表内部的改名归一共用 _match_key。
+#
+# 实测 2026-09：37个卖家账号与飞书40个店名 1:1 全部对上、0歧义；订单文件里
+# 37个店名有35个对得上，Global-Auto-Store 与 kelan 没有 eBay 授权凭证，
+# 单独作为一家店列出来，不硬塞给别人。
+
+def _suffix_match(key, candidates):
+    """candidates 里键以 key 结尾（或反之）且唯一的那一个；有歧义就不认。
+
+    宁可让一家店单独列着，也不能把两家店合成一家——合错了在图上看不出来。
+    """
+    hit = [name for name, other in candidates.items()
+           if other and (other.endswith(key) or key.endswith(other))]
+    return hit[0] if len(hit) == 1 else ""
+
+
+def shop_directory(cursor):
+    """产品结构的店铺选择器：三张表的店铺并成一份名单。
+
+    返回 [{value, label, seller_account, feishu_shop, order_shop, has_sales,
+           has_defect, has_tier}]，按名称排序。value 就是 label，页面传回来
+    什么就按什么找——真正的匹配靠下面算好的三个字段，不在SQL里做归一，
+    免得把索引废掉。
+    """
+    from backend.repositories.ebay_sku_unit_price_repository import _match_key
+
+    def distinct(sql):
+        cursor.execute(sql)
+        return sorted({str(r["v"]).strip() for r in cursor.fetchall() if str(r["v"] or "").strip()})
+
+    accounts = distinct(f"SELECT DISTINCT seller_account AS v FROM {DWS_TABLE}")
+    order_shops = distinct(f"SELECT DISTINCT shop_name AS v FROM {ORDER_TABLE}")
+    feishu_shops = distinct(f"SELECT DISTINCT shop AS v FROM {DEFECT_TABLE}")
+    order_keys = {name: _match_key(name) for name in order_shops}
+    feishu_keys = {name: _match_key(name) for name in feishu_shops}
+
+    entries = []
+    # 认领制：卖家账号优先成组，被它认领走的订单名/飞书名不再单独起一组。
+    # 不能按「各自名字的归一键」去重——飞书名带公司前缀，它的键和卖家账号的键
+    # 本来就不相等，用 setdefault 会让同一家店出现两次（实测选项数 40 虚增到 77）。
+    claimed_order, claimed_feishu = set(), set()
+    for account in accounts:
+        key = _match_key(account)
+        order_shop = _suffix_match(key, order_keys)
+        feishu_shop = _suffix_match(key, feishu_keys)
+        claimed_order.add(order_shop)
+        claimed_feishu.add(feishu_shop)
+        entries.append(dict(value=account, label=account, seller_account=account,
+                            order_shop=order_shop, feishu_shop=feishu_shop))
+    # 没有 eBay 授权凭证的店（订单里在卖、飞书里有记录，但拉不到在售刊登）
+    # 也要能选到，否则它们的销量和不良量只有"全部"模式下才看得见。
+    for name in order_shops:
+        if name in claimed_order:
+            continue
+        feishu_shop = _suffix_match(_match_key(name), feishu_keys)
+        claimed_feishu.add(feishu_shop)
+        entries.append(dict(value=name, label=name, seller_account="",
+                            order_shop=name, feishu_shop=feishu_shop))
+    for name in feishu_shops:
+        if name in claimed_feishu:
+            continue
+        entries.append(dict(value=name, label=name, seller_account="",
+                            order_shop="", feishu_shop=name))
+    for entry in entries:
+        entry["has_tier"] = bool(entry["seller_account"])
+        entry["has_sales"] = bool(entry["order_shop"])
+        entry["has_defect"] = bool(entry["feishu_shop"])
+    return sorted(entries, key=lambda e: e["label"].lower())
+
+
+def resolve_shops(cursor, selected):
+    """页面选的店铺名 -> 三张表各自该用的名字。
+
+    选了库里没有的名字直接报错，不当成"全部"——默默返回全量会让人以为
+    筛生效了，看到的却是全站数字。
+    """
+    from backend.repositories.ebay_sku_unit_price_repository import _match_key
+
+    names = [str(name).strip() for name in (selected or []) if str(name or "").strip()]
+    if not names:
+        return dict(labels=[], accounts=[], order_shops=[], feishu_shops=[], unknown=[])
+    directory = {_match_key(entry["value"]): entry for entry in shop_directory(cursor)}
+    picked, unknown = [], []
+    for name in names:
+        entry = directory.get(_match_key(name))
+        (picked.append(entry) if entry else unknown.append(name))
+    if unknown:
+        raise ValueError(f"选择的店铺不在可选范围内：{'、'.join(unknown)}")
+    return dict(
+        labels=[e["label"] for e in picked],
+        accounts=[e["seller_account"] for e in picked if e["seller_account"]],
+        order_shops=[e["order_shop"] for e in picked if e["order_shop"]],
+        feishu_shops=[e["feishu_shop"] for e in picked if e["feishu_shop"]])

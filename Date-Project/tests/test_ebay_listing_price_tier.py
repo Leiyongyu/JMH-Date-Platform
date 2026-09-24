@@ -284,18 +284,34 @@ def test_refresh_runs_both_etls_then_reads(monkeypatch):
 
 # -------------------------------------------------------------- 产品结构
 
-def structure(monkeypatch, sales=(), defects=(), tiers=None, used=None, years=("2026",)):
+def structure(monkeypatch, sales=(), defects=(), tiers=None, used=None, years=("2026",),
+              directory=(), shops="", captured=None):
+    seen = captured if captured is not None else {}
     monkeypatch.setattr(repo, "structure_years", lambda cur: list(years))
-    monkeypatch.setattr(repo, "sales_by_sku", lambda cur, year=None: list(sales))
-    monkeypatch.setattr(repo, "defect_by_sku", lambda cur, year=None: list(defects))
-    monkeypatch.setattr(repo, "sku_tier_lookup",
-                        lambda cur, wanted: (tiers or {}, used or {m: m for m in wanted}))
+    monkeypatch.setattr(repo, "shop_directory", lambda cur: list(directory))
+    monkeypatch.setattr(repo, "sales_shop_coverage", lambda cur, year=None: [])
+
+    def sales_by_sku(cur, year=None, picked=None):
+        seen["sales_shops"] = picked
+        return list(sales)
+
+    def defect_by_sku(cur, year=None, picked=None):
+        seen["defect_shops"] = picked
+        return list(defects)
+
+    def tier_lookup(cur, wanted, picked=None):
+        seen["tier_shops"] = picked
+        return (tiers or {}, used or {m: m for m in wanted})
+
+    monkeypatch.setattr(repo, "sales_by_sku", sales_by_sku)
+    monkeypatch.setattr(repo, "defect_by_sku", defect_by_sku)
+    monkeypatch.setattr(repo, "sku_tier_lookup", tier_lookup)
     connection = MagicMock()
     connection.cursor.return_value.__enter__.return_value = MagicMock()
     context = MagicMock()
     context.__enter__.return_value = connection
     monkeypatch.setattr("backend.services.ebay_price_tier_service.db_connection", lambda: context)
-    return api.product_structure("2026")
+    return api.product_structure("2026", shops)
 
 
 def sale(month, sku, qty, rows=1, refund=0):
@@ -387,7 +403,7 @@ def test_note_states_the_defect_denominator_caveat(monkeypatch):
 
 def test_tier_lookup_prefers_the_same_month(monkeypatch):
     monkeypatch.setattr(repo, "months", lambda cursor=None: ["2026-09", "2026-08"])
-    monkeypatch.setattr(repo, "sku_tiers", lambda cur, month: {"A": {"tier_no": 1, "month": month}})
+    monkeypatch.setattr(repo, "sku_tiers", lambda cur, month, picked=None: {"A": {"tier_no": 1, "month": month}})
     tiers, used = repo.sku_tier_lookup(MagicMock(), ["2026-08", "2026-09"])
     assert used == {"2026-08": "2026-08", "2026-09": "2026-09"}
     assert tiers["2026-08"]["A"]["month"] == "2026-08"
@@ -396,7 +412,7 @@ def test_tier_lookup_prefers_the_same_month(monkeypatch):
 def test_tier_lookup_falls_back_to_the_latest_snapshot_not_after_that_month(monkeypatch):
     """优先用不晚于该月的最近快照；该月之前一个快照都没有才用最早的那个。"""
     monkeypatch.setattr(repo, "months", lambda cursor=None: ["2026-09", "2026-07"])
-    monkeypatch.setattr(repo, "sku_tiers", lambda cur, month: {"A": {"tier_no": 1, "month": month}})
+    monkeypatch.setattr(repo, "sku_tiers", lambda cur, month, picked=None: {"A": {"tier_no": 1, "month": month}})
     _tiers, used = repo.sku_tier_lookup(MagicMock(), ["2026-05", "2026-08", "2026-10"])
     assert used == {"2026-05": "2026-07", "2026-08": "2026-07", "2026-10": "2026-09"}
 
@@ -404,3 +420,135 @@ def test_tier_lookup_falls_back_to_the_latest_snapshot_not_after_that_month(monk
 def test_tier_lookup_on_an_empty_warehouse_returns_nothing(monkeypatch):
     monkeypatch.setattr(repo, "months", lambda cursor=None: [])
     assert repo.sku_tier_lookup(MagicMock(), ["2026-08"]) == ({}, {})
+
+
+# ---------------------------------------------------------- 产品结构店铺筛选
+
+def entry(label, account=None, order=None, feishu=None):
+    return dict(value=label, label=label,
+                seller_account=label if account is None else account,
+                order_shop=label if order is None else order,
+                feishu_shop=label if feishu is None else feishu,
+                has_tier=bool(label if account is None else account),
+                has_sales=bool(label if order is None else order),
+                has_defect=bool(label if feishu is None else feishu))
+
+
+def test_no_shop_selected_means_whole_ebay(monkeypatch):
+    """不选=整个eBay合计，三张表都不加店铺条件。"""
+    seen = {}
+    result = structure(monkeypatch, sales=[sale("2026-08", "A", 10)],
+                       tiers={"2026-08": {"A": {"tier_no": 2}}},
+                       directory=[entry("shopA")], captured=seen)
+    assert seen["sales_shops"] == [] and seen["defect_shops"] == [] and seen["tier_shops"] == []
+    assert result["selected_shops"] == []
+
+
+def test_each_table_gets_its_own_spelling_of_the_shop(monkeypatch):
+    """同一家店三张表写法不同，必须各传各的名字，不能把卖家账号硬塞给飞书表。"""
+    seen = {}
+    structure(monkeypatch, sales=[sale("2026-08", "A", 10)],
+              tiers={"2026-08": {"A": {"tier_no": 2}}},
+              directory=[entry("oyeah-motor", order="Oyeah-Motor",
+                               feishu="帝蓝泰江-eBay-Oyeah Motor")],
+              shops="oyeah-motor", captured=seen)
+    assert seen["tier_shops"] == ["oyeah-motor"]
+    assert seen["sales_shops"] == ["Oyeah-Motor"]
+    assert seen["defect_shops"] == ["帝蓝泰江-eBay-Oyeah Motor"]
+
+
+def test_multiple_shops_are_combined(monkeypatch):
+    seen = {}
+    result = structure(monkeypatch, sales=[sale("2026-08", "A", 10)],
+                       tiers={"2026-08": {"A": {"tier_no": 2}}},
+                       directory=[entry("shopA"), entry("shopB"), entry("shopC")],
+                       shops="shopA,shopC", captured=seen)
+    assert seen["tier_shops"] == ["shopA", "shopC"]
+    assert result["selected_shops"] == ["shopA", "shopC"]
+
+
+def test_shop_without_an_ebay_account_still_filters_sales(monkeypatch):
+    """没配 eBay 授权的店（实测 Global-Auto-Store、kelan）也要能选。
+
+    它没有在售刊登，所以档位那张表不加条件——加了会把别的店的档位也滤掉，
+    结果一个SKU都配不上档。
+    """
+    seen = {}
+    structure(monkeypatch, sales=[sale("2026-08", "A", 10)],
+              tiers={"2026-08": {"A": {"tier_no": 2}}},
+              directory=[entry("Global-Auto-Store", account="", feishu="")],
+              shops="Global-Auto-Store", captured=seen)
+    assert seen["sales_shops"] == ["Global-Auto-Store"]
+    assert seen["tier_shops"] == [] and seen["defect_shops"] == []
+
+
+def test_shop_options_ride_along_with_the_response(monkeypatch):
+    """选择器的选项必须跟数据一起返回，否则页面没东西可选。"""
+    result = structure(monkeypatch, sales=[sale("2026-08", "A", 10)],
+                       tiers={"2026-08": {"A": {"tier_no": 2}}},
+                       directory=[entry("shopA"), entry("kelan", account="", feishu="")])
+    assert [s["label"] for s in result["shops"]] == ["shopA", "kelan"]
+    assert result["shops"][1]["has_tier"] is False and result["shops"][1]["has_sales"] is True
+
+
+# ---------------------------------------------------- 店铺名三边归一（仓库层）
+
+def directory_cursor(accounts, order_shops, feishu_shops):
+    cursor = MagicMock()
+    batches = [[{"v": x} for x in accounts], [{"v": x} for x in order_shops],
+               [{"v": x} for x in feishu_shops]]
+    cursor.fetchall.side_effect = batches
+    return cursor
+
+
+def test_directory_matches_across_case_separators_and_company_prefix():
+    """订单文件 Oyeah-Motor、账号 oyeah-motor、飞书带公司前缀，得认成一家。"""
+    cursor = directory_cursor(["oyeah-motor", "autoteile-fast-ship"],
+                              ["Oyeah-Motor", "autoteilefastship"],
+                              ["帝蓝泰江-eBay-Oyeah Motor", "eBay-湘彦-DE-Autoteile-Fast-Ship"])
+    found = {e["label"]: e for e in repo.shop_directory(cursor)}
+    assert found["oyeah-motor"]["order_shop"] == "Oyeah-Motor"
+    assert found["oyeah-motor"]["feishu_shop"] == "帝蓝泰江-eBay-Oyeah Motor"
+    assert found["autoteile-fast-ship"]["order_shop"] == "autoteilefastship"
+    assert found["autoteile-fast-ship"]["feishu_shop"] == "eBay-湘彦-DE-Autoteile-Fast-Ship"
+
+
+def test_shops_only_in_one_source_are_listed_on_their_own():
+    """订单里在卖但没配 eBay 凭证的店要单独列出来，不能悄悄消失。"""
+    cursor = directory_cursor(["shopa"], ["ShopA", "Global-Auto-Store"], ["飞书-ShopA"])
+    found = {e["label"]: e for e in repo.shop_directory(cursor)}
+    assert set(found) == {"shopa", "Global-Auto-Store"}
+    assert found["Global-Auto-Store"]["has_tier"] is False
+    assert found["Global-Auto-Store"]["has_sales"] is True
+
+
+def test_ambiguous_suffix_is_not_merged():
+    """一个键同时是两家店的后缀就不认，宁可分开列——合错了图上看不出来。"""
+    cursor = directory_cursor(["hub"], ["autoteile-hub", "treasures-hub"], [])
+    found = {e["label"]: e for e in repo.shop_directory(cursor)}
+    assert found["hub"]["order_shop"] == ""
+
+
+def test_unknown_shop_is_refused_not_silently_treated_as_all(monkeypatch):
+    """选了库里没有的店就报错。默默返回全量会让人以为筛生效了。"""
+    monkeypatch.setattr(repo, "shop_directory", lambda cur: [entry("shopA")])
+    with pytest.raises(ValueError, match="不在可选范围内"):
+        repo.resolve_shops(MagicMock(), ["shopA", "不存在的店"])
+
+
+def test_blank_entries_are_ignored_so_a_stray_comma_is_not_an_error(monkeypatch):
+    monkeypatch.setattr(repo, "shop_directory", lambda cur: [entry("shopA")])
+    assert repo.resolve_shops(MagicMock(), ["", "  ", None])["labels"] == []
+
+
+def test_one_shop_is_one_option_even_though_the_three_tables_spell_it_differently():
+    """飞书名带公司前缀，它的归一键和卖家账号的键本来就不相等。
+
+    按「各自名字的键」去重的话同一家店会出现两次——实测选项数从40虚增到77。
+    认领制：账号先成组，被它认领走的订单名/飞书名不再单独起一组。
+    """
+    cursor = directory_cursor(["oyeah-motor"], ["Oyeah-Motor"],
+                              ["帝蓝泰江-eBay-Oyeah Motor"])
+    found = repo.shop_directory(cursor)
+    assert [e["label"] for e in found] == ["oyeah-motor"]
+    assert found[0]["has_tier"] and found[0]["has_sales"] and found[0]["has_defect"]

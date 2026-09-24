@@ -28,13 +28,14 @@ public class EbayPriceTierController extends BaseController
         return success(pythonClient.ebayPriceTierSummary(month, shop, requestId).get("data"));
     }
 
-    /** 产品结构：各月各价格档的不良交易率，只读，不触发任何重算。 */
+    /** 产品结构三图，只读，不触发任何重算。shops 为逗号分隔的店铺名，留空为全eBay合计。 */
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list')")
     @GetMapping("/product-structure")
     public AjaxResult productStructure(@RequestParam(value = "year", required = false) String year,
+            @RequestParam(value = "shops", required = false) String shops,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
-        return success(pythonClient.ebayProductStructure(year, requestId).get("data"));
+        return success(pythonClient.ebayProductStructure(year, shops, requestId).get("data"));
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list')")

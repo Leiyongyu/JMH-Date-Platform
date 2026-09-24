@@ -135,31 +135,44 @@ def refresh_report(month='', shop=''):
     return dict(read_report(month, shop), etl=refreshed, defect_refresh=defect)
 
 
-def product_structure(year=''):
+def product_structure(year='', shops=''):
     """产品结构一页三图：销售数量占比、不良交易率、转化率（未接入）。
 
     三张图共用同一套价格档：在售刊登的挂牌价换成美元后落七档。
     事实数据各自来源不同（销量来自订单清洗层，不良量来自飞书表），
     但"这个SKU属于哪一档"只有一个定义，三张图才能横着看。
+
+    shops 是逗号分隔的店铺名（也接受列表），留空就是整个 eBay 合计。
+    同一家店在三张表里写法不同，resolve_shops 负责换算成各表自己的名字。
     """
     year = str(year or '').strip()
+    selected = shops if isinstance(shops, (list, tuple)) else str(shops or '').split(',')
     with db_connection() as connection, connection.cursor() as cursor:
         years = listing_price.structure_years(cursor)
         if year and year not in years:
             year = ''
         if not year and years:
             year = years[0]
-        sales_rows = listing_price.sales_by_sku(cursor, year or None)
-        defect_rows = listing_price.defect_by_sku(cursor, year or None)
+        directory = listing_price.shop_directory(cursor)
+        picked = listing_price.resolve_shops(cursor, selected)
+        sales_rows = listing_price.sales_by_sku(cursor, year or None, picked['order_shops'])
+        defect_rows = listing_price.defect_by_sku(cursor, year or None, picked['feishu_shops'])
         wanted = sorted({row['stat_month'] for row in sales_rows}
                         | {row['stat_month'] for row in defect_rows})
-        tiers, tier_source = listing_price.sku_tier_lookup(cursor, wanted)
+        tiers, tier_source = listing_price.sku_tier_lookup(cursor, wanted, picked['accounts'])
+        coverage = listing_price.sales_shop_coverage(cursor, year or None)
 
     sales = _sales_share(sales_rows, tiers)
     defect = _defect_rate(defect_rows, tiers)
     fallback = sorted({f'{m}→{s}' for m, s in tier_source.items() if m != s})
     return dict(
         years=years, year=year, tier_source=tier_source,
+        shops=[dict(value=e['value'], label=e['label'], has_sales=e['has_sales'],
+                    has_defect=e['has_defect'], has_tier=e['has_tier']) for e in directory],
+        selected_shops=picked['labels'],
+        shop_coverage=[dict(stat_month=r['stat_month'],
+                            rate=_ratio(int(r['shop_qty'] or 0), int(r['total_qty'] or 0)))
+                       for r in coverage],
         months=defect['months'], series=defect['series'], details=defect['details'],
         sales=sales,
         note='价格档统一来自 eBay 在售刊登：挂牌价按 dim_lingxing_currency_month.rate_org '

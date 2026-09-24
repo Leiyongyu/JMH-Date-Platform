@@ -227,3 +227,23 @@ test('eBay 卡片同时显示店铺SKU数与去重SKU数；AMZ 保持原样', as
    total_sku_count:2,rate_month:'2026-09',missing_currencies:[]})
  assert.doesNotMatch(amz, /个去重SKU/);assert.doesNotMatch(amz, /个店铺SKU/)
 })
+
+test('产品结构有多选店铺筛选，不选=全eBay合计', () => {
+ const source = fs.readFileSync(new URL('../src/components/ListingPriceTierChart/ProductStructure.vue', import.meta.url), 'utf8')
+ // 多选 + 折叠标签，37家店选几家也不会把工具栏撑开。
+ assert.match(source, /v-model="shops"\s+multiple/)
+ assert.match(source, /collapse-tags/)
+ assert.match(source, /全部店铺（整个eBay合计）/)
+ // 选项要跟数据一起回来，页面不自己拼店铺清单。
+ assert.match(source, /shopOptions/)
+ assert.match(source, /data\.value\?\.shops/)
+ // 店铺要真的传给后端，否则选了也只是摆设。
+ assert.match(source, /getEbayProductStructure\(year\.value, shops\.value\)/)
+ // 旧模板月份没有店铺列，按店铺筛会偏少，必须提示而不是默默出个小数字。
+ assert.match(source, /旧模板/)
+})
+
+test('产品结构接口把店铺拼成逗号串', () => {
+ const source = fs.readFileSync(new URL('../src/api/operations/listingPriceTier.js', import.meta.url), 'utf8')
+ assert.match(source, /shops: \(shops \|\| \[\]\)\.join\(','\)/)
+})
