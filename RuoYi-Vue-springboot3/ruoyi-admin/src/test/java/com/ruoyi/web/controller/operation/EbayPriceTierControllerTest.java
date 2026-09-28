@@ -25,7 +25,7 @@ class EbayPriceTierControllerTest
     @Test void routesForwardTraceAndUnwrapResponse() throws Exception
     {
         var client = mock(PerformancePythonClient.class);
-        when(client.ebayPriceTierSummary("trace")).thenReturn(Map.of("data", Map.of("state", "READY")));
+        when(client.ebayPriceTierSummary(null, null, "trace")).thenReturn(Map.of("data", Map.of("state", "READY")));
         when(client.refreshEbayPriceTier("trace")).thenReturn(Map.of("data", Map.of("state", "READY")));
         var mvc = MockMvcBuilders.standaloneSetup(new EbayPriceTierController(client)).build();
         mvc.perform(get("/operations/ebay/price-tier/summary").header("X-Request-ID", "trace"))
@@ -33,8 +33,22 @@ class EbayPriceTierControllerTest
         mvc.perform(post("/operations/ebay/price-tier/refresh").header("X-Request-ID", "trace"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.state").value("READY"));
         mvc.perform(get("/operations/ebay/price-tier/refresh")).andExpect(status().isMethodNotAllowed());
-        verify(client).ebayPriceTierSummary("trace");
+        verify(client).ebayPriceTierSummary(null, null, "trace");
         verify(client).refreshEbayPriceTier("trace");
+        verifyNoMoreInteractions(client);
+    }
+
+    @Test void summaryForwardsMonthAndShop() throws Exception
+    {
+        var client = mock(PerformancePythonClient.class);
+        when(client.ebayPriceTierSummary("2026-09", "test-shop", "trace"))
+                .thenReturn(Map.of("data", Map.of("state", "READY")));
+        var mvc = MockMvcBuilders.standaloneSetup(new EbayPriceTierController(client)).build();
+        mvc.perform(get("/operations/ebay/price-tier/summary")
+                .param("month", "2026-09").param("shop", "test-shop")
+                .header("X-Request-ID", "trace"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.state").value("READY"));
+        verify(client).ebayPriceTierSummary("2026-09", "test-shop", "trace");
         verifyNoMoreInteractions(client);
     }
 
@@ -46,15 +60,15 @@ class EbayPriceTierControllerTest
             var controller = context.getBean(EbayPriceTierController.class);
             var client = context.getBean(PerformancePythonClient.class);
             var perms = context.getBean(Permissions.class);
-            assertThrows(AccessDeniedException.class, () -> controller.summary(null));
+            assertThrows(AccessDeniedException.class, () -> controller.summary(null, null, null));
             assertThrows(AccessDeniedException.class, () -> controller.refresh(null));
             perms.allowed = "operations:amzReplenishment:list";
             assertThrows(AccessDeniedException.class, () -> controller.refresh(null));
             verifyNoInteractions(client);
             perms.allowed = "operations:ebayReplenishmentV2:list";
-            when(client.ebayPriceTierSummary(null)).thenReturn(Map.of("data", Map.of("state", "READY")));
+            when(client.ebayPriceTierSummary(null, null, null)).thenReturn(Map.of("data", Map.of("state", "READY")));
             when(client.refreshEbayPriceTier(null)).thenReturn(Map.of("data", Map.of("state", "READY")));
-            assertNotNull(controller.summary(null).get("data"));
+            assertNotNull(controller.summary(null, null, null).get("data"));
             assertNotNull(controller.refresh(null).get("data"));
         }
     }
