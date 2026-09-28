@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.api.deps import require_internal_access
 from backend.api.router import api_router
 from backend.customs_declaration.app import app as customs_declaration_wsgi_app
+from backend.customs_declaration.asgi_middleware import EnsureContentLengthMiddleware
 from backend.database import init_database
 from backend.infrastructure.exception_handlers import register_exception_handlers
 from backend.infrastructure.logging import configure_logging
@@ -54,7 +55,9 @@ def create_app() -> FastAPI:
 
     customs_declaration_app.mount(
         "/",
-        WSGIMiddleware(customs_declaration_wsgi_app),
+        EnsureContentLengthMiddleware(
+            WSGIMiddleware(customs_declaration_wsgi_app)
+        ),
         name="customs-declaration-wsgi",
     )
     app.mount(

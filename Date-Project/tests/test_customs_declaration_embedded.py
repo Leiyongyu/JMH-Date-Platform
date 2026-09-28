@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 
 from backend.config import settings
@@ -77,6 +79,34 @@ def test_customs_declaration_export_uses_packaged_excel_template() -> None:
     assert response.headers["content-type"].startswith(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+    assert response.content.startswith(b"PK")
+
+
+def test_customs_declaration_export_accepts_chunked_proxy_body() -> None:
+    client = TestClient(app)
+    payload = json.dumps(
+        {
+            "items": [
+                {
+                    "sku": "BMW-TEST",
+                    "quantity": 1,
+                    "unit": "个",
+                    "description_cn": "测试商品",
+                    "currency": "USD",
+                }
+            ]
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    headers = {"Content-Type": "application/json", **_internal_headers()}
+
+    response = client.post(
+        "/customs-declaration/api/export",
+        headers=headers,
+        content=iter((payload[:17], payload[17:])),
+    )
+
+    assert response.status_code == 200
     assert response.content.startswith(b"PK")
 
 
