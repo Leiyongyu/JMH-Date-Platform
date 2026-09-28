@@ -6,6 +6,7 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -67,7 +68,8 @@ public class CustomsDeclarationProxyController
         }
         catch (IllegalArgumentException e)
         {
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            writeProxyError(response, HttpServletResponse.SC_BAD_REQUEST,
+                    "报关单代理请求参数无效");
             return;
         }
 
@@ -84,7 +86,8 @@ public class CustomsDeclarationProxyController
         String requestUri = request.getRequestURI();
         if (!requestUri.startsWith(routeStart))
         {
-            response.sendError(HttpServletResponse.SC_NOT_FOUND);
+            writeProxyError(response, HttpServletResponse.SC_NOT_FOUND,
+                    "报关单代理路径不存在");
             return;
         }
         String targetPath = requestUri.substring(routeStart.length());
@@ -92,14 +95,16 @@ public class CustomsDeclarationProxyController
             targetPath = "/";
         if (!allowed(request.getMethod(), targetPath))
         {
-            response.sendError(HttpServletResponse.SC_NOT_FOUND);
+            writeProxyError(response, HttpServletResponse.SC_NOT_FOUND,
+                    "报关单代理路径或请求方式未开放");
             return;
         }
 
         if ("POST".equalsIgnoreCase(request.getMethod())
-                && !"same-origin".equalsIgnoreCase(request.getHeader("Sec-Fetch-Site")))
+                && !sameOriginPost(request))
         {
-            response.sendError(HttpServletResponse.SC_FORBIDDEN);
+            writeProxyError(response, HttpServletResponse.SC_FORBIDDEN,
+                    "报关单请求来源校验失败，请从ERP插件菜单重新打开");
             return;
         }
 
@@ -165,6 +170,59 @@ public class CustomsDeclarationProxyController
         return base;
     }
 
+    static boolean sameOriginPost(HttpServletRequest request)
+    {
+        if ("same-origin".equalsIgnoreCase(request.getHeader("Sec-Fetch-Site")))
+            return true;
+
+        String origin = request.getHeader("Origin");
+        if (!StringUtils.hasText(origin))
+            return false;
+        try
+        {
+            URI actual = URI.create(origin.trim());
+            String scheme = firstForwarded(request.getHeader("X-Forwarded-Proto"));
+            if (!StringUtils.hasText(scheme))
+                scheme = request.getScheme();
+            String authority = firstForwarded(request.getHeader("X-Forwarded-Host"));
+            if (!StringUtils.hasText(authority))
+                authority = request.getHeader("Host");
+            if (!StringUtils.hasText(authority))
+            {
+                authority = request.getServerName();
+                int port = request.getServerPort();
+                if (port > 0 && port != defaultPort(scheme))
+                    authority += ":" + port;
+            }
+            URI expected = URI.create(scheme + "://" + authority);
+            return actual.getScheme() != null && actual.getHost() != null
+                    && actual.getScheme().equalsIgnoreCase(expected.getScheme())
+                    && actual.getHost().equalsIgnoreCase(expected.getHost())
+                    && effectivePort(actual) == effectivePort(expected);
+        }
+        catch (IllegalArgumentException e)
+        {
+            return false;
+        }
+    }
+
+    private static String firstForwarded(String value)
+    {
+        if (!StringUtils.hasText(value))
+            return null;
+        return value.split(",", 2)[0].trim();
+    }
+
+    private static int effectivePort(URI uri)
+    {
+        return uri.getPort() >= 0 ? uri.getPort() : defaultPort(uri.getScheme());
+    }
+
+    private static int defaultPort(String scheme)
+    {
+        return "https".equalsIgnoreCase(scheme) ? 443 : 80;
+    }
+
     private String cookie(HttpServletRequest request, String name)
     {
         String found = null;
@@ -204,5 +262,14 @@ public class CustomsDeclarationProxyController
         response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write(
                 "{\"detail\":\"报关单生成器会话失效或无权限，请从插件菜单重新打开\"}");
+    }
+
+    private void writeProxyError(HttpServletResponse response, int status, String message)
+            throws IOException
+    {
+        response.setStatus(status);
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"error\":\"" + message + "\"}");
     }
 }

@@ -131,12 +131,56 @@ class CustomsDeclarationProxyControllerTest
         MockHttpServletResponse forbidden = new MockHttpServletResponse();
         controller.proxy(crossSite, forbidden);
         assertEquals(403, forbidden.getStatus());
+        assertTrue(forbidden.getContentAsString().contains("请求来源校验失败"));
 
         assertFalse(CustomsDeclarationProxyController.allowed("POST", "/api/init-db"));
         assertFalse(CustomsDeclarationProxyController.allowed("GET", "/api/export"));
         assertFalse(CustomsDeclarationProxyController.allowed("GET", "/static/../app.py"));
         assertTrue(CustomsDeclarationProxyController.allowed("GET", "/api/search"));
         assertTrue(CustomsDeclarationProxyController.allowed("POST", "/api/export"));
+        verifyNoInteractions(proxyService);
+    }
+
+    @Test
+    void postFallsBackToForwardedOriginWhenFetchMetadataIsStripped() throws Exception
+    {
+        CustomsDeclarationProxyService proxyService = mock(CustomsDeclarationProxyService.class);
+        CustomsDeclarationProxyController controller = new CustomsDeclarationProxyController(
+                validSessions(), proxyService);
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "POST", CustomsDeclarationProxyController.PREFIX + "/api/export");
+        request.setCookies(new Cookie(CustomsDeclarationProxyController.SESSION_COOKIE, TOKEN));
+        request.addHeader("Origin", "https://erp.example.com");
+        request.addHeader("X-Forwarded-Proto", "https");
+        request.addHeader("X-Forwarded-Host", "erp.example.com");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.proxy(request, response);
+
+        assertEquals(200, response.getStatus());
+        verify(proxyService).forward(eq("/api/export"), eq(request), eq(response),
+                any(ImageSopSessionService.SessionContext.class),
+                eq(CustomsDeclarationProxyController.PREFIX));
+    }
+
+    @Test
+    void postRejectsMismatchedForwardedOriginWithoutErrorDispatch() throws Exception
+    {
+        CustomsDeclarationProxyService proxyService = mock(CustomsDeclarationProxyService.class);
+        CustomsDeclarationProxyController controller = new CustomsDeclarationProxyController(
+                validSessions(), proxyService);
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "POST", CustomsDeclarationProxyController.PREFIX + "/api/export");
+        request.setCookies(new Cookie(CustomsDeclarationProxyController.SESSION_COOKIE, TOKEN));
+        request.addHeader("Origin", "https://evil.example.com");
+        request.addHeader("X-Forwarded-Proto", "https");
+        request.addHeader("X-Forwarded-Host", "erp.example.com");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.proxy(request, response);
+
+        assertEquals(403, response.getStatus());
+        assertTrue(response.getContentAsString().contains("请求来源校验失败"));
         verifyNoInteractions(proxyService);
     }
 
