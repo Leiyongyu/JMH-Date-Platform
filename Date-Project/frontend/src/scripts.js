@@ -59,4 +59,18 @@ export default [
     proxyBase: '/sop/weekly-inventory/proxy',
     needSession: true,
   },
+  {
+    code: 'customs-declaration',
+    name: '报关单生成器',
+    description: '查询、维护并导出报关商品和报关单。',
+    icon: 'CD',
+    category: '报关工具',
+    tags: ['SKU 查询', '商品资料', 'Excel 导出'],
+    permission: 'customs:declaration:query',
+    transport: 'proxy',
+    page: '/index.html',
+    proxyBase: '/sop/customs-declaration/proxy',
+    devBase: 'http://127.0.0.1:5000',
+    needSession: true,
+  },
 ]

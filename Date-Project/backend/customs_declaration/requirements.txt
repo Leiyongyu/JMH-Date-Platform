@@ -1,0 +1,5 @@
+# 本模块已并入 Date-Project，正式依赖统一维护在 backend/requirements.txt。
+flask==3.1.2
+a2wsgi==1.10.10
+openpyxl==3.1.5
+pymysql==1.1.1

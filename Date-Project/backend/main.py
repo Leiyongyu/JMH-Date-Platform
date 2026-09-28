@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 
+from a2wsgi import WSGIMiddleware
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.api.deps import require_internal_access
 from backend.api.router import api_router
+from backend.customs_declaration.app import app as customs_declaration_wsgi_app
 from backend.database import init_database
 from backend.infrastructure.exception_handlers import register_exception_handlers
 from backend.infrastructure.logging import configure_logging
@@ -31,6 +33,35 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
     app.include_router(api_router)
     app.mount("/image-sop", image_sop_app, name="image-sop")
+    # 旧报关单页面已纳入 Date-Project；页面、静态资源和API统一要求Java内部访问。
+    customs_declaration_app = FastAPI(title="报关单生成系统")
+
+    @customs_declaration_app.middleware("http")
+    async def require_customs_declaration_internal_access(
+        request: Request, call_next
+    ):
+        try:
+            require_internal_access(
+                request,
+                request.headers.get("X-Internal-Token"),
+            )
+        except HTTPException as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"error": exc.detail},
+            )
+        return await call_next(request)
+
+    customs_declaration_app.mount(
+        "/",
+        WSGIMiddleware(customs_declaration_wsgi_app),
+        name="customs-declaration-wsgi",
+    )
+    app.mount(
+        "/customs-declaration",
+        customs_declaration_app,
+        name="customs-declaration",
+    )
     # eBay 价格查询工具：页面与 API 统一挂载，并且只接受 Java 代理的内部调用。
     ebay_tool_app = FastAPI(title="eBay 价格查询工具")
 

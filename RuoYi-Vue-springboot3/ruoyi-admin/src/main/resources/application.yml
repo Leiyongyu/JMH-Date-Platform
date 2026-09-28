@@ -227,6 +227,15 @@ image-sop:
     connect-timeout: 5000
     read-timeout: 900000
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+
+# 报关单页面已并入Date-Project；浏览器通过ERP短期会话和白名单代理使用。
+customs-declaration:
+  legacy:
+    base-url: ${CUSTOMS_DECLARATION_LEGACY_BASE_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}/customs-declaration}
+    connect-timeout: ${CUSTOMS_DECLARATION_LEGACY_CONNECT_TIMEOUT:5000}
+    read-timeout: ${CUSTOMS_DECLARATION_LEGACY_READ_TIMEOUT:120000}
+    internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+
 # eBay价格工具通过Java安全代理访问Python；与其他Python模块复用JMH_PYTHON_BASE_URL。
 ebay-tool:
   python:
