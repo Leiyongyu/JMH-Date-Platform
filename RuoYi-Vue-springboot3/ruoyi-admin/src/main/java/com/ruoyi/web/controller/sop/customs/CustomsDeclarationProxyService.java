@@ -33,6 +33,7 @@ import org.springframework.web.multipart.MultipartHttpServletRequest;
 @Service
 public class CustomsDeclarationProxyService
 {
+    private static final int MAX_BUFFERED_BODY_BYTES = 64 * 1024 * 1024;
     private static final String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
     private static final String REQUEST_ID_HEADER = "X-Request-ID";
     private static final String ERP_USER_ID_HEADER = "X-ERP-User-ID";
@@ -193,19 +194,44 @@ public class CustomsDeclarationProxyService
     private HttpRequest.BodyPublisher bodyPublisher(HttpServletRequest request,
             HttpRequest.Builder builder)
     {
+        if (request.getMethod().equalsIgnoreCase("GET")
+                || request.getMethod().equalsIgnoreCase("HEAD"))
+            return HttpRequest.BodyPublishers.noBody();
         if (request instanceof MultipartHttpServletRequest multipartRequest)
         {
             String boundary = "----JmhCustoms"
                     + UUID.randomUUID().toString().replace("-", "");
             builder.header(HttpHeaders.CONTENT_TYPE,
                     "multipart/form-data; boundary=" + boundary);
-            return HttpRequest.BodyPublishers.ofInputStream(
-                    () -> multipartInputStream(multipartRequest, boundary));
+            return HttpRequest.BodyPublishers.ofByteArray(
+                    readBufferedBody(multipartInputStream(multipartRequest, boundary)));
         }
-        if (request.getMethod().equalsIgnoreCase("GET")
-                || request.getMethod().equalsIgnoreCase("HEAD"))
-            return HttpRequest.BodyPublishers.noBody();
-        return HttpRequest.BodyPublishers.ofInputStream(() -> requestInputStream(request));
+
+        long contentLength = request.getContentLengthLong();
+        HttpRequest.BodyPublisher streaming = HttpRequest.BodyPublishers.ofInputStream(
+                () -> requestInputStream(request));
+        if (contentLength >= 0)
+            return HttpRequest.BodyPublishers.fromPublisher(streaming, contentLength);
+
+        // a2wsgi/Werkzeug relies on Content-Length when parsing JSON/form bodies.
+        // Buffer only clients that did not provide a length; Spring already caps uploads.
+        return HttpRequest.BodyPublishers.ofByteArray(
+                readBufferedBody(requestInputStream(request)));
+    }
+
+    private byte[] readBufferedBody(InputStream input)
+    {
+        try (InputStream stream = input)
+        {
+            byte[] body = stream.readNBytes(MAX_BUFFERED_BODY_BYTES + 1);
+            if (body.length > MAX_BUFFERED_BODY_BYTES)
+                throw new IllegalArgumentException("报关单代理请求体超过64MB");
+            return body;
+        }
+        catch (IOException e)
+        {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private InputStream multipartInputStream(MultipartHttpServletRequest request,

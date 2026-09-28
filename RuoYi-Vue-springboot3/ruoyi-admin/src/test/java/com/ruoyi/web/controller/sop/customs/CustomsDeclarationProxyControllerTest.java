@@ -212,6 +212,51 @@ class CustomsDeclarationProxyControllerTest
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void forwardsExportJsonWithKnownContentLengthForEmbeddedWsgiApp() throws Exception
+    {
+        CustomsDeclarationLegacyProperties properties =
+                new CustomsDeclarationLegacyProperties();
+        HttpClient client = mock(HttpClient.class);
+        when(client.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenAnswer(call -> {
+                    HttpResponse<InputStream> result = mock(HttpResponse.class);
+                    when(result.statusCode()).thenReturn(200);
+                    when(result.headers()).thenReturn(
+                            HttpHeaders.of(Map.of("Content-Type", List.of(
+                                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
+                                    (name, value) -> true));
+                    when(result.body()).thenReturn(new ByteArrayInputStream(
+                            new byte[]{'P', 'K'}));
+                    return result;
+                });
+        CustomsDeclarationProxyService service =
+                new CustomsDeclarationProxyService(properties, client);
+        byte[] json = "{\"items\":[{\"sku\":\"BMW-TEST\",\"quantity\":1}]}"
+                .getBytes();
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/export");
+        request.setContentType("application/json");
+        request.setContent(json);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        ImageSopSessionService.SessionContext session =
+                new ImageSopSessionService.SessionContext(
+                        7L, "tester", Set.of(CustomsDeclarationProxyController.PERMISSION),
+                        Instant.now().plusSeconds(3600));
+
+        service.forward("/api/export", request, response, session, PUBLIC_BASE);
+
+        assertEquals(200, response.getStatus());
+        assertArrayEquals(new byte[]{'P', 'K'}, response.getContentAsByteArray());
+        verify(client).send(argThat(upstream ->
+                        upstream.uri().toString().endsWith("/api/export")
+                                && upstream.headers().firstValue("Content-Type")
+                                        .orElse("").equals("application/json")
+                                && upstream.bodyPublisher().orElseThrow()
+                                        .contentLength() == json.length),
+                any(HttpResponse.BodyHandler.class));
+    }
+
+    @Test
     void publicBaseAndQueryParsingRejectAmbiguity()
     {
         assertEquals(PUBLIC_BASE,
