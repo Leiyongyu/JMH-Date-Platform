@@ -65,10 +65,16 @@ class CustomsDeclarationProxyControllerTest
 
         assertEquals(200, response.getStatus());
         List<String> cookies = List.copyOf(response.getHeaders("Set-Cookie"));
-        assertEquals(2, cookies.size());
+        assertEquals(3, cookies.size());
         assertTrue(cookies.stream().anyMatch(value -> value.startsWith(
                 CustomsDeclarationProxyController.SESSION_COOKIE + "=" + TOKEN)));
-        assertTrue(cookies.stream().allMatch(value -> value.contains("HttpOnly")
+        assertEquals(2, cookies.stream().filter(value -> value.contains("HttpOnly")).count());
+        assertTrue(cookies.stream().allMatch(value -> value.contains("SameSite=Strict")
+                && value.contains("Secure")
+                && !value.contains("Path=") && !value.contains("Domain=")));
+        assertTrue(cookies.stream().anyMatch(value -> value.startsWith(
+                CustomsDeclarationProxyController.CSRF_COOKIE + "=")
+                && !value.contains("HttpOnly")
                 && value.contains("SameSite=Strict") && value.contains("Secure")
                 && !value.contains("Path=") && !value.contains("Domain=")));
         verify(proxyService).forward(eq("/index.html"), eq(request), eq(response),
@@ -161,6 +167,53 @@ class CustomsDeclarationProxyControllerTest
         verify(proxyService).forward(eq("/api/export"), eq(request), eq(response),
                 any(ImageSopSessionService.SessionContext.class),
                 eq(CustomsDeclarationProxyController.PREFIX));
+    }
+
+    @Test
+    void postAcceptsMatchingCsrfCookieAndHeaderBehindRewritingGateway() throws Exception
+    {
+        CustomsDeclarationProxyService proxyService = mock(CustomsDeclarationProxyService.class);
+        CustomsDeclarationProxyController controller = new CustomsDeclarationProxyController(
+                validSessions(), proxyService);
+        String csrf = "random-csrf-token-from-launch";
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "POST", CustomsDeclarationProxyController.PREFIX + "/api/export");
+        request.setCookies(
+                new Cookie(CustomsDeclarationProxyController.SESSION_COOKIE, TOKEN),
+                new Cookie(CustomsDeclarationProxyController.CSRF_COOKIE, csrf));
+        request.addHeader(CustomsDeclarationProxyController.CSRF_HEADER, csrf);
+        request.addHeader("Sec-Fetch-Site", "same-site");
+        request.addHeader("Origin", "https://gateway-rewritten.invalid");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.proxy(request, response);
+
+        assertEquals(200, response.getStatus());
+        verify(proxyService).forward(eq("/api/export"), eq(request), eq(response),
+                any(ImageSopSessionService.SessionContext.class),
+                eq(CustomsDeclarationProxyController.PREFIX));
+    }
+
+    @Test
+    void postRejectsMismatchedCsrfHeaderAndCookie() throws Exception
+    {
+        CustomsDeclarationProxyService proxyService = mock(CustomsDeclarationProxyService.class);
+        CustomsDeclarationProxyController controller = new CustomsDeclarationProxyController(
+                validSessions(), proxyService);
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "POST", CustomsDeclarationProxyController.PREFIX + "/api/export");
+        request.setCookies(
+                new Cookie(CustomsDeclarationProxyController.SESSION_COOKIE, TOKEN),
+                new Cookie(CustomsDeclarationProxyController.CSRF_COOKIE, "cookie-token"));
+        request.addHeader(CustomsDeclarationProxyController.CSRF_HEADER, "forged-token");
+        request.addHeader("Sec-Fetch-Site", "cross-site");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.proxy(request, response);
+
+        assertEquals(403, response.getStatus());
+        assertTrue(response.getContentAsString().contains("请求来源校验失败"));
+        verifyNoInteractions(proxyService);
     }
 
     @Test

@@ -10,8 +10,10 @@ import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,6 +31,8 @@ public class CustomsDeclarationProxyController
     static final String PERMISSION = "customs:declaration:query";
     static final String SESSION_COOKIE = "JMH_CUSTOMS_DECLARATION_SESSION";
     static final String BASE_COOKIE = "JMH_CUSTOMS_DECLARATION_BASE";
+    static final String CSRF_COOKIE = "JMH_CUSTOMS_DECLARATION_CSRF";
+    static final String CSRF_HEADER = "X-JMH-Customs-CSRF";
 
     private static final Set<String> GET_PATHS = Set.of(
             "/", "/index.html", "/api/search",
@@ -101,7 +105,7 @@ public class CustomsDeclarationProxyController
         }
 
         if ("POST".equalsIgnoreCase(request.getMethod())
-                && !sameOriginPost(request))
+                && !trustedPost(request))
         {
             writeProxyError(response, HttpServletResponse.SC_FORBIDDEN,
                     "报关单请求来源校验失败，请从ERP插件菜单重新打开");
@@ -115,6 +119,8 @@ public class CustomsDeclarationProxyController
             setScopedCookie(request, response, SESSION_COOKIE, token);
             setScopedCookie(request, response, BASE_COOKIE,
                     URLEncoder.encode(publicBase, StandardCharsets.UTF_8));
+            setScopedCsrfCookie(request, response,
+                    UUID.randomUUID().toString().replace("-", ""));
         }
         proxyService.forward(targetPath, request, response, session, publicBase);
     }
@@ -206,6 +212,25 @@ public class CustomsDeclarationProxyController
         }
     }
 
+    private boolean trustedPost(HttpServletRequest request)
+    {
+        try
+        {
+            String headerToken = request.getHeader(CSRF_HEADER);
+            String cookieToken = cookie(request, CSRF_COOKIE);
+            if (StringUtils.hasText(headerToken) && StringUtils.hasText(cookieToken)
+                    && MessageDigest.isEqual(
+                            headerToken.getBytes(StandardCharsets.UTF_8),
+                            cookieToken.getBytes(StandardCharsets.UTF_8)))
+                return true;
+        }
+        catch (IllegalArgumentException ignored)
+        {
+            return false;
+        }
+        return sameOriginPost(request);
+    }
+
     private static String firstForwarded(String value)
     {
         if (!StringUtils.hasText(value))
@@ -252,6 +277,18 @@ public class CustomsDeclarationProxyController
                 || "https".equalsIgnoreCase(request.getHeader("X-Forwarded-Proto")))
             cookie.append("; Secure");
         // 不显式设置Path，让浏览器按外部URL（含/prod-api等网关前缀）限定代理目录。
+        response.addHeader("Set-Cookie", cookie.toString());
+    }
+
+    private void setScopedCsrfCookie(HttpServletRequest request,
+            HttpServletResponse response, String value)
+    {
+        StringBuilder cookie = new StringBuilder(CSRF_COOKIE).append('=').append(value)
+                .append("; SameSite=Strict");
+        if (request.isSecure()
+                || "https".equalsIgnoreCase(request.getHeader("X-Forwarded-Proto")))
+            cookie.append("; Secure");
+        // 不设置HttpOnly，页面必须读取随机值并放入专用请求头；同源策略阻止跨站读取。
         response.addHeader("Set-Cookie", cookie.toString());
     }
 

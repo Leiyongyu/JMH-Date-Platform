@@ -38,6 +38,8 @@ def test_customs_declaration_static_script_is_available() -> None:
 
     assert response.status_code == 200
     assert "fetch('/api/search" in response.text
+    assert "X-JMH-Customs-CSRF" in response.text
+    assert response.text.count("customsPostHeaders(") == 6
 
 
 def test_customs_declaration_search_api_uses_embedded_wsgi_app(monkeypatch) -> None:

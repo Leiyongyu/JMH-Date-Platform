@@ -25,6 +25,20 @@ function fmt(n, d) { d = d || 2; if (n == null || isNaN(n)) return '-'; return N
 function el(id) { return document.getElementById(id); }
 function val(id) { var e = el(id); return e ? e.value : ''; }
 
+function customsPostHeaders(headers) {
+    var result = headers || {};
+    var name = 'JMH_CUSTOMS_DECLARATION_CSRF=';
+    var cookies = document.cookie ? document.cookie.split(';') : [];
+    for (var i = 0; i < cookies.length; i++) {
+        var item = cookies[i].trim();
+        if (item.indexOf(name) === 0) {
+            result['X-JMH-Customs-CSRF'] = decodeURIComponent(item.substring(name.length));
+            break;
+        }
+    }
+    return result;
+}
+
 // ==================== 空白行模板 ====================
 
 function createEmptyItem() {
@@ -207,7 +221,7 @@ async function saveField(sku, i, field, value) {
     try {
         await fetch('/api/update-product', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: customsPostHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({ sku: sku, field: field, value: value })
         });
     } catch (e) { console.error('Save error:', e); }
@@ -263,7 +277,7 @@ async function updatePrice(i, field, val) {
         try {
             await fetch('/api/update-product', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: customsPostHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ sku: item.sku, field: field, value: v })
             });
         } catch (e) { console.error(e); }
@@ -340,7 +354,9 @@ async function importExcel(input) {
     for (var f = 0; f < files.length; f++) {
         try {
             var fd = new FormData(); fd.append('file', files[f]);
-            var res = await fetch('/api/import', { method: 'POST', body: fd });
+            var res = await fetch('/api/import', {
+                method: 'POST', headers: customsPostHeaders(), body: fd
+            });
             var data = await res.json();
             if (data.success) {
                 totalIns += (data.inserted || 0);
@@ -366,7 +382,9 @@ async function batchImportSkus(input) {
     try {
         // 将文件发送到后端解析
         var fd = new FormData(); fd.append('file', file);
-        var res = await fetch('/api/batch-query', { method: 'POST', body: fd });
+        var res = await fetch('/api/batch-query', {
+            method: 'POST', headers: customsPostHeaders(), body: fd
+        });
         var resp = await res.json();
         if (resp.success && resp.data.length > 0) {
             orderItems = resp.data.map(function(p) {
@@ -426,7 +444,8 @@ async function exportExcel() {
     showLoading();
     try {
         var res = await fetch('/api/export', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
+            headers: customsPostHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({ items: exportItems, header: collectHeaderData() })
         });
         if (!res.ok) { var e = await res.json(); throw new Error(e.error); }
