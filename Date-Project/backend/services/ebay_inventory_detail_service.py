@@ -433,6 +433,28 @@ def _round_item(item: dict) -> dict:
     return result
 
 
+def apply_recent_stat_sales(items: list[dict], previous_days: list[dict]) -> None:
+    """Use today's 30-day sales and the two preceding saved statistic dates."""
+    previous_totals = []
+    for day in previous_days:
+        totals = defaultdict(lambda: ZERO)
+        for row in day["items"]:
+            totals[_product_key(row["site"], row["sku"])] += _decimal(row.get("sales_qty_30d"))
+        previous_totals.append(totals)
+    for item in items:
+        key = _product_key(item["site"], item["sku"])
+        sales_sum = _decimal(item["sales_qty_30d"]) + sum(
+            (totals.get(key, ZERO) for totals in previous_totals), ZERO)
+        average = sales_sum / Decimal(3)
+        item["sales_qty_3m"] = sales_sum
+        item["average_monthly_sales_3m"] = average
+        item["total_stock_sales_ratio_months"] = (
+            item["cycle_total_quantity"] / average if average else ZERO)
+        item["purchase_quantity"] = (
+            average * item["total_duration_months"] - item["cycle_total_quantity"]
+        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+
+
 def load_calculated_inventory():
     """Unfiltered, unrounded Decimal rows shared by the live view and daily history."""
     source_rows, metadata, rent_rows, rates, max_floor_rows = repository.read_snapshot()
@@ -442,6 +464,9 @@ def load_calculated_inventory():
     sku_map = _ebay_product_sku_map(owner_month, include_next=False) if source_rows else {}
     items, warnings = _build_items(source_rows, rent_rows, rates, metadata, rules, sku_map,
                                    max_floor_rows)
+    stat_date = datetime.now(CHINA).date()
+    previous_days = history_repository.read_previous_sales_snapshots(stat_date) if items else []
+    apply_recent_stat_sales(items, previous_days)
     # 观测窗口右端即取数用的统计日；候选写库时要记下它是哪一天的窗口。
     sales_candidates = max_monthly_sales_candidates(
         items, metadata.get("sales_date_to_exclusive"))
@@ -451,7 +476,9 @@ def load_calculated_inventory():
         warnings.append(f"{owner_month}没有eBay负责人规则，未匹配行显示未分配，不回退到其他月份")
     metadata = {**metadata, "owner_rule_month": owner_month,
                 "grouping_policy": "site_core_code_v2", "source_sku_count": len(source_rows),
-                "product_group_count": len(items)}
+                "product_group_count": len(items),
+                "average_monthly_sales_policy": "current_and_previous_two_30d_snapshots_v1",
+                "previous_sales_stat_dates": [day["stat_date"] for day in previous_days]}
     return items, metadata, warnings, sales_candidates
 
 

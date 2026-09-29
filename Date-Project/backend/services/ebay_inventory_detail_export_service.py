@@ -86,8 +86,8 @@ def export_inventory(**filters) -> tuple[str, bytes]:
     return filename, output.getvalue()
 
 
-def append_inventory_sheet(workbook, items):
-    sheet = workbook.create_sheet("Ebay库存明细")
+def append_inventory_sheet(workbook, items, *, title="Ebay库存明细"):
+    sheet = workbook.create_sheet(title)
     sheet.freeze_panes = "C2"
     sheet.sheet_view.showGridLines = False
     sheet.sheet_properties.pageSetUpPr.fitToPage = True

@@ -146,10 +146,10 @@ export const inventoryColumnHelp = {
     emptyHandling: '当前SKU窗口内无订单或订单源表无数据时显示0；导入时无效/空购买数量按0，负购买数量按0清洗。'
   },
   average_monthly_sales_3m: {
-    sourceApi: `派生字段，复用销量来源：${orderImport}`,
-    sourceTable: `${orderTable}（payment_time、purchase_quantity）`,
-    formula: '近3个月均销量＝排除发货状态包含“已作废”后，近3个完整自然月的purchase_quantity总销量÷固定3，为月均销量。按中国时区查询当月以前三个月、站点＋完整SKU统计；例如2026年9月取6、7、8月，不包含9月，不是滚动90天或近30天日均。Decimal计算，输出时四舍五入（ROUND_HALF_UP）保留2位小数，页面与Excel均显示2位；排序及总库销比（月）使用未舍入值。',
-    emptyHandling: '无销量时显示0.00；缺失月份按0计，仍固定除以3，不按有销量的月份数作分母。'
+    sourceApi: `本次销量：${orderImport}。此前2次统计：已保存库存明细快照。`,
+    sourceTable: `${orderTable}（本次近30天销量）；date-project.ebay_inventory_pivot_snapshot、ebay_inventory_detail_history（此前2次近30天销量）`,
+    formula: '近3个月均销量＝本次统计的近30天销量＋此前最近2个统计日期的近30天销量，再固定÷3。按站点＋核心码匹配历史；无有效核心码时按站点＋完整SKU匹配。某次历史没有该产品按0计，同日重复刷新只覆盖当次、不重复计数。历史快照不追溯重算；输出时四舍五入保留2位小数，排序和后续计算使用未舍入值。',
+    emptyHandling: '无销量时显示0.00；缺少统计日期或该产品在历史统计中缺失时按0计，仍固定除以3，不按有销量的统计次数作分母。'
   },
   in_stock_sales_ratio: {
     sourceApi: `库存：${inventoryApi}。\n销量：${orderImport}。`,
@@ -200,15 +200,15 @@ export const inventoryColumnHelp = {
     emptyHandling: '固定返回4.03，不依赖订单或库存是否有值。'
   },
   total_stock_sales_ratio_months: {
-    sourceApi: `库存：${inventoryApi}。\n销量：${orderImport}。`,
-    sourceTable: `${inventoryTable}（product_onway、product_valid_num、quantity_receive、product_total）\n${orderTable}（payment_time、site_name、inventory_sku、purchase_quantity）`,
-    formula: '总库销比（月）＝周期总库存÷近3月均销量。近3月均销量＝排除已作废后，中国时区计算当月以前三个完整自然月的purchase_quantity合计÷固定3，按站点＋完整SKU匹配；例如2026年9月查询取6、7、8月，时间范围6月1日00:00至9月1日00:00（不含）。不是近30天日均、预估销量2或滚动90天销量，也不按有销量月数作分母。周期总库存＝海外总库存＋成都在途＋成都可售＋采购计划＋待出库；待出库取product_total，未接入的采购计划仅合计时按0。分母不预先舍入为2位，后端Decimal原比值保留6位；页面/Excel按比值×100%显示并保留2位小数，不重复乘100。',
-    emptyHandling: '三个完整月无销量或均销量为0时，原比值返回0，显示0.00%；缺失月份按0参与合计，但分母仍固定3。周期库存中的空数量按0，不会除零。'
+    sourceApi: `库存：${inventoryApi}。\n销量：本次${orderImport}及此前2次库存明细快照。`,
+    sourceTable: `${inventoryTable}（product_onway、product_valid_num、quantity_receive、product_total）\n${orderTable}、date-project.ebay_inventory_pivot_snapshot、ebay_inventory_detail_history（近30天销量）`,
+    formula: '总库销比（月）＝周期总库存÷近3次统计均销量。均销量按本次及此前2个统计日期的近30天销量汇总÷固定3；按站点＋核心码匹配，缺失的统计记录按0计。周期总库存＝海外总库存＋成都在途＋成都可售＋采购计划＋待出库；待出库取product_total，未接入的采购计划仅合计时按0。分母不预先舍入为2位，后端Decimal原比值保留6位；页面/Excel按比值×100%显示并保留2位小数，不重复乘100。',
+    emptyHandling: '近3次统计均无销量或均销量为0时，原比值返回0，显示0.00%；缺失统计记录按0参与合计，但分母仍固定3。周期库存中的空数量按0，不会除零。'
   },
   purchase_quantity: {
     sourceApi: `派生字段。销量：${orderImport}；库存：${inventoryApi}。总时长（月）为业务固定值4.03。`,
     sourceTable: `${orderTable}（purchase_quantity、payment_time、site_name、inventory_sku）\n${inventoryTable}（product_valid_num、product_onway、quantity_receive、product_total）；总时长固定4.03，无源表。`,
-    formula: '申购量＝近3个月均销量×总时长（月）－周期总库存。均销量按最近3个完整自然月总销量÷3，使用未舍入值；后端全程Decimal，公式计算完后按ROUND_HALF_UP四舍五入到整数，页面和Excel共用整数结果。不将负数截为0，不套用补货2.0建议补货量。',
+    formula: '申购量＝近3个月均销量×总时长（月）－周期总库存。均销量按本次及此前2次统计的近30天销量之和÷3，使用未舍入值；后端全程Decimal，公式计算完后按ROUND_HALF_UP四舍五入到整数，页面和Excel共用整数结果。不将负数截为0，不套用补货2.0建议补货量。',
     emptyHandling: '总时长固定4.03；无销量时均销量按0，库存数量空值沿用0参与合计。结果为0或负数也如实显示，不把负数改为--。'
   },
   last_sold_at: {
@@ -236,7 +236,7 @@ inventoryColumnHelp.profit_rate.formula += ' 合并行按成员利润之和÷成
 inventoryColumnHelp.max_monthly_sales.formula += ' 合并行先把同中间码各成员SKU在同一窗口内的销量相加，再跨窗口取最大，即“这个产品卖得最好的连续30天卖了多少”，不是各成员峰值相加或取其中最大；高水位也按合并后的键保存。'
 inventoryColumnHelp.owner.formula += ' 合并SKU负责人一致时保留；若将来出现不一致，合并行归入未分配并提示，不任意转移个人货值。'
 inventoryColumnHelp.overseas_max_age_days.formula += ' 最终在同站点＋中间码的成员SKU间取最大有效库龄。'
-inventoryColumnHelp.average_monthly_sales_3m.formula += ' 合并时先汇总所有成员的三月总销量，再除以3；不累加已舍入均销量。'
+inventoryColumnHelp.average_monthly_sales_3m.formula += ' 同一统计日先汇总合并产品各SKU的近30天销量，再将3次统计结果相加；不累加已舍入均销量。'
 for (const key of ['in_stock_sales_ratio', 'total_stock_sales_ratio', 'total_stock_sales_ratio_months']) {
   inventoryColumnHelp[key].formula += ' 最终使用合并后的库存及销量重新计算，禁止累加各原SKU的库销比。'
 }

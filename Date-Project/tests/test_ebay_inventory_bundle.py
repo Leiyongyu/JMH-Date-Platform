@@ -42,7 +42,10 @@ def test_three_sheets_use_same_dates_ignore_row_filters_and_preserve_numeric_per
     ratio.assert_called_once_with('2026-09-01', '2026-09-29')
     book = load_workbook(BytesIO(content))
     try:
-        assert book.sheetnames == ['Ebay库存明细', 'Ebay库存历史透视', '海外仓库龄占比']
+        assert book.sheetnames == ['Ebay库存明细-20260901-20260929',
+                                   'Ebay库存历史透视-20260901-20260929',
+                                   '海外仓库龄占比-20260901-20260929']
+        assert all(len(name) <= 31 for name in book.sheetnames)
         assert book.worksheets[0]['B2'].data_type == 's'
         sheet = book.worksheets[2]
         assert sheet['G3'].value == 0.25 and sheet['G3'].number_format == '0.00%'
@@ -61,6 +64,9 @@ def test_age_only_history_still_exports_three_sheets(monkeypatch):
     _, data = export.export_inventory(start_date='2026-08-03', end_date='2026-08-03')
     book = load_workbook(BytesIO(data))
     assert len(book.sheetnames) == 3
+    assert book.sheetnames == ['Ebay库存明细-2026-08-03',
+                               'Ebay库存历史透视-2026-08-03',
+                               '海外仓库龄占比-2026-08-03']
     assert book.worksheets[0].max_row == 1
     book.close()
 

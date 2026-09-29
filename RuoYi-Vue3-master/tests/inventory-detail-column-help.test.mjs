@@ -19,7 +19,7 @@ test('sales help excludes voided rows and describes calendar days instead of the
   assert.match(help, /仅“已退款”仍计入/)
   assert.match(help, /8月22日至9月20日/)
   assert.doesNotMatch(help, /MAX\(payment_time\)|含锚点当天/)
-  assert.match(inventoryColumnHelp.average_monthly_sales_3m.formula, /排除.*已作废/)
+  assert.match(inventoryColumnHelp.average_monthly_sales_3m.formula, /近30天销量/)
 })
 
 test('all 32 columns have source API, source table, formula and empty handling', () => {
@@ -219,26 +219,23 @@ test('product merge explains aliases, minimum price, deduplicated rent and recom
   assert.ok(!source.includes('v-html'))
 })
 
-test('monthly total stock-sales ratio uses three complete natural months and fixed divisor', () => {
+test('monthly total stock-sales ratio uses current and previous two 30-day snapshots', () => {
   const help = inventoryColumnHelp.total_stock_sales_ratio_months
   assert.match(help.sourceApi, /inventoryDetails/)
   assert.match(help.sourceApi, /Excel.*非 eBay 在线销量接口/)
   assert.match(help.sourceTable, /date-project\.dwd_ebay_sku_analysis_order/)
-  for (const field of ['payment_time', 'site_name', 'inventory_sku', 'purchase_quantity']) {
-    assert.ok(help.sourceTable.includes(field), field)
-  }
-  assert.match(help.formula, /总库销比（月）＝周期总库存÷近3月均销量/)
-  assert.match(help.formula, /中国时区计算当月以前三个完整自然月.*合计÷固定3/)
-  assert.match(help.formula, /按站点＋完整SKU/)
-  assert.match(help.formula, /2026年9月查询取6、7、8月/)
-  assert.match(help.formula, /不是近30天日均、预估销量2或滚动90天销量/)
-  assert.match(help.formula, /不按有销量月数作分母/)
+  assert.match(help.sourceTable, /ebay_inventory_pivot_snapshot/)
+  assert.match(help.sourceTable, /ebay_inventory_detail_history/)
+  assert.match(help.formula, /总库销比（月）＝周期总库存÷近3次统计均销量/)
+  assert.match(help.formula, /本次及此前2个统计日期的近30天销量汇总÷固定3/)
+  assert.match(help.formula, /按站点＋核心码匹配/)
+  assert.match(help.formula, /缺失的统计记录按0计/)
   assert.match(help.formula, /周期总库存＝海外总库存＋成都在途＋成都可售＋采购计划＋待出库/)
   assert.match(help.formula, /分母不预先舍入为2位/)
   assert.match(help.formula, /原比值保留6位/)
   assert.match(help.formula, /不重复乘100/)
   assert.match(help.emptyHandling, /无销量或均销量为0.*返回0.*0.00%/)
-  assert.match(help.emptyHandling, /缺失月份按0.*固定3/)
+  assert.match(help.emptyHandling, /缺失统计记录按0.*固定3/)
   assert.match(columnBlock, /key: 'total_stock_sales_ratio_months'[^\n]+format: 'percent'[^\n]+sortable: true/)
 })
 
@@ -295,10 +292,10 @@ test('three-month average and percent ratios show two decimals without changing 
   assert.match(columnBlock, /key: 'average_monthly_sales_3m'[^\n]+label: '近3个月均销量'[^\n]+format: 'decimal2'[^\n]+sortable: true/)
   assert.ok(!columnKeys.includes('average_daily_sales_30d'))
   const help = inventoryColumnHelp.average_monthly_sales_3m
-  assert.match(help.formula, /近3个完整自然月.*总销量÷固定3/)
-  assert.match(help.formula, /2026年9月取6、7、8月，不包含9月/)
+  assert.match(help.formula, /本次统计.*此前最近2个统计日期.*固定÷3/)
+  assert.match(help.formula, /同日重复刷新只覆盖当次/)
   assert.match(help.formula, /四舍五入.*保留2位小数/)
-  assert.match(help.emptyHandling, /缺失月份按0计，仍固定除以3/)
+  assert.match(help.emptyHandling, /缺少统计日期.*按0计，仍固定除以3/)
   assert.match(source, /average_daily_sales_30d: 'average_monthly_sales_3m'/)
 })
 

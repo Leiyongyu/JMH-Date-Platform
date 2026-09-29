@@ -27,6 +27,37 @@ def _json_default(value):
     raise TypeError(type(value).__name__)
 
 
+def read_previous_sales_snapshots(before_date: date, limit: int = 2) -> list[dict]:
+    """Read the most recent distinct saved dates before today's replacement."""
+    if limit < 1 or limit > 2:
+        raise ValueError("最多读取前两次库存统计")
+    with db_connection() as connection:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                connection.begin()
+                cursor.execute(f"""SELECT s.id,s.stat_date FROM {HEADER} s
+                    WHERE s.stat_date < %s
+                      AND EXISTS (SELECT 1 FROM {INVENTORY_DETAIL} d WHERE d.snapshot_id=s.id)
+                    ORDER BY s.stat_date DESC LIMIT %s""", (before_date, limit))
+                days = []
+                for header in cursor.fetchall():
+                    cursor.execute(f"SELECT site,sku,item_json FROM {INVENTORY_DETAIL} "
+                                   "WHERE snapshot_id=%s ORDER BY id", (header["id"],))
+                    items = []
+                    for row in cursor.fetchall():
+                        saved = json.loads(row["item_json"]) if isinstance(row["item_json"], str) else row["item_json"]
+                        values = saved.get("values", saved)
+                        items.append({"site": row["site"], "sku": row["sku"],
+                                      "sales_qty_30d": values.get("sales_qty_30d")})
+                    days.append({"stat_date": header["stat_date"].isoformat(), "items": items})
+            connection.commit()
+            return days
+        except Exception:
+            connection.rollback()
+            raise
+
+
 def drop_batch_snapshots(inventory_batch_id, keep_stat_date):
     """删掉该库存批次除 keep_stat_date 以外的全部历史，返回删掉的统计日期。
 

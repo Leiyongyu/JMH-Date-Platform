@@ -36,8 +36,8 @@ def export_pivot(**filters):
     return f"Ebay库存历史透视-{datetime.now(CHINA):%Y%m%d%H%M%S}.xlsx", output.getvalue()
 
 
-def append_pivot_sheet(workbook, items):
-    sheet = workbook.create_sheet("Ebay库存历史透视")
+def append_pivot_sheet(workbook, items, *, title="Ebay库存历史透视"):
+    sheet = workbook.create_sheet(title)
     sheet.freeze_panes = "D2"
     sheet.sheet_view.showGridLines = False
     sheet.page_setup.orientation = "landscape"

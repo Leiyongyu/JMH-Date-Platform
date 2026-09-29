@@ -36,12 +36,12 @@ def test_group_totals_recalculate_averages_ratios_and_round_purchase_only_once(i
     assert row["pending_outbound_quantity"] == "6"
     assert row["cycle_total_quantity"] == "10"
     assert row["sales_qty_30d"] == "4"
-    assert row["average_monthly_sales_3m"] == "0.67"
+    assert row["average_monthly_sales_3m"] == "1.33"
     assert row["in_stock_sales_ratio"] == "1"
     assert row["total_stock_sales_ratio"] == "1"
-    assert row["total_stock_sales_ratio_months"] == "15"
+    assert row["total_stock_sales_ratio_months"] == "7.5"
     assert row["total_duration_months"] == "4.03"  # not 8.06
-    assert row["purchase_quantity"] == "-7"  # rounding each member then adding gives -8
+    assert row["purchase_quantity"] == "-5"  # aggregate sales before rounding the result
     assert data["metadata"]["source_sku_count"] == 2
     assert data["metadata"]["grouping_policy"] == "site_core_code_v2"
 

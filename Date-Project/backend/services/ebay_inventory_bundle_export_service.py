@@ -27,9 +27,9 @@ SITE_COLUMNS = [('stat_date', '统计日期', 'text'), ('name', '站点', 'text'
                 ('over_180_value', '>180天货值', 'money'), ('over_180_ratio', '货值占比', 'percent')]
 
 
-def append_age_sheet(workbook, report):
+def append_age_sheet(workbook, report, *, title='海外仓库龄占比'):
     from openpyxl.utils import get_column_letter
-    sheet = workbook.create_sheet('海外仓库龄占比')
+    sheet = workbook.create_sheet(title)
     sheet.freeze_panes = 'C3'
     sheet.sheet_view.showGridLines = False
     for col in range(1, 12):
@@ -97,9 +97,10 @@ def _export_saved(**filters):
         raise ValueError('三个模块合计超过20万行，请缩小日期范围后分次导出')
     detail['items'].sort(key=lambda row: row.get('stat_date', ''))
     workbook = Workbook(write_only=True)
-    append_inventory_sheet(workbook, detail['items'])
-    append_pivot_sheet(workbook, pivot['items'])
-    append_age_sheet(workbook, age)
+    date_suffix = start if start == end else f"{start.replace('-', '')}-{end.replace('-', '')}"
+    append_inventory_sheet(workbook, detail['items'], title=f'Ebay库存明细-{date_suffix}')
+    append_pivot_sheet(workbook, pivot['items'], title=f'Ebay库存历史透视-{date_suffix}')
+    append_age_sheet(workbook, age, title=f'海外仓库龄占比-{date_suffix}')
     output = BytesIO()
     workbook.save(output)
     workbook.close()

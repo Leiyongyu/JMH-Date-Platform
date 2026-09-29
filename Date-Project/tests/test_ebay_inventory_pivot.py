@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -13,6 +14,29 @@ from backend.services import ebay_inventory_pivot_service as service
 
 
 D = Decimal
+
+
+def test_previous_sales_reader_uses_two_distinct_earlier_dates_and_frozen_rows(monkeypatch):
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    cursor = connection.cursor.return_value.__enter__.return_value
+    cursor.fetchall.side_effect = [
+        [{"id": 12, "stat_date": date(2026, 9, 22)},
+         {"id": 11, "stat_date": date(2026, 9, 15)}],
+        [{"site": "德国", "sku": "JMH-60054-0999",
+          "item_json": json.dumps({"values": {"sales_qty_30d": "12.5"}})}],
+        [{"site": "德国", "sku": "PSA-60054-0128",
+          "item_json": {"values": {"sales_qty_30d": "8"}}}],
+    ]
+    monkeypatch.setattr(repository, "db_connection", lambda: connection)
+    days = repository.read_previous_sales_snapshots(date(2026, 9, 29))
+    assert [day["stat_date"] for day in days] == ["2026-09-22", "2026-09-15"]
+    assert [day["items"][0]["sales_qty_30d"] for day in days] == ["12.5", "8"]
+    query, params = cursor.execute.call_args_list[1].args
+    assert "s.stat_date < %s" in query and "ORDER BY s.stat_date DESC LIMIT %s" in query
+    assert params == (date(2026, 9, 29), 2)
+    connection.commit.assert_called_once()
+    connection.rollback.assert_not_called()
 
 
 def item(sku="SKU-A", owner="李茫茫", site="德国", **values):
@@ -525,7 +549,10 @@ def test_shared_loader_returns_unfiltered_unrounded_decimal_rows_and_month_metad
     source = [{"site": "德国", "sku": "A"}, {"site": "英国", "sku": "A"}]
     source_metadata = {"inventory_batch_id": "batch", "rent_pull_month": "2026-08"}
     original_metadata = deepcopy(source_metadata)
-    raw_items = [item("A", overseas_sellable_value=D("0.004")), item("A", site="英国")]
+    raw_items = [item("A", overseas_sellable_value=D("0.004"), cycle_total_quantity=D("20"),
+                      total_duration_months=D("4.03")),
+                 item("A", site="英国", cycle_total_quantity=D("20"),
+                      total_duration_months=D("4.03"))]
     raw_rules = [{"rule_type": "BRAND"}]
     rules = object()
     sku_map = {"A": "B"}
@@ -535,6 +562,7 @@ def test_shared_loader_returns_unfiltered_unrounded_decimal_rows_and_month_metad
     build = MagicMock(return_value=(raw_items, []))
     monkeypatch.setattr(detail_service, "datetime", FrozenDatetime)
     monkeypatch.setattr(detail_service.repository, "read_snapshot", lambda: (source, source_metadata, [], {}, []))
+    monkeypatch.setattr(detail_service.history_repository, "read_previous_sales_snapshots", lambda before: [])
     monkeypatch.setattr(detail_service.owner_repository, "owner_rules", owner_rules)
     monkeypatch.setattr(detail_service, "_ebay_rule_map", rule_map)
     monkeypatch.setattr(detail_service, "_ebay_product_sku_map", product_map)

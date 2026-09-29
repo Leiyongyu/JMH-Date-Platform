@@ -115,6 +115,7 @@ def isolated(monkeypatch):
     monkeypatch.setattr(service, "_ebay_product_sku_map", lambda *args, **kwargs: {})
     owner_rules = MagicMock(return_value=[{"rule_type": "BRAND"}])
     monkeypatch.setattr(service.owner_repository, "owner_rules", owner_rules)
+    monkeypatch.setattr(service.history_repository, "read_previous_sales_snapshots", lambda before_date: [])
 
     def install(rows, rents=None, rates=None, metadata=None, max_floor=None):
         details = [] if rents is None else rents
@@ -128,13 +129,13 @@ def isolated(monkeypatch):
     return install
 
 
-@pytest.mark.parametrize(("sales_3m", "expected"), [
+@pytest.mark.parametrize(("current_sales", "expected"), [
     (300, "363"), (0, "-40"), (120, "121"), (1, "-39"),
 ])
 def test_purchase_quantity_uses_unrounded_monthly_sales_fixed_duration_and_cycle_stock(
-    isolated, sales_3m, expected,
+    isolated, current_sales, expected,
 ):
-    isolated([source(sales_qty_3m=sales_3m)])
+    isolated([source(sales_qty_30d=current_sales, sales_qty_3m=9999)])
     item = service.list_inventory()["items"][0]
     assert item["purchase_quantity"] == expected
     assert item["cycle_total_quantity"] == "40"
@@ -144,7 +145,7 @@ def test_purchase_quantity_uses_unrounded_monthly_sales_fixed_duration_and_cycle
 
 @pytest.mark.parametrize("raw", [None, "", "0", "9.99"])
 def test_duration_is_fixed_for_every_site_not_overridden_by_source(isolated, raw):
-    isolated([source(site=site, sales_qty_3m=300, total_duration_months=raw)
+    isolated([source(site=site, sales_qty_30d=300, total_duration_months=raw)
               for site in ["德国", "英国", "美国"]])
     items = service.list_inventory()["items"]
     assert all(item["total_duration_months"] == "4.03" for item in items)
@@ -163,7 +164,7 @@ def test_last_sold_date_preserves_year_month_day_or_empty(isolated, day):
     ("403.1", "0"), ("403", "0"),
 ])
 def test_purchase_quantity_half_up_once_including_negative_boundaries(isolated, stock, expected):
-    isolated([source(sales_qty_3m=300, overseas_sellable_quantity=Decimal(stock),
+    isolated([source(sales_qty_30d=300, overseas_sellable_quantity=Decimal(stock),
                      overseas_in_transit_quantity=0, chengdu_in_transit_quantity=0,
                      chengdu_sellable_quantity=0)])
     assert service.list_inventory()["items"][0]["purchase_quantity"] == expected
@@ -185,21 +186,21 @@ def test_last_sold_sql_uses_all_history_exact_site_and_sku_not_sales_windows():
 
 @pytest.mark.parametrize(("pending", "expected"), [(None, "0"), (0, "0"), (12, "12")])
 def test_pending_outbound_updates_cycle_monthly_ratio_and_purchase(isolated, pending, expected):
-    isolated([source(sales_qty_3m=300, pending_outbound_quantity=pending)])
+    isolated([source(sales_qty_30d=300, pending_outbound_quantity=pending)])
     item = service.list_inventory()["items"][0]
     assert item["pending_outbound_quantity"] == expected
     assert Decimal(item["cycle_total_quantity"]) == Decimal(40) + Decimal(expected)
     assert Decimal(item["total_stock_sales_ratio_months"]) == (Decimal(40) + Decimal(expected)) / 100
     assert Decimal(item["purchase_quantity"]) == Decimal(363) - Decimal(expected)
     assert item["overseas_total_quantity"] == "30"
-    assert item["in_stock_sales_ratio"] == "1.666667"
-    assert item["total_stock_sales_ratio"] == "2.5"
+    assert item["in_stock_sales_ratio"] == "0.066667"
+    assert item["total_stock_sales_ratio"] == "0.1"
     assert item["procurement_plan_quantity"] == "0"
 
 
 @pytest.mark.parametrize("provided", [None, "", "99"])
 def test_procurement_plan_defaults_zero_for_all_sites_without_changing_totals(isolated, provided):
-    isolated([source(site=site, sales_qty_3m=300, procurement_plan_quantity=provided)
+    isolated([source(site=site, sales_qty_30d=300, procurement_plan_quantity=provided)
               for site in ("德国", "英国", "美国")])
     for item in service.list_inventory()["items"]:
         assert item["procurement_plan_quantity"] == "0"
@@ -703,8 +704,8 @@ def test_snapshot_window_does_not_follow_old_sales_anchor(monkeypatch):
 
 
 def test_monthly_ratio_uses_cycle_inventory_and_fixed_three_month_average(isolated):
-    # One or two months could have no sales: the source sum is still divided by all three months.
-    isolated([source(sales_qty_3m=Decimal("30"), active_sales_months=1)])
+    # With no preceding snapshots, this observation is still divided by three.
+    isolated([source(sales_qty_30d=Decimal("30"), sales_qty_3m=9999)])
     item = service.list_inventory()["items"][0]
     assert item["sales_qty_3m"] == "30"
     assert item["average_monthly_sales_3m"] == "10"
@@ -714,18 +715,48 @@ def test_monthly_ratio_uses_cycle_inventory_and_fixed_three_month_average(isolat
     assert "total_stock_sales_ratio_months" in service.SORT_FIELDS
 
 
-def test_monthly_ratio_is_independent_of_recent_30_day_and_forecast_sales(isolated):
+def test_three_latest_stat_sales_match_site_and_core_before_recalculating_dependents(isolated, monkeypatch):
+    isolated([
+        source(sku="PSA-60054-0128", site="德国", sales_qty_30d=30, sales_qty_3m=999),
+        source(sku="PSA-60054-0128", site="英国", sales_qty_30d=0, sales_qty_3m=999),
+    ])
+    days = [
+        {"stat_date": "2026-09-22", "items": [
+            {"site": "德国", "sku": "PSA-60054-0128", "sales_qty_30d": "5"},
+            {"site": "德国", "sku": "JMH-60054-0999", "sales_qty_30d": "15"},
+            {"site": "英国", "sku": "PSA-60054-0128", "sales_qty_30d": "90"},
+            {"site": "德国", "sku": "PSA-60055-0128", "sales_qty_30d": "1000"},
+        ]},
+        {"stat_date": "2026-09-15", "items": [
+            {"site": "德国", "sku": "LR-60054-8888", "sales_qty_30d": "10"},
+        ]},
+    ]
+    read = MagicMock(return_value=days)
+    monkeypatch.setattr(service.history_repository, "read_previous_sales_snapshots", read)
+    result = service.list_inventory(paginate=False)
+    by_site = {item["site"]: item for item in result["items"]}
+    assert by_site["德国"]["sales_qty_3m"] == "60"
+    assert by_site["德国"]["average_monthly_sales_3m"] == "20"
+    assert by_site["德国"]["total_stock_sales_ratio_months"] == "2"
+    assert by_site["德国"]["purchase_quantity"] == "41"
+    assert by_site["英国"]["sales_qty_3m"] == "90"
+    assert by_site["英国"]["average_monthly_sales_3m"] == "30"
+    assert result["metadata"]["previous_sales_stat_dates"] == ["2026-09-22", "2026-09-15"]
+    read.assert_called_once()
+
+
+def test_monthly_ratio_uses_recent_30_day_not_old_calendar_sales_or_forecast(isolated):
     isolated([source(sales_qty_3m=120, sales_qty_30d=0,
                      forecast_sales_quantity=100000, forecast_sales_quantity_2=999999)])
     item = service.list_inventory()["items"][0]
-    assert item["average_monthly_sales_3m"] == "40"
-    assert item["total_stock_sales_ratio_months"] == "1"  # Backend does not multiply by 100.
+    assert item["average_monthly_sales_3m"] == "0"
+    assert item["total_stock_sales_ratio_months"] == "0"
     assert item["total_stock_sales_ratio"] == "0"  # Separate 30-day denominator remains zero.
 
 
 @pytest.mark.parametrize("sales", [None, "", 0, Decimal("0")])
 def test_monthly_ratio_missing_or_zero_sales_is_zero_not_null(isolated, sales):
-    isolated([source(sales_qty_3m=sales)])
+    isolated([source(sales_qty_3m=9999, sales_qty_30d=sales)])
     item = service.list_inventory()["items"][0]
     assert item["sales_qty_3m"] == "0"
     assert item["average_monthly_sales_3m"] == "0"
@@ -734,15 +765,15 @@ def test_monthly_ratio_missing_or_zero_sales_is_zero_not_null(isolated, sales):
 
 @pytest.mark.parametrize("sales,expected", [(None,"0"),(0,"0"),(1,"0.33"),(2,"0.67"),(30,"10"),(Decimal("3.015"),"1.01")])
 def test_displayed_three_month_average_uses_fixed_three_and_two_decimal_half_up(isolated, sales, expected):
-    isolated([source(sales_qty_3m=sales, sales_qty_30d=9000, active_sales_months=1)])
+    isolated([source(sales_qty_3m=9000, sales_qty_30d=sales, active_sales_months=1)])
     item = service.list_inventory()["items"][0]
     assert item["average_monthly_sales_3m"] == expected
-    assert item["sales_qty_30d"] == "9000"
+    assert item["sales_qty_30d"] == str(sales or 0)
 
 
 def test_monthly_average_sorts_unrounded_values_before_pagination(isolated):
-    isolated([source(sku="FRD-A", sales_qty_3m=Decimal("3.001")),
-              source(sku="FRD-Z", sales_qty_3m=Decimal("3.014"))])
+    isolated([source(sku="FRD-A", sales_qty_30d=Decimal("3.001")),
+              source(sku="FRD-Z", sales_qty_30d=Decimal("3.014"))])
     result = service.list_inventory(sort_field="average_monthly_sales_3m", sort_order="descending", page_size=1)
     assert result["items"][0]["sku"] == "FRD-Z"
     assert result["items"][0]["average_monthly_sales_3m"] == "1"
@@ -762,7 +793,7 @@ def test_monthly_ratio_does_not_round_average_before_dividing():
 
 
 def test_monthly_ratio_rounds_output_to_six_places_only(isolated):
-    isolated([source(sales_qty_3m=Decimal("7"), overseas_sellable_quantity=1,
+    isolated([source(sales_qty_30d=Decimal("7"), overseas_sellable_quantity=1,
                      overseas_in_transit_quantity=0, chengdu_in_transit_quantity=0,
                      chengdu_sellable_quantity=0)])
     item = service.list_inventory()["items"][0]
