@@ -60,6 +60,47 @@ def test_quantity_times_clearance_unit_cost_and_owner_site_totals_reconcile():
     assert sum(Decimal(owner[b + "_ratio"]) for b in service.BUCKETS) == 1
 
 
+def test_site_inventory_counts_unpriced_rows_and_excludes_exactly_180_from_aged_stock():
+    rows = cleaned(make_source(warehouse_age_days=180, inventory_quantity=10),
+                   make_source(warehouse_age_days=181, inventory_quantity=4, warehouse_code="CZ"),
+                   make_source(warehouse_age_days=190, inventory_quantity=6, first_leg_cost=None),
+                   make_source(warehouse_age_days=None, inventory_quantity=5))
+    data = service.aggregate(rows, {"BMW": "张三"}, {}, "2026-09-29")
+    site = data["sites"][0]
+    assert site["name"] == "德国"
+    assert site["total_quantity"] == "25.000000"
+    assert site["over_180_quantity"] == "10.000000"
+    assert site["over_180_quantity_ratio"] == "0.400000"
+    assert site["total_value"] == "210.000000"
+    assert site["over_180_value"] == "60.000000"
+    assert site["over_180_ratio"] == "0.285714"
+    assert data["owners"][0]["total_value"] == "210.000000"
+    assert "total_quantity" not in data["owners"][0]
+
+
+def test_site_inventory_merges_us_warehouses_but_keeps_uk_separate():
+    rows = cleaned(make_source(warehouse_code="USEA", inventory_quantity=2, warehouse_age_days=181),
+                   make_source(warehouse_code="USWE", inventory_quantity=3, warehouse_age_days=180),
+                   make_source(warehouse_code="UK", inventory_quantity=7, warehouse_age_days=181))
+    sites = {r["name"]: r for r in service.aggregate(rows, {}, {}, "2026-09-29")["sites"]}
+    assert sites["美国"]["total_quantity"] == "5.000000"
+    assert sites["美国"]["over_180_quantity"] == "2.000000"
+    assert sites["美国"]["over_180_quantity_ratio"] == "0.400000"
+    assert sites["英国"]["total_quantity"] == "7.000000"
+    assert sites["英国"]["over_180_quantity_ratio"] == "1.000000"
+
+
+def test_unpriced_site_retains_inventory_and_zero_total_ratio_is_unavailable():
+    rows = cleaned(make_source(inventory_quantity=9, warehouse_age_days=181, first_leg_cost=None))
+    site = service.aggregate(rows, {}, {}, "2026-09-29")["sites"][0]
+    assert site["total_quantity"] == site["over_180_quantity"] == "9.000000"
+    assert site["over_180_quantity_ratio"] == "1.000000"
+    assert site["total_value"] is None and site["over_180_ratio"] is None
+    zero = service.aggregate(cleaned(make_source(inventory_quantity=0, warehouse_age_days=181)), {}, {}, "2026-09-29")["sites"][0]
+    assert zero["total_quantity"] == zero["over_180_quantity"] == "0.000000"
+    assert zero["over_180_quantity_ratio"] is None and zero["over_180_ratio"] is None
+
+
 def test_missing_cost_and_unknown_owner_are_not_silently_dropped_or_zero_filled():
     rows = cleaned(make_source(first_leg_cost=None), make_source(sku="XYZ-00123-0001"),
                    make_source(sku="ABC-00123-0001", warehouse_age_days=None),

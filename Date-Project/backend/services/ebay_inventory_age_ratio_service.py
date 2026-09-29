@@ -136,6 +136,12 @@ def aggregate(rows, rules, sku_map, stat_date):
         bucket = age_bucket(row.get("warehouse_age_days"))
         reason = row["match_status"] if row["match_status"] != "MATCHED" else None
         quantity = _number(row["inventory_quantity"])
+        # Quantity metrics use every source inventory row, independently of
+        # product/cost matching. Keep the existing valuation/owner rules below.
+        site_group = grouped["sites"][site]
+        site_group["total_quantity"] = site_group.get("total_quantity", ZERO) + quantity
+        site_group["over_180_quantity"] = site_group.get("over_180_quantity", ZERO) + (
+            quantity if bucket == "over_180" else ZERO)
         unit = row.get("unit_landed_cost")
         if not reason and (unit is None or _number(unit) < 0 or quantity < 0):
             reason = "INVALID_COST_OR_QUANTITY"
@@ -167,6 +173,12 @@ def aggregate(rows, rules, sku_map, stat_date):
                 group[bucket + "_value"] = _amount(amounts[bucket]) if group["valued_rows"] else None
                 group[bucket + "_ratio"] = _amount(amounts[bucket] / total) if total else None
             group["total_value"] = _amount(total) if group["valued_rows"] else None
+            if dimension == "sites":
+                total_quantity = group["total_quantity"]
+                over_quantity = group["over_180_quantity"]
+                group["total_quantity"] = _amount(total_quantity)
+                group["over_180_quantity"] = _amount(over_quantity)
+                group["over_180_quantity_ratio"] = _amount(over_quantity / total_quantity) if total_quantity else None
             items.append(group)
         result[dimension] = items
     return {**result, "source_rows": len(rows), "valued_rows": valued_rows,
@@ -211,7 +223,8 @@ def capture_snapshot():
                       source_pulled_at=max(source_times).isoformat(sep=" ") if source_times else None,
                       source_months=sorted({r["pull_month"] for r in source}), warnings=warnings,
                       product_batch_ids=sorted({r["source_product_batch_id"] for r in rows if r.get("source_product_batch_id")}),
-                      calculation_version="core-supplier-max-landed-cost-v4")
+                      calculation_version="core-supplier-max-landed-cost-v4",
+                      site_calculation_version="site-inventory-over180-v1")
         repository.save_snapshot(report)
         return report
 
