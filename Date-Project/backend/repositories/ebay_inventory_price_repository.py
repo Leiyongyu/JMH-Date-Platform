@@ -26,12 +26,10 @@ def _table_missing(exc: Exception) -> bool:
 
 
 def replace_prices(rows: list[dict[str, Any]], operator: str, filename: str) -> int:
-    """Replace only uploaded full-SKU price sets, keeping every other SKU intact.
+    """按上传核心码替换全部候选价，清掉同核心码未再上传的低价后缀SKU。
 
-    The parser has already validated and deduplicated (sku, unit_price). Multiple
-    prices for one SKU remain available for the middle-code MIN aggregation.
-    Replacing a SKU's whole set also removes its old lower price when a later
-    upload raises the price. All bounded deletes and inserts share one transaction.
+    同时清理本次完整SKU的旧映射，避免改核心码后留下旧价/唯一键冲突。
+    所有删除与插入共用事务及导入锁；未涉及的核心码保持不变。
     """
     if not rows:
         return 0
@@ -40,6 +38,7 @@ def replace_prices(rows: list[dict[str, Any]], operator: str, filename: str) -> 
 
     source_file = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1][:255]
     distinct_skus = list(dict.fromkeys(row["sku"] for row in rows))
+    core_codes = list(dict.fromkeys(row["middle_code"] for row in rows if row.get("middle_code")))
     params = [
         {
             "sku": row["sku"],
@@ -64,6 +63,13 @@ def replace_prices(rows: list[dict[str, Any]], operator: str, filename: str) -> 
             try:
                 connection.begin()
                 with connection.cursor() as cursor:
+                    for offset in range(0, len(core_codes), _BATCH_SIZE):
+                        keys = core_codes[offset:offset + _BATCH_SIZE]
+                        placeholders = ",".join(["%s"] * len(keys))
+                        cursor.execute(
+                            f"DELETE FROM {PRICE_TABLE} WHERE middle_code IN ({placeholders})",
+                            tuple(keys),
+                        )
                     for offset in range(0, len(distinct_skus), _BATCH_SIZE):
                         keys = distinct_skus[offset:offset + _BATCH_SIZE]
                         placeholders = ",".join(["%s"] * len(keys))

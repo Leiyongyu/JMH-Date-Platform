@@ -108,7 +108,7 @@ def test_missing_or_overlong_sku_is_rejected(sku):
 
 
 @pytest.mark.parametrize("sku", [
-    "IDD-LMM-310002-0047", "GM-40031B-0098", "NOHYPHEN", "A--X", "A-１２３-X", "A-" + "1" * 65 + "-X",
+    "IDD-LMM-310002-0047", "NOHYPHEN", "A--X", "A-１２３-X", "A-" + "1" * 65 + "-X",
 ])
 def test_missing_ascii_middle_keeps_full_sku_price_with_warning(sku):
     result = parse_rows([sku, 10])
@@ -140,16 +140,48 @@ def test_invalid_middle_duplicates_still_deduplicate_exact_sku_price():
 
 
 def test_explicit_matching_middle_is_validated_without_losing_zeroes():
-    content = workbook_bytes([["SKU", "单价", "中间码"], ["A-001-X", 2, "001"], ["A-CODE-X", 3, None]])
+    content = workbook_bytes([["SKU", "单价", "中间码"], ["A-001-X", 2, "001"], ["A-01b-X", 3, "01b"]])
     result = parser.parse_prices(content, "price.xlsx")
-    assert [row["middle_code"] for row in result["rows"]] == ["001", None]
+    assert [row["middle_code"] for row in result["rows"]] == ["001", "01B"]
 
 
-@pytest.mark.parametrize("sku,middle", [("A-001-X", "1"), ("A-001-X", 1), ("A-001-X", None), ("A-CODE-X", "001")])
-def test_explicit_middle_cannot_override_derived_middle(sku, middle):
+@pytest.mark.parametrize("sku,middle", [("A-001-X", "1"), ("A-001-X", 1), ("A-CODE-X", "001")])
+def test_explicit_core_is_authoritative_and_mismatch_is_reported(sku, middle):
     content = workbook_bytes([["SKU", "单价", "中间码"], [sku, 2, middle]])
-    with pytest.raises(ValueError, match="第2行.*中间码.*不一致"):
-        parser.parse_prices(content, "price.xlsx")
+    result = parser.parse_prices(content, "price.xlsx")
+    assert result['rows'][0]['middle_code'] == str(middle)
+    assert result['core_mismatch_rows'] == result['warning_count'] == 1
+    assert '不一致' in result['warnings'][0]
+
+
+@pytest.mark.parametrize('header', ['核心', '核心码', '中间码'])
+def test_explicit_core_aliases_support_actual_workbook_column_order(header):
+    content = workbook_bytes([['产品代码', header, '单价(默认采购价)'],
+                              ['GM-40031B-0098', '40031b', 12],
+                              ['A-0019-X', '0019', 38.5]])
+    result = parser.parse_prices(content, 'price.xlsx')
+    assert [r['middle_code'] for r in result['rows']] == ['40031B', '0019']
+    assert result['warning_count'] == 0
+
+
+@pytest.mark.parametrize('core', [None, '', True, '001 23', '１２３', 'CODE', '1' * 65, '#REF!'])
+def test_bad_explicit_core_rejects_whole_file(core):
+    content = workbook_bytes([['SKU', '核心码', '单价'], ['A-001-X', core, 12]])
+    with pytest.raises(ValueError, match='第2行'):
+        parser.parse_prices(content, 'price.xlsx')
+
+
+def test_conflicting_core_for_one_sku_across_sheets_is_rejected():
+    content = workbook_bytes([['SKU', '核心码', '单价'], ['A-001-X', '001', 12]],
+        extra_sheets={'另一张': [['SKU', '核心', '单价'], ['a-001-x', '002', 15]]})
+    with pytest.raises(ValueError, match='同一SKU对应多个核心码'):
+        parser.parse_prices(content, 'price.xlsx')
+
+
+def test_legacy_two_columns_accept_alphanumeric_core():
+    result = parse_rows(['GM-40031B-0098', 12])
+    assert result['rows'][0]['middle_code'] == '40031B'
+    assert result['warning_count'] == 0
 
 
 def test_header_may_follow_title_and_blank_rows_with_reordered_columns():
@@ -159,6 +191,7 @@ def test_header_may_follow_title_and_blank_rows_with_reordered_columns():
 
 @pytest.mark.parametrize("header", [
     ["SKU", "产品代码", "单价"], ["SKU", "单价", "采购价"], ["SKU", "单价", "中间码", "中间码"],
+    ["SKU", "单价", "核心", "核心码"],
 ])
 def test_duplicate_or_ambiguous_headers_reject_file(header):
     with pytest.raises(ValueError, match="表头.*重复"):

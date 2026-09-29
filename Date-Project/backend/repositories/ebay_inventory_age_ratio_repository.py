@@ -62,17 +62,23 @@ def save_snapshot(report):
     with db_connection() as conn:
         try:
             with conn.cursor() as cur:
-                cur.execute(f"""
-                    INSERT INTO {TABLE} (stat_date,generated_at,source_batch_id,report_json)
-                    VALUES (%s,%s,%s,%s)
-                    ON DUPLICATE KEY UPDATE generated_at=VALUES(generated_at),
-                        source_batch_id=VALUES(source_batch_id),report_json=VALUES(report_json)
-                """, (report["stat_date"], report["generated_at"], report["source_batch_id"],
-                      json.dumps(report, ensure_ascii=False, allow_nan=False)))
+                save_snapshot_cursor(cur, report)
             conn.commit()
         except Exception:
             conn.rollback()
             raise
+
+
+
+def save_snapshot_cursor(cur, report):
+    """Caller owns commit/rollback so all three reports publish together."""
+    cur.execute(f"""
+        INSERT INTO {TABLE} (stat_date,generated_at,source_batch_id,report_json)
+        VALUES (%s,%s,%s,%s)
+        ON DUPLICATE KEY UPDATE generated_at=VALUES(generated_at),
+            source_batch_id=VALUES(source_batch_id),report_json=VALUES(report_json)
+    """, (report["stat_date"], report["generated_at"], report["source_batch_id"],
+          json.dumps(report, ensure_ascii=False, allow_nan=False)))
 
 
 def read_range(start_date, end_date):

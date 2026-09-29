@@ -50,7 +50,8 @@ def source(sku="FRD-70618-0687", site="德国", **values):
 @pytest.mark.parametrize(("sku", "expected"), [
     ("MCD-20017-0071", "20017"), ("FRD-00123-0068", "00123"),
     ("MCD-0-0071", "0"), ("SKU", None), ("MCD--0071", None),
-    ("2PC-BMW-30055-0182", None), ("MCD-20A17-0071", None),
+    ("2PC-BMW-30055-0182", None), ("MCD-20A17-0071", '20A17'),
+    ('DAS-001b-0001', '001B'),
 ])
 def test_middle_code_is_second_numeric_segment_and_preserves_text(isolated, sku, expected):
     isolated([source(sku=sku)])
@@ -522,7 +523,8 @@ def test_price_sql_aggregates_uploaded_middle_code_minimum_before_inventory_join
     assert "prices.middle_code" in price_join and "inventory.sku" in price_join
     assert "site" not in price_join
     assert "SUBSTRING_INDEX(SUBSTRING_INDEX(inventory.sku,'-',2),'-',-1)" in price_join
-    assert "REGEXP '^[0-9]+$'" in price_join
+    assert "REGEXP '^[a-zA-Z0-9]{1,64}$'" in price_join
+    assert "REGEXP '[0-9]'" in price_join
     assert "CAST(" not in price_join  # Text equality must preserve leading zeros.
     assert "ods_lingxing_product_procurement_monthly" not in query
     assert "cg_price" not in query
@@ -545,7 +547,7 @@ def test_source_metadata_reads_all_imported_price_rows_and_middle_count_in_one_q
     assert "MAX(updated_at) price_imported_at" in price_query
     assert "COUNT(DISTINCT middle_code) price_middle_code_count" in price_query
     assert "WHERE" not in price_query.upper()  # Incremental imports are not a latest-only batch.
-    assert result["price_source"] == "uploaded_middle_code_min_v1"
+    assert result["price_source"] == "uploaded_core_code_min_v2"
 
 
 def test_empty_uploaded_price_table_returns_null_price_metadata_and_values(isolated):

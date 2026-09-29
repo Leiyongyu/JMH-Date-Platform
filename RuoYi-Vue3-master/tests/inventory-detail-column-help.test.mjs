@@ -42,17 +42,17 @@ test('middle code plus site precedes middle code with textual leading-zero and m
   assert.match(inventoryColumnHelp.sku_middle_code.formula, /保留前导零/)
   assert.match(inventoryColumnHelp.sku_middle_code.emptyHandling, /null.*--/)
   assert.ok(source.includes("sku_middle_site_code: { before: 'sku_middle_code', after: 'sku' }"))
-  assert.match(source, /全部库存明细及完整字段/)
+  assert.match(source, /库存明细、历史透视和海外仓库龄占比/)
   const help = inventoryColumnHelp.sku_middle_site_code
   assert.match(help.sourceApi, /只读派生标识.*当前生成行或已保存历史行.*不新增上游接口/)
   assert.match(help.sourceTable, /ebay_inventory_detail_history\.item_json.*sku_middle_code.*sku.*site/)
-  assert.match(help.formula, /优先使用该行sku_middle_code.*旧历史未保存中间码字段.*第二段纯数字/)
+  assert.match(help.formula, /优先使用该行sku_middle_code.*旧历史未保存中间码字段.*第二段提取数字或字母数字组合/)
   assert.match(help.formula, /以文本保留前导零，不转数字/)
   assert.match(help.formula, /仅映射德国→DE、美国→US、英国→UK/)
   assert.match(help.formula, /直接拼接、不加分隔符/)
   assert.match(help.formula, /10053＋德国→10053DE.*00100＋英国→00100UK/)
   assert.match(help.formula, /不修改历史快照.*不替代现有站点＋中间码合并键/)
-  assert.match(help.emptyHandling, /中间码缺失或非纯数字.*站点缺失或不在.*null.*--.*Excel留空/)
+  assert.match(help.emptyHandling, /中间码缺失或无效.*站点缺失或不在.*null.*--.*Excel留空/)
   const definition = columnBlock.split('\n').find(line => line.includes("key: 'sku_middle_site_code'"))
   assert.match(definition, /label: '中间码\+站点'.*width: 150/)
   assert.doesNotMatch(definition, /format:|sortable:/)
@@ -177,7 +177,7 @@ test('purchase price uses imported middle-code minimum across sites, never catal
     assert.match(help.sourceTable, /date-project\.ebay_inventory_detail_price/)
     assert.match(help.sourceTable, /middle_code.*unit_price/)
     assert.match(help.formula, /完整SKU＋价格去重/)
-    assert.match(help.formula, /本次涉及SKU的价格集合，其他SKU保留/)
+    assert.match(help.formula, /本次涉及核心码的全部价格集合，其他核心码保留/)
     assert.match(help.formula, /跨站点按中间码匹配.*MIN\(unit_price\)最低价/)
     assert.match(help.formula, /人民币原值.*不换汇、不额外加税/)
     assert.match(help.formula, /ROUND_HALF_UP保留2位/)
@@ -300,6 +300,32 @@ test('three-month average and percent ratios show two decimals without changing 
   assert.match(help.formula, /四舍五入.*保留2位小数/)
   assert.match(help.emptyHandling, /缺失月份按0计，仍固定除以3/)
   assert.match(source, /average_daily_sales_30d: 'average_monthly_sales_3m'/)
+})
+
+test('zero-sales labels use the stock of each ratio while keeping numeric zero and missing values distinct', () => {
+  const context = vm.createContext({})
+  for (const name of ['hasValue', 'formatValue', 'formatStockSalesRatio']) {
+    const code = source.match(new RegExp('function ' + name + '\\([^]*?\\n\\}'))?.[0]
+    assert.ok(code, name)
+    vm.runInContext(code, context)
+  }
+  const display = (row, key) => context.formatStockSalesRatio(row, key)
+  const inStock = 'in_stock_sales_ratio'
+  const total = 'total_stock_sales_ratio'
+  assert.equal(display({ sales_qty_30d: '0', overseas_sellable_quantity: '8',
+    overseas_total_quantity: '10', [inStock]: '0', [total]: '0' }, inStock), '0销量')
+  assert.equal(display({ sales_qty_30d: '0', overseas_sellable_quantity: '0',
+    overseas_total_quantity: '2', [inStock]: '0', [total]: '0' }, inStock), '0.00%')
+  assert.equal(display({ sales_qty_30d: '0', overseas_sellable_quantity: '0',
+    overseas_total_quantity: '2', [inStock]: '0', [total]: '0' }, total), '0销量')
+  assert.equal(display({ sales_qty_30d: '0', overseas_sellable_quantity: '0',
+    overseas_total_quantity: '0', [inStock]: '0', [total]: '0' }, total), '0.00%')
+  assert.equal(display({ sales_qty_30d: '2', overseas_sellable_quantity: '0',
+    overseas_total_quantity: '3', [inStock]: '0', [total]: '1.5' }, total), '150.00%')
+  assert.equal(display({ sales_qty_30d: '0', overseas_sellable_quantity: '8',
+    overseas_total_quantity: '10', [inStock]: null, [total]: null }, inStock), '--')
+  assert.match(inventoryColumnHelp.in_stock_sales_ratio.emptyHandling, /0销量/)
+  assert.match(inventoryColumnHelp.total_stock_sales_ratio.emptyHandling, /0销量/)
 })
 
 test('renamed column retains saved order and hidden state, including legacy array configs', async () => {

@@ -29,6 +29,14 @@ def export_pivot(**filters):
     if not data["items"]:
         raise ValueError("当前筛选条件下没有可导出的历史透视数据")
     workbook = Workbook(write_only=True)
+    append_pivot_sheet(workbook, data["items"])
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return f"Ebay库存历史透视-{datetime.now(CHINA):%Y%m%d%H%M%S}.xlsx", output.getvalue()
+
+
+def append_pivot_sheet(workbook, items):
     sheet = workbook.create_sheet("Ebay库存历史透视")
     sheet.freeze_panes = "D2"
     sheet.sheet_view.showGridLines = False
@@ -48,7 +56,7 @@ def export_pivot(**filters):
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         header.append(cell)
     sheet.append(header)
-    for row_no, row in enumerate(data["items"], 2):
+    for row_no, row in enumerate(items, 2):
         is_owner_total = row.get("row_type") == "OWNER_TOTAL"
         cells = []
         for key, _, kind in COLUMNS:
@@ -72,8 +80,4 @@ def export_pivot(**filters):
                 cell.fill = PatternFill("solid", fgColor="FEF2F2")
             cells.append(cell)
         sheet.append(cells)
-    sheet.auto_filter.ref = f"A1:L{len(data['items']) + 1}"
-    output = BytesIO()
-    workbook.save(output)
-    workbook.close()
-    return f"Ebay库存历史透视-{datetime.now(CHINA):%Y%m%d%H%M%S}.xlsx", output.getvalue()
+    sheet.auto_filter.ref = f"A1:L{len(items) + 1}"

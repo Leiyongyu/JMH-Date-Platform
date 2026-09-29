@@ -14,6 +14,7 @@ from backend.repositories import inventory_report_etl_repository as owner_reposi
 from backend.services.ebay_inventory_grade_rule import calculate_grade
 from backend.services.ebay_inventory_workbook import normalize_site
 from backend.services.ebay_inventory_price_parser import parse_prices
+from backend.services.ebay_inventory_core_code import normalize_core_code, sku_core_code
 from backend.services.inventory_report_etl_service import (
     _ebay_assignment, _ebay_product_sku_map, _ebay_rule_map,
 )
@@ -42,17 +43,15 @@ def _text(value) -> str:
 
 
 def sku_middle_code(sku: str) -> str | None:
-    """取连字符分隔后的第二段数字，作为文本保留前导零。"""
-    parts = _text(sku).split("-")
-    code = parts[1].strip() if len(parts) > 1 else ""
-    return code if code and all("0" <= char <= "9" for char in code) else None
+    """库存核心码取SKU第二段，支持字母数字，保留前导零。"""
+    return sku_core_code(sku)
 
 
 def sku_middle_site_code(site: str, middle_code: str | None) -> str | None:
     """仅供展示的中间码+站点标识，不替代现有分组或价格匹配键。"""
-    middle = "" if middle_code is None else str(middle_code).strip()
+    middle = normalize_core_code(middle_code)
     suffix = MIDDLE_SITE_SUFFIXES.get(_text(site))
-    if not suffix or not middle or not all("0" <= char <= "9" for char in middle):
+    if not suffix or not middle:
         return None
     return middle + suffix
 
@@ -85,7 +84,7 @@ def _product_price(source, metadata) -> tuple[Decimal | None, str | None]:
     """上传价按文本中间码取MIN，跨站点共用人民币，不回退产品档案。"""
     raw = source.get("imported_unit_price")
     if raw is None or raw == "":
-        return None, "上传单价未匹配到有效中间码，请导入产品单价后刷新；不回退产品管理价格"
+        return None, "上传单价未匹配到有效核心码，请导入产品单价后刷新；不回退产品管理价格"
     try:
         price = _decimal(raw)
     except ValueError:
@@ -199,6 +198,10 @@ def _max_sales_floor_map(floor_rows) -> dict[tuple, Decimal]:
                _text(row.get("product_key")))
         if not key[0] or key[1] not in {"MIDDLE", "SKU"} or not key[2]:
             continue
+        # 字母核心码原先按完整SKU存高水位；只读映射到新键，不丢失旧峰值。
+        # 不相加不同时间的峰值，也不改写历史快照。
+        if key[1] == "SKU":
+            key = _product_key(key[0], key[2])
         value = _decimal(row.get("max_monthly_sales"))
         if key not in result or value > result[key]:
             result[key] = value
@@ -447,7 +450,7 @@ def load_calculated_inventory():
     if source_rows and not raw_rules:
         warnings.append(f"{owner_month}没有eBay负责人规则，未匹配行显示未分配，不回退到其他月份")
     metadata = {**metadata, "owner_rule_month": owner_month,
-                "grouping_policy": "site_middle_code_v1", "source_sku_count": len(source_rows),
+                "grouping_policy": "site_core_code_v2", "source_sku_count": len(source_rows),
                 "product_group_count": len(items)}
     return items, metadata, warnings, sales_candidates
 
@@ -460,16 +463,16 @@ def _filter_values(value, label, *, uppercase=False, numeric=False):
     values = {part.strip() for part in text.split(",") if part.strip()}
     if len(values) > 100:
         raise ValueError(f"{label}最多选择100项")
-    if numeric and any(not all("0" <= char <= "9" for char in part) for part in values):
-        raise ValueError("SKU筛选请输入数字中间码，多个中间码使用英文逗号分隔，例如10053,20017")
+    if numeric and any(normalize_core_code(part) is None for part in values):
+        raise ValueError("SKU筛选请输入核心码（数字或字母数字组合），多个核心码使用英文逗号分隔，例如10053,10027Y")
     return {part.upper() for part in values} if uppercase else values
 
 
 def _row_middle_codes(row):
     # Old/imported snapshots may lack the display field. Extract for matching only;
     # do not recalculate, regroup or mutate frozen history rows.
-    code = _text(row.get("sku_middle_code"))
-    if code and all("0" <= char <= "9" for char in code):
+    code = normalize_core_code(row.get("sku_middle_code"))
+    if code:
         return {code}
     return {code for value in (row.get("sku_aliases") or [row.get("sku")])
             if (code := sku_middle_code(value)) is not None}
@@ -478,7 +481,7 @@ def _row_middle_codes(row):
 def list_inventory(*, site=None, sku=None, brand=None, grade=None, page=1, page_size=50,
                    sort_field=None, sort_order=None, paginate=True, selected_keys=None, stat_date=None,
                    start_date=None, end_date=None):
-    sku_filter = _filter_values(sku, "中间码", numeric=True)
+    sku_filter = _filter_values(sku, "核心码", numeric=True, uppercase=True)
     brand_filter = _filter_values(brand, "品牌", uppercase=True)
     grade_filter = _filter_values(grade, "等级")
     date_range = start_date is not None or end_date is not None
@@ -508,14 +511,15 @@ def list_inventory(*, site=None, sku=None, brand=None, grade=None, page=1, page_
         items, metadata, warnings, _ = load_calculated_inventory()
     sites = sorted({_text(row["site"]) for row in items})
     brands = sorted({value for row in items for value in row.get("brand_aliases", [row["brand"]]) if value})
-    grades = sorted({_text(row.get("grade")) for row in items if row.get("grade")})
+    # Match the page's empty-grade display without rewriting frozen history values.
+    grades = sorted({_text(row.get("grade")) for row in items if _text(row.get("grade"))} | {"--"})
     site_filter = normalize_site(site) if site else ""
     items = [row for row in items
              if (not site_filter or row["site"] == site_filter)
              and (not sku_filter or sku_filter.intersection(_row_middle_codes(row)))
              and (not brand_filter or brand_filter.intersection(
                  _text(value).upper() for value in (row.get("brand_aliases") or [row.get("brand")])))
-             and (not grade_filter or _text(row.get("grade")) in grade_filter)]
+             and (not grade_filter or (_text(row.get("grade")) or "--") in grade_filter)]
     if selected_keys:
         def selection_key(row):
             return (normalize_site(row["site"]), _text(row.get("sku")).upper(), _text(row.get("record_key")))
@@ -558,4 +562,4 @@ def import_prices(content: bytes, filename: str, operator: str | None = None):
     rows = result.pop("rows")
     imported = price_repository.replace_prices(rows, _text(operator)[:64] or "SYSTEM", filename)
     return {"imported_rows": imported, **result,
-            "message": "按SKU+价格去重，替换本次涉及SKU的价格集合，其他SKU保留；同中间码取最低人民币价。请点击刷新重新计算今日快照。"}
+            "message": "按SKU+价格去重，替换本次涉及核心码的全部旧价格，其他核心码保留；同核心码取最低人民币价。请点击刷新重新计算今日快照。"}

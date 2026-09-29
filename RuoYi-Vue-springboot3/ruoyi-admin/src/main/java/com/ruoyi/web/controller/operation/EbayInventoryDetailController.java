@@ -36,6 +36,8 @@ public class EbayInventoryDetailController extends BaseController
     @GetMapping("/list")
     public AjaxResult list(
             @RequestParam(required = false) String statDate,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
             @RequestParam(required = false) String site,
             @RequestParam(required = false) String sku,
             @RequestParam(required = false) String brand,
@@ -48,6 +50,8 @@ public class EbayInventoryDetailController extends BaseController
     {
         Map<String, Object> params = filters(site, sku, brand, grade, sortField, sortOrder);
         params.put("stat_date", text(statDate));
+        if (startDate != null) params.put("start_date", text(startDate));
+        if (endDate != null) params.put("end_date", text(endDate));
         params.put("page", Math.max(1, pageNum));
         params.put("page_size", Math.min(200, Math.max(1, pageSize)));
         return success(client.list(params, requestId).get("data"));

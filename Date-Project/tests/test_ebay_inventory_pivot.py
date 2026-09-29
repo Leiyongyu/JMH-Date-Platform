@@ -224,7 +224,7 @@ def test_capture_uses_generation_today_not_source_snapshot_day_and_lock_spans_sa
         # 否则快照里的等级会用旧下限，和页面下次看到的对不上。
         # 删旧统计日排在写入之后，中途失败不会留下空窗。
         ("lock", "inventory:ebay-pivot"), ("load",), ("raise_high_water",), ("save",),
-        ("drop_old", date(2026, 9, 16)), ("unlock", "inventory:ebay-pivot"),
+        ("unlock", "inventory:ebay-pivot"),
     ]
 
 
@@ -567,7 +567,7 @@ def test_shared_loader_empty_snapshot_skips_owner_queries_and_emits_warning(monk
     assert any("没有可用的成功周报库存快照" in warning for warning in warnings)
 
 
-def test_recapturing_the_same_batch_rewrites_today_and_drops_the_old_day(capture):
+def test_recapturing_the_same_batch_rewrites_today_and_keeps_other_days(capture):
     """同一个库存批次只留一份历史：按当天重写，再删掉该批次先前那份。
 
     两条都不能少——
@@ -585,8 +585,8 @@ def test_recapturing_the_same_batch_rewrites_today_and_drops_the_old_day(capture
     capture["saver"].assert_called_once()               # 必须写
     capture["raiser"].assert_called_once()
     # 先写当天、再删该批次的其它统计日，避免中途失败留下空窗。
-    assert capture["events"].index(("save",)) < capture["events"].index(("drop_old", date(2026, 9, 16)))
-    assert result["replaced_stat_dates"] == ["2026-09-07"]
+    assert not any(event[0] == 'drop_old' for event in capture['events'])
+    assert result["replaced_stat_dates"] == []
 
 
 def test_first_capture_of_a_batch_opens_today_and_records_one_observation(capture):

@@ -45,6 +45,20 @@ COLUMNS = (
     ("stat_date", "统计日期", "text"),
 )
 _ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_STOCK_RATIO_QUANTITIES = {
+    "in_stock_sales_ratio": "overseas_sellable_quantity",
+    "total_stock_sales_ratio": "overseas_total_quantity",
+}
+
+
+def _has_zero_sales_with_stock(item, key, value):
+    stock_key = _STOCK_RATIO_QUANTITIES.get(key)
+    if not stock_key or value is None:
+        return False
+    sales, stock = item.get("sales_qty_30d"), item.get(stock_key)
+    if sales is None or stock is None:
+        return False
+    return Decimal(str(value)) == 0 and Decimal(str(sales)) == 0 and Decimal(str(stock)) > 0
 
 
 def export_inventory(**filters) -> tuple[str, bytes]:
@@ -59,6 +73,20 @@ def export_inventory(**filters) -> tuple[str, bytes]:
         # Stable sort keeps the selected within-day ordering and every historical row.
         data["items"].sort(key=lambda item: item["stat_date"])
     workbook = Workbook(write_only=True)
+    append_inventory_sheet(workbook, data["items"])
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    stat_date = data.get("metadata", {}).get("stat_date") or data["items"][0].get("stat_date")
+    date_label = str(stat_date) if stat_date else datetime.now(CHINA).strftime("%Y-%m-%d")
+    if filters.get("start_date") and filters.get("end_date"):
+        start, end = filters["start_date"], filters["end_date"]
+        date_label = start if start == end else f"{start}_至_{end}"
+    filename = f"库存明细持续更新-ebay-{date_label}.xlsx"
+    return filename, output.getvalue()
+
+
+def append_inventory_sheet(workbook, items):
     sheet = workbook.create_sheet("Ebay库存明细")
     sheet.freeze_panes = "C2"
     sheet.sheet_view.showGridLines = False
@@ -86,15 +114,22 @@ def export_inventory(**filters) -> tuple[str, bytes]:
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         header.append(cell)
     sheet.append(header)
-    for row_no, item in enumerate(data["items"], 2):
+    for row_no, item in enumerate(items, 2):
         cells = []
         for key, _, kind in COLUMNS:
             value = item.get(key)
             cell = WriteOnlyCell(sheet)
-            if value is None and item.get("history_origin") == "EXCEL_IMPORT":
+            if _has_zero_sales_with_stock(item, key, value):
+                cell.value = "0销量"
+                cell.data_type = "s"
+            elif (key == "grade" and (value is None or not str(value).strip())) or (
+                key in _STOCK_RATIO_QUANTITIES and value is None
+            ) or (
+                value is None and item.get("history_origin") == "EXCEL_IMPORT"
+            ):
                 cell.value = "--"
                 cell.data_type = "s"
-            if value is not None:
+            elif value is not None:
                 if kind == "text":
                     cell.value = _ILLEGAL_XML.sub("", str(value))
                     cell.data_type = "s"  # SKU/品名以=开头时仍是文本，不执行公式。
@@ -113,13 +148,4 @@ def export_inventory(**filters) -> tuple[str, bytes]:
                 cell.fill = stripe
             cells.append(cell)
         sheet.append(cells)
-    sheet.auto_filter.ref = f"A1:{get_column_letter(len(COLUMNS))}{len(data['items']) + 1}"
-    output = BytesIO()
-    workbook.save(output)
-    workbook.close()
-    stat_date = data.get("metadata", {}).get("stat_date")
-    prefix = f"Ebay库存明细-{stat_date}" if stat_date else "Ebay库存明细"
-    if filters.get("start_date") and filters.get("end_date"):
-        prefix = f"Ebay库存明细-{filters['start_date']}_至_{filters['end_date']}"
-    filename = f"{prefix}-{datetime.now(CHINA):%Y%m%d%H%M%S}.xlsx"
-    return filename, output.getvalue()
+    sheet.auto_filter.ref = f"A1:{get_column_letter(len(COLUMNS))}{len(items) + 1}"

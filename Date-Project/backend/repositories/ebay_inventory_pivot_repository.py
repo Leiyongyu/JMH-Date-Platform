@@ -59,7 +59,7 @@ def drop_batch_snapshots(inventory_batch_id, keep_stat_date):
     return [row["stat_date"] for row in stale]
 
 
-def replace_day(header: dict, groups: list[dict], inventory_items: list[dict]) -> int:
+def replace_day(header: dict, groups: list[dict], inventory_items: list[dict], *, age_report=None) -> int:
     """Replace this date only; a failed insert rolls back header and all old rows."""
     columns = ("snapshot_id", "owner", "site", *METRICS)
     with db_connection() as connection:
@@ -103,6 +103,11 @@ def replace_day(header: dict, groups: list[dict], inventory_items: list[dict]) -
                         f"INSERT INTO {INVENTORY_DETAIL} (snapshot_id,site,sku,item_json) VALUES (%s,%s,%s,%s)",
                         detail_params[offset:offset + 500],
                     )
+                if age_report is not None:
+                    from backend.repositories.ebay_inventory_age_ratio_repository import save_snapshot_cursor
+                    if str(header['stat_date']) != age_report['stat_date']:
+                        raise ValueError('库存与库龄统计日期不一致，全部快照未保存')
+                    save_snapshot_cursor(cursor, age_report)
             connection.commit()
             return snapshot_id
         except Exception:

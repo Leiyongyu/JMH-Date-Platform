@@ -13,14 +13,14 @@ const compiledScript = compileScript(parsed.descriptor, { id: 'inventory-history
 const setupSource = parsed.descriptor.scriptSetup.content
 const statements = compiledScript.scriptSetupAst
 const stateNames = [
-  'rows', 'total', 'loading', 'exporting', 'dataReady', 'metadata', 'tableRef', 'options',
-  'query', 'appliedFilters', 'filtersDirty', 'pageQuery', 'sort', 'defaultSort', 'validDates',
-  'snapshotCount', 'detailCount', 'onlyOwnerTotals', 'visibleRows', 'pageOwnerTotalCount',
+  'rows', 'total', 'loading', 'dataReady', 'metadata', 'options',
+  'pageQuery', 'sort', 'defaultSort',
+  'snapshotCount', 'detailCount', 'pageOwnerTotalCount',
   'pageRange', 'loadVersion', 'unmounted', 'columns'
 ]
 const functionNames = [
-  'currentFilters', 'disabledStatDate', 'rowKey', 'isOwnerTotal', 'rowClassName', 'formatValue', 'missingMessage', 'loadRows',
-  'handleQuery', 'resetQuery', 'handlePagination', 'handleSortChange', 'handleExport'
+  'currentFilters', 'rowKey', 'isOwnerTotal', 'rowClassName', 'formatValue', 'missingMessage', 'loadRows',
+  'handlePagination', 'handleSortChange'
 ]
 const plain = value => JSON.parse(JSON.stringify(value))
 function declaration(name, functionOnly = false) {
@@ -51,7 +51,7 @@ function harness(request = async () => response()) {
   let exportResponse = new Blob([Uint8Array.from([0x50, 0x4b, 0x03, 0x04])],
     { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
   const context = vm.createContext({
-    computed, reactive, ref, Blob, Date,
+    props: reactive({ dateRange: ['2026-09-14', '2026-09-16'] }), computed, reactive, ref, Blob, Date,
     listEbayInventoryPivot: async params => { sent.push(plain(params)); return request(params) },
     exportEbayInventoryPivot: async params => { exported.push(plain(params)); return exportResponse },
     checkPermi: () => permission,
@@ -63,8 +63,7 @@ function harness(request = async () => response()) {
   for (const name of stateNames) vm.runInContext(declaration(name), context)
   vm.runInContext('globalThis.api = { ' + [...stateNames, ...functionNames].join(', ') + ' }', context)
   const api = context.api
-  api.appliedFilters.value = api.currentFilters()
-  api.tableRef.value = { sort() {} }
+  api.props = context.props
   return {
     api, sent, exported, downloads, errors, warnings, context,
     setPermission: value => { permission = value },
@@ -84,13 +83,14 @@ test('history component compiles with an explicitly imported Pagination and inde
   assert.match(source, /:label="size \+ ' 组\/页'"/)
   assert.match(source, /layout="prev, pager, next, jumper"/)
   assert.match(source, /@pagination="handlePagination"/)
-  assert.match(source, /operations:ebayInventoryDetail:export/)
+  assert.doesNotMatch(source, /<el-date-picker|@click="handleExport"|@click="loadRows"/)
+  assert.doesNotMatch(source, /<el-form|<el-button|<el-checkbox|query\.owner|query\.site|onlyOwnerTotals/)
 })
 
 test('switch keeps detail mounted and its original selection, filters and column config intact', () => {
   const index = fs.readFileSync(new URL('../src/views/operations/ebay/inventoryDetail/index.vue', import.meta.url), 'utf8')
-  assert.match(index, /<section v-show="activeView === 'detail'" class="table-panel">/)
-  assert.match(index, /<InventoryHistoryPivot v-if="activeView === 'pivot'"\s*\/>/)
+  assert.match(index, /<div v-show="activeView === 'detail'">/)
+  assert.match(index, /<InventoryHistoryPivot v-if="activeView === 'pivot'".*:date-range="sharedDateRange"/)
   assert.match(index, /const activeView = ref\('detail'\)/)
   assert.match(index, /const selection = reactive\(new Map\(\)\)/)
   assert.match(index, /useColumnConfig\('operations:ebay:inventory-detail'/)
@@ -108,52 +108,21 @@ test('twelve visible columns follow requested order; month stays a date tooltip'
   assert.match(source, /负责人保留采集时归属/)
 })
 
-test('calendar permits only actual snapshot dates using local calendar rather than UTC conversion', async () => {
-  const { api, sent } = harness()
-  assert.equal(api.disabledStatDate(new Date(2026, 8, 16)), true)
-  await api.loadRows()
-  assert.equal(api.disabledStatDate(new Date(2026, 8, 16)), false)
-  assert.equal(api.disabledStatDate(new Date(2026, 8, 14)), false)
-  assert.equal(api.disabledStatDate(new Date(2026, 8, 15)), true)
-  assert.equal(api.disabledStatDate(new Date('invalid')), true)
-  assert.deepEqual(sent[0], { pageNum: 1, pageSize: 50, sortField: 'stat_date', sortOrder: 'descending' })
-  assert.equal(api.snapshotCount.value, 2)
-  assert.match(source, /:disabled="!options\.dates\.length"/)
-  assert.match(source, /暂无历史快照/)
-})
-
-test('date, owner and site filters apply together and reset returns to unfiltered date-descending view', async () => {
+test('only parent dates filter history; detail row filters never reach the API', async () => {
   const { api, sent } = harness()
   await api.loadRows()
-  api.query.dateRange = ['2026-09-14', '2026-09-16']
-  api.query.owner = '李茫茫'
-  api.query.site = '德国'
-  api.pageQuery.pageNum = 5
-  assert.equal(api.filtersDirty.value, true)
-  await api.handleQuery()
+  Object.assign(api.props, { owner: '李茫茫', site: '德国', sku: '10053', brand: ['DAS'], grade: ['--'] })
+  await api.loadRows()
   assert.deepEqual(sent.at(-1), {
-    startDate: '2026-09-14', endDate: '2026-09-16', owner: '李茫茫', site: '德国',
+    startDate: '2026-09-14', endDate: '2026-09-16',
     pageNum: 1, pageSize: 50, sortField: 'stat_date', sortOrder: 'descending'
   })
-  assert.equal(api.filtersDirty.value, false)
-  await api.resetQuery()
-  assert.deepEqual(sent.at(-1), { pageNum: 1, pageSize: 50, sortField: 'stat_date', sortOrder: 'descending' })
-})
-
-test('unknown, incomplete or reverse date ranges are rejected without querying', async () => {
-  const { api, sent, warnings } = harness()
+  api.props.dateRange = ['2026-08-01', '2026-08-31']
   await api.loadRows()
-  for (const dates of [
-    ['2026-09-15', '2026-09-16'], ['2026-09-14'], ['2026-09-16', '2026-09-14']
-  ]) {
-    api.query.dateRange = dates
-    await api.handleQuery()
-  }
-  assert.equal(sent.length, 1)
-  assert.equal(warnings.length, 3)
+  assert.deepEqual(sent.at(-1), { startDate: '2026-08-01', endDate: '2026-08-31', pageNum: 1, pageSize: 50, sortField: 'stat_date', sortOrder: 'descending' })
 })
 
-test('pagination and sorting preserve applied filters, and refresh ignores unsubmitted edits', async () => {
+test('pagination and sorting preserve the shared date range', async () => {
   const { api, sent } = harness(async params => response(
     [
       { stat_date: '2026-09-16', owner: '李茫茫', site: '德国', row_type: 'DETAIL' },
@@ -162,8 +131,6 @@ test('pagination and sorting preserve applied filters, and refresh ignores unsub
     { pagination: { page: params.pageNum, page_size: params.pageSize, total: 201 } }
   ))
   await api.loadRows()
-  api.query.site = '德国'
-  await api.handleQuery()
   await api.handlePagination({ page: 3, limit: 20 })
   assert.equal(sent.at(-1).pageNum, 3)
   assert.equal(sent.at(-1).pageSize, 20)
@@ -171,10 +138,10 @@ test('pagination and sorting preserve applied filters, and refresh ignores unsub
   await api.handleSortChange({ prop: 'sku_count', order: 'descending' })
   assert.equal(sent.at(-1).pageNum, 1)
   assert.equal(sent.at(-1).sortField, 'sku_count')
-  api.query.site = '英国'
   await api.loadRows()
-  assert.equal(sent.at(-1).site, '德国')
-  assert.equal(api.filtersDirty.value, true)
+  assert.equal(sent.at(-1).startDate, '2026-09-14')
+  assert.equal(sent.at(-1).endDate, '2026-09-16')
+  assert.equal(sent.at(-1).site, undefined)
 })
 
 test('slow earlier requests and responses after unmount cannot replace newer historical results', async () => {
@@ -219,14 +186,14 @@ test('owner totals have a red bold row style including date, identity and missin
   assert.match(api.columns.find(column => column.key === 'sku_count').tip, /站点＋中间码合并后计数/)
   assert.match(api.columns.find(column => column.key === 'sku_count').tip, /跨站点分别计数/)
   assert.match(api.columns.find(column => column.key === 'sku_count').tip, /旧日期保持原完整SKU计数/)
-  assert.match(api.columns.find(column => column.key === 'site').tip, /当前筛选的站点/)
+  assert.match(api.columns.find(column => column.key === 'site').tip, /该日期全部站点/)
   for (const column of api.columns.filter(item => item.format === 'percent')) {
     assert.match(column.tip, /先加总各站点库存和销量再相除/)
     assert.match(column.tip, /不对SKU行或站点库销比求和或平均/)
   }
 })
 
-test('summary-only toggle preserves backend ordering, complete groups, pagination and query state', async () => {
+test('all detail and owner total rows remain visible in complete paginated groups', async () => {
   const items = [
     { stat_date: '2026-09-14', owner: 'A', site: '德国', row_type: 'DETAIL' },
     { stat_date: '2026-09-14', owner: 'A', site: '英国', row_type: 'DETAIL' },
@@ -244,27 +211,17 @@ test('summary-only toggle preserves backend ordering, complete groups, paginatio
   assert.equal(api.snapshotCount.value, 4)
   assert.equal(api.pageOwnerTotalCount.value, 2)
   assert.deepEqual(plain(api.pageRange.value), { start: 21, end: 22 })
-  assert.deepEqual(plain(api.visibleRows.value), items)
-  const queriesBeforeToggle = sent.length
-  api.onlyOwnerTotals.value = true
-  assert.deepEqual(plain(api.visibleRows.value), [items[2], items[4]])
-  assert.equal(api.rows.value.length, 5)
-  assert.deepEqual(plain(api.pageRange.value), { start: 21, end: 22 })
-  assert.equal(api.filtersDirty.value, false)
-  assert.equal(sent.length, queriesBeforeToggle)
-  api.onlyOwnerTotals.value = false
-  assert.deepEqual(plain(api.visibleRows.value), items)
-  assert.match(source, /:data="visibleRows"/)
-  assert.match(source, /仅隐藏当前页站点明细，不改变分页或排序/)
-  assert.match(source, /导出始终包含全部筛选结果的站点明细和负责人汇总/)
+  assert.deepEqual(plain(api.rows.value), items)
+  assert.equal(sent.length, 1)
+  assert.match(source, /:data="rows"/)
+  assert.match(source, /不受库存明细的站点、核心码、品牌或等级筛选影响/)
 })
 
-test('empty pages show zero groups even when the summary-only display is selected', async () => {
+test('empty pages show zero groups', async () => {
   const { api } = harness()
-  api.onlyOwnerTotals.value = true
   await api.loadRows()
   assert.deepEqual(plain(api.pageRange.value), { start: 0, end: 0 })
-  assert.deepEqual(plain(api.visibleRows.value), [])
+  assert.deepEqual(plain(api.rows.value), [])
 })
 
 test('owner total money explains frozen site sums and does not misstate excluded old null amounts', () => {
@@ -277,7 +234,7 @@ test('owner total money explains frozen site sums and does not misstate excluded
     for (const amount of ['120.00', 0, null]) {
       const row = { row_type: 'OWNER_TOTAL', sku_count: 8, [key]: amount, [missingField]: 2 }
       const message = api.missingMessage(row, key)
-      assert.match(message, /当前筛选站点的已冻结金额汇总相加/)
+      assert.match(message, /该日期全部站点的已冻结金额汇总相加/)
       assert.match(message, /忽略空值，0为有效值/)
       assert.match(message, /未记录的历史金额不追溯重算/)
       assert.match(message, /原快照记录有 2 个SKU/)
@@ -355,42 +312,6 @@ for (const [key, missingField, reason] of [
     }
   })
 }
-
-test('export sends only applied historical filters and ordering, not current page or unsaved edits', async () => {
-  const { api, exported, downloads } = harness(async () => response([
-    { owner: 'A', site: '德国', row_type: 'DETAIL' },
-    { owner: 'A', site: '负责人汇总', row_type: 'OWNER_TOTAL' }
-  ]))
-  await api.loadRows()
-  api.query.site = '德国'
-  await api.handleQuery()
-  api.pageQuery.pageNum = 3
-  api.onlyOwnerTotals.value = true
-  await api.handleExport()
-  assert.deepEqual(exported[0], { site: '德国', sortField: 'stat_date', sortOrder: 'descending' })
-  assert.equal(downloads.length, 1)
-  assert.match(downloads[0].name, /^Ebay库存历史透视-/)
-  api.query.site = '英国'
-  await api.handleExport()
-  assert.equal(exported.length, 1)
-})
-
-test('export enforces permission and rejects JSON error or invalid workbook responses', async () => {
-  const state = harness(async () => response([{ owner: 'A', row_type: 'OWNER_TOTAL' }]))
-  await state.api.loadRows()
-  state.setPermission(false)
-  await state.api.handleExport()
-  assert.equal(state.exported.length, 0)
-  state.setPermission(true)
-  state.setExportResponse(new Blob([JSON.stringify({ detail: '历史快照不可用' })], { type: 'application/json' }))
-  await state.api.handleExport()
-  assert.equal(state.errors[0], '历史快照不可用')
-  state.setExportResponse(new Blob(['invalid'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
-  await state.api.handleExport()
-  assert.match(state.errors[1], /有效的 Excel/)
-  assert.equal(state.downloads.length, 0)
-  assert.equal(state.api.exporting.value, false)
-})
 
 test('history API uses authenticated ERP endpoints and binary GET export', () => {
   const apiSource = fs.readFileSync(new URL('../src/api/operations/ebay/inventoryDetail.js', import.meta.url), 'utf8')

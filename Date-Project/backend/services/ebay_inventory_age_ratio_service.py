@@ -189,44 +189,50 @@ def capture_snapshot():
     with named_lock("inventory:ebay-age-ratio") as acquired:
         if not acquired:
             raise ValueError("海外仓库龄占比正在刷新，请稍后重试")
-        now = datetime.now(CHINA)
-        month, day = now.strftime("%Y-%m"), now.date().isoformat()
-        inventory, products = repository.load_source(month)
-        source = inventory
-        if not source:
-            raise ValueError("谷仓最新库龄表没有数据，请先执行谷仓-eBay库存库龄每周刷新")
-        batches = {r["source_goodcang_batch_id"] for r in source}
-        if len(batches) != 1 or not next(iter(batches)):
-            raise ValueError("谷仓最新库龄数据批次不完整，未保存统计")
-        raw_rules = owners.owner_rules(month, "ebay")
-        rules = _ebay_rule_map(raw_rules)
-        if not rules:
-            raise ValueError(f"缺少{month}的eBay负责人规则，请先在绩效排名导入当月规则")
-        sku_map = _ebay_product_sku_map(month, include_next=False)
-        matched = match_middle_code(inventory, products, rules, sku_map)
-        rows = clean_matched_rows(month, now, matched)
-        report = aggregate(rows, rules, sku_map, day)
-        if not report["valued_rows"]:
-            raise ValueError("没有可计算货值的库龄明细，请检查当月采购成本、头程成本及库龄；旧快照未覆盖")
-        warnings = []
-        if report["excluded_rows"]:
-            warnings.append(f'{report["excluded_rows"]}条明细缺成本、产品匹配不唯一或库龄无效，未计入货值及占比；当前金额为可计算部分。')
-        if any(row["name"] == "未分配" for row in report["owners"]):
-            warnings.append("部分SKU未匹配负责人，保留在“未分配”中，未丢弃其货值。")
-        if any(row["name"] == "未识别站点" for row in report["sites"]):
-            warnings.append("存在未识别仓库，已归入“未识别站点”。")
-        if any(row["pull_month"] != month for row in source):
-            warnings.append("谷仓最新源数据不是当月拉取；统计日期是重新计算日期，请留意源数据拉取时间。")
-        source_times = [r["source_pulled_at"] for r in source if r.get("source_pulled_at")]
-        report.update(stat_date=day, generated_at=now.strftime("%Y-%m-%d %H:%M:%S"),
-                      owner_month=month, cost_month=month, source_batch_id=next(iter(batches)),
-                      source_pulled_at=max(source_times).isoformat(sep=" ") if source_times else None,
-                      source_months=sorted({r["pull_month"] for r in source}), warnings=warnings,
-                      product_batch_ids=sorted({r["source_product_batch_id"] for r in rows if r.get("source_product_batch_id")}),
-                      calculation_version="core-supplier-max-landed-cost-v4",
-                      site_calculation_version="site-inventory-over180-v1")
+        report = build_snapshot()
         repository.save_snapshot(report)
         return report
+
+
+def build_snapshot(now=None):
+    """Calculate only; unified refresh publishes this alongside inventory in one transaction."""
+    now = now or datetime.now(CHINA)
+    month, day = now.strftime("%Y-%m"), now.date().isoformat()
+    inventory, products = repository.load_source(month)
+    source = inventory
+    if not source:
+        raise ValueError("谷仓最新库龄表没有数据，请先执行谷仓-eBay库存库龄每周刷新")
+    batches = {r["source_goodcang_batch_id"] for r in source}
+    if len(batches) != 1 or not next(iter(batches)):
+        raise ValueError("谷仓最新库龄数据批次不完整，未保存统计")
+    raw_rules = owners.owner_rules(month, "ebay")
+    rules = _ebay_rule_map(raw_rules)
+    if not rules:
+        raise ValueError(f"缺少{month}的eBay负责人规则，请先在绩效排名导入当月规则")
+    sku_map = _ebay_product_sku_map(month, include_next=False)
+    matched = match_middle_code(inventory, products, rules, sku_map)
+    rows = clean_matched_rows(month, now, matched)
+    report = aggregate(rows, rules, sku_map, day)
+    if not report["valued_rows"]:
+        raise ValueError("没有可计算货值的库龄明细，请检查当月采购成本、头程成本及库龄；旧快照未覆盖")
+    warnings = []
+    if report["excluded_rows"]:
+        warnings.append(f'{report["excluded_rows"]}条明细缺成本、产品匹配不唯一或库龄无效，未计入货值及占比；当前金额为可计算部分。')
+    if any(row["name"] == "未分配" for row in report["owners"]):
+        warnings.append("部分SKU未匹配负责人，保留在“未分配”中，未丢弃其货值。")
+    if any(row["name"] == "未识别站点" for row in report["sites"]):
+        warnings.append("存在未识别仓库，已归入“未识别站点”。")
+    if any(row["pull_month"] != month for row in source):
+        warnings.append("谷仓最新源数据不是当月拉取；统计日期是重新计算日期，请留意源数据拉取时间。")
+    source_times = [r["source_pulled_at"] for r in source if r.get("source_pulled_at")]
+    report.update(stat_date=day, generated_at=now.strftime("%Y-%m-%d %H:%M:%S"),
+                  owner_month=month, cost_month=month, source_batch_id=next(iter(batches)),
+                  source_pulled_at=max(source_times).isoformat(sep=" ") if source_times else None,
+                  source_months=sorted({r["pull_month"] for r in source}), warnings=warnings,
+                  product_batch_ids=sorted({r["source_product_batch_id"] for r in rows if r.get("source_product_batch_id")}),
+                  calculation_version="core-supplier-max-landed-cost-v4",
+                  site_calculation_version="site-inventory-over180-v1")
+    return report
 
 
 def read_range(start_date, end_date):

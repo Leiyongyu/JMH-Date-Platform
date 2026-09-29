@@ -15,7 +15,7 @@ const statements = script.scriptSetupAst
 
 const stateNames = [
   'rows', 'total', 'sites', 'brands', 'grades', 'availableDates', 'loading', 'dataReady',
-  'recalculating', 'canRecalculate', 'importing',
+  'recalculating', 'canRecalculate', 'importing', 'refreshRevision', 'sharedDateRange', 'sharedViewKey',
   'exporting', 'exportDateRange', 'exportDialogVisible', 'tableRef', 'query', 'appliedFilters', 'filtersDirty',
   'pageQuery', 'pageRange', 'sort', 'selection', 'selectedCount',
   'restoringSelection', 'loadVersion', 'unmounted', 'canExportData', 'transferBusy', 'exportUnavailable'
@@ -23,7 +23,7 @@ const stateNames = [
 const functionNames = [
   'rowKey', 'filterCsv', 'currentFilters', 'handleSelectionChange', 'clearSelection',
   'restorePageSelection', 'loadRows', 'handlePagination', 'handleQuery', 'disabledStatDate',
-  'handleSortChange', 'handleExport', 'confirmExport', 'handleRefresh'
+  'handleSortChange', 'handleExport', 'confirmExport', 'handleRefresh', 'handleDateQuery', 'resetQuery'
 ]
 
 function actualDeclaration(name, functionOnly = false) {
@@ -67,6 +67,25 @@ test('multiple row filters persist across pagination but never restrict export',
   assert.match(source, /v-model="query.brand" multiple/)
   assert.match(source, /v-model="query.grade" multiple/)
   assert.match(source, /clearSelection, \{ deep: true \}/)
+})
+
+test('empty-grade option from backend is selectable and persists across pagination', async () => {
+  const { api, sent } = createHarness(async () => {
+    const result = response([])
+    result.data.grades = ['--', 'A', 'B']
+    return result
+  })
+  await api.handleQuery()
+  assert.deepEqual(plain(api.grades.value), ['--', 'A', 'B'])
+  assert.match(source, /v-for="grade in grades"[^>]*:label="grade"[^>]*:value="grade"/)
+  api.query.grade = ['--']
+  await api.handleQuery()
+  assert.equal(sent.at(-1).grade, '--')
+  await api.handlePagination({ page: 2, limit: 1 })
+  assert.equal(sent.at(-1).grade, '--')
+  api.query.grade = ['--', 'A']
+  await api.handleQuery()
+  assert.equal(sent.at(-1).grade, '--,A')
 })
 
 test('non-numeric and Chinese-comma SKU input is rejected without a request', async () => {
@@ -123,6 +142,7 @@ function createHarness(request = async () => response([]), options = {}) {
   api = context.pageHarness
   api.markUnmounted = () => vm.runInContext('unmounted = true', context)
   api.tableRef.value = {
+    sort() {},
     clearSelection() {
       renderedSelection.clear()
       api.handleSelectionChange([])
@@ -137,6 +157,76 @@ function createHarness(request = async () => response([]), options = {}) {
   api.appliedFilters.value = api.currentFilters()
   return { api, sent, exported, downloads, errors, renderedSelection, recalculations, successes, warnings }
 }
+
+test('alphanumeric core filters reach the backend with leading zeroes intact', async () => {
+  const { api, sent, errors } = createHarness(async () => response([]))
+  api.query.sku = '10027y,0019,50059I'
+  await api.handleQuery()
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].sku.toUpperCase(), '10027Y,0019,50059I')
+  assert.equal(errors.length, 0)
+})
+
+test('one applied date range drives detail, both subviews and export default', async () => {
+  const { api, sent } = createHarness(async () => response([]))
+  api.query.dateRange = ['2026-08-01', '2026-08-31']
+  await api.handleQuery()
+  assert.equal(sent[0].startDate, '2026-08-01')
+  assert.equal(sent[0].endDate, '2026-08-31')
+  assert.equal(Object.hasOwn(sent[0], 'statDate'), false)
+  assert.deepEqual(plain(api.sharedDateRange.value), ['2026-08-01', '2026-08-31'])
+  await api.handleExport()
+  assert.deepEqual(plain(api.exportDateRange.value), ['2026-08-01', '2026-08-31'])
+  const key = api.sharedViewKey.value
+  Object.assign(api.query, { site: '美国', sku: '10053', brand: ['DAS'], grade: ['--'] })
+  await api.handleQuery()
+  assert.equal(api.sharedViewKey.value, key, 'detail row filters do not remount or filter either history view')
+  assert.deepEqual(plain(api.sharedDateRange.value), ['2026-08-01', '2026-08-31'])
+  for (const component of ['InventoryHistoryPivot', 'InventoryAgeRatio']) {
+    const tag = source.match(new RegExp(`<${component}[^>]+>`))[0]
+    assert.doesNotMatch(tag, /:(?:site|sku|brand|grade|owner)=/)
+  }
+  api.refreshRevision.value++
+  assert.notEqual(api.sharedViewKey.value, key)
+  assert.notEqual(api.rowKey({ site: '德国', sku: 'A', stat_date: '2026-08-01' }),
+    api.rowKey({ site: '德国', sku: 'A', stat_date: '2026-08-02' }))
+})
+
+test('date range excludes single-date parameters through query, pagination, sorting, refresh and clear', async () => {
+  const { api, sent, exported } = createHarness(async () => response([]))
+  // Reproduce both possible stale values left by default resolution and refresh/import.
+  for (const staleDate of [undefined, 'latest', '2026-09-16']) {
+    api.query.statDate = staleDate
+    api.query.dateRange = ['2026-08-01', '2026-08-31']
+    await api.handleQuery()
+    assert.equal(api.dataReady.value, true)
+    assert.equal(api.filtersDirty.value, false)
+    await api.handlePagination({ page: 2, limit: 20 })
+    api.handleSortChange({ prop: 'cycle_total_quantity', order: 'ascending' })
+    await settle()
+    assert.equal(Object.hasOwn(api.appliedFilters.value, 'statDate'), false)
+  }
+  await api.handleRefresh()
+  assert.equal(sent.at(-1).startDate, '2026-09-16')
+  assert.equal(sent.at(-1).endDate, '2026-09-16')
+  await api.handleExport()
+  await api.confirmExport()
+  assert.equal(Object.hasOwn(exported.at(-1), 'statDate'), false)
+  for (const params of sent) {
+    assert.ok(params.startDate && params.endDate)
+    assert.equal(Object.hasOwn(params, 'statDate'), false)
+  }
+  api.query.dateRange = null
+  await api.handleDateQuery()
+  assert.equal(sent.at(-1).statDate, 'latest')
+  assert.equal(Object.hasOwn(sent.at(-1), 'startDate'), false)
+  assert.equal(Object.hasOwn(sent.at(-1), 'endDate'), false)
+  assert.deepEqual(plain(api.sharedDateRange.value), ['2026-09-16', '2026-09-16'])
+  api.query.dateRange = ['2026-08-01', '2026-08-31']
+  await api.resetQuery()
+  assert.equal(sent.at(-1).statDate, 'latest')
+  assert.equal(Object.hasOwn(sent.at(-1), 'startDate'), false)
+})
 
 test('Pagination compiles to the explicit imported component, never a reactive state object', () => {
   const componentImport = statements.find(node => node.type === 'ImportDeclaration'
@@ -198,7 +288,7 @@ test('latest date resolves once and date changes clear selection and pin export'
   await api.confirmExport()
   assert.equal(exported.at(-1).startDate, '2026-09-15')
   assert.equal(exported.at(-1).endDate, '2026-09-15')
-  assert.match(source, /v-model="query.statDate"/)
+  assert.match(source, /v-model="query.dateRange"/)
 })
 
 test('explicit refresh writes once without filters and switches from old date to server today', async () => {
@@ -213,7 +303,9 @@ test('explicit refresh writes once without filters and switches from old date to
   await api.handleRefresh()
   assert.deepEqual(recalculations, [[]]) // No selected date, SKU or page reaches the write endpoint.
   assert.equal(api.query.statDate, '2026-09-16')
-  assert.equal(sent.at(-1).statDate, '2026-09-16')
+  assert.equal(sent.at(-1).startDate, '2026-09-16')
+  assert.equal(sent.at(-1).endDate, '2026-09-16')
+  assert.equal(Object.hasOwn(sent.at(-1), 'statDate'), false)
   assert.equal(sent.at(-1).pageNum, 1)
   assert.equal(sent.at(-1).site, '德国')
   assert.equal(api.selectedCount.value, 0)
@@ -419,6 +511,7 @@ test('selected and unselected exports ignore row filters and pagination', async 
   assert.deepEqual(exported[0], {
     startDate: '2026-09-16', endDate: '2026-09-16', sortField: 'sales_qty_30d', sortOrder: 'descending'
   })
+  assert.equal(downloads[0].name, '库存明细持续更新-ebay-2026-09-16.xlsx')
   for (const key of ['pageNum', 'pageSize', 'page', 'page_size']) {
     assert.equal(Object.hasOwn(exported[0], key), false)
   }

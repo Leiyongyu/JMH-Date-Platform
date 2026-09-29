@@ -62,6 +62,42 @@ def test_export_ignores_multi_filters_while_list_still_filters_and_selects(isola
         service.list_inventory(**filters, selected_keys=[{"site": "德国", "sku": "DAS-123-0121"}])
 
 
+def test_empty_grade_matches_uncalculable_live_rows_and_combines_with_other_grades(isolated):
+    isolated([
+        source(sku="DAS-10053-0121", three_month_paid_amount_cny=0),
+        source(sku="MCD-20017-0071", **graded("A")),
+        source(sku="MCD-30017-0071", site="英国", three_month_paid_amount_cny=0),
+    ])
+    result = service.list_inventory(grade="--", site="德国")
+    assert result["grades"] == ["--", "A"]
+    assert result["pagination"]["total"] == 1
+    assert result["items"][0]["sku_middle_code"] == "10053"
+    assert result["items"][0]["grade"] is None
+    assert service.list_inventory(grade="--,A", paginate=False)["pagination"]["total"] == 3
+    assert service.list_inventory(grade="A")["pagination"]["total"] == 1
+
+
+@pytest.mark.parametrize("date_filters", [
+    {"stat_date": "2026-09-16"},
+    {"start_date": "2026-09-01", "end_date": "2026-09-30"},
+])
+def test_empty_grade_filters_saved_history_before_paging_without_mutating(isolated, monkeypatch, date_filters):
+    isolated([source()])
+    base, meta, warnings, _ = service.load_calculated_inventory()
+    rows = [{**base[0], "record_key": str(index), "grade": grade}
+            for index, grade in enumerate([None, "", "  ", "--", "A", "B"])]
+    before = deepcopy(rows)
+    monkeypatch.setattr(service.history_repository, "read_inventory_day", lambda *args: (rows, meta, warnings))
+    monkeypatch.setattr(service.history_repository, "read_inventory_range", lambda *args: (rows, meta, warnings))
+    monkeypatch.setattr(service, "load_calculated_inventory", lambda: pytest.fail("must not recalculate history"))
+    result = service.list_inventory(**date_filters, grade="--", page_size=2, page=2)
+    assert result["pagination"]["total"] == 4
+    assert {row["record_key"] for row in result["items"]} == {"2", "3"}
+    assert service.list_inventory(**date_filters, grade="--,A")["pagination"]["total"] == 5
+    assert service.list_inventory(**date_filters, grade="")["pagination"]["total"] == 6
+    assert rows == before
+
+
 def test_history_missing_middle_matches_without_recalculation_or_dedup(isolated, monkeypatch):
     install_rows(isolated)
     rows, meta, warnings, _ = service.load_calculated_inventory()
@@ -82,7 +118,7 @@ def test_history_missing_middle_matches_without_recalculation_or_dedup(isolated,
 @pytest.mark.parametrize("sku", ["10053，20017", "DAS-10053-0121", "10053 OR 1=1", "10053\n20017", "１００５３"])
 def test_invalid_middle_filters_fail_before_source_read(monkeypatch, sku):
     monkeypatch.setattr(service, "load_calculated_inventory", lambda: pytest.fail("unexpected data read"))
-    with pytest.raises(ValueError, match="数字中间码"):
+    with pytest.raises(ValueError, match="核心码"):
         service.list_inventory(sku=sku)
 
 

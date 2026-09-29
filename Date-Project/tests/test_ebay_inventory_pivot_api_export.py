@@ -43,20 +43,20 @@ def test_detail_stat_date_is_forwarded_for_list_and_export(client, monkeypatch):
 def test_refresh_calls_capture_once_without_client_date_filters_or_external_sync(client, monkeypatch):
     from unittest.mock import MagicMock
     capture = MagicMock(return_value={"stat_date": "2026-09-16", "snapshot_id": 1, "item_count": 2670})
-    monkeypatch.setattr(api.pivot_service, "capture_snapshot", capture)
+    monkeypatch.setattr(api.pivot_service, "capture_all_snapshots", capture)
     response = client.post("/api/v1/finance/ebay-inventory-detail/snapshot/recalculate",
                            params={"stat_date": "2020-01-01", "site": "英国"},
                            json={"stat_date": "2020-01-01", "page": 2, "sku": "one"})
     assert response.status_code == 200
     assert response.json()["data"]["stat_date"] == "2026-09-16"
-    capture.assert_called_once_with(trigger_type="PAGE_REFRESH")
+    capture.assert_called_once_with()
     assert client.get("/api/v1/finance/ebay-inventory-detail/snapshot/recalculate").status_code == 405
 
 
 def test_refresh_failure_is_explicit_and_does_not_retry_or_report_success(client, monkeypatch):
     from unittest.mock import MagicMock
     capture = MagicMock(side_effect=ValueError("历史透视正在生成，请稍后重试"))
-    monkeypatch.setattr(api.pivot_service, "capture_snapshot", capture)
+    monkeypatch.setattr(api.pivot_service, "capture_all_snapshots", capture)
     response = client.post("/api/v1/finance/ebay-inventory-detail/snapshot/recalculate")
     assert response.status_code == 400
     assert "正在生成" in response.json()["detail"]

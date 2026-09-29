@@ -43,7 +43,7 @@ def test_group_totals_recalculate_averages_ratios_and_round_purchase_only_once(i
     assert row["total_duration_months"] == "4.03"  # not 8.06
     assert row["purchase_quantity"] == "-7"  # rounding each member then adding gives -8
     assert data["metadata"]["source_sku_count"] == 2
-    assert data["metadata"]["grouping_policy"] == "site_middle_code_v1"
+    assert data["metadata"]["grouping_policy"] == "site_core_code_v2"
 
 
 def test_middle_code_uses_minimum_price_not_inventory_weighted_price(isolated):
@@ -130,6 +130,18 @@ def test_sites_leading_zeros_and_invalid_middle_codes_do_not_coalesce(isolated):
               product(sku="2PC-DAS-10053-0121"), product(sku="2PC-DAS-10053-0121-YXQ"),
               product(sku="PLAIN"), product(sku="OTHER")])
     assert service.list_inventory()["pagination"]["total"] == 7
+
+
+def test_alphanumeric_core_groups_filters_and_keeps_legacy_high_water(isolated):
+    isolated([product(sku='DAS-10027Y-0042'), product(sku='JMH-10027Y-0042-YXR'),
+              product(sku='DAS-10027Y-0042', site='德国')],
+             max_floor=[floor('英国', 'SKU', 'DAS-10027Y-0042', '88')])
+    data = service.list_inventory(sku='10027y')
+    assert data['pagination']['total'] == 2
+    row = next(r for r in data['items'] if r['site'] == '英国')
+    assert row['merged_sku_count'] == 2
+    assert row['sku_middle_site_code'] == '10027YUK'
+    assert row['max_monthly_sales'] == '88'
 
 
 def test_stable_representative_alias_filters_keep_whole_group_and_sort_before_page(isolated):

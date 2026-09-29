@@ -10,12 +10,12 @@ const source = fs.readFileSync(file, 'utf8')
 const { descriptor, errors } = parse(source)
 assert.deepEqual(errors, [])
 const script = compileScript(descriptor, { id: 'age-ratio-test' })
-const names = ['report', 'dimension', 'selectedDate', 'dateRange', 'availableDates', 'loading', 'refreshing', 'canRefresh',
-  'rows', 'visibleWarnings', 'emptyText', 'buckets', 'siteColumns', 'ratioBarWidth', 'version', 'disposed', 'formatQuantity', 'formatMoney', 'formatPercent', 'loadReport', 'refreshReport']
+const names = ['report', 'loading',
+  'visibleWarnings', 'emptyText', 'buckets', 'siteColumns', 'ratioBarWidth', 'version', 'disposed', 'formatQuantity', 'formatMoney', 'formatPercent', 'loadReport']
 function harness({ allowed = true, read, refresh } = {}) {
   const calls = [], events = [], messages = []
   const context = vm.createContext({
-    ref, computed, checkPermi: () => allowed,
+    props: { dateRange: ['2026-09-01', '2026-09-30'] }, ref, computed, checkPermi: () => allowed,
     emit: (...args) => events.push(args), ElMessage: { success: message => messages.push(message) },
     getEbayInventoryAgeRatio: async params => { calls.push(['read', params]); return read?.(params) || { data: { owners: [], sites: [], available_dates: [] } } },
     recalculateEbayInventoryAgeRatio: async (...args) => {
@@ -28,7 +28,7 @@ function harness({ allowed = true, read, refresh } = {}) {
     vm.runInContext(descriptor.scriptSetup.content.slice(node.start, node.end), context)
   }
   vm.runInContext('globalThis.api = { ' + names.join(',') + ' }', context)
-  return { api: context.api, calls, events, messages }
+  return { api: context.api, props: context.props, calls, events, messages }
 }
 
 test('eleven-column owner and eight-column site views compile without verbose help or exclusion details', () => {
@@ -42,7 +42,7 @@ test('eleven-column owner and eight-column site views compile without verbose he
   assert.match(source, /report.generated_at && report.calculation_version/)
   const h = harness()
   assert.equal(h.api.buckets.length * 2 + 3, 11)
-  assert.match(source, /v-if="dimension === 'owners'"/)
+  assert.equal((descriptor.template.content.match(/<el-table :data=/g) || []).length, 2)
   assert.equal(h.api.siteColumns.length + 1, 8)
   assert.equal(h.api.siteColumns.map(c => c.label).join(','), '站点,总库存,>180天库存,库存占比,总货值,>180天货值,货值占比')
   assert.equal(h.api.siteColumns.map(c => c.prop).join(','), 'name,total_quantity,over_180_quantity,over_180_quantity_ratio,total_value,over_180_value,over_180_ratio')
@@ -108,13 +108,12 @@ test('pink data bars use actual percentages against a fixed 100 percent cell wid
   assert.match(source, /background: #f5a0ac/)
 })
 
-test('site bars keep a fixed scale on dimension and report changes; zero and missing values stay empty', () => {
+test('site bars keep a fixed scale on report changes; zero and missing values stay empty', () => {
   const h = harness()
   h.api.report.value = { owners: [{ over_180_ratio: '0.8' }], sites: [
     { over_180_ratio: '0.1', over_180_quantity_ratio: '0.2' },
     { over_180_ratio: '0.05', over_180_quantity_ratio: '0.1' }
   ] }
-  h.api.dimension.value = 'sites'
   assert.equal(h.api.ratioBarWidth('0.05'), '5%')
   assert.equal(h.api.ratioBarWidth('0.1'), '10%')
   for (const value of [null, undefined, '', 'invalid', Infinity, -1, 0]) {
@@ -128,80 +127,30 @@ test('site bars keep a fixed scale on dimension and report changes; zero and mis
   assert.equal(h.api.formatPercent('invalid'), '--')
 })
 
-test('read never recalculates and pins returned snapshot date', async () => {
-  const h = harness({ read: async () => ({ data: { stat_date: '2026-09-28', owners: [], sites: [], available_dates: ['2026-09-28'] } }) })
+test('reads only the parent date range for both dimensions without writes', async () => {
+  const h = harness({ read: async p => ({ data: { start_date: p.startDate, end_date: p.endDate,
+    owners: [{ name: '张三' }], sites: [{ name: '德国' }] } }) })
+  Object.assign(h.props, { site: '美国', sku: '10053', brand: ['DAS'], grade: ['--'] })
   await h.api.loadReport()
-  assert.equal(h.calls.length, 1)
-  assert.equal(h.calls[0][0], 'read')
-  assert.equal(h.api.selectedDate.value, '2026-09-28')
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls)), [['read', { startDate: '2026-09-01', endDate: '2026-09-30' }]])
+  assert.equal(h.api.report.value.owners[0].name, '张三')
+  assert.equal(h.api.report.value.sites[0].name, '德国')
+  assert.match(source, /:data="report\.owners \|\| \[\]"/)
+  assert.match(source, /:data="report\.sites \|\| \[\]"/)
+  assert.doesNotMatch(source, /<el-radio|<el-button|<el-form|dimension ===/)
+  assert.doesNotMatch(source, /<el-date-picker|refreshReport|recalculateEbayInventoryAgeRatio/)
 })
-
-test('date range reads daily history for both dimensions and clearing returns latest', async () => {
-  const h = harness({ read: async params => ({ data: params.startDate ? {
-    start_date: params.startDate, end_date: params.endDate, snapshot_dates: ['2026-09-29', '2026-09-28'],
-    owners: [{ stat_date: '2026-09-29', name: '张三' }, { stat_date: '2026-09-28', name: '张三' }],
-    sites: [{ stat_date: '2026-09-29', name: '德国' }, { stat_date: '2026-09-28', name: '德国' }]
-  } : { stat_date: '2026-09-29', owners: [], sites: [] } }) })
-  h.api.dateRange.value = ['2026-09-01', '2026-09-30']
-  await h.api.loadReport()
-  assert.equal(h.calls[0][1].startDate, '2026-09-01')
-  assert.equal(h.calls[0][1].endDate, '2026-09-30')
-  assert.equal(h.calls[0][1].statDate, undefined)
-  assert.equal(h.api.rows.value.length, 2)
-  h.api.dimension.value = 'sites'
-  assert.equal(h.api.rows.value.length, 2)
-  h.api.dateRange.value = null
-  await h.api.loadReport()
-  assert.equal(h.calls[1][1].statDate, 'latest')
-  assert.equal(h.api.dateRange.value.join(','), '2026-09-29,2026-09-29')
-  assert.ok(h.calls.every(([kind]) => kind === 'read'))
-})
-
-test('empty date range shows a history-specific empty state', async () => {
-  const h = harness({ read: async () => ({ data: { start_date: '2020-01-01', end_date: '2020-02-01',
-    snapshot_dates: [], owners: [], sites: [] } }) })
-  h.api.dateRange.value = ['2020-01-01', '2020-02-01']
-  await h.api.loadReport()
-  assert.equal(h.api.emptyText.value, '所选日期范围内没有统计快照')
-  assert.equal(h.api.dateRange.value[0], '2020-01-01')
-})
-
-test('refresh sends no client date or filters, switches to today and keeps history dates', async () => {
+test('no independent latest-date fallback while waiting for parent date resolution', async () => {
   const h = harness()
-  h.api.selectedDate.value = '2026-09-01'
-  h.api.availableDates.value = ['2026-09-01']
-  await h.api.refreshReport()
-  assert.equal(h.calls[0][1].length, 0)
-  assert.equal(h.api.selectedDate.value, '2026-09-29')
-  assert.equal(h.api.availableDates.value.join(','), '2026-09-29,2026-09-01')
-  assert.equal(h.api.rows.value[0].name, '张三')
-  h.api.dimension.value = 'sites'
-  assert.equal(h.api.rows.value[0].name, '德国')
-  assert.equal(h.messages.length, 1)
-  assert.deepEqual(h.events, [['busy-change', true], ['busy-change', false]])
+  h.props.dateRange = []
+  await h.api.loadReport()
+  assert.equal(h.calls.length, 0)
+  assert.equal(h.api.loading.value, false)
 })
-
-test('refresh permission and duplicate-click guard preserve read-only behavior', async () => {
-  const denied = harness({ allowed: false })
-  await denied.api.refreshReport()
-  assert.equal(denied.calls.length, 0)
-  let complete
-  const h = harness({ refresh: () => new Promise(resolve => { complete = resolve }) })
-  const running = h.api.refreshReport()
-  await h.api.refreshReport()
-  assert.equal(h.calls.length, 1)
-  complete({ data: { stat_date: '2026-09-29', owners: [], sites: [] } })
-  await running
-  assert.equal(h.api.refreshing.value, false)
-})
-
-test('failed refresh preserves old data and never announces success', async () => {
-  const h = harness({ refresh: async () => { throw new Error('missing costs') } })
-  h.api.report.value = { stat_date: '2026-09-28', owners: [{ name: 'old' }] }
-  h.api.selectedDate.value = '2026-09-28'
-  await h.api.refreshReport()
-  assert.equal(h.api.report.value.stat_date, '2026-09-28')
-  assert.equal(h.api.selectedDate.value, '2026-09-28')
+test('failed read preserves the last successful data without announcing success', async () => {
+  const h = harness({ read: async () => { throw new Error('read failed') } })
+  h.api.report.value = { owners: [{ name: 'old' }], sites: [] }
+  await h.api.loadReport()
+  assert.equal(h.api.report.value.owners[0].name, 'old')
   assert.equal(h.messages.length, 0)
-  assert.equal(h.api.refreshing.value, false)
 })

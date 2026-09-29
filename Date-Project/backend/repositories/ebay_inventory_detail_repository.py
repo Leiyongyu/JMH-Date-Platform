@@ -250,7 +250,8 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None,
            = CONVERT(inventory.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
         LEFT JOIN product_prices prices
           ON LOCATE('-',inventory.sku)>0
-         AND {middle_sql} REGEXP '^[0-9]+$'
+         AND {middle_sql} REGEXP '^[a-zA-Z0-9]{{1,64}}$'
+         AND {middle_sql} REGEXP '[0-9]'
          AND CONVERT(prices.middle_code USING utf8mb4) COLLATE utf8mb4_unicode_ci
            = CONVERT({middle_sql} USING utf8mb4) COLLATE utf8mb4_unicode_ci
         LEFT JOIN age_groups ages
@@ -368,7 +369,7 @@ def _source_metadata(cursor) -> dict[str, Any]:
             raise ValueError(_PRICE_MISSING) from exc
         raise
     metadata.update(cursor.fetchone())
-    metadata["price_source"] = "uploaded_middle_code_min_v1"
+    metadata["price_source"] = "uploaded_core_code_min_v2"
     age_table = _inventory_age_table()
     cursor.execute(f"""
         SELECT MAX(snapshot_month) age_snapshot_month,MAX(pulled_at) age_pulled_at,

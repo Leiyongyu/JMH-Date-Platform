@@ -14,7 +14,8 @@ from backend.services import ebay_inventory_pivot_service as pivot_service
 from backend.services import ebay_inventory_age_ratio_service as age_ratio_service
 from backend.services import ebay_inventory_history_import_service as history_import_service
 from backend.services.ebay_inventory_pivot_export_service import export_pivot
-from backend.services.ebay_inventory_detail_export_service import EXCEL_CONTENT_TYPE, export_inventory
+from backend.services.ebay_inventory_detail_export_service import EXCEL_CONTENT_TYPE
+from backend.services.ebay_inventory_bundle_export_service import export_inventory
 from backend.services.ebay_inventory_workbook import MAX_FILE_BYTES
 
 LOG = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ class ExportRequest(BaseModel):
     start_date: str | None = Field(default=None, max_length=10)
     end_date: str | None = Field(default=None, max_length=10)
     site: str | None = Field(default=None, max_length=100)
-    sku: str | None = Field(default=None, max_length=2048, description="数字中间码，英文逗号分隔，精确匹配")
+    sku: str | None = Field(default=None, max_length=2048, description="核心码（数字或字母数字组合），英文逗号分隔，精确匹配")
     brand: str | None = Field(default=None, max_length=2048, description="品牌多选，英文逗号分隔")
     grade: str | None = Field(default=None, max_length=2048, description="等级多选，英文逗号分隔")
     sort_field: str | None = Field(default=None, max_length=80)
@@ -52,7 +53,9 @@ def _failure(exc: Exception, label: str):
 @router.get("/list")
 def list_inventory(request: Request, site: str | None = Query(None, max_length=100),
                    stat_date: str | None = Query(None, max_length=10),
-                   sku: str | None = Query(None, max_length=2048, description="数字中间码，英文逗号分隔，精确匹配"),
+                   start_date: str | None = Query(None, max_length=10),
+                   end_date: str | None = Query(None, max_length=10),
+                   sku: str | None = Query(None, max_length=2048, description="核心码（数字或字母数字组合），英文逗号分隔，精确匹配"),
                    brand: str | None = Query(None, max_length=2048),
                    grade: str | None = Query(None, max_length=2048), page: int = Query(1, ge=1),
                    page_size: int = Query(50, ge=1, le=200), sort_field: str | None = Query(None, max_length=80),
@@ -60,7 +63,7 @@ def list_inventory(request: Request, site: str | None = Query(None, max_length=1
     try:
         data = service.list_inventory(site=site, sku=sku, brand=brand, grade=grade, page=page,
                                       page_size=page_size, sort_field=sort_field, sort_order=sort_order,
-                                      stat_date=stat_date)
+                                      stat_date=stat_date, start_date=start_date, end_date=end_date)
         return success_response(data, request_id=request.state.request_id)
     except Exception as exc:
         raise _failure(exc, "查询") from exc
@@ -70,9 +73,9 @@ def list_inventory(request: Request, site: str | None = Query(None, max_length=1
 def recalculate_snapshot(request: Request):
     """Explicit write action: all current data, today's date, never client filters/dates."""
     try:
-        result = pivot_service.capture_snapshot(trigger_type="PAGE_REFRESH")
+        result = pivot_service.capture_all_snapshots()
         return success_response(result, request_id=request.state.request_id,
-                                message="今日库存明细与透视已重新计算并保存")
+                                message="今日库存明细、历史透视及海外仓库龄占比已统一保存")
     except Exception as exc:
         raise _failure(exc, "重新计算") from exc
 

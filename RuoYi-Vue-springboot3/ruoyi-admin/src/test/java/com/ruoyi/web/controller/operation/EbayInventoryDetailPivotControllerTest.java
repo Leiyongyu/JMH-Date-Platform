@@ -38,7 +38,7 @@ class EbayInventoryDetailPivotControllerTest
         when(client.export(anyMap(), any())).thenReturn(
                 new EbayInventoryDetailPythonClient.ExcelFile(new byte[] { 80, 75 }, "attachment; filename=test.xlsx"));
         var controller = new EbayInventoryDetailController(client);
-        controller.list(" 2026-09-15 ", null, null, null, null, 1, 50, null, null, "trace");
+        controller.list(" 2026-09-15 ", null, null, null, null, null, null, 1, 50, null, null, "trace");
         controller.export(Map.of("statDate", "2026-09-15"), "trace", new MockHttpServletResponse());
         ArgumentCaptor<Map<String, Object>> listParams = ArgumentCaptor.forClass(Map.class);
         ArgumentCaptor<Map<String, Object>> exportParams = ArgumentCaptor.forClass(Map.class);

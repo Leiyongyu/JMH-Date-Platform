@@ -7,29 +7,27 @@
         <el-radio-button value="ageRatio">海外仓库龄占比</el-radio-button>
       </el-radio-group>
     </div>
-    <InventoryHistoryPivot v-if="activeView === 'pivot'" />
-    <InventoryAgeRatio v-if="activeView === 'ageRatio'" @busy-change="ageRatioBusy = $event" />
-    <section v-show="activeView === 'detail'" class="table-panel">
+    <section class="table-panel">
       <el-form v-show="showSearch" :model="query" :inline="true" :disabled="recalculating" class="query-form" @submit.prevent="handleQuery">
         <el-form-item label="统计日期">
-          <el-date-picker v-model="query.statDate" type="date" value-format="YYYY-MM-DD"
-            placeholder="最新已保存日期" :clearable="false" :disabled-date="disabledStatDate"
-            style="width: 175px" @change="handleQuery" />
+          <el-date-picker v-model="query.dateRange" type="daterange" value-format="YYYY-MM-DD"
+            start-placeholder="开始日期（默认最新）" end-placeholder="结束日期" clearable
+            style="width: 300px" @change="handleDateQuery" />
         </el-form-item>
-        <el-form-item label="站点">
+        <el-form-item v-show="activeView === 'detail'" label="站点">
           <el-select v-model="query.site" clearable filterable placeholder="全部站点" style="width: 160px">
             <el-option v-for="site in sites" :key="site" :label="site" :value="site" />
           </el-select>
         </el-form-item>
-        <el-form-item label="SKU中间码">
-          <el-input v-model="query.sku" clearable maxlength="2048" placeholder="多个中间码用英文逗号分隔，如10053,20017" style="width: 340px" @keyup.enter="handleQuery" />
+        <el-form-item v-show="activeView === 'detail'" label="核心码">
+          <el-input v-model="query.sku" clearable maxlength="2048" placeholder="多个核心码用英文逗号分隔，如10053,10027Y" style="width: 340px" @keyup.enter="handleQuery" />
         </el-form-item>
-        <el-form-item label="品牌">
+        <el-form-item v-show="activeView === 'detail'" label="品牌">
           <el-select v-model="query.brand" multiple clearable filterable collapse-tags collapse-tags-tooltip :multiple-limit="100" placeholder="全部品牌（多选）" style="width: 210px">
             <el-option v-for="brand in brands" :key="brand" :label="brand" :value="brand" />
           </el-select>
         </el-form-item>
-        <el-form-item label="等级">
+        <el-form-item v-show="activeView === 'detail'" label="等级">
           <el-select v-model="query.grade" multiple clearable filterable collapse-tags collapse-tags-tooltip :multiple-limit="100" placeholder="全部等级（多选）" style="width: 180px">
             <el-option v-for="grade in grades" :key="grade" :label="grade" :value="grade" />
           </el-select>
@@ -38,7 +36,7 @@
           <el-button type="primary" icon="Search" :disabled="loading" @click="handleQuery">查询</el-button>
           <el-button icon="Refresh" :disabled="loading" @click="resetQuery">重置</el-button>
           <div v-if="canImportData || canExportData" class="transfer-actions" role="group" aria-label="库存数据导入导出">
-            <el-tooltip content="选择统计日期范围，导出区间内已保存的全部库存明细及完整字段，不受筛选、勾选和分页影响。" placement="top">
+            <el-tooltip content="按统一统计日期范围导出库存明细、历史透视和海外仓库龄占比，分别保存为三个Sheet，不受行筛选、勾选和分页影响。" placement="top">
               <span>
                 <el-button class="transfer-primary" type="primary" icon="Download"
                   :loading="exporting" :disabled="exportUnavailable" @click="handleExport">
@@ -65,19 +63,22 @@
       </el-form>
 
       <div class="table-toolbar">
-        <div class="selection-info">
+        <div v-show="activeView === 'detail'" class="selection-info">
           <span>共 <b>{{ total.toLocaleString() }}</b> 条</span>
           <span v-if="filtersDirty" class="pending-filter-text">筛选条件已更改，请点击查询</span>
           <span v-if="selectedCount" class="selected-text">已选 {{ selectedCount }} 条（支持跨页）</span>
           <span class="muted">导出可选择统计日期范围，不受筛选和勾选影响</span>
           <el-button v-if="selectedCount" link type="primary" @click="clearSelection">清空选择</el-button>
         </div>
-        <right-toolbar v-model:showSearch="showSearch" :show-column-config="true"
+        <right-toolbar v-model:showSearch="showSearch" :show-column-config="activeView === 'detail'"
           :refresh-loading="recalculating" :refresh-disabled="loading || importing || exporting || !canRecalculate"
-          :refresh-tooltip="canRecalculate ? '刷新：重新计算并覆盖今日快照，不重新拉取接口' : '重新计算需要产品导入权限'"
+          :refresh-tooltip="canRecalculate ? '统一刷新三个模块：覆盖今日快照，保留其他日期，不重新拉取接口' : '重新计算需要产品导入权限'"
           @queryTable="handleRefresh" @columnConfig="openColumnConfig" />
       </div>
 
+      <InventoryHistoryPivot v-if="activeView === 'pivot'" :key="sharedViewKey" :date-range="sharedDateRange" />
+      <InventoryAgeRatio v-if="activeView === 'ageRatio'" :key="sharedViewKey" :date-range="sharedDateRange" />
+      <div v-show="activeView === 'detail'">
       <el-table v-if="columnConfigLoaded" :key="columnTableKey" ref="tableRef" v-loading="loading || recalculating"
         :data="rows" :row-key="rowKey" :default-sort="defaultSort" border stripe
         height="620" empty-text="暂无符合条件的库存数据" class="inventory-table"
@@ -117,6 +118,11 @@
               <span class="rent-warning-value">{{ formatValue(row[column.key], column.format) }} <el-icon><QuestionFilled /></el-icon></span>
             </el-tooltip>
             <el-tag v-else-if="column.key === 'grade' && hasValue(row.grade)" type="info" effect="plain" size="small" class="grade-tag">{{ row.grade }}</el-tag>
+            <span v-else-if="column.key === 'grade'" class="empty-value">--</span>
+            <span v-else-if="['in_stock_sales_ratio', 'total_stock_sales_ratio'].includes(column.key)"
+              :class="{ 'empty-value': !hasValue(row[column.key]), 'numeric-value': true }">
+              {{ formatStockSalesRatio(row, column.key) }}
+            </span>
             <el-tooltip v-else-if="column.key === 'warehouse_rent_30d_cny' && row.rent_warning"
               :content="row.rent_warning" placement="top">
               <span class="rent-warning-value">{{ formatValue(row[column.key], column.format) }} <el-icon><QuestionFilled /></el-icon></span>
@@ -143,6 +149,7 @@
           :total="total" :page-sizes="[10, 20, 30, 50, 100, 200]" :auto-scroll="false"
           layout="total, sizes, prev, pager, next, jumper" @pagination="handlePagination" />
       </div>
+      </div>
     </section>
 
     <column-config-drawer v-model="showColumnDrawer" :columns="columnDefs" :fixed-keys="fixedColumnKeys"
@@ -157,7 +164,7 @@
             :disabled="exporting" :clearable="false" style="width: 100%" />
         </el-form-item>
       </el-form>
-      <p>导出区间内所有已保存的历史明细；无快照日期自动跳过，不重新计算，不合并不同日期的同一商品。</p>
+      <p>统一导出库存明细、历史透视、海外仓库龄占比三个Sheet；库龄占比包含个人和站点维度。无快照日期自动跳过，不重新计算。</p>
       <p>包含全部字段及统计日期，不受列表筛选、勾选、分页或隐藏列影响。单次最多20万行，超过请分段导出。</p>
       <template #footer>
         <el-button :disabled="exporting" @click="exportDialogVisible = false">取消</el-button>
@@ -211,6 +218,13 @@ import InventoryAgeRatio from './InventoryAgeRatio.vue'
 
 const activeView = ref('detail')
 const ageRatioBusy = ref(false)
+const refreshRevision = ref(0)
+const sharedDateRange = computed(() => {
+  const filters = appliedFilters.value
+  return filters.startDate && filters.endDate ? [filters.startDate, filters.endDate]
+    : filters.statDate && filters.statDate !== 'latest' ? [filters.statDate, filters.statDate] : []
+})
+const sharedViewKey = computed(() => JSON.stringify([sharedDateRange.value, refreshRevision.value]))
 const rows = ref([])
 const total = ref(0)
 const sites = ref([])
@@ -224,7 +238,7 @@ const dataReady = ref(false)
 const exporting = ref(false)
 const showSearch = ref(true)
 const tableRef = ref()
-const query = reactive({ statDate: undefined, site: undefined, sku: '', brand: [], grade: [] })
+const query = reactive({ statDate: undefined, dateRange: [], site: undefined, sku: '', brand: [], grade: [] })
 const appliedFilters = ref({})
 const filtersDirty = computed(() => JSON.stringify(currentFilters()) !== JSON.stringify(appliedFilters.value))
 // Keep state distinct from the Pagination component: script-setup bindings win
@@ -309,8 +323,20 @@ function formatValue(value, format) {
   })}`
 }
 
+function formatStockSalesRatio(row, key) {
+  const ratio = row[key]
+  if (!hasValue(ratio)) return '--'
+  const stockKey = key === 'in_stock_sales_ratio'
+    ? 'overseas_sellable_quantity' : 'overseas_total_quantity'
+  if (Number(ratio) === 0 && hasValue(row.sales_qty_30d)
+    && Number(row.sales_qty_30d) === 0 && hasValue(row[stockKey])
+    && Number(row[stockKey]) > 0) return '0销量'
+  return formatValue(ratio, 'percent')
+}
+
 function rowKey(row) {
   const key = [String(row.site || '').trim(), String(row.sku || '').trim()]
+  if (row.stat_date) key.push(row.stat_date)
   if (row.record_key) key.push(row.record_key)
   return JSON.stringify(key)
 }
@@ -322,7 +348,10 @@ function filterCsv(value) {
 
 function currentFilters() {
   return {
-    statDate: query.statDate || 'latest',
+    // The service accepts either a single snapshot or a date range, never both.
+    ...(query.dateRange?.length === 2
+      ? { startDate: query.dateRange[0], endDate: query.dateRange[1] }
+      : { statDate: query.statDate || 'latest' }),
     site: query.site || undefined,
     sku: filterCsv(query.sku),
     brand: filterCsv(query.brand),
@@ -341,7 +370,8 @@ function handleSelectionChange(selectedRows) {
   // Only mutate the current page's keys, preserving selections on other pages.
   rows.value.forEach(row => selection.delete(rowKey(row)))
   selectedRows.forEach(row => selection.set(rowKey(row), {
-    site: row.site, sku: row.sku || '', ...(row.record_key ? { record_key: row.record_key } : {})
+    site: row.site, sku: row.sku || '', ...(row.stat_date ? { stat_date: row.stat_date } : {}),
+    ...(row.record_key ? { record_key: row.record_key } : {})
   }))
 }
 
@@ -403,8 +433,12 @@ function handlePagination({ page, limit }) {
 function handleQuery() {
   if (recalculating.value) return
   const filters = currentFilters()
-  if (filters.sku && !/^[0-9]+(?:,[0-9]+)*$/.test(filters.sku)) {
-    ElMessage.error('请输入数字中间码，多个中间码使用英文逗号分隔，例如10053,20017')
+  if (filters.startDate && filters.startDate > filters.endDate) {
+    ElMessage.error('开始日期不能晚于结束日期')
+    return
+  }
+  if (filters.sku && filters.sku.split(',').some(code => !/^(?=[a-zA-Z0-9]*[0-9])[a-zA-Z0-9]{1,64}$/.test(code))) {
+    ElMessage.error('请输入核心码（数字或字母数字组合），多个核心码使用英文逗号分隔，例如10053,10027Y')
     return
   }
   if (['sku', 'brand', 'grade'].some(key => filters[key]?.length > 2048 || (filters[key]?.split(',').length || 0) > 100)) {
@@ -418,7 +452,7 @@ function handleQuery() {
 }
 
 function resetQuery() {
-  Object.assign(query, { statDate: undefined, site: undefined, sku: '', brand: [], grade: [] })
+  Object.assign(query, { statDate: undefined, dateRange: [], site: undefined, sku: '', brand: [], grade: [] })
   Object.assign(sort, { sortField: 'sales_qty_30d', sortOrder: 'descending' })
   tableRef.value?.sort(sort.sortField, sort.sortOrder)
   return handleQuery()
@@ -449,11 +483,13 @@ async function handleRefresh() {
     }
     // Never write the date currently selected by the user; the server supplies today.
     query.statDate = day
+    query.dateRange = [day, day]
+    refreshRevision.value++
     pageQuery.pageNum = 1
     appliedFilters.value = currentFilters()
     await loadRows()
     if (unmounted) return
-    if (dataReady.value) ElMessage.success(`已重新计算并保存 ${day} 的库存明细及透视`)
+    if (dataReady.value) ElMessage.success(`已重新计算并保存 ${day} 的库存明细、历史透视及海外仓库龄占比；同日覆盖，其他日期保留`)
     else ElMessage.warning('今日快照已保存，列表读取失败，请点击查询重试')
   } catch (error) {
     // The request interceptor displays server errors; no second write/retry is automatic.
@@ -482,7 +518,9 @@ const exportDateRange = ref([])
 function handleExport() {
   if (exportUnavailable.value) return
   const day = appliedFilters.value.statDate
-  exportDateRange.value = day && day !== 'latest' ? [day, day] : []
+  exportDateRange.value = appliedFilters.value.startDate && appliedFilters.value.endDate
+    ? [appliedFilters.value.startDate, appliedFilters.value.endDate]
+    : day && day !== 'latest' ? [day, day] : []
   exportDialogVisible.value = true
 }
 
@@ -509,8 +547,8 @@ async function confirmExport() {
     if (signature[0] !== 0x50 || signature[1] !== 0x4b || signature[2] !== 0x03 || signature[3] !== 0x04) {
       throw new Error('服务未返回有效的 Excel 文件，请稍后重试')
     }
-    const stamp = new Date().toLocaleString('sv-SE').replace(/[- :]/g, '')
-    download.saveAs(data, `Ebay库存明细-${startDate}_至_${endDate}-${stamp}.xlsx`)
+    const dateLabel = startDate === endDate ? startDate : `${startDate}_至_${endDate}`
+    download.saveAs(data, `库存明细持续更新-ebay-${dateLabel}.xlsx`)
     exportDialogVisible.value = false
   } catch (error) {
     ElMessage.error(error?.message || '导出失败，请稍后重试')
@@ -553,17 +591,17 @@ const importModes = {
   },
   prices: {
     label: '产品单价',
-    summary: '按 SKU 增量更新价格；同中间码取最低价，所有站点共用。',
-    description: '上传《产品单价明细表》Excel（.xlsx），表头支持「产品代码」/「SKU」和「单价(默认采购价)」/「单价（含税）」。自动提取 SKU 以短横线分隔后的第二段纯数字为中间码，单价按人民币含税价使用，允许零价，不再读取产品管理单价。每次导入按 SKU ＋单价去重，替换文件涉及 SKU 的全部价格，未涉及 SKU 保留；不同 SKU 的同中间码取当前已导入价格的最低值。',
-    tip: '非数字中间段仍保存并提示，但不参与中间码匹配；缺少 SKU 或无效单价会拒绝整份导入。原 Excel 文件保持不变。',
-    resultDescription: '已替换本次涉及 SKU 的价格集合，其余 SKU 保持不变；同中间码的最低价供所有站点使用。'
+    summary: '按核心码更新价格；同核心码取最低价，所有站点共用。',
+    description: '上传 .xlsx，包含「产品代码」/「SKU」、「核心」/「核心码」和「单价(默认采购价)」/「单价（含税）」。优先使用核心码列，也兼容「中间码」；旧表未提供时取 SKU 第二段。支持数字或字母数字组合，前导零请按文本保存。每次按 SKU＋单价去重，替换本次涉及核心码的全部旧价格（包括未再上传的后缀SKU），未涉及核心码保留；同核心码取最低人民币含税价，允许零价，不读取产品管理价格。',
+    tip: '核心码列为空或无效、同一SKU对应多个核心码、缺少SKU或无效单价均拒绝整份导入。上传核心码与库存SKU第二段不一致时可能无法匹配，请核对导入警告。原Excel文件不修改。',
+    resultDescription: '已替换本次涉及核心码的全部价格集合；同核心码的最低价供所有站点使用。请刷新重新计算今日快照，历史日期保持不变。'
   }
 }
 const activeImportConfig = computed(() => importModes[importMode.value])
 const importResultSummary = computed(() => importResultMode.value === 'history'
   ? `新增 ${importResult.value.imported_rows ?? 0} 行、${importResult.value.imported_dates ?? 0} 个日期；已有相同文件跳过 ${importResult.value.skipped_existing_dates ?? 0} 个日期；重复行保留 ${importResult.value.duplicate_rows_preserved ?? 0} 条、空SKU ${importResult.value.missing_sku_rows ?? 0} 条`
   : importResultMode.value === 'prices'
-  ? `导入 ${importResult.value.imported_rows ?? 0} 条 SKU＋单价，合并重复 ${importResult.value.duplicate_rows ?? 0} 条，涉及 ${importResult.value.sku_count ?? 0} 个 SKU、${importResult.value.middle_code_count ?? 0} 个中间码，${importResult.value.unmatched_middle_rows ?? 0} 条无数字中间码`
+  ? `导入 ${importResult.value.imported_rows ?? 0} 条 SKU＋单价，合并重复 ${importResult.value.duplicate_rows ?? 0} 条，涉及 ${importResult.value.sku_count ?? 0} 个 SKU、${importResult.value.middle_code_count ?? 0} 个核心码，${importResult.value.unmatched_middle_rows ?? 0} 条无有效核心码，${importResult.value.core_mismatch_rows ?? 0} 条核心码与SKU第二段不一致`
   : `更新 ${importResult.value.imported_rows ?? 0} 条，合并重复 ${importResult.value.duplicate_rows ?? 0} 条，跳过无效 ${importResult.value.skipped_rows ?? 0} 条`)
 
 function openImportDialog(mode) {
@@ -613,6 +651,7 @@ async function handleImport() {
     uploadRef.value?.clearFiles()
     if (mode === 'history') {
       query.statDate = result.latest_import_date
+      query.dateRange = [result.latest_import_date, result.latest_import_date]
       query.site = undefined
       query.sku = ''
       query.brand = []
@@ -628,7 +667,12 @@ async function handleImport() {
   }
 }
 
-watch(() => [query.statDate, query.site, query.sku, query.brand, query.grade], clearSelection, { deep: true })
+function handleDateQuery() {
+  query.statDate = undefined
+  return handleQuery()
+}
+
+watch(() => [query.statDate, query.dateRange, query.site, query.sku, query.brand, query.grade], clearSelection, { deep: true })
 onMounted(async () => {
   appliedFilters.value = currentFilters()
   await Promise.all([initColumnConfig(), loadRows()])

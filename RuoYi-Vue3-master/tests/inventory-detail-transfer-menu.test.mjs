@@ -98,7 +98,7 @@ test('export sends only inclusive date range and sorting, never filters, selecti
   assert.equal(downloads.length, 1)
   assert.equal(context.exporting.value, false)
   assert.equal(context.exportDialogVisible.value, false)
-  assert.match(downloads[0][1], /2026-09-01_至_2026-09-16/)
+  assert.equal(downloads[0][1], '库存明细持续更新-ebay-2026-09-01_至_2026-09-16.xlsx')
 })
 
 test('export opens range picker defaulting to displayed day without sending a request', () => {

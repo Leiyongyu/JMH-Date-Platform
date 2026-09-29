@@ -64,7 +64,17 @@ def aggregate_inventory(items):
     return result
 
 
-def capture_snapshot(expected_inventory_batch: str | None = None, trigger_type="MANUAL"):
+def capture_all_snapshots():
+    from backend.services import ebay_inventory_age_ratio_service as age_service
+    with named_lock('inventory:ebay-age-ratio') as acquired:
+        if not acquired:
+            raise ValueError('海外仓库龄占比正在刷新，请稍后重试')
+        generated = datetime.now(CHINA)
+        report = age_service.build_snapshot(generated)
+        return capture_snapshot(trigger_type='PAGE_REFRESH', generated_at=generated, age_report=report)
+
+
+def capture_snapshot(expected_inventory_batch: str | None = None, trigger_type="MANUAL", *, generated_at=None, age_report=None):
     # One lock spans read+aggregate+replace, preventing older captures finishing last.
     with named_lock("inventory:ebay-pivot") as acquired:
         if not acquired:
@@ -75,13 +85,10 @@ def capture_snapshot(expected_inventory_batch: str | None = None, trigger_type="
             raise ValueError("没有可用的成功库存快照，不生成空白历史")
         if expected_inventory_batch and expected_inventory_batch != batch:
             raise ValueError("库存批次已变化，未将其他批次误记为本次任务历史")
-        generated = datetime.now(CHINA)
+        generated = generated_at or datetime.now(CHINA)
         stat_date = generated.date()
         groups = aggregate_inventory(items)
-        # 每次重新计算都按当天写入，窗口与日期始终一致；写完再把这个库存批次
-        # 先前留下的那份历史删掉，保证"一个批次只留一份"。
-        # 页面读的就是最新快照（前端始终传 statDate=latest，从不走实时计算），
-        # 所以这里必须真的写库，跳过不写会让页面永远停在旧数据上。
+        # 每次重新计算按当天写入，同日覆盖；其他日期不受源批次是否相同影响。
         detail_repository.raise_max_monthly_sales(sales_candidates)
         snapshot_id = repository.replace_day({
             "stat_date": stat_date, "stat_month": stat_date.strftime("%Y-%m"),
@@ -90,10 +97,11 @@ def capture_snapshot(expected_inventory_batch: str | None = None, trigger_type="
             "inventory_pulled_at": metadata.get("inventory_pulled_at"),
             "trigger_type": str(trigger_type)[:32], "item_count": len(items),
             "metadata": {**metadata, "warnings": warnings, "amount_aggregation_policy": "sum_present_v1"},
-        }, groups, items)
-        replaced = repository.drop_batch_snapshots(batch, stat_date)
+        }, groups, items, **({'age_report': age_report} if age_report is not None else {}))
+        # Same-day overwrite only. Reusing a weekly source batch must not delete
+        # other dates: prices, owners and rolling sales can differ across days.
         return {"stat_date": stat_date.isoformat(), "snapshot_id": snapshot_id,
-                "replaced_stat_dates": [day.isoformat() for day in replaced],
+                "replaced_stat_dates": [], "age_ratio_saved": age_report is not None,
                 "group_count": len(groups), "item_count": len(items), "inventory_batch_id": batch}
 
 

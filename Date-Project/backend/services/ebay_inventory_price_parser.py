@@ -8,6 +8,7 @@ from pathlib import Path
 from zipfile import ZipFile
 
 from openpyxl import load_workbook
+from backend.services.ebay_inventory_core_code import normalize_core_code, sku_core_code
 
 from backend.services.ebay_inventory_workbook import (
     ERROR_VALUES, MAX_EXPANDED_BYTES, MAX_FILE_BYTES, MAX_ROWS, WORKBOOK_ERRORS,
@@ -21,7 +22,7 @@ MAX_MIDDLE_CODE_LENGTH = 64
 MAX_WARNINGS = 200
 SKU_HEADERS = {"SKU", "产品代码"}
 PRICE_HEADERS = {"单价(默认采购价)", "单价（默认采购价）", "单价（含税）", "单价", "采购价"}
-MIDDLE_HEADERS = {"中间码"}
+MIDDLE_HEADERS = {"核心", "核心码", "中间码"}
 PRICE_SCALE = Decimal("0.000001")
 MAX_PRICE = Decimal("999999999999999999.999999")
 NUMBER_PATTERN = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?\Z")
@@ -32,13 +33,7 @@ def _text(value) -> str:
 
 
 def _middle_code(sku: str) -> str | None:
-    # 与库存页面第二段规则一致，不把非纯数字段强制转换成有效分组。
-    parts = sku.split("-")
-    middle = parts[1].strip() if len(parts) > 1 else ""
-    if (middle and len(middle) <= MAX_MIDDLE_CODE_LENGTH
-            and all("0" <= char <= "9" for char in middle)):
-        return middle
-    return None
+    return sku_core_code(sku)
 
 
 def _unit_price(value) -> Decimal:
@@ -77,7 +72,7 @@ def _header_indices(values, sheet_title: str):
 
 
 def parse_prices(content: bytes, filename: str) -> dict:
-    """单价坏行整份拒绝；无数字中间码的SKU保留并警告，不参与中间码匹配。"""
+    """优先使用上传核心码；旧两列表兼容SKU第二段。坏行整份拒绝。"""
     if Path(filename).suffix.lower() != ".xlsx":
         raise ValueError("价格文件只支持 .xlsx，表头必须包含SKU/产品代码、单价")
     if not content or len(content) > MAX_FILE_BYTES:
@@ -93,7 +88,8 @@ def parse_prices(content: bytes, filename: str) -> dict:
         raise ValueError("价格文件不是有效的Excel工作簿") from exc
 
     records, warnings = {}, []
-    source_rows = duplicate_rows = unmatched_middle_rows = matched_sheets = 0
+    source_rows = duplicate_rows = unmatched_middle_rows = matched_sheets = mismatch_rows = 0
+    sku_codes = {}
     try:
         for sheet in workbook:
             # 不信任工作表dimension；按真实单元格宽度检查，避免漏掉第65列之后的数据。
@@ -138,12 +134,22 @@ def parse_prices(content: bytes, filename: str) -> dict:
                 except ValueError as exc:
                     raise ValueError(f"{location}：{exc}，整份未导入") from exc
                 middle = _middle_code(sku)
-                if header[2] is not None and _text(selected_values[2]) != (middle or ""):
-                    raise ValueError(f"{location}：中间码与SKU第二段数字不一致，整份未导入")
+                if header[2] is not None:
+                    uploaded_core = normalize_core_code(selected_values[2])
+                    if uploaded_core is None:
+                        raise ValueError(f"{location}：核心码不能为空，须为64位以内的数字或字母数字组合；前导零请用文本保存，整份未导入")
+                    if uploaded_core != middle:
+                        mismatch_rows += 1
+                        if len(warnings) < MAX_WARNINGS:
+                            warnings.append(f"{location}：上传核心码{uploaded_core}与SKU第二段{middle or '无有效核心码'}不一致，按上传列保存；库存仍按SKU第二段匹配，请核对前导零及特殊SKU")
+                    middle = uploaded_core
+                if sku in sku_codes and sku_codes[sku] != middle:
+                    raise ValueError(f"{location}：同一SKU对应多个核心码，整份未导入")
+                sku_codes[sku] = middle
                 if middle is None:
                     unmatched_middle_rows += 1
                     if len(warnings) < MAX_WARNINGS:
-                        warnings.append(f"{location}：{sku}没有有效数字中间码，已保留完整SKU价格但不参与中间码匹配")
+                        warnings.append(f"{location}：{sku}没有有效核心码，已保留完整SKU价格但不参与核心码匹配")
                 key = sku, price
                 if key in records:
                     duplicate_rows += 1
@@ -155,7 +161,8 @@ def parse_prices(content: bytes, filename: str) -> dict:
             raise ValueError("文件中没有有效价格数据，请检查SKU/产品代码及单价")
         rows = list(records.values())
         return {"rows": rows, "source_rows": source_rows, "duplicate_rows": duplicate_rows,
-                "skipped_rows": 0, "warnings": warnings, "warning_count": unmatched_middle_rows,
+                "skipped_rows": 0, "warnings": warnings, "warning_count": unmatched_middle_rows + mismatch_rows,
+                "core_mismatch_rows": mismatch_rows,
                 "unmatched_middle_rows": unmatched_middle_rows,
                 "sku_count": len({row["sku"] for row in rows}),
                 "middle_code_count": len({row["middle_code"] for row in rows if row["middle_code"] is not None})}

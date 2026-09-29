@@ -8,6 +8,26 @@ from openpyxl import load_workbook
 from backend.services import ebay_inventory_detail_export_service as export_service
 
 
+@pytest.mark.parametrize("grade,history_origin", [
+    (None, None), ("", None), ("  ", None), (None, "EXCEL_IMPORT"),
+])
+def test_unavailable_grade_exports_visible_placeholder(monkeypatch, grade, history_origin):
+    monkeypatch.setattr(export_service, "list_inventory", lambda **kwargs: {
+        "items": [{"site": "德国", "sku": "MCD-20017-0071", "grade": grade,
+                   "history_origin": history_origin, "stat_date": "2026-09-29"}]
+    })
+    _, content = export_service.export_inventory(stat_date="2026-09-29")
+    workbook = load_workbook(BytesIO(content), read_only=True)
+    try:
+        grade_column = next(index for index, (key, _, _) in enumerate(export_service.COLUMNS, 1)
+                            if key == "grade")
+        cell = workbook.active.cell(2, grade_column)
+        assert cell.value == "--"
+        assert cell.data_type == "s"
+    finally:
+        workbook.close()
+
+
 def test_export_contains_all_32_columns_numeric_cells_and_safe_text(monkeypatch):
     data = {"items": [{
         "site": "德国", "sku": "=1+1", "brand": "FRD", "grade": "A",
@@ -27,7 +47,7 @@ def test_export_contains_all_32_columns_numeric_cells_and_safe_text(monkeypatch)
     filters = {"site": "德国", "grade": "A", "selected_keys": [{"site": "德国", "sku": "=1+1"}]}
     filename, content = export_service.export_inventory(**filters)
     query.assert_called_once_with(paginate=False)
-    assert filename.startswith("Ebay库存明细-") and filename.endswith(".xlsx")
+    assert filename == "库存明细持续更新-ebay-2026-09-16.xlsx"
     workbook = load_workbook(BytesIO(content), data_only=False)
     try:
         sheet = workbook["Ebay库存明细"]
@@ -161,12 +181,48 @@ def test_stock_ratios_use_excel_percent_format_without_scaling_values(monkeypatc
         for field in fields:
             cell = workbook.active.cell(2, columns[field])
             if value is None:
-                assert cell.value is None
+                if field == "total_stock_sales_ratio_months":
+                    assert cell.value is None
+                else:
+                    assert cell.value == "--" and cell.data_type == "s"
             else:
                 assert cell.value == float(value)  # 1.25 stays 1.25, displayed as 125.00%.
                 assert cell.data_type == "n"
                 assert cell.number_format == "0.00%"
         assert workbook.active.cell(2, columns["total_duration_months"]).value is None
+    finally:
+        workbook.close()
+
+
+def test_zero_sales_ratio_export_distinguishes_available_and_out_of_stock(monkeypatch):
+    rows = [
+        {"sku": "WITH-STOCK", "sales_qty_30d": "0", "overseas_sellable_quantity": "8",
+         "overseas_total_quantity": "10", "in_stock_sales_ratio": "0", "total_stock_sales_ratio": "0"},
+        {"sku": "TRANSIT-ONLY", "sales_qty_30d": "0", "overseas_sellable_quantity": "0",
+         "overseas_total_quantity": "2", "in_stock_sales_ratio": "0", "total_stock_sales_ratio": "0"},
+        {"sku": "OUT-OF-STOCK", "sales_qty_30d": "0", "overseas_sellable_quantity": "0",
+         "overseas_total_quantity": "0", "in_stock_sales_ratio": "0", "total_stock_sales_ratio": "0"},
+        {"sku": "HAS-SALES", "sales_qty_30d": "2", "overseas_sellable_quantity": "0",
+         "overseas_total_quantity": "3", "in_stock_sales_ratio": "0", "total_stock_sales_ratio": "1.5"},
+        {"sku": "UNKNOWN", "sales_qty_30d": "0", "overseas_sellable_quantity": "8",
+         "overseas_total_quantity": "10", "in_stock_sales_ratio": None, "total_stock_sales_ratio": None},
+    ]
+    monkeypatch.setattr(export_service, "list_inventory", lambda **kwargs: {
+        "items": [{"site": "德国", **item} for item in rows]
+    })
+    _, content = export_service.export_inventory()
+    workbook = load_workbook(BytesIO(content))
+    try:
+        columns = {key: index for index, (key, _, _) in enumerate(export_service.COLUMNS, 1)}
+        cells = [[workbook.active.cell(index, columns[key]) for key in (
+            "in_stock_sales_ratio", "total_stock_sales_ratio")]
+                 for index in range(2, 7)]
+        assert [(cell.value, cell.data_type) for cell in cells[0]] == [("0销量", "s"), ("0销量", "s")]
+        assert cells[1][0].value == 0 and cells[1][0].number_format == "0.00%"
+        assert cells[1][1].value == "0销量"
+        assert all(cell.value == 0 and cell.number_format == "0.00%" for cell in cells[2])
+        assert cells[3][0].value == 0 and cells[3][1].value == 1.5
+        assert all(cell.value == "--" for cell in cells[4])
     finally:
         workbook.close()
 

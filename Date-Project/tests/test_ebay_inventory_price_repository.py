@@ -49,7 +49,7 @@ def test_busy_import_lock_rejects_without_opening_transaction(storage):
     connection.begin.assert_not_called()
 
 
-def test_deletes_distinct_uploaded_full_skus_then_inserts_exact_decimal_pairs(storage):
+def test_deletes_uploaded_cores_and_full_skus_then_inserts_exact_decimal_pairs(storage):
     connection, cursor, _, lock = storage
     rows = [price(value="10.123456"), price(value="11"),
             price("IDD-LMM-310002-0047", "0", None)]
@@ -59,7 +59,10 @@ def test_deletes_distinct_uploaded_full_skus_then_inserts_exact_decimal_pairs(st
     timeline.attach_mock(cursor.executemany, "insert")
     timeline.attach_mock(connection.commit, "commit")
     assert repo.replace_prices(rows, "tester", r"C:\upload\prices.xlsx") == 3
-    assert [item[0] for item in timeline.mock_calls] == ["begin", "delete", "insert", "commit"]
+    assert [item[0] for item in timeline.mock_calls] == ["begin", "delete", "delete", "insert", "commit"]
+    core_sql, cores = cursor.execute.call_args_list[0].args
+    assert 'WHERE middle_code IN (%s)' in core_sql
+    assert cores == ('00123',)
     delete_sql, keys = cursor.execute.call_args.args
     assert "WHERE sku IN (%s,%s)" in delete_sql
     assert keys == ("ABC-00123-0001", "IDD-LMM-310002-0047")
@@ -81,7 +84,7 @@ def test_every_delete_and_insert_batch_shares_one_transaction(storage):
     connection, cursor, _, _ = storage
     rows = [price(f"ABC-{index:05d}-0001", middle_code=f"{index:05d}") for index in range(1001)]
     assert repo.replace_prices(rows, "tester", "prices.xlsx") == 1001
-    assert [len(item.args[1]) for item in cursor.execute.call_args_list] == [500, 500, 1]
+    assert [len(item.args[1]) for item in cursor.execute.call_args_list] == [500, 500, 1, 500, 500, 1]
     assert [len(item.args[1]) for item in cursor.executemany.call_args_list] == [500, 500, 1]
     connection.begin.assert_called_once_with()
     connection.commit.assert_called_once_with()
@@ -127,16 +130,18 @@ def test_filename_is_basename_and_bounded(storage):
     assert cursor.executemany.call_args.args[1][0]["source_file"] == "x" * 255
 
 
-def test_repeat_upload_is_idempotent_and_reprices_only_uploaded_sku(storage):
+def test_repeat_upload_is_idempotent_and_replaces_all_prices_for_uploaded_core(storage):
     _, cursor, _, _ = storage
     existing = {
         ("ABC-00123-0001", Decimal("5")),
         ("DEF-00123-0002", Decimal("7")),
+        ("ABC-00123-0001-YXR", Decimal("1")),
         ("XYZ-00999-0001", Decimal("20")),
     }
 
     def delete(sql, keys):
-        existing.difference_update([key for key in existing if key[0] in keys])
+        existing.difference_update([key for key in existing
+                                   if (key[0].split('-')[1] if 'middle_code IN' in sql else key[0]) in keys])
 
     def insert(sql, rows):
         existing.update((row["sku"], row["unit_price"]) for row in rows)
@@ -148,9 +153,26 @@ def test_repeat_upload_is_idempotent_and_reprices_only_uploaded_sku(storage):
     expected = {
         ("ABC-00123-0001", Decimal("10")),
         ("ABC-00123-0001", Decimal("11")),
-        ("DEF-00123-0002", Decimal("7")),
         ("XYZ-00999-0001", Decimal("20")),
     }
     assert existing == expected
     repo.replace_prices(upload, "tester", "prices.xlsx")
     assert existing == expected
+
+
+def test_remapped_sku_is_removed_from_old_core_without_deleting_other_old_core_skus(storage):
+    _, cursor, _, _ = storage
+    existing = [price('A-001-X', '1', '001'), price('B-001-X', '9', '001'),
+                price('C-002-YXR', '1', '002'), price('D-003-X', '20', '003')]
+
+    def delete(sql, keys):
+        field = 'middle_code' if 'middle_code IN' in sql else 'sku'
+        existing[:] = [row for row in existing if row[field] not in keys]
+
+    cursor.execute.side_effect = delete
+    cursor.executemany.side_effect = lambda sql, rows: existing.extend(rows)
+    repo.replace_prices([price('A-001-X', '12', '002')], 'tester', 'prices.xlsx')
+    assert {(row['sku'], row['middle_code'], row['unit_price']) for row in existing} == {
+        ('B-001-X', '001', Decimal('9')), ('D-003-X', '003', Decimal('20')),
+        ('A-001-X', '002', Decimal('12')),
+    }

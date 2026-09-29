@@ -49,7 +49,7 @@ def test_export_keeps_dates_duplicates_frozen_values_and_import_nulls(monkeypatc
     filename, content = exporter.export_inventory(start_date="2026-09-01", end_date="2026-09-29",
         site="英国", sku="99999", selected_keys=[{"site": "美国", "sku": "other"}], page_size=1)
     reader.assert_called_once_with("2026-09-01", "2026-09-29")
-    assert "2026-09-01_至_2026-09-29" in filename
+    assert filename == "库存明细持续更新-ebay-2026-09-01_至_2026-09-29.xlsx"
     with BytesIO(content) as stream:
         book = load_workbook(stream)
         values = list(book.active.values)
@@ -60,6 +60,18 @@ def test_export_keeps_dates_duplicates_frozen_values_and_import_nulls(monkeypatc
         assert values[3][cols["warehouse_rent_30d_cny"]] is None
         assert len(values) == 4
         book.close()
+
+
+@pytest.mark.parametrize("filters", [
+    {"start_date": "2026-09-16", "end_date": "2026-09-16"},
+    {"stat_date": "2026-09-16"},
+    {"stat_date": "latest"},
+])
+def test_filename_uses_actual_snapshot_day_without_duplicate_date_or_download_time(monkeypatch, filters):
+    monkeypatch.setattr(exporter, "list_inventory", lambda **kwargs: {
+        "items": [row("2026-09-16")], "metadata": {"stat_date": "2026-09-16"}})
+    filename, _ = exporter.export_inventory(**filters)
+    assert filename == "库存明细持续更新-ebay-2026-09-16.xlsx"
 
 
 def test_empty_range_no_live_fallback(monkeypatch):

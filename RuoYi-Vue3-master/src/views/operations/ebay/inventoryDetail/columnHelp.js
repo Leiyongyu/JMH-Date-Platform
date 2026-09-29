@@ -12,8 +12,8 @@ const chengduScope = '成都中转仓：德国18674、英国18675、美国18676'
 const stockEmpty = '当前库存行中，该类仓库无记录或数量字段为空时按0；0正常显示，不显示--。'
 const procurementPriceApi = '产品单价Excel导入：POST /finance/ebay-inventory-detail/prices/import，非领星在线价格接口。支持“产品代码”“单价(默认采购价)”表头。'
 const procurementPriceTable = 'date-project.ebay_inventory_detail_price'
-const procurementPriceRule = '上传按完整SKU＋价格去重；仅替换本次涉及SKU的价格集合，其他SKU保留。自动提取第二段纯数字中间码并保留前导零；跨站点按中间码匹配，取MIN(unit_price)最低价。人民币原值，不换汇、不额外加税，不再使用产品管理cg_price或库存加权单价。点击刷新后计算今日快照，旧日期不追溯重算。'
-const procurementPriceEmpty = '无有效数字中间码、未导入匹配价格或价格异常时，单价与货值为null，显示--并提示，不回退产品管理价格。明确为0是有效价格，也参与最低价；缺失与0不可混同。'
+const procurementPriceRule = '上传按完整SKU＋价格去重；替换本次涉及核心码的全部价格集合，其他核心码保留。优先读取核心/核心码/中间码列，旧表无该列时提取SKU第二段；支持数字或字母数字组合并保留前导零。库存仍取SKU第二段，跨站点按中间码匹配（即核心码），取MIN(unit_price)最低价。人民币原值，不换汇、不额外加税，不再使用产品管理cg_price或库存加权单价。点击刷新后计算今日快照，旧日期不追溯重算。'
+const procurementPriceEmpty = '无有效核心码、未导入匹配价格或价格异常时，单价与货值为null，显示--并提示，不回退产品管理价格。明确为0是有效价格，也参与最低价；缺失与0不可混同。'
 
 function reserved(formula = '尚未接入数据或启用计算，本轮保留空值。') {
   return {
@@ -46,8 +46,8 @@ export const inventoryColumnHelp = {
   sku_middle_site_code: {
     sourceApi: '只读派生标识，复用当前生成行或已保存历史行的中间码、SKU和站点；不新增上游接口，不重新拉取或关联最新来源。',
     sourceTable: '当前生成行的sku_middle_code、site、sku；历史取date-project.ebay_inventory_detail_history.item_json（sku_middle_code、sku、site）及该行site、sku，不新增源表。',
-    formula: '优先使用该行sku_middle_code；旧历史未保存中间码字段时，仅从该行SKU按“-”分隔后的第二段纯数字提取。以文本保留前导零，不转数字。站点仅映射德国→DE、美国→US、英国→UK；将中间码与站点代码直接拼接、不加分隔符，例如10053＋德国→10053DE，00100＋英国→00100UK。只读输出派生值，不修改历史快照，也不替代现有站点＋中间码合并键。',
-    emptyHandling: '中间码缺失或非纯数字、站点缺失或不在德国/美国/英国映射中时返回null，页面显示--，Excel留空；不猜测其他站点代码。'
+    formula: '优先使用该行sku_middle_code；旧历史未保存中间码字段时，仅从该行SKU按“-”分隔后的第二段提取数字或字母数字组合。以文本保留前导零，不转数字。站点仅映射德国→DE、美国→US、英国→UK；将中间码与站点代码直接拼接、不加分隔符，例如10053＋德国→10053DE，00100＋英国→00100UK。只读输出派生值，不修改历史快照，也不替代现有站点＋中间码合并键。',
+    emptyHandling: '中间码缺失或无效、站点缺失或不在德国/美国/英国映射中时返回null，页面显示--，Excel留空；不猜测其他站点代码。'
   },
   sku_middle_code: {
     sourceApi: `派生字段，复用库存SKU来源：${inventoryApi}`,
@@ -155,13 +155,13 @@ export const inventoryColumnHelp = {
     sourceApi: `库存：${inventoryApi}。\n销量：${orderImport}。`,
     sourceTable: `${inventoryTable}.product_valid_num\n${orderTable}（payment_time、purchase_quantity）`,
     formula: '在库库销比＝海外可售÷近30天销量（同站点＋完整SKU），以比值×100%显示，保留2位小数，如1.25显示125.00%。销量按重新计算日前30个完整日期统计，不含当天，并排除已作废；底层Decimal比值保留6位小数，页面与Excel只改变显示格式。',
-    emptyHandling: '销量缺失或为0时按比值0处理，显示0.00%；海外可售缺失按0。不会除零。'
+    emptyHandling: '近30天销量为0且海外可售大于0时显示“0销量”；海外可售为0时显示0.00%。缺失的历史比值显示--。底层比值仍为数值0，供排序和汇总使用。'
   },
   total_stock_sales_ratio: {
     sourceApi: `库存：${inventoryApi}。\n销量：${orderImport}。`,
     sourceTable: `${inventoryTable}（product_onway、product_valid_num）\n${orderTable}（payment_time、purchase_quantity）`,
     formula: '总库销比＝海外总库存÷近30天销量＝（海外在途＋海外可售）÷近30天销量，以比值×100%显示并保留2位小数。销量按重新计算日前30个完整日期统计，不含当天，并排除已作废；底层比值保留6位小数，不含成都库存，页面与Excel不重复乘100。',
-    emptyHandling: '销量缺失或为0时显示0.00%；库存数量空值按0。'
+    emptyHandling: '近30天销量为0且海外总库存大于0时显示“0销量”；海外总库存为0时显示0.00%。缺失的历史比值显示--。底层比值仍为数值0，供排序和汇总使用。'
   },
   unit_price_tax: {
     sourceApi: procurementPriceApi,
