@@ -52,8 +52,8 @@ test('each command dispatches to the existing action, unknown commands do nothin
   assert.deepEqual(h.imports, ['prices', 'history'])
 })
 
-test('empty, not-ready and dirty results block export without blocking imports', () => {
-  for (const [field, value] of [['total', 0], ['dataReady', false], ['filtersDirty', true]]) {
+test('not-ready results block export without blocking imports', () => {
+  for (const [field, value] of [['dataReady', false]]) {
     const h = harness()
     h.context[field].value = value
     assert.equal(h.api.exportUnavailable.value, true)
@@ -62,6 +62,67 @@ test('empty, not-ready and dirty results block export without blocking imports',
     h.api.handleTransferCommand('history')
     assert.equal(h.exports.length, 0)
     assert.deepEqual(h.imports, ['history'])
+  }
+})
+
+test('empty filtered results and unapplied row filters do not block full export', () => {
+  const h = harness()
+  h.context.total.value = 0
+  h.context.filtersDirty.value = true
+  assert.equal(h.api.exportUnavailable.value, false)
+  h.api.handleTransferCommand('export')
+  assert.deepEqual(h.exports, [true])
+})
+
+test('export sends only inclusive date range and sorting, never filters, selection or pagination', async () => {
+  const requests = [], downloads = []
+  const context = vm.createContext({
+    exportUnavailable: ref(false), exporting: ref(false),
+    exportDateRange: ref(['2026-09-01', '2026-09-16']), exportDialogVisible: ref(true),
+    appliedFilters: ref({ statDate: '2026-09-16', site: '英国', sku: '00123', brand: 'MCD', grade: 'A' }),
+    sort: { sortField: 'sku', sortOrder: 'descending' },
+    selection: new Map([['selected', { site: '英国', sku: 'SKU-B' }]]),
+    pageQuery: { pageNum: 2, pageSize: 1 },
+    exportEbayInventoryDetail: async payload => {
+      requests.push(JSON.parse(JSON.stringify(payload)))
+      return new Blob([new Uint8Array([0x50, 0x4b, 0x03, 0x04])])
+    },
+    Blob, Uint8Array, blobValidate: () => true,
+    download: { saveAs: (...args) => downloads.push(args) },
+    ElMessage: { error: message => assert.fail(message) }
+  })
+  const node = script.scriptSetupAst.find(n => n.id?.name === 'confirmExport')
+  vm.runInContext(descriptor.scriptSetup.content.slice(node.start, node.end), context)
+  await context.confirmExport()
+  assert.deepEqual(requests, [{ startDate: '2026-09-01', endDate: '2026-09-16', sortField: 'sku', sortOrder: 'descending' }])
+  assert.equal(downloads.length, 1)
+  assert.equal(context.exporting.value, false)
+  assert.equal(context.exportDialogVisible.value, false)
+  assert.match(downloads[0][1], /2026-09-01_至_2026-09-16/)
+})
+
+test('export opens range picker defaulting to displayed day without sending a request', () => {
+  const context = vm.createContext({ exportUnavailable: ref(false),
+    appliedFilters: ref({ statDate: '2026-09-16' }), exportDateRange: ref([]), exportDialogVisible: ref(false) })
+  const node = script.scriptSetupAst.find(n => n.id?.name === 'handleExport')
+  vm.runInContext(descriptor.scriptSetup.content.slice(node.start, node.end), context)
+  context.handleExport()
+  assert.deepEqual(Array.from(context.exportDateRange.value), ['2026-09-16', '2026-09-16'])
+  assert.equal(context.exportDialogVisible.value, true)
+  assert.match(source, /v-model="exportDateRange" type="daterange"/)
+})
+
+test('incomplete or reversed range never starts export', async () => {
+  for (const range of [[], ['2026-09-16'], ['2026-09-16', '2026-09-01']]) {
+    const errors = []
+    const context = vm.createContext({ exportUnavailable: ref(false), exporting: ref(false),
+      exportDateRange: ref(range), ElMessage: { error: message => errors.push(message) },
+      exportEbayInventoryDetail: () => assert.fail('must not send request') })
+    const node = script.scriptSetupAst.find(n => n.id?.name === 'confirmExport')
+    vm.runInContext(descriptor.scriptSetup.content.slice(node.start, node.end), context)
+    await context.confirmExport()
+    assert.equal(errors.length, 1)
+    assert.equal(context.exporting.value, false)
   }
 })
 

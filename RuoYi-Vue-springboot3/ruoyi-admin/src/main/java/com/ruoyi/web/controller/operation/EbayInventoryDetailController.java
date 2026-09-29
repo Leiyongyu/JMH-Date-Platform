@@ -8,7 +8,6 @@ import com.ruoyi.system.service.operation.ebay.EbayInventoryDetailPythonClient;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
@@ -54,6 +53,29 @@ public class EbayInventoryDetailController extends BaseController
         return success(client.list(params, requestId).get("data"));
     }
 
+    @PreAuthorize("@ss.hasPermi('operations:ebayInventoryDetail:list')")
+    @GetMapping("/age-ratio")
+    public AjaxResult ageRatio(@RequestParam(required = false) String statDate,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("stat_date", text(statDate));
+        if (startDate != null) params.put("start_date", text(startDate));
+        if (endDate != null) params.put("end_date", text(endDate));
+        return success(client.ageRatio(params, requestId).get("data"));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayInventoryDetail:import')")
+    @Log(title = "海外仓库龄占比刷新", businessType = BusinessType.UPDATE)
+    @PostMapping("/age-ratio/recalculate")
+    public AjaxResult recalculateAgeRatio(
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        return success(client.recalculateAgeRatio(requestId).get("data"));
+    }
+
     @PreAuthorize("@ss.hasPermi('operations:ebayInventoryDetail:export')")
     @Log(title = "Ebay库存明细导出", businessType = BusinessType.EXPORT)
     @PostMapping("/export")
@@ -63,12 +85,16 @@ public class EbayInventoryDetailController extends BaseController
             HttpServletResponse response) throws IOException
     {
         Map<String, Object> input = body == null ? Map.of() : body;
-        Map<String, Object> payload = filters(text(input.get("site")), text(input.get("sku")),
-                text(input.get("brand")), text(input.get("grade")),
-                text(input.get("sortField")), text(input.get("sortOrder")));
-        // 只传主键，不接收客户端金额；Python 按同一查询逻辑重新取数并校验。
-        payload.put("selected_keys", input.getOrDefault("selectedKeys", List.of()));
+        // 全量导出统计日期范围；保留旧页面单日请求，忽略筛选、勾选和分页。
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("sort_field", text(input.get("sortField")));
+        payload.put("sort_order", text(input.get("sortOrder")));
         payload.put("stat_date", text(input.get("statDate")));
+        if (input.containsKey("startDate") || input.containsKey("endDate"))
+        {
+            payload.put("start_date", text(input.get("startDate")));
+            payload.put("end_date", text(input.get("endDate")));
+        }
         // 导出包含完整业务字段和统计日期；列抽屉只调整页面显示。
         EbayInventoryDetailPythonClient.ExcelFile file = client.export(payload, requestId);
         sendExcel(file, response);

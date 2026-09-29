@@ -43,9 +43,10 @@ def test_list_query_avoids_mysql_reserved_keys_alias(monkeypatch):
     assert "SUBSTRING_INDEX(source.sku" not in combined_sql
     assert "SUM(paid_amount_cny)" in combined_sql
     assert "paid_amount_m1" in combined_sql
-    assert "ROW_NUMBER() OVER" not in combined_sql
-    assert "SELECT source.product_name_cn" in combined_sql
-    assert "ORDER BY source.payment_time DESC,source.id DESC" in combined_sql
+    assert "ROW_NUMBER() OVER" in combined_sql
+    assert "PARTITION BY site_name,inventory_sku" in combined_sql
+    assert "ORDER BY payment_time DESC,id DESC" in combined_sql
+    assert "source.source_rank=1" in combined_sql
     assert service._SORT_COLUMNS["returnRate"] == (
         "(return_qty_m1+return_qty_m2+return_qty_m3)/"
         "NULLIF((sales_qty_m1+sales_qty_m2+sales_qty_m3),0)"

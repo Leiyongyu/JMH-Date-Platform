@@ -43,7 +43,7 @@ public class EbayReplenishmentV2ExportService
 
     private record Column(String title, String key, Format format, int width) {}
 
-    // 与页面columnDefs保持相同顺序；无论用户隐藏哪些列，都导出完整34列。
+    // 与页面columnDefs保持相同顺序；无论用户隐藏哪些列，都导出完整36列。
     private static final List<Column> COLUMNS = List.of(
             new Column("站点", "site", Format.TEXT, 12),
             new Column("SKU", "sku", Format.TEXT, 27),
@@ -78,7 +78,9 @@ public class EbayReplenishmentV2ExportService
             new Column("安全库存", "safety_stock_quantity", Format.INTEGER, 16),
             new Column("建议补货量", "suggested_replenishment_quantity", Format.INTEGER, 16),
             new Column("安全库存2", "safety_stock_quantity_2", Format.INTEGER, 16),
-            new Column("建议补货量2", "suggested_replenishment_quantity_2", Format.INTEGER, 18));
+            new Column("建议补货量2", "suggested_replenishment_quantity_2", Format.INTEGER, 18),
+            new Column("有单天数", "sales_days", Format.INTEGER, 16),
+            new Column("ADI", "adi", Format.DECIMAL, 16));
 
     private static final List<Column> MONTH_COLUMNS = List.of(
             COLUMNS.get(0), COLUMNS.get(1),
@@ -273,6 +275,9 @@ public class EbayReplenishmentV2ExportService
         entries.put("月度明细月份", payload.get("months"));
         entries.put("站点筛选", selected(filters.get("site")));
         entries.put("SKU包含筛选", selected(filters.get("sku")));
+        entries.put("ADI训练期天数n", payload.get("training_days"));
+        entries.put("有单天数与ADI", "有单天数为销量列所在完整自然月中购买数量大于0的不同付款日期数，同站点同产品一天仅计一次；无有单天数时ADI=999，否则ADI=n/有单天数");
+        entries.put("订单产品汇总口径", "按站点+产品SKU汇总；排除AMZ和数字PC开头；末尾-YXR/-RXY归并原SKU，各站点独立");
         entries.put("产品等级筛选", selected(filters.get("product_level")));
         entries.put("产品性质筛选", selected(filters.get("product_nature")));
         entries.put("销售类型筛选", selected(filters.get("sales_type")));

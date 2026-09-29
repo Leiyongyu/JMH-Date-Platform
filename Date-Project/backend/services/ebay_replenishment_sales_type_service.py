@@ -1,4 +1,5 @@
 from backend.repositories import ebay_replenishment_sales_type_repository as repository
+from backend.services.ebay_order_product_key import product_key
 
 SALES_TYPES = {"NORMAL": "正常", "BRUSH": "刷单"}
 
@@ -20,6 +21,9 @@ def save_sales_type(site, sku, sales_type, operator=None):
             raise ValueError(f"{name}不能为空且不能超过{limit}个字符")
     if operator is not None and (not isinstance(operator, str) or len(operator) > 64):
         raise ValueError("操作人格式无效")
-    site, sku = site.strip(), sku.strip()
+    key = product_key(site, sku)
+    if key is None:
+        raise ValueError("AMZ或数字PC开头的SKU不参与补货汇总")
+    site, sku = key
     repository.save(site, sku, selected, operator or "SYSTEM")
     return {"site": site, "sku": sku, "sales_type": selected}

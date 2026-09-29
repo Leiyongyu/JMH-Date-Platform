@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
 import sqlite3
+import re
 
 from backend.services import ebay_replenishment_v2_service as service
 
@@ -70,9 +71,14 @@ def test_actual_monthly_sql_counts_pieces_without_join_duplication(monkeypatch):
     period = query.split("        anchor AS (", 1)[0]
     monthly = query.split("        monthly AS (", 1)[1].split("        base AS (", 1)[0].rstrip().removesuffix(",")
     sql = (period + " monthly AS (" + monthly + " SELECT * FROM monthly").replace("%%", "%").replace("%s", "?")
+    sql = sql.replace('RIGHT(', 'SKU_RIGHT(').replace('LEFT(', 'SKU_LEFT(')
     with sqlite3.connect(":memory:") as db:
         db.row_factory = sqlite3.Row
         db.create_function("DATE_FORMAT", 2, lambda value, _: value[:7])
+        db.create_function("SKU_RIGHT", 2, lambda value, count: value[-count:] if value is not None else None)
+        db.create_function("SKU_LEFT", 2, lambda value, count: value[:count] if value is not None else None)
+        db.create_function("CHAR_LENGTH", 1, lambda value: len(value) if value is not None else None)
+        db.create_function("REGEXP", 2, lambda pattern, value: bool(re.search(pattern, value or '')))
         db.executescript("""
             CREATE TABLE dwd_ebay_sku_analysis_order (
                 id INTEGER PRIMARY KEY, site_name TEXT, inventory_sku TEXT,
@@ -88,26 +94,37 @@ def test_actual_monthly_sql_counts_pieces_without_join_duplication(monkeypatch):
         ])
         rows = [
             ("德国", "A", "2026-08-31 23:59:59", 2, 2, "Q"),
-            ("德国", "A", "2026-08-15", 3, 3, "Q"),  # 同订单两行，累计件数，不按订单COUNT
+            ("德国", "A-YXR", "2026-08-15", 3, 3, "Q"),  # 二手品计入同站点同产品，不按订单COUNT
             ("德国", "A", "2026-08-15", 86, 0, "Q"),  # 同订单未退商品不能算质量退货
             ("德国", "A", "2026-08-15", 1, 1, "OTHER"),
             ("德国", "A", "2026-08-15", 2, 2, "UNCLASSIFIED"),
-            ("德国", "A", "2026-08-15", 6, 6, "UNUSABLE"),  # 同一中间分类的其他小类也必须计入
+            ("德国", "A-RXY", "2026-08-15", 6, 6, "UNUSABLE"),  # 另一二手标记也归并
             ("德国", "B", "2026-08-15", 4, 4, "Q"),
             ("英国", "A", "2026-08-15", 1, 1, "Q"),
             ("德国", "A", "2026-07-01", 7, 7, "OLD"),
             ("德国", "A", "2026-09-01", 100, 100, "Q"),  # 未完整月份排除
+            ("德国", "2PC-A", "2026-08-15", 50, 50, "Q"),
+            ("德国", "AMZ-A", "2026-08-15", 60, 60, "Q"),
+            ("美国", "A-YXR", "2026-08-15", 8, 2, "Q"),
+            ("德国", "A-RXY", "2026-08-20", 0, 0, "ZERO"),  # 零销量日不算有单天数
         ]
         db.executemany("INSERT INTO dwd_ebay_sku_analysis_order VALUES (?,?,?,?,?,?,?,?,?,?,?)", [
             (i, site, sku, month, qty, 100, 10, refund, 5,
              "已退款" if refund else "已发货", order)
             for i, (site, sku, month, qty, refund, order) in enumerate(rows, 1)
         ])
+        db.execute("ALTER TABLE dwd_ebay_sku_analysis_order ADD COLUMN product_name_cn TEXT")
         def result():
             return {(r["site_name"], r["inventory_sku"], r["stat_month"]): dict(r)
                     for r in db.execute(sql, ("2026-06-01", "2026-09-01"))}
         data = result()
+        assert len(data) == 5
+        assert data[("美国", "A", "2026-08")]["sales_qty"] == 8
+        assert data[("美国", "A", "2026-08")]["return_qty"] == 2
         august = data[("德国", "A", "2026-08")]
+        assert august["sales_days"] == 2  # 原品和二手品在8/15多行只算一天，8/31算第二天
+        assert data[("美国", "A", "2026-08")]["sales_days"] == 1
+        assert data[("德国", "A", "2026-07")]["sales_days"] == 1
         assert august["sales_qty"] == 100
         assert august["return_qty"] == 14
         assert august["quality_return_qty"] == 11

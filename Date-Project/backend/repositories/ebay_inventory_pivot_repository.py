@@ -149,6 +149,37 @@ def read_inventory_day(stat_date):
     return items, metadata, metadata.get("warnings", [])
 
 
+def read_inventory_range(start_date, end_date):
+    """Read all saved detail rows in an inclusive range, without live joins or deduplication."""
+    limit = 200000
+    with db_connection() as connection:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                connection.begin()
+                joined = (f" FROM {INVENTORY_DETAIL} d JOIN {HEADER} s ON s.id=d.snapshot_id"
+                          " WHERE s.stat_date >= %s AND s.stat_date <= %s")
+                params = (start_date, end_date)
+                cursor.execute("SELECT COUNT(*) AS total" + joined, params)
+                if cursor.fetchone()["total"] > limit:
+                    raise ValueError("区间明细超过20万行，请缩小统计日期范围后分次导出")
+                cursor.execute("SELECT s.stat_date,d.item_json" + joined
+                               + " ORDER BY s.stat_date,d.site,d.sku,d.id", params)
+                items = []
+                for row in cursor.fetchall():
+                    saved = json.loads(row["item_json"]) if isinstance(row["item_json"], str) else row["item_json"]
+                    item = dict(saved["values"])
+                    for key in saved["decimal_fields"]:
+                        item[key] = Decimal(item[key])
+                    item["stat_date"] = row["stat_date"].isoformat()
+                    items.append(item)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    return items, {"start_date": start_date, "end_date": end_date, "is_history": True}, []
+
+
 def insert_import_days(days: dict, file_hash: str, filename: str, operator: str) -> dict:
     """Atomic insert-only import; caller holds the shared inventory:ebay-pivot lock."""
     dates = sorted(days)

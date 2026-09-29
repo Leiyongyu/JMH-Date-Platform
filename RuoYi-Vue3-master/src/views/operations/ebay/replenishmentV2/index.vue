@@ -61,6 +61,7 @@
       <el-form-item>
         <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
         <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+        <el-button icon="Setting" @click="parameterDialogVisible = true">参数</el-button>
       </el-form-item>
     </el-form>
 
@@ -90,7 +91,7 @@
         </el-button>
       </el-col>
       <el-col :span="1.5" class="data-source-note">
-        数据均来自酋长订单维度
+        订单按站点＋产品SKU汇总：排除AMZ及数字PC前缀，末尾-YXR/-RXY并入原SKU
       </el-col>
       <right-toolbar
         v-model:showSearch="showSearch"
@@ -355,6 +356,7 @@
       </template>
     </el-dialog>
 
+    <parameter-dialog v-model="parameterDialogVisible" :editable="canEditFormula" @saved="loadRows" />
     <level-rule-dialog v-if="canEditFormula" v-model="levelRuleDialogVisible" @saved="loadRows" />
     <forecast-rule-dialog
       v-if="canEditFormula"
@@ -463,9 +465,11 @@ import { checkPermi } from '@/utils/permission'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import ForecastRuleDialog from './components/ForecastRuleDialog.vue'
 import LevelRuleDialog from './components/LevelRuleDialog.vue'
+import ParameterDialog from './components/ParameterDialog.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
 
 const showSearch = ref(true)
+const parameterDialogVisible = ref(false)
 const queryRef = ref(null)
 const tableRef = ref(null)
 const loading = ref(false)
@@ -619,7 +623,9 @@ const columnDefs = [
   { key: 'safetyStockQty', label: '安全库存', align: 'right', width: 115, format: 'integer', tip: '安全库存 = 月均日销 ×（总提前天数 × 安全系数）；无时效或分级系数配置时显示--。' },
   { key: 'suggestedReplenishmentQty', label: '建议补货量', align: 'right', width: 130, format: 'integer', tip: '建议补货量 = 月均日销 ×（总提前天数 × 补货系数）− 库存合计；负数按0显示。无时效或分级系数配置时显示--。' },
   { key: 'safetyStockQty2', label: '安全库存2', align: 'right', width: 120, format: 'integer', tip: '安全库存2 = 预估销量2 ÷ 30 × 总提前天数 × 安全系数，与安全库存共用S/A/B/C系数；缺依赖显示--。' },
-  { key: 'suggestedReplenishmentQty2', label: '建议补货量2', align: 'right', width: 140, fixed: 'right', format: 'integer', tip: '建议补货量2 = 预估销量2 ÷ 30 × 总提前天数 × 补货系数 − 四项库存合计；负数取0，与建议补货量共用系数。' }
+  { key: 'suggestedReplenishmentQty2', label: '建议补货量2', align: 'right', width: 140, format: 'integer', tip: '建议补货量2 = 预估销量2 ÷ 30 × 总提前天数 × 补货系数 − 四项库存合计；负数取0，与建议补货量共用系数。' },
+  { key: 'salesDays', label: '有单天数', align: 'right', width: 115, format: 'integer', tip: '与销量列同月（最近一个完整自然月），按站点＋归并后的产品SKU统计购买数量大于0的付款日期数；同一天多笔订单或原品/二手品只算1天。' },
+  { key: 'adi', label: 'ADI', align: 'right', width: 110, format: 'ratio', tip: '有单天数为0时为999，否则为参数中的n训练期天数÷有单天数；显示2位小数，缺少有效训练期天数时显示--。' }
 ]
 
 const {
@@ -631,7 +637,7 @@ const {
   openColumnConfig,
   initColumnConfig,
   applyColumnConfig
-} = useColumnConfig('operations:ebay:replenishment:v2', columnDefs, fixedColumnKeys)
+} = useColumnConfig('operations:ebay:replenishment:v2', columnDefs, fixedColumnKeys, fixedColumnKeys, {}, { salesDays: '__append__', adi: '__append__' })
 
 const queryParams = reactive({
   pageNum: 1,
@@ -859,7 +865,9 @@ function normalizeRow(item) {
     safetyStockQty: numberOrNull(item.safety_stock_quantity),
     safetyStockQty2: numberOrNull(item.safety_stock_quantity_2),
     suggestedReplenishmentQty2: numberOrNull(item.suggested_replenishment_quantity_2),
-    suggestedReplenishmentQty: numberOrNull(item.suggested_replenishment_quantity)
+    suggestedReplenishmentQty: numberOrNull(item.suggested_replenishment_quantity),
+    salesDays: numberOrNull(item.sales_days),
+    adi: numberOrNull(item.adi)
   }
 }
 

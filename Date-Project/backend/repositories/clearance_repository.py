@@ -104,10 +104,13 @@ def ctu_warehouse_names(wids) -> dict[str, str]:
             if str(row.get("warehouse_name") or "").strip()
         }
 
-def ebay_inventory_age_source_rows(month: str) -> list[dict[str, Any]]:
+def ebay_inventory_age_source_rows(month: str, *, latest: bool = False) -> list[dict[str, Any]]:
     """跨库读取谷仓库龄，并按去前缀后的SKU匹配领星采购与头程成本。"""
     database = settings.shop_source_database.strip() or "jmh_data_platform"
     escaped_database = database.replace("`", "``")
+    # The default remains the clearance monthly snapshot. The age-ratio report
+    # uses latest inventory with the calculation month's procurement costs.
+    source_table = "ods_goodcang_inventory_age_latest" if latest else "ods_goodcang_inventory_age_monthly"
     with db_connection() as conn, conn.cursor() as cur:
         cur.execute(
             f"""
@@ -177,9 +180,9 @@ def ebay_inventory_age_source_rows(month: str) -> list[dict[str, Any]]:
                    tc.transport_cost AS first_leg_cost,
                    p.candidate_count,p.non_jmh_count,
                    g.pulled_at AS source_pulled_at
-            FROM `{escaped_database}`.ods_goodcang_inventory_age_monthly g
+            FROM `{escaped_database}`.{source_table} g
             LEFT JOIN selected_products p
-              ON p.snapshot_month=g.snapshot_month
+              ON {"1=1" if latest else "p.snapshot_month=g.snapshot_month"}
              AND p.sku_middle=(
                  CASE WHEN LOCATE('-',g.product_sku)>0
                       THEN SUBSTRING(g.product_sku,LOCATE('-',g.product_sku)+1)
@@ -198,7 +201,7 @@ def ebay_inventory_age_source_rows(month: str) -> list[dict[str, Any]]:
                      ELSE NULL
                  END
              )
-            WHERE g.snapshot_month=%s
+            WHERE {"%s IS NOT NULL" if latest else "g.snapshot_month=%s"}
             ORDER BY g.id
             """,
             (month, month, month, month),

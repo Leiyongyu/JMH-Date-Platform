@@ -27,6 +27,8 @@ class EbayReplenishmentV2ExportServiceTest
         item.put("chengdu_qc_outbound_days", 0);
         item.put("safety_stock_quantity", 12);
         item.put("safety_stock_quantity_2", 31);
+        item.put("sales_days", 7);
+        item.put("adi", "13.142857");
         item.put("monthly_metrics", List.of(Map.of("month", "2026-08",
                 "sales_qty", "10", "quality_return_qty", "0", "quality_return_rate", "0")));
         return new LinkedHashMap<>(Map.of("items", List.of(item), "pagination", Map.of("total", 1),
@@ -34,20 +36,25 @@ class EbayReplenishmentV2ExportServiceTest
     }
 
     @Test
-    void writes34ColumnsWithNumbersBlanksAndSeparateMonthlyDetails() throws Exception
+    void writes36ColumnsWithNumbersBlanksAndSeparateMonthlyDetails() throws Exception
     {
         byte[] bytes = new EbayReplenishmentV2ExportService().buildExcel(payload(), Map.of());
         try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes)))
         {
             assertEquals(3, workbook.getNumberOfSheets());
             var sheet = workbook.getSheet("补货2.0");
-            assertEquals(34, sheet.getRow(0).getLastCellNum());
+            assertEquals(36, sheet.getRow(0).getLastCellNum());
             assertEquals(1, sheet.getLastRowNum());
             assertEquals("建议补货量2", sheet.getRow(0).getCell(33).getStringCellValue());
+            assertEquals("有单天数", sheet.getRow(0).getCell(34).getStringCellValue());
+            assertEquals("ADI", sheet.getRow(0).getCell(35).getStringCellValue());
+            assertEquals(7, sheet.getRow(1).getCell(34).getNumericCellValue());
+            assertEquals(13.142857, sheet.getRow(1).getCell(35).getNumericCellValue(), 0.0000001);
             assertEquals("00001234567890123456", sheet.getRow(1).getCell(1).getStringCellValue());
             assertEquals(CellType.STRING, sheet.getRow(1).getCell(2).getCellType());
             assertEquals(CellType.NUMERIC, sheet.getRow(1).getCell(3).getCellType());
             var formatter = new DataFormatter(Locale.US);
+            assertEquals("13.14", formatter.formatCellValue(sheet.getRow(1).getCell(35)));
             assertEquals("0", formatter.formatCellValue(sheet.getRow(1).getCell(3)));
             assertEquals("12.50%", formatter.formatCellValue(sheet.getRow(1).getCell(8)));
             assertEquals("--", sheet.getRow(1).getCell(15).getStringCellValue());

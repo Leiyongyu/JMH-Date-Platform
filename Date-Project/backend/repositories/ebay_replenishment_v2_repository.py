@@ -10,8 +10,29 @@ from pymysql.err import ProgrammingError
 
 from backend.config import settings
 from backend.database import db_connection
+from backend.services.ebay_order_product_key import product_key, product_orders_cte
 
 logger = logging.getLogger(__name__)
+
+def training_period_days() -> Decimal | None:
+    """每次请求读取ERP已保存的n；不使用代码默认值或跨请求缓存。"""
+    database = _source_database()
+    try:
+        with db_connection() as connection, connection.cursor() as cursor:
+            cursor.execute(f"""SELECT numeric_value FROM `{database}`.ebay_replenishment_v2_parameter
+                              WHERE parameter_key='training_days'""")
+            row = cursor.fetchone()
+    except ProgrammingError as exc:
+        if not exc.args or exc.args[0] != 1146:
+            raise
+        logger.warning("ADI参数表未部署，请执行20260928_ebay_replenishment_v2_parameters.sql")
+        return None
+    value = _nullable_decimal(row.get("numeric_value")) if row else None
+    if value is None or not value.is_finite() or value <= 0 or value != value.to_integral_value():
+        logger.warning("ADI缺少有效的n训练期天数，请在参数中保存正整数")
+        return None
+    return value
+
 
 def lead_time_days_by_sku() -> dict[tuple[str, str], Decimal]:
     """按站点和完整 SKU 一次读取总提前天数；没有配置的 SKU 不返回。"""
@@ -264,13 +285,17 @@ def save_forecast_rules(rows: list[dict[str, Any]], operator: str, revision: str
 
 
 def forecast_sku_sales(site: str, sku: str) -> dict[str, Any] | None:
-    """Exact site/full-SKU lookup; anchor is global, identical to the list."""
+    """按站点和归并后的产品SKU精确取数，与列表使用相同的全局日期锚点。"""
+    key = product_key(site, sku)
+    if key is None:
+        return None
+    site, sku = key
     with db_connection() as connection, connection.cursor() as cursor:
-        cursor.execute("""
+        cursor.execute(f"""
             WITH anchor AS (
                 SELECT COALESCE(DATE(MAX(payment_time)),CURDATE()) anchor_date
                 FROM dwd_ebay_sku_analysis_order
-            )
+            ), {product_orders_cte()}
             SELECT recent.site_name site,recent.inventory_sku sku,anchor.anchor_date,
                    COALESCE(SUM(CASE WHEN recent.payment_time >= DATE_SUB(anchor.anchor_date,INTERVAL 6 DAY)
                                      AND recent.payment_time < DATE_ADD(anchor.anchor_date,INTERVAL 1 DAY)
@@ -281,7 +306,7 @@ def forecast_sku_sales(site: str, sku: str) -> dict[str, Any] | None:
                    COALESCE(SUM(CASE WHEN recent.payment_time >= DATE_SUB(anchor.anchor_date,INTERVAL 29 DAY)
                                      AND recent.payment_time < DATE_ADD(anchor.anchor_date,INTERVAL 1 DAY)
                                      THEN recent.purchase_quantity ELSE 0 END),0) sales_30d
-            FROM dwd_ebay_sku_analysis_order recent CROSS JOIN anchor
+            FROM product_orders recent CROSS JOIN anchor
             WHERE recent.site_name=%s AND recent.inventory_sku=%s
             GROUP BY recent.site_name,recent.inventory_sku,anchor.anchor_date
         """, (site, sku))

@@ -1,0 +1,961 @@
+[
+  {
+    "key": "basic",
+    "label": "基础参数",
+    "rows": [
+      {
+        "key": "prior_days",
+        "label": "k 先验等效天数",
+        "description": "λ=(k·μ0+n·d_w)/(k+n)。k 越大越信先验，新品偏保守",
+        "fields": [
+          {
+            "key": "prior_days",
+            "label": "k 先验等效天数",
+            "type": "integer",
+            "defaultValue": "30",
+            "min": "0",
+            "max": "999999999",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "training_days",
+        "label": "n 训练期天数",
+        "description": "训练期跨度（自动），=2026-06~2026-08-31",
+        "fields": [
+          {
+            "key": "training_days",
+            "label": "n 训练期天数",
+            "type": "integer",
+            "defaultValue": "92",
+            "min": "1",
+            "max": "999999999",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "stock_factor",
+        "label": "P85 备货系数",
+        "description": "在预测上加的安全余量，覆盖波动",
+        "fields": [
+          {
+            "key": "stock_factor",
+            "label": "P85 备货系数",
+            "type": "decimal",
+            "defaultValue": "1.15",
+            "min": "0",
+            "max": "999999999",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "beta_prior_quantity",
+        "label": "K Beta先验件数",
+        "description": "r_adj=(r·Q+p0·K)/(Q+K)。★与 k 不是一回事：k 是天，K 是件",
+        "fields": [
+          {
+            "key": "beta_prior_quantity",
+            "label": "K Beta先验件数",
+            "type": "integer",
+            "defaultValue": "5",
+            "min": "0",
+            "max": "999999999",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "test_days",
+        "label": "测试期天数",
+        "description": "预测目标跨度（2026-09）",
+        "fields": [
+          {
+            "key": "test_days",
+            "label": "测试期天数",
+            "type": "integer",
+            "defaultValue": "27",
+            "min": "1",
+            "max": "999999999",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "return_ban",
+        "label": "红线 th_ban",
+        "description": "退货率 ≥ 此值 → 红档必审",
+        "fields": [
+          {
+            "key": "return_ban",
+            "label": "红线 th_ban",
+            "type": "decimal",
+            "defaultValue": "0.3",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "return_limit",
+        "label": "th_limit",
+        "description": "≥ 此值 → 橙档限采",
+        "fields": [
+          {
+            "key": "return_limit",
+            "label": "th_limit",
+            "type": "decimal",
+            "defaultValue": "0.15",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "return_watch",
+        "label": "th_watch",
+        "description": "≥ 此值 → 黄档观察",
+        "fields": [
+          {
+            "key": "return_watch",
+            "label": "th_watch",
+            "type": "decimal",
+            "defaultValue": "0.08",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "margin_lower",
+        "label": "毛利率下限",
+        "description": "低于此值毛利得 0 分",
+        "fields": [
+          {
+            "key": "margin_lower",
+            "label": "毛利率下限",
+            "type": "decimal",
+            "defaultValue": "0.1",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "margin_upper",
+        "label": "毛利率上限",
+        "description": "高于此值毛利得满分",
+        "fields": [
+          {
+            "key": "margin_upper",
+            "label": "毛利率上限",
+            "type": "decimal",
+            "defaultValue": "0.35",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "adi_upper",
+        "label": "ADI 上限",
+        "description": "★ V3.4：≥ 此值需求得 0 分。默认 = 训练期天数（长尾业务 61 天卖 2 件是常态，固定 30 会让 43% 的组合得 0 分）",
+        "fields": [
+          {
+            "key": "adi_upper",
+            "label": "ADI 上限",
+            "type": "integer",
+            "defaultValue": "92",
+            "min": "0",
+            "max": "999999999",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "adi_lower",
+        "label": "ADI 下限",
+        "description": "★ V3.4：≤ 此值需求满分（原为 2，过于苛刻）",
+        "fields": [
+          {
+            "key": "adi_lower",
+            "label": "ADI 下限",
+            "type": "integer",
+            "defaultValue": "7",
+            "min": "0",
+            "max": "999999999",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "quality_full_rate",
+        "label": "质量满分线",
+        "description": "收缩后退货率 ≤ 此值，质量满分",
+        "fields": [
+          {
+            "key": "quality_full_rate",
+            "label": "质量满分线",
+            "type": "decimal",
+            "defaultValue": "0.03",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "evidence_sales",
+        "label": "证据门槛·销量",
+        "description": "判红档要求的训练期最低销量",
+        "fields": [
+          {
+            "key": "evidence_sales",
+            "label": "证据门槛·销量",
+            "type": "integer",
+            "defaultValue": "20",
+            "min": "0",
+            "max": "999999999",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "evidence_returns",
+        "label": "证据门槛·退货件",
+        "description": "判红档要求的训练期最低退货件数",
+        "fields": [
+          {
+            "key": "evidence_returns",
+            "label": "证据门槛·退货件",
+            "type": "integer",
+            "defaultValue": "5",
+            "min": "0",
+            "max": "999999999",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "quality_zero_rate",
+        "label": "质量归零线",
+        "description": "★ V3.5：收缩后退货率 ≥ 此值质量得 0 分（原沿用 th_limit=15% 过陡：13.9% 退货率只得 9 分，等于质量维度一票否决掉正毛利 SKU）。质量「优先」改由闸门硬拦截承担",
+        "fields": [
+          {
+            "key": "quality_zero_rate",
+            "label": "质量归零线",
+            "type": "decimal",
+            "defaultValue": "0.2",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "margin_mid_score",
+        "label": "毛利中等分",
+        "description": "★ V3.5：毛利率 = 毛利率下限时得的分数。原 <10% 一律 0 分，使「负毛利(卖一件亏一件)」与「微利 9%」同分",
+        "fields": [
+          {
+            "key": "margin_mid_score",
+            "label": "毛利中等分",
+            "type": "decimal",
+            "defaultValue": "40",
+            "min": "0",
+            "max": "100",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "negative_margin_grade",
+        "label": "负毛利硬降档",
+        "description": "★ V3.5：正常单毛利率 < 0 → 强制降到此档，无论其他维度多高。证据：真负毛利组合 207 个，测试期净利率 -9.3%；V3.4 误放行 87 个到 B 档，8 月实亏 9675 元",
+        "fields": [
+          {
+            "key": "negative_margin_grade",
+            "label": "负毛利硬降档",
+            "type": "grade",
+            "defaultValue": "D",
+            "min": "0",
+            "max": "999999999",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "quality_floor_score",
+        "label": "质量分下限",
+        "description": "★ V3.6：质量分最低保底分数。由 MCD-20150-0001 英国站引出——训练期 21 件退 6 件、收缩后 24.3% → 质量分归零 → 综合 39.5 → D 档停止补货，但测试期实卖 23 件、净利 6782 元、仅退 1 件。数据依据：退货率跨期相关仅 r=0.294（基本是噪声）；8 月净利率按训练期退货率分桶 0%→12.5%、10-20%→12.3%、20-30%→16.9%、30%+→22.7%（越高越赚，因退货多往往卖得多）。故全因退货率不配拥有一票否决权。归零线以上不设保底的场景由「高退货硬停线」兜底",
+        "fields": [
+          {
+            "key": "quality_floor_score",
+            "label": "质量分下限",
+            "type": "decimal",
+            "defaultValue": "25",
+            "min": "0",
+            "max": "100",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "high_return_stop_rate",
+        "label": "高退货硬停线",
+        "description": "★ V3.6：收缩后退货率 ≥ 此值 且 证据达标 → 直接降到「高退货硬降档」。兑现「退货率 30% 就不该再采购」的业务红线。分工：打分曲线（含保底）决定「补多少」，本闸门决定「要不要停」。当前数据下 15 个 ≥30% 的组合里证据达标的是 0 个（全是 2-16 件小样本），故闸门处于待命状态——正确且安全，不是失效",
+        "fields": [
+          {
+            "key": "high_return_stop_rate",
+            "label": "高退货硬停线",
+            "type": "decimal",
+            "defaultValue": "0.3",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "high_return_evidence_sales",
+        "label": "高退货证据·销量",
+        "description": "★ V3.6：触发高退货硬停线要求的训练期最低销量（防小样本误杀）",
+        "fields": [
+          {
+            "key": "high_return_evidence_sales",
+            "label": "高退货证据·销量",
+            "type": "integer",
+            "defaultValue": "20",
+            "min": "0",
+            "max": "999999999",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "high_return_evidence_returns",
+        "label": "高退货证据·退货件",
+        "description": "★ V3.6：触发高退货硬停线要求的训练期最低退货件数（防小样本误杀）",
+        "fields": [
+          {
+            "key": "high_return_evidence_returns",
+            "label": "高退货证据·退货件",
+            "type": "integer",
+            "defaultValue": "10",
+            "min": "0",
+            "max": "999999999",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "hierarchical_prior_days",
+        "label": "先验等效天数 α",
+        "description": "★ V3.7：层次先验（同站点同车型系列）等效于多少天的自身观测。越大越信任同伴、越平滑；越小越信任自身",
+        "fields": [
+          {
+            "key": "hierarchical_prior_days",
+            "label": "先验等效天数 α",
+            "type": "integer",
+            "defaultValue": "8",
+            "min": "0",
+            "max": "999999999",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "monthly_holding_rate",
+        "label": "月持有成本率",
+        "description": "★ V3.7：积压一件一个月占货值的比例 = 海外仓仓储 + 资金占用 + 滞销计提。★ 需业务确认，直接决定最优服务水平",
+        "fields": [
+          {
+            "key": "monthly_holding_rate",
+            "label": "月持有成本率",
+            "type": "decimal",
+            "defaultValue": "0.03",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "holding_months",
+        "label": "超储持有月数",
+        "description": "★ V3.7：超储的货平均几个月能卖掉。汽配长尾可跨月慢慢卖，可填 2~3；若认为当月卖不掉即滞销则填 1",
+        "fields": [
+          {
+            "key": "holding_months",
+            "label": "超储持有月数",
+            "type": "decimal",
+            "defaultValue": "1",
+            "min": "0",
+            "max": "999999999",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "stockout_cost_multiplier",
+        "label": "缺货代价倍数",
+        "description": "★ V3.7：缺货代价 = 毛利 × 此倍数。若 eBay 缺货会掉 listing 排名，建议 1.5~2.0",
+        "fields": [
+          {
+            "key": "stockout_cost_multiplier",
+            "label": "缺货代价倍数",
+            "type": "decimal",
+            "defaultValue": "1",
+            "min": "0",
+            "max": "999999999",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "market_growth_multiplier",
+        "label": "市场增长倍率",
+        "description": "★ V3.7：预测期相对训练期的销量倍率。实测 6→7 +47%、7→8 +24%，阻尼后（Φ=0.6）约 1.14~1.36，此处取 1.2。★ 注意这是「倍率」不是「阻尼系数」，填 1.0 表示不预期增长，不要填 0.6",
+        "fields": [
+          {
+            "key": "market_growth_multiplier",
+            "label": "市场增长倍率",
+            "type": "decimal",
+            "defaultValue": "1.2",
+            "min": "0",
+            "max": "999999999",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "prior_demand_rate",
+        "label": "先验需求率",
+        "description": "★ V3.7：同站点同车型系列的「日均需求次数」先验。留空时由「品牌日均 μ0 ÷ 平均批量」自动推算",
+        "fields": [
+          {
+            "key": "prior_demand_rate",
+            "label": "先验需求率",
+            "type": "decimal",
+            "defaultValue": "0.02",
+            "min": "0",
+            "max": "999999999",
+            "precision": 6,
+            "nullable": true
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "key": "pattern",
+    "label": "形态权重",
+    "rows": [
+      {
+        "key": "smooth",
+        "label": "平滑",
+        "description": "w7、w15、w30 分别对应近7、15、30天，权重合计为1。",
+        "fields": [
+          {
+            "key": "pattern_smooth_w7",
+            "label": "w7",
+            "type": "decimal",
+            "defaultValue": "0.5",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "pattern_smooth_w15",
+            "label": "w15",
+            "type": "decimal",
+            "defaultValue": "0.3",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "pattern_smooth_w30",
+            "label": "w30",
+            "type": "decimal",
+            "defaultValue": "0.2",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "intermittent",
+        "label": "间歇",
+        "description": "w7、w15、w30 分别对应近7、15、30天，权重合计为1。",
+        "fields": [
+          {
+            "key": "pattern_intermittent_w7",
+            "label": "w7",
+            "type": "decimal",
+            "defaultValue": "0.35",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "pattern_intermittent_w15",
+            "label": "w15",
+            "type": "decimal",
+            "defaultValue": "0.35",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "pattern_intermittent_w30",
+            "label": "w30",
+            "type": "decimal",
+            "defaultValue": "0.3",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "erratic",
+        "label": "不规则",
+        "description": "w7、w15、w30 分别对应近7、15、30天，权重合计为1。",
+        "fields": [
+          {
+            "key": "pattern_erratic_w7",
+            "label": "w7",
+            "type": "decimal",
+            "defaultValue": "0.3",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "pattern_erratic_w15",
+            "label": "w15",
+            "type": "decimal",
+            "defaultValue": "0.3",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "pattern_erratic_w30",
+            "label": "w30",
+            "type": "decimal",
+            "defaultValue": "0.4",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "lumpy",
+        "label": "块状",
+        "description": "w7、w15、w30 分别对应近7、15、30天，权重合计为1。",
+        "fields": [
+          {
+            "key": "pattern_lumpy_w7",
+            "label": "w7",
+            "type": "decimal",
+            "defaultValue": "0.2",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "pattern_lumpy_w15",
+            "label": "w15",
+            "type": "decimal",
+            "defaultValue": "0.3",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "pattern_lumpy_w30",
+            "label": "w30",
+            "type": "decimal",
+            "defaultValue": "0.5",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "no_sales",
+        "label": "无销量",
+        "description": "无销量形态，默认三个权重均为0。",
+        "fields": [
+          {
+            "key": "pattern_no_sales_w7",
+            "label": "w7",
+            "type": "decimal",
+            "defaultValue": "0",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "pattern_no_sales_w15",
+            "label": "w15",
+            "type": "decimal",
+            "defaultValue": "0",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "pattern_no_sales_w30",
+            "label": "w30",
+            "type": "decimal",
+            "defaultValue": "0",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "key": "grade",
+    "label": "等级下限分",
+    "rows": [
+      {
+        "key": "S",
+        "label": "S",
+        "description": "该等级的下限分",
+        "fields": [
+          {
+            "key": "grade_S",
+            "label": "S",
+            "type": "decimal",
+            "defaultValue": "85",
+            "min": "0",
+            "max": "100",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "A",
+        "label": "A",
+        "description": "该等级的下限分",
+        "fields": [
+          {
+            "key": "grade_A",
+            "label": "A",
+            "type": "decimal",
+            "defaultValue": "70",
+            "min": "0",
+            "max": "100",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "B",
+        "label": "B",
+        "description": "该等级的下限分",
+        "fields": [
+          {
+            "key": "grade_B",
+            "label": "B",
+            "type": "decimal",
+            "defaultValue": "55",
+            "min": "0",
+            "max": "100",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "C",
+        "label": "C",
+        "description": "该等级的下限分",
+        "fields": [
+          {
+            "key": "grade_C",
+            "label": "C",
+            "type": "decimal",
+            "defaultValue": "40",
+            "min": "0",
+            "max": "100",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "D",
+        "label": "D",
+        "description": "该等级的下限分",
+        "fields": [
+          {
+            "key": "grade_D",
+            "label": "D",
+            "type": "decimal",
+            "defaultValue": "0",
+            "min": "0",
+            "max": "100",
+            "precision": 6,
+            "nullable": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "key": "dimension",
+    "label": "维度权重",
+    "rows": [
+      {
+        "key": "margin",
+        "label": "毛利",
+        "description": "",
+        "fields": [
+          {
+            "key": "dimension_margin_weight",
+            "label": "权重",
+            "type": "decimal",
+            "defaultValue": "0.22",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "dimension_margin_enabled",
+            "label": "启用",
+            "type": "switch",
+            "defaultValue": "1",
+            "min": "0",
+            "max": "1",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "demand",
+        "label": "需求",
+        "description": "",
+        "fields": [
+          {
+            "key": "dimension_demand_weight",
+            "label": "权重",
+            "type": "decimal",
+            "defaultValue": "0.16",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "dimension_demand_enabled",
+            "label": "启用",
+            "type": "switch",
+            "defaultValue": "1",
+            "min": "0",
+            "max": "1",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "quality",
+        "label": "质量",
+        "description": "",
+        "fields": [
+          {
+            "key": "dimension_quality_weight",
+            "label": "权重",
+            "type": "decimal",
+            "defaultValue": "0.22",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "dimension_quality_enabled",
+            "label": "启用",
+            "type": "switch",
+            "defaultValue": "1",
+            "min": "0",
+            "max": "1",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "turnover",
+        "label": "周转",
+        "description": "",
+        "fields": [
+          {
+            "key": "dimension_turnover_weight",
+            "label": "权重",
+            "type": "decimal",
+            "defaultValue": "0.16",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "dimension_turnover_enabled",
+            "label": "启用",
+            "type": "switch",
+            "defaultValue": "0",
+            "min": "0",
+            "max": "1",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "lifecycle",
+        "label": "生命",
+        "description": "",
+        "fields": [
+          {
+            "key": "dimension_lifecycle_weight",
+            "label": "权重",
+            "type": "decimal",
+            "defaultValue": "0.12",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "dimension_lifecycle_enabled",
+            "label": "启用",
+            "type": "switch",
+            "defaultValue": "0",
+            "min": "0",
+            "max": "1",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "amount",
+        "label": "金额",
+        "description": "",
+        "fields": [
+          {
+            "key": "dimension_amount_weight",
+            "label": "权重",
+            "type": "decimal",
+            "defaultValue": "0.07",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "dimension_amount_enabled",
+            "label": "启用",
+            "type": "switch",
+            "defaultValue": "0",
+            "min": "0",
+            "max": "1",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "key": "stock",
+        "label": "现货",
+        "description": "",
+        "fields": [
+          {
+            "key": "dimension_stock_weight",
+            "label": "权重",
+            "type": "decimal",
+            "defaultValue": "0.05",
+            "min": "0",
+            "max": "1",
+            "precision": 6,
+            "nullable": false
+          },
+          {
+            "key": "dimension_stock_enabled",
+            "label": "启用",
+            "type": "switch",
+            "defaultValue": "0",
+            "min": "0",
+            "max": "1",
+            "precision": 0,
+            "nullable": false
+          }
+        ]
+      }
+    ]
+  }
+]

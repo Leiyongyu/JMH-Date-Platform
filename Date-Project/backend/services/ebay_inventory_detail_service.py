@@ -476,11 +476,26 @@ def _row_middle_codes(row):
 
 
 def list_inventory(*, site=None, sku=None, brand=None, grade=None, page=1, page_size=50,
-                   sort_field=None, sort_order=None, paginate=True, selected_keys=None, stat_date=None):
+                   sort_field=None, sort_order=None, paginate=True, selected_keys=None, stat_date=None,
+                   start_date=None, end_date=None):
     sku_filter = _filter_values(sku, "中间码", numeric=True)
     brand_filter = _filter_values(brand, "品牌", uppercase=True)
     grade_filter = _filter_values(grade, "等级")
-    if stat_date:
+    date_range = start_date is not None or end_date is not None
+    if date_range:
+        if stat_date:
+            raise ValueError("统计日期与统计日期范围不能同时指定")
+        try:
+            start = date.fromisoformat(start_date)
+            end = date.fromisoformat(end_date)
+            if start.isoformat() != start_date or end.isoformat() != end_date:
+                raise ValueError()
+        except (ValueError, TypeError) as exc:
+            raise ValueError("请提供完整的统计日期范围，格式必须为YYYY-MM-DD") from exc
+        if start > end:
+            raise ValueError("统计开始日期不能晚于结束日期")
+        items, metadata, warnings = history_repository.read_inventory_range(start_date, end_date)
+    elif stat_date:
         if stat_date != "latest":
             try:
                 if date.fromisoformat(stat_date).isoformat() != stat_date:
@@ -533,7 +548,7 @@ def list_inventory(*, site=None, sku=None, brand=None, grade=None, page=1, page_
             "sites": sites, "brands": brands, "grades": grades,
             "metadata": {**metadata,
                          "rent_rate_month": metadata.get("rent_pull_month"), "warnings": warnings,
-                         "row_scope": "指定统计日期冻结明细" if stat_date else "最新成功周报批次中七个eBay仓库的站点+中间码汇总；无有效中间码保留完整SKU"},
+                         "row_scope": "指定统计日期冻结明细" if stat_date or date_range else "最新成功周报批次中七个eBay仓库的站点+中间码汇总；无有效中间码保留完整SKU"},
             "summary": _round_item(summary)}
 
 

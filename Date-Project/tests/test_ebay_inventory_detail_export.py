@@ -26,7 +26,7 @@ def test_export_contains_all_32_columns_numeric_cells_and_safe_text(monkeypatch)
     monkeypatch.setattr(export_service, "list_inventory", query)
     filters = {"site": "德国", "grade": "A", "selected_keys": [{"site": "德国", "sku": "=1+1"}]}
     filename, content = export_service.export_inventory(**filters)
-    query.assert_called_once_with(**filters, paginate=False)
+    query.assert_called_once_with(paginate=False)
     assert filename.startswith("Ebay库存明细-") and filename.endswith(".xlsx")
     workbook = load_workbook(BytesIO(content), data_only=False)
     try:
@@ -128,17 +128,22 @@ def test_pending_outbound_and_derived_fields_export_service_values(monkeypatch):
         workbook.close()
 
 
-def test_no_selection_exports_all_filtered_rows_in_service_order(monkeypatch):
+@pytest.mark.parametrize("selected_keys", [[], [{"site": "英国", "sku": "SKU-B"}]])
+def test_export_ignores_filters_selection_and_pagination_but_keeps_snapshot_and_order(monkeypatch, selected_keys):
     query = MagicMock(return_value={"items": [
-        {"site": "英国", "sku": "SKU-B"}, {"site": "英国", "sku": "SKU-A"},
+        {"site": "英国", "sku": "SKU-B"}, {"site": "德国", "sku": "SKU-A"},
     ]})
     monkeypatch.setattr(export_service, "list_inventory", query)
-    _, content = export_service.export_inventory(site="英国", selected_keys=[], sort_field="sku", sort_order="descending")
-    query.assert_called_once_with(site="英国", selected_keys=[], sort_field="sku", sort_order="descending", paginate=False)
+    _, content = export_service.export_inventory(
+        stat_date="2026-09-16", site="英国", sku="00123", brand="MCD", grade="A",
+        selected_keys=selected_keys, page=2, page_size=1,
+        sort_field="sku", sort_order="descending")
+    query.assert_called_once_with(stat_date="2026-09-16", sort_field="sku", sort_order="descending", paginate=False)
     workbook = load_workbook(BytesIO(content), read_only=True)
     try:
         rows = list(workbook.active.iter_rows(values_only=True))
         assert [row[1] for row in rows[1:]] == ["SKU-B", "SKU-A"]
+        assert [row[0] for row in rows[1:]] == ["英国", "德国"]
     finally:
         workbook.close()
 

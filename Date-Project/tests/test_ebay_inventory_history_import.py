@@ -177,6 +177,7 @@ def test_history_listing_selection_and_export_do_not_call_live_sources(monkeypat
     _, content = export_inventory(stat_date=str(DAY), selected_keys=chosen)
     wb = load_workbook(BytesIO(content), data_only=False)
     exported = list(wb.active.values)
+    assert len(exported) == 7  # All six frozen rows, regardless of selected record keys.
     fields = [col[0] for col in COLUMNS]
     assert exported[1][fields.index("sku")] == "--"
     assert exported[1][fields.index("last_sold_at")] == "7.3"

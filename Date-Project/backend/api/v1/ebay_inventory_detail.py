@@ -11,6 +11,7 @@ from backend.api.deps import require_internal_access
 from backend.schemas.responses import success_response
 from backend.services import ebay_inventory_detail_service as service
 from backend.services import ebay_inventory_pivot_service as pivot_service
+from backend.services import ebay_inventory_age_ratio_service as age_ratio_service
 from backend.services import ebay_inventory_history_import_service as history_import_service
 from backend.services.ebay_inventory_pivot_export_service import export_pivot
 from backend.services.ebay_inventory_detail_export_service import EXCEL_CONTENT_TYPE, export_inventory
@@ -30,6 +31,8 @@ class InventoryKey(BaseModel):
 class ExportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     stat_date: str | None = Field(default=None, max_length=10)
+    start_date: str | None = Field(default=None, max_length=10)
+    end_date: str | None = Field(default=None, max_length=10)
     site: str | None = Field(default=None, max_length=100)
     sku: str | None = Field(default=None, max_length=2048, description="数字中间码，英文逗号分隔，精确匹配")
     brand: str | None = Field(default=None, max_length=2048, description="品牌多选，英文逗号分隔")
@@ -72,6 +75,28 @@ def recalculate_snapshot(request: Request):
                                 message="今日库存明细与透视已重新计算并保存")
     except Exception as exc:
         raise _failure(exc, "重新计算") from exc
+
+
+@router.get("/age-ratio")
+def read_age_ratio(request: Request, stat_date: str | None = Query(None, max_length=10),
+                   start_date: str | None = Query(None, max_length=10),
+                   end_date: str | None = Query(None, max_length=10)):
+    try:
+        if start_date is not None or end_date is not None:
+            return success_response(age_ratio_service.read_range(start_date, end_date), request_id=request.state.request_id)
+        return success_response(age_ratio_service.read_snapshot(stat_date), request_id=request.state.request_id)
+    except Exception as exc:
+        raise _failure(exc, "海外仓库龄占比查询") from exc
+
+
+@router.post("/age-ratio/recalculate")
+def recalculate_age_ratio(request: Request):
+    # Never accept client dates, values, owners or filters for a published snapshot.
+    try:
+        result = age_ratio_service.capture_snapshot()
+        return success_response(result, request_id=request.state.request_id)
+    except Exception as exc:
+        raise _failure(exc, "海外仓库龄占比刷新") from exc
 
 
 @router.post("/export")

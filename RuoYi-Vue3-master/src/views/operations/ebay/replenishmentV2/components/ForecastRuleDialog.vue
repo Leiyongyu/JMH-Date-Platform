@@ -64,7 +64,7 @@
               aria-label="试算SKU站点" @change="skuChanged">
               <el-option v-for="site in siteOptions" :key="site" :label="site" :value="site" />
             </el-select>
-            <el-input v-model="skuCode" placeholder="完整SKU，精确匹配" aria-label="试算完整SKU"
+            <el-input v-model="skuCode" placeholder="产品SKU（含二手后缀会归并）" aria-label="试算完整SKU"
               @input="skuChanged" @keyup.enter="loadSku" />
             <el-button :loading="skuLoading" :disabled="loading || saving" @click="loadSku">载入真实SKU数据</el-button>
           </div>

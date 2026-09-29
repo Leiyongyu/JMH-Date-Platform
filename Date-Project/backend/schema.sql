@@ -1215,3 +1215,12 @@ CREATE TABLE IF NOT EXISTS ebay_inventory_detail_history (
     REFERENCES ebay_inventory_pivot_snapshot(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='Ebay库存明细历史：同日事务覆盖，跨日长期保存，与负责人透视同批';
+
+CREATE TABLE IF NOT EXISTS ebay_inventory_age_ratio_snapshot (
+  stat_date DATE NOT NULL COMMENT '北京时间统计日期，同日刷新覆盖，跨日保留',
+  generated_at DATETIME NOT NULL COMMENT '实际重新计算时间',
+  source_batch_id VARCHAR(64) NOT NULL COMMENT '谷仓latest源批次',
+  report_json JSON NOT NULL COMMENT '个人与站点货值占比、源时间、规则月份及未计价明细冻结快照',
+  PRIMARY KEY (stat_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='海外仓库龄占比日快照：实际数量乘采购及头程单价';

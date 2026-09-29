@@ -33,9 +33,13 @@ RuoYi-Vue3-master/node_modules/
 RuoYi-Vue3-master/dist/
 outputs/
 .codex-backups/
+.codex-temp/
 优化文档.md
 .agents/
 docs/
+!docs/
+docs/*
+!docs/JMH报关单插件对接方案.md
 !Date-Project/docs/
 Date-Project/docs/*
 !Date-Project/docs/仓位库存明细周报-实现方案.md
@@ -45,6 +49,7 @@ Date-Project/docs/*
 !Date-Project/docs/脚本菜单-新增脚本指南.md
 !Date-Project/docs/Amazon主图批量上传内嵌说明.md
 !Date-Project/docs/eBay补货2.0导出说明.md
+!Date-Project/docs/eBay海外仓库龄占比.md
 !Date-Project/docs/谷仓仓租概要同步-部署说明.md
 !Date-Project/docs/下线旧eBay价格审核-部署说明.md
 !Date-Project/docs/首页AMZ负责人在售SKU统计.md

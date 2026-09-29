@@ -224,7 +224,7 @@ def test_pivot_keeps_missing_price_count_when_no_middle_price_exists(isolated):
     assert group["overseas_total_value"] is None
 
 
-def test_pivot_and_selected_excel_use_the_same_merged_values(isolated, monkeypatch):
+def test_pivot_and_full_excel_use_the_same_merged_values(isolated, monkeypatch):
     isolated([product(), product(sku="DAS-10053-0121-YXQ"), product(site="德国")])
     rows, _, _, _ = service.load_calculated_inventory()
     groups = pivot.aggregate_inventory(rows)
@@ -234,7 +234,7 @@ def test_pivot_and_selected_excel_use_the_same_merged_values(isolated, monkeypat
     _, content = export.export_inventory(selected_keys=[{"site": "英国", "sku": "DAS-10053-0121"}])
     book = load_workbook(BytesIO(content))
     try:
-        assert book.active.max_row == 2
+        assert book.active.max_row == 3
         columns = {key: index for index, (key, _, _) in enumerate(export.COLUMNS, 1)}
         assert book.active.cell(2, columns["overseas_total_quantity"]).value == 60
         assert book.active.cell(2, columns["sales_qty_30d"]).value == 24

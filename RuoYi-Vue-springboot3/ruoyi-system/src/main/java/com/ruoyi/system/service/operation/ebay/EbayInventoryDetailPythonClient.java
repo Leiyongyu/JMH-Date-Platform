@@ -40,6 +40,31 @@ public class EbayInventoryDetailPythonClient extends PythonHttpSupport
         }
     }
 
+    public Map<String, Object> ageRatio(Map<String, ?> params, String requestId)
+    {
+        try
+        {
+            return sendJson(baseRequest(PREFIX + "/age-ratio" + queryString(params), requestId).GET().build());
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    public Map<String, Object> recalculateAgeRatio(String requestId)
+    {
+        try
+        {
+            return sendJson(baseRequest(PREFIX + "/age-ratio/recalculate", requestId)
+                    .POST(HttpRequest.BodyPublishers.noBody()).build());
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
     public Map<String, Object> pivot(Map<String, ?> params, String requestId)
     {
         try

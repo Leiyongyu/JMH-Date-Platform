@@ -16,14 +16,14 @@ const statements = script.scriptSetupAst
 const stateNames = [
   'rows', 'total', 'sites', 'brands', 'grades', 'availableDates', 'loading', 'dataReady',
   'recalculating', 'canRecalculate', 'importing',
-  'exporting', 'tableRef', 'query', 'appliedFilters', 'filtersDirty',
+  'exporting', 'exportDateRange', 'exportDialogVisible', 'tableRef', 'query', 'appliedFilters', 'filtersDirty',
   'pageQuery', 'pageRange', 'sort', 'selection', 'selectedCount',
-  'restoringSelection', 'loadVersion', 'unmounted'
+  'restoringSelection', 'loadVersion', 'unmounted', 'canExportData', 'transferBusy', 'exportUnavailable'
 ]
 const functionNames = [
   'rowKey', 'filterCsv', 'currentFilters', 'handleSelectionChange', 'clearSelection',
   'restorePageSelection', 'loadRows', 'handlePagination', 'handleQuery', 'disabledStatDate',
-  'handleSortChange', 'handleExport', 'handleRefresh'
+  'handleSortChange', 'handleExport', 'confirmExport', 'handleRefresh'
 ]
 
 function actualDeclaration(name, functionOnly = false) {
@@ -36,7 +36,7 @@ function actualDeclaration(name, functionOnly = false) {
 }
 const plain = value => JSON.parse(JSON.stringify(value))
 
-test('multiple brands and grades plus CSV middle codes persist across pagination and export', async () => {
+test('multiple row filters persist across pagination but never restrict export', async () => {
   const view = createHarness(async params => response([{ site: '德国', sku: 'DAS-10053-0121' }],
     { page: params.pageNum, size: params.pageSize, total: 3 }))
   const { api, sent, exported } = view
@@ -46,16 +46,19 @@ test('multiple brands and grades plus CSV middle codes persist across pagination
   await api.handleQuery()
   await api.handlePagination({ page: 2, limit: 1 })
   await api.handleExport()
-  for (const payload of [...sent, ...exported]) {
+  await api.confirmExport()
+  for (const payload of sent) {
     assert.equal(payload.sku, '10053,00123')
     assert.equal(payload.brand, 'DAS,MCD')
     assert.equal(payload.grade, 'A,S')
   }
   assert.equal(exported.length, 1)
+  for (const key of ['sku', 'brand', 'grade']) assert.equal(Object.hasOwn(exported[0], key), false)
   api.query.brand.push('BMW')
   assert.equal(api.filtersDirty.value, true)
   await api.handleExport()
-  assert.equal(exported.length, 1, 'unapplied multi-select edits block stale exports')
+  await api.confirmExport()
+  assert.equal(exported.length, 2, 'unapplied row filters do not affect full export')
   api.query.sku = ''; api.query.brand = []; api.query.grade = []
   await api.handleQuery()
   assert.equal(sent.at(-1).sku, undefined)
@@ -80,7 +83,8 @@ const settle = () => new Promise(resolve => setImmediate(resolve))
 function response(items, { page = 1, size = 50, total = items.length } = {}) {
   return { code: 200, data: {
     items, pagination: { page, page_size: size, total },
-    sites: ['德国', '英国'], brands: ['FRD'], grades: ['A'], metadata: { warnings: [] }
+    sites: ['德国', '英国'], brands: ['FRD'], grades: ['A'],
+    metadata: { warnings: [], stat_date: '2026-09-16', available_dates: ['2026-09-16'] }
   } }
 }
 
@@ -164,10 +168,12 @@ test('original Excel rows with identical or missing SKU keep independent selecti
   assert.equal(new Set(data.map(view.api.rowKey)).size, 4)
   view.api.handleSelectionChange([data[1], data[2]])
   await view.api.handleExport()
-  assert.deepEqual(view.exported[0].selectedKeys, [
+  await view.api.confirmExport()
+  assert.deepEqual(plain(Array.from(view.api.selection.values())), [
     { site: '德国', sku: 'DAS-10053-0121', record_key: 'DE:3' },
     { site: '德国', sku: '', record_key: 'DE:4' }
   ])
+  assert.equal(Object.hasOwn(view.exported[0], 'selectedKeys'), false)
 })
 
 test('latest date resolves once and date changes clear selection and pin export', async () => {
@@ -189,7 +195,9 @@ test('latest date resolves once and date changes clear selection and pin export'
   assert.equal(api.selectedCount.value, 0)
   assert.equal(sent.at(-1).statDate, '2026-09-15')
   await api.handleExport()
-  assert.equal(exported.at(-1).statDate, '2026-09-15')
+  await api.confirmExport()
+  assert.equal(exported.at(-1).startDate, '2026-09-15')
+  assert.equal(exported.at(-1).endDate, '2026-09-15')
   assert.match(source, /v-model="query.statDate"/)
 })
 
@@ -394,7 +402,7 @@ test('late response cannot overwrite newer page data, total, page size or loadin
   assert.equal(api.dataReady.value, true)
 })
 
-test('selected and unselected exports retain filter scope but never pagination parameters', async () => {
+test('selected and unselected exports ignore row filters and pagination', async () => {
   const first = { site: '德国', sku: 'SKU-1' }, second = { site: '德国', sku: 'SKU-2' }
   const { api, exported, downloads, errors } = createHarness(async params => response(
     [params.pageNum === 1 ? first : second],
@@ -407,9 +415,9 @@ test('selected and unselected exports retain filter scope but never pagination p
   await api.handlePagination({ page: 2, limit: 1 })
   api.handleSelectionChange([second])
   await api.handleExport()
+  await api.confirmExport()
   assert.deepEqual(exported[0], {
-    statDate: 'latest', site: '德国', sortField: 'sales_qty_30d', sortOrder: 'descending',
-    selectedKeys: [first, second]
+    startDate: '2026-09-16', endDate: '2026-09-16', sortField: 'sales_qty_30d', sortOrder: 'descending'
   })
   for (const key of ['pageNum', 'pageSize', 'page', 'page_size']) {
     assert.equal(Object.hasOwn(exported[0], key), false)
@@ -418,7 +426,8 @@ test('selected and unselected exports retain filter scope but never pagination p
   assert.equal(api.exporting.value, false)
   api.clearSelection()
   await api.handleExport()
-  assert.deepEqual(exported[1].selectedKeys, [])
+  await api.confirmExport()
+  assert.deepEqual(exported[1], exported[0])
   assert.equal(downloads.length, 2)
   assert.deepEqual(errors, [])
 })

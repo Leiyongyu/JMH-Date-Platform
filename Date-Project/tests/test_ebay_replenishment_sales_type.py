@@ -9,11 +9,14 @@ from backend.services import ebay_replenishment_sales_type_service as service
 from backend.repositories import ebay_replenishment_sales_type_repository as repo
 
 
-def test_save_normalizes_keys_without_stripping_sku_prefix_and_validates(monkeypatch):
+def test_save_uses_product_key_and_rejects_excluded_prefix(monkeypatch):
     saved = []
     monkeypatch.setattr(repo, "save", lambda *args: saved.append(args))
-    result = service.save_sales_type(" 德国 ", " 2PC-BMW-001-A ", "BRUSH", "leiyongyu")
-    assert saved == [("德国", "2PC-BMW-001-A", "BRUSH", "leiyongyu")]
+    result = service.save_sales_type(" 德国 ", " BMW-001-A-YXR ", "BRUSH", "leiyongyu")
+    assert saved == [("德国", "BMW-001-A", "BRUSH", "leiyongyu")]
+    for excluded in ("2PC-BMW-001-A", "AMZ-001"):
+        with pytest.raises(ValueError):
+            service.save_sales_type("德国", excluded, "BRUSH")
     assert result["sales_type"] == "BRUSH"
     for bad in ("INVALID", "", None, 1):
         with pytest.raises(ValueError):

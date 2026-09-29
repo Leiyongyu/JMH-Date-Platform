@@ -48,9 +48,16 @@ _ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
 def export_inventory(**filters) -> tuple[str, bytes]:
-    data = list_inventory(**filters, paginate=False)
+    # Keep the displayed snapshot and ordering only. Legacy callers may still send
+    # row filters/selection/page parameters; none may narrow this full export.
+    export_options = {key: filters[key] for key in (
+        "stat_date", "start_date", "end_date", "sort_field", "sort_order") if key in filters}
+    data = list_inventory(**export_options, paginate=False)
     if not data["items"]:
-        raise ValueError("当前筛选条件下没有可导出的库存数据")
+        raise ValueError("所选统计日期或范围没有可导出的库存数据")
+    if filters.get("start_date") is not None or filters.get("end_date") is not None:
+        # Stable sort keeps the selected within-day ordering and every historical row.
+        data["items"].sort(key=lambda item: item["stat_date"])
     workbook = Workbook(write_only=True)
     sheet = workbook.create_sheet("Ebay库存明细")
     sheet.freeze_panes = "C2"
@@ -112,5 +119,7 @@ def export_inventory(**filters) -> tuple[str, bytes]:
     workbook.close()
     stat_date = data.get("metadata", {}).get("stat_date")
     prefix = f"Ebay库存明细-{stat_date}" if stat_date else "Ebay库存明细"
+    if filters.get("start_date") and filters.get("end_date"):
+        prefix = f"Ebay库存明细-{filters['start_date']}_至_{filters['end_date']}"
     filename = f"{prefix}-{datetime.now(CHINA):%Y%m%d%H%M%S}.xlsx"
     return filename, output.getvalue()

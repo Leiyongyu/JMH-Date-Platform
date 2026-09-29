@@ -25,7 +25,7 @@ def fake_rows(monkeypatch):
             calls.append((sql, params))
             self.sql, self.params = sql, params
         def fetchall(self):
-            if self.sql.lstrip().startswith("SELECT DISTINCT site_name"):
+            if "SELECT DISTINCT site_name" in self.sql and "period_rows AS" not in self.sql:
                 return [{"site_name": "德国"}]
             if "LIMIT %s OFFSET %s" in self.sql:
                 size, offset = self.params[-2:]
@@ -44,6 +44,7 @@ def fake_rows(monkeypatch):
                  "overseas_inventory_age_by_sku", "forecast_rules"):
         monkeypatch.setattr(service.repository, name, lambda: {})
     monkeypatch.setattr(service.repository, "list_level_rules", lambda **_: [])
+    monkeypatch.setattr(service.repository, "training_period_days", lambda: None)
     monkeypatch.setattr(service, "prepare_rules", lambda _: service.PreparedRules())
     monkeypatch.setattr(service.level_service, "prepare_levels", lambda _: None)
     monkeypatch.setattr(service, "_assemble_items", lambda rows, *_, **__: list(rows))

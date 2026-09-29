@@ -10,6 +10,7 @@ from backend.services import ebay_sku_analysis_service as sku_analysis_service
 from backend.services import ebay_level_rule_service as level_service
 from backend.services import ebay_replenishment_sales_type_service as sales_type_service
 from backend.repositories import ebay_replenishment_sales_type_repository as sales_type_repository
+from backend.services.ebay_order_product_key import product_orders_cte, product_sku, latest_product_source_ctes
 from backend.services.ebay_forecast_rule_engine import (
     PreparedRules,
     calculate_forecast as _forecast_sales_2,
@@ -118,16 +119,16 @@ def list_replenishment(
     if sales_type_filter:
         where_sql += (" AND " if where_sql else "WHERE ") + "COALESCE(sales_type.sales_type,'NORMAL')=%s"
         filter_params.append(sales_type_filter)
-    # 站点和 SKU 都是订单源表原生字段，可在 CTE 聚合前安全下推。
+    # 站点和SKU条件下推到统一产品键CTE，原品与二手品必须一起参与汇总。
     # 商品名称取自最新一条历史订单，只能保留在外层，避免改变原有语义。
     source_where_sql, source_filter_params = _source_filters(site, sku)
     recent_where_sql, recent_filter_params = _source_filters(
         site, sku, alias="recent"
     )
     limit_sql = "LIMIT %s OFFSET %s" if paginate_in_sql else ""
-    month_params = [month["month"] for month in months for _ in range(7)]
+    month_params = [month["month"] for month in months for _ in range(7)] + [months[0]["month"]]
     query = f"""
-        WITH period_rows AS (
+        WITH {product_orders_cte()}, period_rows AS (
             SELECT id,site_name,inventory_sku,payment_time,purchase_quantity,
                    paid_amount_cny,order_profit_cny,refund_quantity,refund_amount_cny,
                    shipping_status,
@@ -135,10 +136,10 @@ def list_replenishment(
                         THEN refund_quantity ELSE 0 END quality_return_qty,
                    CASE WHEN assignment.platform_order_no IS NULL
                         THEN refund_quantity ELSE 0 END unclassified_return_qty
-            FROM dwd_ebay_sku_analysis_order
+            FROM product_orders
             -- 按中间分类匹配，包含其全部小类；订单号主键一对一关联，不扩增订单行。
             LEFT JOIN ebay_sku_analysis_return_classification assignment
-              ON assignment.platform_order_no=dwd_ebay_sku_analysis_order.platform_order_no
+              ON assignment.platform_order_no=product_orders.platform_order_no
             WHERE payment_time >= %s AND payment_time < %s
             {source_where_sql}
         ),
@@ -155,7 +156,7 @@ def list_replenishment(
                             >= DATE_SUB(anchor.anchor_date,INTERVAL 14 DAY)
                             THEN recent.purchase_quantity ELSE 0 END) sales_qty_15d,
                    SUM(recent.purchase_quantity) sales_qty_30d
-            FROM dwd_ebay_sku_analysis_order recent
+            FROM product_orders recent
             CROSS JOIN anchor
             WHERE recent.payment_time
                   >= DATE_SUB(anchor.anchor_date,INTERVAL 29 DAY)
@@ -167,22 +168,12 @@ def list_replenishment(
         period_keys AS (
             SELECT DISTINCT site_name,inventory_sku FROM period_rows
         ),
-        latest_source AS (
-            SELECT period_key.site_name,period_key.inventory_sku,
-                   (
-                       SELECT source.product_name_cn
-                       FROM dwd_ebay_sku_analysis_order source
-                       WHERE source.site_name=period_key.site_name
-                         AND source.inventory_sku=period_key.inventory_sku
-                       ORDER BY source.payment_time DESC,source.id DESC
-                       LIMIT 1
-                   ) product_name_cn
-            FROM period_keys period_key
-        ),
+        {latest_product_source_ctes()},
         monthly AS (
             SELECT site_name,inventory_sku,
                    DATE_FORMAT(payment_time,'%%Y-%%m') stat_month,
                    SUM(purchase_quantity) sales_qty,
+                   COUNT(DISTINCT CASE WHEN purchase_quantity > 0 THEN DATE(payment_time) END) sales_days,
                    SUM(order_profit_cny) gross_profit_amount,
                    SUM(paid_amount_cny)
                      -SUM(CASE WHEN shipping_status LIKE '%%已退款%%'
@@ -219,7 +210,8 @@ def list_replenishment(
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_qty ELSE 0 END),0) return_qty_m3,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_amount ELSE 0 END),0) return_amount_m3,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.quality_return_qty ELSE 0 END),0) quality_return_qty_m3,
-                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.unclassified_return_qty ELSE 0 END),0) unclassified_return_qty_m3
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.unclassified_return_qty ELSE 0 END),0) unclassified_return_qty_m3,
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.sales_days ELSE 0 END),0) sales_days
             FROM monthly
             LEFT JOIN latest_source
               ON latest_source.site_name=monthly.site_name
@@ -294,8 +286,8 @@ def list_replenishment(
                 sales_type_join,
             )
         cursor.execute(
-            """SELECT DISTINCT site_name
-               FROM dwd_ebay_sku_analysis_order
+            f"""WITH {product_orders_cte()} SELECT DISTINCT site_name
+               FROM product_orders
                WHERE payment_time >= %s AND payment_time < %s
                  AND site_name IS NOT NULL AND site_name<>''
                ORDER BY site_name""",
@@ -304,6 +296,7 @@ def list_replenishment(
         sites = [row["site_name"] for row in cursor.fetchall()]
 
     lead_time_days = repository.lead_time_days_by_sku() if rows else {}
+    training_days = repository.training_period_days() if rows else None
     formula_configs = repository.formula_by_level() if rows else {}
     first_listing_dates = repository.first_listing_date_by_sku() if rows else {}
     inventory_ages = repository.overseas_inventory_age_by_sku() if rows else {}
@@ -318,6 +311,7 @@ def list_replenishment(
         inventory_ages=inventory_ages,
         forecast_rules=forecast_rules,
         level_rules=level_rules,
+        training_days=training_days,
     )
     if level_filter is not None or nature_filter is not None:
         items = [
@@ -346,6 +340,7 @@ def list_replenishment(
         "sales_type_available": sales_type_available,
         "months": [month["month"] for month in months],
         "latest_complete_month": months[0]["month"],
+        "training_days": str(training_days) if training_days is not None else None,
         "sites": sites,
         "pagination": {
             "page": page if paginate else 1,
@@ -366,24 +361,13 @@ def _count_filtered(
     sales_type_join="",
 ) -> int:
     query = f"""
-        WITH period_keys AS (
+        WITH {product_orders_cte()}, period_keys AS (
             SELECT DISTINCT site_name,inventory_sku
-            FROM dwd_ebay_sku_analysis_order
+            FROM product_orders
             WHERE payment_time >= %s AND payment_time < %s
             {source_where_sql}
         ),
-        latest_source AS (
-            SELECT period_key.site_name,period_key.inventory_sku,
-                   (
-                       SELECT source.product_name_cn
-                       FROM dwd_ebay_sku_analysis_order source
-                       WHERE source.site_name=period_key.site_name
-                         AND source.inventory_sku=period_key.inventory_sku
-                       ORDER BY source.payment_time DESC,source.id DESC
-                       LIMIT 1
-                   ) product_name_cn
-            FROM period_keys period_key
-        ),
+        {latest_product_source_ctes()},
         base AS (
             SELECT period_key.site_name site,period_key.inventory_sku sku,
                    latest_source.product_name_cn product_name
@@ -412,7 +396,7 @@ def _filters(
         params.append(site.strip())
     if sku and sku.strip():
         clauses.append("base.sku LIKE %s")
-        params.append(f"%{sku.strip().upper()}%")
+        params.append(f"%{product_sku(sku)}%")
     if product_name and product_name.strip():
         clauses.append("COALESCE(base.product_name,'') LIKE %s")
         params.append(f"%{product_name.strip()}%")
@@ -432,7 +416,7 @@ def _source_filters(
         params.append(site.strip())
     if sku and sku.strip():
         clauses.append(f"{prefix}inventory_sku LIKE %s")
-        params.append(f"%{sku.strip().upper()}%")
+        params.append(f"%{product_sku(sku)}%")
     return (" AND " + " AND ".join(clauses), params) if clauses else ("", params)
 
 
@@ -469,6 +453,7 @@ def _assemble_items(
     inventory_ages: dict[tuple[str, str], Decimal] | None = None,
     forecast_rules: PreparedRules | None = None,
     level_rules=None,
+    training_days: Decimal | None = None,
 ) -> list[dict[str, Any]]:
     lead_time_days = lead_time_days or {}
     formula_configs = formula_configs or {}
@@ -502,6 +487,9 @@ def _assemble_items(
                 }
             )
         latest = monthly_metrics[0]
+        sales_days = int(row.get("sales_days") or 0)
+        adi = (Decimal("999") if sales_days == 0 else
+               training_days / Decimal(sales_days) if training_days is not None else None)
         raw_forecast_sales_quantity = _average_metric_decimal(
             monthly_metrics, "sales_qty"
         )
@@ -604,6 +592,8 @@ def _assemble_items(
             {
                 "site": row.get("site") or "其他",
                 "sku": row.get("sku") or "",
+                "sales_days": sales_days,
+                "adi": str(adi.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)) if adi is not None else None,
                 "sales_type": row.get("sales_type"),
                 "product_name": row.get("product_name") or "",
                 "sales_qty_7d": _quantity_text(row.get("sales_qty_7d")),

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.ebay.EbayReplenishmentV2ParameterMapper">
+    <resultMap id="ParameterResult" type="com.ruoyi.system.domain.operation.ebay.EbayReplenishmentV2Parameter">
+        <id property="parameterKey" column="parameter_key"/>
+        <result property="numericValue" column="numeric_value"/>
+        <result property="textValue" column="text_value"/>
+        <result property="revision" column="revision"/>
+    </resultMap>
+    <select id="selectAll" resultMap="ParameterResult">
+        SELECT parameter_key, numeric_value, text_value, revision
+        FROM ebay_replenishment_v2_parameter ORDER BY parameter_key
+        <if test="lock">FOR UPDATE</if>
+    </select>
+    <update id="updateValue">
+        UPDATE ebay_replenishment_v2_parameter
+        SET numeric_value=#{row.numericValue}, text_value=#{row.textValue},
+            revision=revision+1, update_by=#{operator}, update_time=NOW()
+        WHERE parameter_key=#{row.parameterKey} AND revision=#{row.revision}
+    </update>
+</mapper>

@@ -229,7 +229,7 @@ def test_real_sku_query_does_not_use_fuzzy_search(monkeypatch):
     monkeypatch.setattr(repo, "db_connection", lambda: conn)
     assert repo.forecast_sku_sales("英国", "ABC-001-YXR") is None
     sql, params = conn.calls[0]
-    assert params == ("英国", "ABC-001-YXR")
+    assert params == ("英国", "ABC-001")
     assert "LIKE" not in sql.upper()
     assert "recent.site_name=%s AND recent.inventory_sku=%s" in sql
     for days in (6, 14, 29):

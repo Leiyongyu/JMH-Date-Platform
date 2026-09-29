@@ -13,6 +13,14 @@ export function saveEbayReplenishmentV2SalesType(data) {
   return request({ url: `${base}/sales-type`, method: 'post', data })
 }
 
+export function getEbayReplenishmentV2Parameters() {
+  return request({ url: `${base}/parameters`, method: 'get' })
+}
+
+export function saveEbayReplenishmentV2Parameters(data) {
+  return request({ url: `${base}/parameters`, method: 'put', data })
+}
+
 export function listEbayReplenishmentV2(params) {
   return request({
     url: `${base}/list`,

@@ -2,6 +2,7 @@
 from pymysql.err import ProgrammingError
 
 from backend.database import db_connection
+from backend.services.ebay_order_product_key import product_orders_cte
 from backend.repositories.ebay_replenishment_v2_repository import _source_database
 
 TABLE_NAME = "ebay_replenishment_v2_sales_type"
@@ -27,7 +28,7 @@ def save(site, sku, sales_type, operator):
     with db_connection() as connection, connection.cursor() as cursor:
         try:
             cursor.execute(
-                """SELECT 1 FROM dwd_ebay_sku_analysis_order
+                f"""WITH {product_orders_cte()} SELECT 1 FROM product_orders
                    WHERE site_name=%s AND inventory_sku=%s LIMIT 1""", (site, sku))
             if not cursor.fetchone():
                 raise ValueError("没有找到该站点和完整SKU对应的订单数据")

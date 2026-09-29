@@ -1,12 +1,14 @@
 <template>
   <div class="app-container inventory-detail-page">
     <div class="view-switch">
-      <el-radio-group v-model="activeView" :disabled="recalculating || importing || exporting" aria-label="库存视图切换">
+      <el-radio-group v-model="activeView" :disabled="recalculating || importing || exporting || ageRatioBusy" aria-label="库存视图切换">
         <el-radio-button value="detail">库存明细</el-radio-button>
         <el-radio-button value="pivot">历史透视</el-radio-button>
+        <el-radio-button value="ageRatio">海外仓库龄占比</el-radio-button>
       </el-radio-group>
     </div>
     <InventoryHistoryPivot v-if="activeView === 'pivot'" />
+    <InventoryAgeRatio v-if="activeView === 'ageRatio'" @busy-change="ageRatioBusy = $event" />
     <section v-show="activeView === 'detail'" class="table-panel">
       <el-form v-show="showSearch" :model="query" :inline="true" :disabled="recalculating" class="query-form" @submit.prevent="handleQuery">
         <el-form-item label="统计日期">
@@ -36,11 +38,11 @@
           <el-button type="primary" icon="Search" :disabled="loading" @click="handleQuery">查询</el-button>
           <el-button icon="Refresh" :disabled="loading" @click="resetQuery">重置</el-button>
           <div v-if="canImportData || canExportData" class="transfer-actions" role="group" aria-label="库存数据导入导出">
-            <el-tooltip content="点击导出当前勾选记录；未勾选时导出筛选结果，包含全部30个字段。右侧箭头展开导入菜单。" placement="top">
+            <el-tooltip content="选择统计日期范围，导出区间内已保存的全部库存明细及完整字段，不受筛选、勾选和分页影响。" placement="top">
               <span>
                 <el-button class="transfer-primary" type="primary" icon="Download"
                   :loading="exporting" :disabled="exportUnavailable" @click="handleExport">
-                  {{ selectedCount ? `导出（${selectedCount}）` : '导出' }}
+                  导出全部数据
                 </el-button>
               </span>
             </el-tooltip>
@@ -51,7 +53,7 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item v-if="canExportData" command="export" icon="Download" :disabled="exportUnavailable">
-                    {{ selectedCount ? `导出已选（${selectedCount}）` : '导出全部数据' }}
+                    导出全部数据
                   </el-dropdown-item>
                   <el-dropdown-item v-if="canImportData" command="prices" icon="Upload">导入产品单价</el-dropdown-item>
                   <el-dropdown-item v-if="canImportData" command="history" icon="Upload">导入历史数据</el-dropdown-item>
@@ -67,7 +69,7 @@
           <span>共 <b>{{ total.toLocaleString() }}</b> 条</span>
           <span v-if="filtersDirty" class="pending-filter-text">筛选条件已更改，请点击查询</span>
           <span v-if="selectedCount" class="selected-text">已选 {{ selectedCount }} 条（支持跨页）</span>
-          <span v-else-if="!filtersDirty" class="muted">未勾选时，导出当前筛选的全部数据</span>
+          <span class="muted">导出可选择统计日期范围，不受筛选和勾选影响</span>
           <el-button v-if="selectedCount" link type="primary" @click="clearSelection">清空选择</el-button>
         </div>
         <right-toolbar v-model:showSearch="showSearch" :show-column-config="true"
@@ -146,6 +148,23 @@
     <column-config-drawer v-model="showColumnDrawer" :columns="columnDefs" :fixed-keys="fixedColumnKeys"
       :visible-keys="visibleKeys" @apply="handleColumnApply" />
 
+    <el-dialog v-model="exportDialogVisible" title="导出库存明细" width="560px" append-to-body
+      :close-on-click-modal="!exporting" :close-on-press-escape="!exporting" :show-close="!exporting">
+      <el-form label-position="top">
+        <el-form-item label="统计日期范围（包含开始和结束日期）">
+          <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD"
+            start-placeholder="开始日期" end-placeholder="结束日期" range-separator="至"
+            :disabled="exporting" :clearable="false" style="width: 100%" />
+        </el-form-item>
+      </el-form>
+      <p>导出区间内所有已保存的历史明细；无快照日期自动跳过，不重新计算，不合并不同日期的同一商品。</p>
+      <p>包含全部字段及统计日期，不受列表筛选、勾选、分页或隐藏列影响。单次最多20万行，超过请分段导出。</p>
+      <template #footer>
+        <el-button :disabled="exporting" @click="exportDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="exporting" :disabled="exportUnavailable" @click="confirmExport">开始导出</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="importDialogVisible" :title="`导入 eBay ${activeImportConfig.label}`" width="620px" append-to-body
       :close-on-click-modal="!importing" :close-on-press-escape="!importing" :show-close="!importing">
       <el-alert type="info" :closable="false" show-icon :title="activeImportConfig.summary" />
@@ -188,8 +207,10 @@ import { checkPermi } from '@/utils/permission'
 import { listEbayInventoryDetail, exportEbayInventoryDetail, importEbayInventoryPrices, importEbayInventoryHistory, recalculateEbayInventorySnapshot } from '@/api/operations/ebay/inventoryDetail'
 import { inventoryColumnHelp } from './columnHelp'
 import InventoryHistoryPivot from './InventoryHistoryPivot.vue'
+import InventoryAgeRatio from './InventoryAgeRatio.vue'
 
 const activeView = ref('detail')
+const ageRatioBusy = ref(false)
 const rows = ref([])
 const total = ref(0)
 const sites = ref([])
@@ -455,14 +476,28 @@ async function handleColumnApply(keys) {
   }
 }
 
-async function handleExport() {
-  if (exporting.value || importing.value || recalculating.value || loading.value || !dataReady.value || filtersDirty.value || !checkPermi(['operations:ebayInventoryDetail:export'])) return
+const exportDialogVisible = ref(false)
+const exportDateRange = ref([])
+
+function handleExport() {
+  if (exportUnavailable.value) return
+  const day = appliedFilters.value.statDate
+  exportDateRange.value = day && day !== 'latest' ? [day, day] : []
+  exportDialogVisible.value = true
+}
+
+async function confirmExport() {
+  if (exportUnavailable.value) return
+  const [startDate, endDate] = exportDateRange.value || []
+  if (!startDate || !endDate || startDate > endDate) {
+    ElMessage.error('请选择有效的统计开始和结束日期')
+    return
+  }
   exporting.value = true
   try {
     const data = await exportEbayInventoryDetail({
-      ...appliedFilters.value,
-      ...sort,
-      selectedKeys: Array.from(selection.values())
+      startDate, endDate,
+      ...sort
     })
     if (!(data instanceof Blob)) throw new Error('导出响应不是文件，请稍后重试')
     const contentType = data.type.split(';')[0].toLowerCase()
@@ -475,7 +510,8 @@ async function handleExport() {
       throw new Error('服务未返回有效的 Excel 文件，请稍后重试')
     }
     const stamp = new Date().toLocaleString('sv-SE').replace(/[- :]/g, '')
-    download.saveAs(data, `Ebay库存明细-${stamp}.xlsx`)
+    download.saveAs(data, `Ebay库存明细-${startDate}_至_${endDate}-${stamp}.xlsx`)
+    exportDialogVisible.value = false
   } catch (error) {
     ElMessage.error(error?.message || '导出失败，请稍后重试')
   } finally {
@@ -489,7 +525,7 @@ const canImportData = computed(() => checkPermi(['operations:ebayInventoryDetail
 const canExportData = computed(() => checkPermi(['operations:ebayInventoryDetail:export']))
 const transferBusy = computed(() => loading.value || importing.value || exporting.value || recalculating.value)
 const exportUnavailable = computed(() => transferBusy.value || !canExportData.value
-  || !dataReady.value || filtersDirty.value || total.value === 0)
+  || !dataReady.value)
 
 function handleTransferCommand(command) {
   if (transferBusy.value) return

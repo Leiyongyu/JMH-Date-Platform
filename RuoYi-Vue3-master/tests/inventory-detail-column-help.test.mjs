@@ -42,7 +42,7 @@ test('middle code plus site precedes middle code with textual leading-zero and m
   assert.match(inventoryColumnHelp.sku_middle_code.formula, /保留前导零/)
   assert.match(inventoryColumnHelp.sku_middle_code.emptyHandling, /null.*--/)
   assert.ok(source.includes("sku_middle_site_code: { before: 'sku_middle_code', after: 'sku' }"))
-  assert.match(source, /包含全部30个字段/)
+  assert.match(source, /全部库存明细及完整字段/)
   const help = inventoryColumnHelp.sku_middle_site_code
   assert.match(help.sourceApi, /只读派生标识.*当前生成行或已保存历史行.*不新增上游接口/)
   assert.match(help.sourceTable, /ebay_inventory_detail_history\.item_json.*sku_middle_code.*sku.*site/)

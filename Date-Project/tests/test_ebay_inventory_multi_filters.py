@@ -42,16 +42,18 @@ def test_multi_value_or_and_cross_field_and_before_paging(isolated):
     assert service.list_inventory(sku=" , ,")["pagination"]["total"] == 6
 
 
-def test_export_all_and_selected_use_identical_multi_filters(isolated):
+def test_export_ignores_multi_filters_while_list_still_filters_and_selects(isolated):
     install_rows(isolated)
     filters = dict(site="德国", sku="10053,20017", brand="DAS,MCD", grade="A,B")
     rows = service.list_inventory(**filters, paginate=False)["items"]
+    all_rows = service.list_inventory(paginate=False)["items"]
     _, content = exporter.export_inventory(**filters)
     book = load_workbook(BytesIO(content), read_only=True)
     try:
         data = list(book.active.values)
         sku_col = data[0].index("SKU")
-        assert [row[sku_col] for row in data[1:]] == [row["sku"] for row in rows]
+        assert [row[sku_col] for row in data[1:]] == [row["sku"] for row in all_rows]
+        assert len(data) == 7  # All six merged products, including other sites/brands/grades.
     finally:
         book.close()
     key = {name: rows[0][name] for name in ("site", "sku")}
