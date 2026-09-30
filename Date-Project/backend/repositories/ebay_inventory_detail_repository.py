@@ -75,7 +75,7 @@ def _weekly_inventory_ctes() -> str:
                         THEN COALESCE(product_onway,0) ELSE 0 END overseas_in_transit_quantity,
                    CASE WHEN wid IN (18699,18700,18701,18702)
                         THEN COALESCE(product_valid_num,0) ELSE 0 END overseas_sellable_quantity,
-                   COALESCE(product_total,0) pending_outbound_quantity
+                   COALESCE(product_lock_num,0) pending_outbound_quantity
             FROM inventory_ranked
             WHERE inventory_rank=1 AND sku IS NOT NULL AND TRIM(sku)<>''
         ),

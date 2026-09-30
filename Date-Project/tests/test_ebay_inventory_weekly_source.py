@@ -15,7 +15,8 @@ def db():
         CREATE TABLE ods_lingxing_inventory_detail_weekly (
             id INTEGER PRIMARY KEY, sync_batch_id TEXT,snapshot_date TEXT,pulled_at TEXT,
             wid INTEGER,product_id INTEGER,seller_id TEXT,sku TEXT,
-            product_total NUMERIC,product_valid_num NUMERIC,product_onway NUMERIC,quantity_receive NUMERIC
+            product_total NUMERIC,product_lock_num NUMERIC,product_valid_num NUMERIC,
+            product_onway NUMERIC,quantity_receive NUMERIC
         );
         CREATE TABLE ops_weekly_export_file (
             export_code TEXT,sync_batch_id TEXT,snapshot_date TEXT,status TEXT,generated_at TEXT
@@ -31,9 +32,10 @@ def batch(db, name="new", day="2026-09-14", status="SUCCESS", generated="2026-09
 
 
 def stock(db, *, name="new", day="2026-09-14", wid=18699, product=1, seller="0",
-          sku="FRD-001", total=10, available=8, transit=2, receive=3):
-    db.execute("INSERT INTO ods_lingxing_inventory_detail_weekly VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?)",
-               (name, day, day + " 10:00:00", wid, product, seller, sku, total, available, transit, receive))
+          sku="FRD-001", total=10, locked=4, available=8, transit=2, receive=3):
+    db.execute("INSERT INTO ods_lingxing_inventory_detail_weekly VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?,?)",
+               (name, day, day + " 10:00:00", wid, product, seller, sku,
+                total, locked, available, transit, receive))
 
 
 def rows(db):
@@ -60,12 +62,12 @@ def test_only_latest_successful_source_batch_not_latest_export(db, status):
 
 def test_whole_row_dedup_does_not_add_sellers_or_mix_column_maxima(db):
     batch(db)
-    stock(db, total=20, available=3, transit=7, seller="0")
-    stock(db, total=10, available=9, transit=99, seller="9")
+    stock(db, total=20, locked=4, available=3, transit=7, seller="0")
+    stock(db, total=10, locked=15, available=9, transit=99, seller="9")
     result = rows(db)[0]
     assert result["overseas_sellable_quantity"] == 3
     assert result["overseas_in_transit_quantity"] == 7
-    assert result["pending_outbound_quantity"] == 20  # Same whole-row representative.
+    assert result["pending_outbound_quantity"] == 4  # Lock from the selected whole row.
 
 
 def test_representative_tie_and_null_total_match_weekly_export(db):
@@ -87,14 +89,14 @@ def test_exact_seven_warehouses_and_all_four_quantities(db):
         assert result[site]["overseas_in_transit_quantity"] == 2 * multiplier
         assert result[site]["chengdu_sellable_quantity"] == 8
         assert result[site]["chengdu_in_transit_quantity"] == 3
-        assert result[site]["pending_outbound_quantity"] == 10 * (multiplier + 1)
+        assert result[site]["pending_outbound_quantity"] == 4 * (multiplier + 1)
 
 
-def test_pending_outbound_uses_only_selected_batch_and_null_product_total_is_zero(db):
+def test_pending_outbound_uses_only_selected_batch_and_null_lock_is_zero(db):
     batch(db, "old", "2026-09-10")
-    stock(db, name="old", day="2026-09-10", total=999)
+    stock(db, name="old", day="2026-09-10", locked=999)
     batch(db)
-    stock(db, total=None)
+    stock(db, total=10, locked=None)
     assert rows(db)[0]["pending_outbound_quantity"] == 0
 
 

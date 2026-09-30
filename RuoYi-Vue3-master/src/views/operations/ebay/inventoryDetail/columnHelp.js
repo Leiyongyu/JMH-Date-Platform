@@ -123,14 +123,14 @@ export const inventoryColumnHelp = {
   },
   pending_outbound_quantity: {
     sourceApi: inventoryApi,
-    sourceTable: `${inventoryTable}.product_total`,
-    formula: `${inventoryBatchRule}按已与领星核对确认的业务口径，待出库直接取product_total，保留源字段名称和注释不改。按站点＋完整SKU汇总页面全部7个仓库：${chengduScope}；${overseasScope}。此值参与周期总库存、总库销比（月）和申购量计算。`,
+    sourceTable: `${inventoryTable}.product_lock_num`,
+    formula: `${inventoryBatchRule}待出库取选中完整记录的product_lock_num（锁定量），按站点＋完整SKU汇总页面全部7个仓库：${chengduScope}；${overseasScope}。此值参与周期总库存、总库销比（月）和申购量计算。`,
     emptyHandling: stockEmpty
   },
   cycle_total_quantity: {
     sourceApi: `派生字段，已接入库存来自：${inventoryApi}。采购计划尚未接入接口。`,
-    sourceTable: `${inventoryTable}（product_onway、product_valid_num、quantity_receive、product_total）；采购计划暂无源表。`,
-    formula: '周期总库存＝海外总库存＋成都在途＋成都可售＋采购计划＋待出库。待出库按确认口径取product_total汇总；采购计划统一默认0并参与合计。',
+    sourceTable: `${inventoryTable}（product_onway、product_valid_num、quantity_receive、product_lock_num）；采购计划暂无源表。`,
+    formula: '周期总库存＝海外总库存＋成都在途＋成都可售＋采购计划＋待出库。待出库取product_lock_num汇总；采购计划统一默认0并参与合计。',
     emptyHandling: '库存数量空值按0；采购计划显示0。合计为0时显示0。'
   },
   overseas_max_age_days: {
@@ -201,13 +201,13 @@ export const inventoryColumnHelp = {
   },
   total_stock_sales_ratio_months: {
     sourceApi: `库存：${inventoryApi}。\n销量：本次${orderImport}及此前2次库存明细快照。`,
-    sourceTable: `${inventoryTable}（product_onway、product_valid_num、quantity_receive、product_total）\n${orderTable}、date-project.ebay_inventory_pivot_snapshot、ebay_inventory_detail_history（近30天销量）`,
-    formula: '总库销比（月）＝周期总库存÷近3次统计均销量。均销量按本次及此前2个统计日期的近30天销量汇总÷固定3；按站点＋核心码匹配，缺失的统计记录按0计。周期总库存＝海外总库存＋成都在途＋成都可售＋采购计划＋待出库；待出库取product_total，未接入的采购计划仅合计时按0。分母不预先舍入为2位，后端Decimal原比值保留6位；页面/Excel按比值×100%显示并保留2位小数，不重复乘100。',
+    sourceTable: `${inventoryTable}（product_onway、product_valid_num、quantity_receive、product_lock_num）\n${orderTable}、date-project.ebay_inventory_pivot_snapshot、ebay_inventory_detail_history（近30天销量）`,
+    formula: '总库销比（月）＝周期总库存÷近3次统计均销量。均销量按本次及此前2个统计日期的近30天销量汇总÷固定3；按站点＋核心码匹配，缺失的统计记录按0计。周期总库存＝海外总库存＋成都在途＋成都可售＋采购计划＋待出库；待出库取product_lock_num，未接入的采购计划仅合计时按0。分母不预先舍入为2位，后端Decimal原比值保留6位；页面/Excel按比值×100%显示并保留2位小数，不重复乘100。',
     emptyHandling: '近3次统计均无销量或均销量为0时，原比值返回0，显示0.00%；缺失统计记录按0参与合计，但分母仍固定3。周期库存中的空数量按0，不会除零。'
   },
   purchase_quantity: {
     sourceApi: `派生字段。销量：${orderImport}；库存：${inventoryApi}。总时长（月）为业务固定值4.03。`,
-    sourceTable: `${orderTable}（purchase_quantity、payment_time、site_name、inventory_sku）\n${inventoryTable}（product_valid_num、product_onway、quantity_receive、product_total）；总时长固定4.03，无源表。`,
+    sourceTable: `${orderTable}（purchase_quantity、payment_time、site_name、inventory_sku）\n${inventoryTable}（product_valid_num、product_onway、quantity_receive、product_lock_num）；总时长固定4.03，无源表。`,
     formula: '申购量＝近3个月均销量×总时长（月）－周期总库存。均销量按本次及此前2次统计的近30天销量之和÷3，使用未舍入值；后端全程Decimal，公式计算完后按ROUND_HALF_UP四舍五入到整数，页面和Excel共用整数结果。不将负数截为0，不套用补货2.0建议补货量。',
     emptyHandling: '总时长固定4.03；无销量时均销量按0，库存数量空值沿用0参与合计。结果为0或负数也如实显示，不把负数改为--。'
   },

@@ -239,8 +239,7 @@ def _build_items(source_rows, rent_rows, rates, metadata, owner_rules, sku_map,
         chengdu_transit = _decimal(source.get("chengdu_in_transit_quantity"))
         chengdu_available = _decimal(source.get("chengdu_sellable_quantity"))
         overseas_total = overseas_transit + overseas_available
-        # Confirmed business mapping: product_total is the page's pending outbound
-        # quantity; keep the upstream schema label unchanged.
+        # Pending outbound uses the selected weekly row's locked quantity.
         pending_outbound = _decimal(source.get("pending_outbound_quantity"))
         procurement_plan = ZERO  # Business default for every SKU; no source/config yet.
         cycle_total = overseas_total + chengdu_transit + chengdu_available + pending_outbound + procurement_plan

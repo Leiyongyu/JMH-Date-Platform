@@ -110,16 +110,17 @@ test('lineage distinguishes Excel imports, reserved fields and monetary missing 
   assert.match(rent.emptyHandling, /显示--/)
 })
 
-test('pending outbound uses confirmed product_total across all seven warehouses', () => {
+test('pending outbound uses product_lock_num across all seven warehouses', () => {
   const help = inventoryColumnHelp.pending_outbound_quantity
-  assert.match(help.sourceTable, /ods_lingxing_inventory_detail_weekly.product_total/)
+  assert.match(help.sourceTable, /ods_lingxing_inventory_detail_weekly.product_lock_num/)
   assert.match(help.sourceApi, /inventoryDetails/)
   assert.match(help.formula, /全部7个仓库/)
   assert.match(help.formula, /最新的成功快照批次/)
   assert.match(help.formula, /选一条完整记录/)
+  assert.match(help.formula, /锁定量/)
   assert.match(help.emptyHandling, /为空时按0/)
   for (const key of ['cycle_total_quantity', 'total_stock_sales_ratio_months', 'purchase_quantity']) {
-    assert.match(inventoryColumnHelp[key].sourceTable, /product_total/)
+    assert.match(inventoryColumnHelp[key].sourceTable, /product_lock_num/)
   }
 })
 
