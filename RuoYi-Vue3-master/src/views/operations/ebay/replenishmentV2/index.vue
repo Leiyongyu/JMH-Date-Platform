@@ -79,17 +79,6 @@
           >导出全部数据</el-button>
         </el-tooltip>
       </el-col>
-      <el-col :span="1.5">
-        <el-button
-          type="primary"
-          plain
-          icon="Upload"
-          v-hasPermi="['operations:ebayReplenishmentV2:importWarehouseRent']"
-          @click="warehouseRentDialogVisible = true"
-        >
-          上传仓租
-        </el-button>
-      </el-col>
       <el-col :span="1.5" class="data-source-note">
         订单按站点＋产品SKU汇总：排除AMZ及数字PC前缀，末尾-YXR/-RXY并入原SKU
       </el-col>
@@ -405,56 +394,16 @@
       </template>
     </el-dialog>
 
-    <el-dialog
-      v-model="warehouseRentDialogVisible"
-      title="上传仓租明细"
-      width="560px"
-      append-to-body
-      destroy-on-close
-      @closed="resetWarehouseRentUpload"
-    >
-      <el-alert
-        type="warning"
-        :closable="false"
-        show-icon
-        title="按仓库、商品编码和账单日增量覆盖"
-        description="系统仅读取“仓租明细”Sheet，并按“仓库+商品编码+账单日”增量覆盖：同月分段文件会自动拼接，重叠日期会由后上传文件覆盖；未出现的日期明细继续保留。文件会先完整校验，校验失败不会修改旧数据。"
-        class="warehouse-rent-alert"
-      />
-      <el-upload
-        ref="warehouseRentUploadRef"
-        v-model:file-list="warehouseRentFiles"
-        drag
-        :auto-upload="false"
-        :limit="1"
-        accept=".xlsx"
-        :on-change="handleWarehouseRentFileChange"
-        :on-exceed="handleWarehouseRentFileExceed"
-      >
-        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-        <div class="el-upload__text">将仓租明细拖到此处，或<em>点击选择文件</em></div>
-        <template #tip>
-          <div class="el-upload__tip">仅支持 .xlsx 文件，单次上传一个完整仓租明细文件。</div>
-        </template>
-      </el-upload>
-      <template #footer>
-        <el-button @click="warehouseRentDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="warehouseRentUploading" @click="submitWarehouseRentImport">
-          增量导入
-        </el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup name="EbayReplenishmentV2">
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { QuestionFilled, UploadFilled } from '@element-plus/icons-vue'
+import { QuestionFilled } from '@element-plus/icons-vue'
 import {
   exportEbayReplenishmentV2,
   getEbayReplenishmentV2Formula,
-  importEbayReplenishmentV2WarehouseRent,
   listEbayReplenishmentV2,
   saveEbayReplenishmentV2Formula,
   saveEbayReplenishmentV2LeadTime,
@@ -512,10 +461,6 @@ const recalculatingRowKeys = reactive(new Set())
 const purchaseDialogVisible = ref(false)
 const purchaseSubmitting = ref(false)
 const purchaseFormRef = ref(null)
-const warehouseRentDialogVisible = ref(false)
-const warehouseRentUploading = ref(false)
-const warehouseRentUploadRef = ref(null)
-const warehouseRentFiles = ref([])
 const formulaDialogVisible = ref(false)
 const forecastRuleDialogVisible = ref(false)
 const levelRuleDialogVisible = ref(false)
@@ -903,70 +848,6 @@ function monthlyRows(row) {
     qualityReturnRate: null,
     returnAmount: 0
   })
-}
-
-function handleWarehouseRentFileChange(uploadFile, uploadFiles) {
-  const fileName = String(uploadFile?.name || '')
-  if (!/\.xlsx$/i.test(fileName)) {
-    ElMessage.warning('仓租明细只支持 .xlsx 文件')
-    warehouseRentUploadRef.value?.clearFiles()
-    warehouseRentFiles.value = []
-    return
-  }
-  warehouseRentFiles.value = uploadFiles.slice(-1)
-}
-
-function handleWarehouseRentFileExceed() {
-  ElMessage.warning('单次只能选择一个仓租明细文件，请先移除已选文件')
-}
-
-async function submitWarehouseRentImport() {
-  const file = warehouseRentFiles.value[0]?.raw
-  if (!file) {
-    ElMessage.warning('请先选择仓租明细 .xlsx 文件')
-    return
-  }
-  if (!file.size) {
-    ElMessage.warning('不能上传空文件')
-    return
-  }
-  warehouseRentUploading.value = true
-  try {
-    const result = await importEbayReplenishmentV2WarehouseRent(file)
-    const summary = result?.data || {}
-    const summaryParts = []
-    const coveredBillingDays = summary.coveredWarehouseProductBillingDayCount
-      ?? summary.coveredWarehouseProductCount
-    if (hasValue(coveredBillingDays)) {
-      summaryParts.push(`覆盖${formatNumber(coveredBillingDays, 0)}个仓库商品账单日组合`)
-    }
-    if (hasValue(summary.sourceRowCount)) {
-      summaryParts.push(`读取${formatNumber(summary.sourceRowCount, 0)}条明细`)
-    }
-    if (hasValue(summary.aggregateRowCount)) {
-      summaryParts.push(`汇总${formatNumber(summary.aggregateRowCount, 0)}个站点SKU`)
-    }
-    if (summary.exchangeRateSummary) {
-      summaryParts.push(`本次使用汇率：${summary.exchangeRateSummary}`)
-    }
-    const summaryText = summaryParts.length ? `：${summaryParts.join('，')}` : ''
-    const successMessage = `仓租明细增量导入成功${summaryText}`
-    if (summary.hasExchangeRateFallback) {
-      ElMessage.warning(successMessage)
-    } else {
-      ElMessage.success(successMessage)
-    }
-    warehouseRentDialogVisible.value = false
-    queryParams.pageNum = 1
-    await loadRows()
-  } finally {
-    warehouseRentUploading.value = false
-  }
-}
-
-function resetWarehouseRentUpload() {
-  warehouseRentUploadRef.value?.clearFiles()
-  warehouseRentFiles.value = []
 }
 
 function handleQuery() {

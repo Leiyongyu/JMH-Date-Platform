@@ -7,7 +7,6 @@ import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.system.domain.operation.ebay.EbayReplenishmentV2LeadTimeSaveRequest;
 import com.ruoyi.system.service.operation.ebay.EbayReplenishmentV2LeadTimeService;
 import com.ruoyi.system.service.operation.ebay.EbayReplenishmentV2PythonClient;
-import com.ruoyi.system.service.operation.ebay.EbayWarehouseRentService;
 import com.ruoyi.system.service.operation.ebay.EbayReplenishmentV2ExportService;
 import jakarta.servlet.http.HttpServletResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,7 +23,6 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 /** 运营中心-eBay补货2.0。 */
 @Tag(name = "运营中心-eBay补货2.0")
@@ -36,18 +34,15 @@ public class EbayReplenishmentV2Controller extends BaseController
 
     private final EbayReplenishmentV2PythonClient client;
     private final EbayReplenishmentV2LeadTimeService leadTimeService;
-    private final EbayWarehouseRentService warehouseRentService;
     private final EbayReplenishmentV2ExportService exportService;
 
     public EbayReplenishmentV2Controller(
             EbayReplenishmentV2PythonClient client,
             EbayReplenishmentV2LeadTimeService leadTimeService,
-            EbayWarehouseRentService warehouseRentService,
             EbayReplenishmentV2ExportService exportService)
     {
         this.client = client;
         this.leadTimeService = leadTimeService;
-        this.warehouseRentService = warehouseRentService;
         this.exportService = exportService;
     }
 
@@ -109,7 +104,7 @@ public class EbayReplenishmentV2Controller extends BaseController
         return params;
     }
 
-    /** 列表和导出复用同一补充逻辑；批量限制IN长度，不逐SKU查库。 */
+    /** 列表和导出仅在Java端补人工时效；仓租由Python按谷仓明细统一计算。 */
     private Object enrich(Object result)
     {
         if (result instanceof Map<?, ?> dataMap && dataMap.get("items") instanceof List<?> items)
@@ -119,7 +114,6 @@ public class EbayReplenishmentV2Controller extends BaseController
                 Map<String, Object> batch = new LinkedHashMap<>();
                 batch.put("items", items.subList(start, Math.min(start + MAX_PAGE_SIZE, items.size())));
                 leadTimeService.enrich(batch);
-                warehouseRentService.enrich(batch);
             }
         }
         return result;
@@ -146,15 +140,6 @@ public class EbayReplenishmentV2Controller extends BaseController
         if (body != null) payload.putAll(body);
         payload.put("operator", getUsername());
         return success(data(client.saveFormula(payload, requestId)));
-    }
-
-    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:importWarehouseRent')")
-    @Log(title = "eBay补货2.0仓租明细导入", businessType = BusinessType.IMPORT)
-    @PostMapping("/warehouse-rent/import")
-    public AjaxResult importWarehouseRent(
-            @RequestParam("file") MultipartFile file)
-    {
-        return success(warehouseRentService.importFile(file, getUsername()));
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:editLeadTime')")

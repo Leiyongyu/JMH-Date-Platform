@@ -14,6 +14,7 @@ from backend.api.deps import require_internal_access
 from backend.api.v1 import ebay_inventory_detail as inventory_api
 from backend.repositories import ebay_inventory_detail_repository as repository
 from backend.services import ebay_inventory_detail_service as service
+from backend.services import inventory_report_etl_service as owner_service
 
 
 # 等级不再上传，改由历史最大月销(K)与利润率(J)算出。这里给出能稳定算到
@@ -127,6 +128,61 @@ def isolated(monkeypatch):
 
     install.owner_rules = owner_rules
     return install
+
+
+def test_owner_uses_only_previous_natural_month_when_current_brand_missing(isolated, monkeypatch):
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 8, 10, 0, tzinfo=tz)
+
+    monkeypatch.setattr(service, "datetime", FrozenDatetime)
+    monkeypatch.setattr(service, "_ebay_assignment", owner_service._ebay_assignment)
+    monkeypatch.setattr(service, "_ebay_rule_map", owner_service._ebay_rule_map)
+    monkeypatch.setattr(service, "_ebay_product_sku_map", lambda *args, **kwargs: {
+        "40000-0001": "ABC-40000-0001",
+    })
+    rules_by_month = {
+        "2026-10": [
+            {"rule_type": "EBAY_BRAND", "match_key": "FRD", "principal_name": "本月负责人"},
+            {"rule_type": "EBAY_BRAND", "match_key": "EPM", "principal_name": "未分配"},
+        ],
+        "2026-09": [
+            {"rule_type": "EBAY_BRAND", "match_key": "FRD", "principal_name": "上月旧负责人"},
+            {"rule_type": "EBAY_BRAND", "match_key": "BMW", "principal_name": "上月负责人"},
+            {"rule_type": "EBAY_BRAND", "match_key": "ABC", "principal_name": "映射后上月负责人"},
+            {"rule_type": "EBAY_BRAND", "match_key": "EPM", "principal_name": "不应覆盖明确未分配"},
+            {"rule_type": "EBAY_BRAND", "match_key": "CL", "principal_name": "不应覆盖固定负责人"},
+        ],
+    }
+    isolated.owner_rules.side_effect = lambda month, platform: rules_by_month.get(month, [])
+    isolated([
+        source(sku="FRD-70013-0082"),
+        source(sku="BMW-30003-0001"),
+        source(sku="JMH-40000-0001"),
+        source(sku="EPM-50000-0001"),
+        source(sku="XYZ-60000-0001"),
+        source(sku="CL-70000-0001"),
+    ])
+
+    items, metadata, _, _ = service.load_calculated_inventory()
+    by_sku = {item["sku"]: item for item in items}
+    assert by_sku["FRD-70013-0082"]["owner"] == "本月负责人"
+    assert by_sku["BMW-30003-0001"]["owner"] == "上月负责人"
+    assert by_sku["BMW-30003-0001"]["owner_match_source"] == "EBAY_BRAND_PREVIOUS_MONTH"
+    assert by_sku["JMH-40000-0001"]["owner"] == "映射后上月负责人"
+    assert by_sku["JMH-40000-0001"]["owner_match_source"] == "EBAY_PRODUCT_SKU_BRAND_PREVIOUS_MONTH"
+    assert by_sku["EPM-50000-0001"]["owner"] == "未分配"
+    assert by_sku["XYZ-60000-0001"]["owner"] == "未分配"
+    assert by_sku["CL-70000-0001"]["owner"] == "陈丽"
+    assert [call.args for call in isolated.owner_rules.call_args_list] == [
+        ("2026-10", "ebay"), ("2026-09", "ebay")]
+    assert metadata["owner_rule_month"] == "2026-10"
+    assert metadata["owner_fallback_rule_month"] == "2026-09"
+
+
+def test_owner_previous_month_crosses_year_boundary():
+    assert owner_service._previous_month("2026-01") == "2025-12"
 
 
 @pytest.mark.parametrize(("current_sales", "expected"), [

@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -571,11 +571,13 @@ def test_shared_loader_returns_unfiltered_unrounded_decimal_rows_and_month_metad
     assert items is raw_items
     assert items[0]["overseas_sellable_value"] == D("0.004")
     assert len(items) == 2
-    owner_rules.assert_called_once_with("2026-09", "ebay")
-    rule_map.assert_called_once_with(raw_rules)
+    assert owner_rules.call_args_list == [
+        call("2026-09", "ebay"), call("2026-08", "ebay")]
+    assert rule_map.call_args_list == [call(raw_rules), call(raw_rules)]
     product_map.assert_called_once_with("2026-09", include_next=False)
-    build.assert_called_once_with(source, [], {}, source_metadata, rules, sku_map, [])
+    build.assert_called_once_with(source, [], {}, source_metadata, rules, sku_map, [], rules)
     assert metadata["owner_rule_month"] == "2026-09"
+    assert metadata["owner_fallback_rule_month"] == "2026-08"
     assert metadata["rent_pull_month"] == "2026-08"
     assert source_metadata == original_metadata
     assert warnings == []

@@ -48,6 +48,7 @@ def fake_rows(monkeypatch):
     monkeypatch.setattr(service, "prepare_rules", lambda _: service.PreparedRules())
     monkeypatch.setattr(service.level_service, "prepare_levels", lambda _: None)
     monkeypatch.setattr(service, "_assemble_items", lambda rows, *_, **__: list(rows))
+    monkeypatch.setattr(service, "_enrich_warehouse_rent", lambda _items: None)
     return rows, calls
 
 

@@ -184,8 +184,8 @@ export const inventoryColumnHelp = {
   owner: {
     sourceApi: `《负责人划分》Excel的EBAY工作表导入：POST /finance/performance-ranking/owner-rules/import，非在线人员接口。\nJMH品牌还原的产品资料来源：${productApi}。`,
     sourceTable: 'date-project.dwd_performance_owner_rule（清洗自 ods_performance_owner_rule_raw）\n品牌还原：jmh_data_platform.ods_lingxing_product_procurement_monthly',
-    formula: '取中国时区查询当月的ebay/EBAY_BRAND规则，以品牌match_key匹配principal_name；JMH先用当月产品映射还原品牌，多件装按既有品牌解析。复用月度库存规则：FLL/LEJ固定归方黎力，CL固定归陈丽，其余按当月规则。',
-    emptyHandling: '未匹配或缺当月规则时显示“未分配”（固定归属除外），不是--；不自动回退上月负责人。'
+    formula: '取中国时区查询当月的ebay/EBAY_BRAND规则，以品牌match_key匹配principal_name；该品牌当月无规则时仅回退到上一个自然月，不继续查更早月份。当月已有规则（包括明确设为“未分配”）优先。JMH先用当月产品映射还原品牌，多件装按既有品牌解析。FLL/LEJ固定归方黎力，CL固定归陈丽，不受月度回退影响。',
+    emptyHandling: '当月和上一个自然月均未匹配时显示“未分配”（固定归属除外），不是--；历史统计日期仍显示当时保存的负责人，不用新规则重算。'
   },
   warehouse_rent_30d_cny: {
     sourceApi: '谷仓 POST /public_open/finance/get_wh_inventory_storage 取单号，再 POST /public_open/finance/get_wh_inventory_storage_detail 取明细。\n汇率：领星 POST /erp/sc/routing/finance/currency/currencyMonth。',

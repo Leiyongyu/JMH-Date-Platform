@@ -86,15 +86,3 @@ export function saveEbayReplenishmentV2LeadTime(data) {
     data
   })
 }
-
-export function importEbayReplenishmentV2WarehouseRent(file) {
-  const data = new FormData()
-  data.append('file', file)
-  return request({
-    url: `${base}/warehouse-rent/import`,
-    method: 'post',
-    data,
-    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false },
-    timeout: 10 * 60 * 1000
-  })
-}

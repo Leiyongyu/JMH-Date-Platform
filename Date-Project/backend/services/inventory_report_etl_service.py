@@ -1827,7 +1827,7 @@ def _resolve_ebay_sku(sku, sku_map=None) -> str:
     return original
 
 
-def _ebay_assignment(sku, rules, sku_map=None):
+def _ebay_assignment(sku, rules, sku_map=None, fallback_rules=None):
     original_sku = normalize_text(sku).upper()
     resolved_sku = _resolve_ebay_sku(original_sku, sku_map)
     brand_code = parse_brand_code_from_sku(resolved_sku)
@@ -1835,6 +1835,17 @@ def _ebay_assignment(sku, rules, sku_map=None):
         return "方黎力", "EBAY_FIXED_BRAND"
     if brand_code == "CL":
         return "陈丽", "EBAY_FIXED_BRAND"
+    # Only this caller-supplied month may be used as a fallback. An explicit
+    # current-month assignment (including 未分配) must not be overwritten.
+    if brand_code not in rules and fallback_rules and brand_code in fallback_rules:
+        fallback_owner = fallback_rules[brand_code]
+        if fallback_owner != UNASSIGNED:
+            source = (
+                "EBAY_PRODUCT_SKU_BRAND_PREVIOUS_MONTH"
+                if resolved_sku != original_sku
+                else "EBAY_BRAND_PREVIOUS_MONTH"
+            )
+            return fallback_owner, source
     principal = rules.get(brand_code, UNASSIGNED)
     if principal == UNASSIGNED:
         return principal, "UNMATCHED"

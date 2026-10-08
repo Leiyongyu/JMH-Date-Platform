@@ -6,7 +6,9 @@ from typing import Any
 
 from backend.database import db_connection
 from backend.repositories import ebay_replenishment_v2_repository as repository
+from backend.repositories import ebay_inventory_detail_repository as inventory_detail_repository
 from backend.services import ebay_sku_analysis_service as sku_analysis_service
+from backend.services import ebay_inventory_detail_service as inventory_detail_service
 from backend.services import ebay_level_rule_service as level_service
 from backend.services import ebay_replenishment_sales_type_service as sales_type_service
 from backend.repositories import ebay_replenishment_sales_type_repository as sales_type_repository
@@ -335,6 +337,7 @@ def list_replenishment(
         if paginate:
             offset = (page - 1) * page_size
             items = items[offset:offset + page_size]
+    _enrich_warehouse_rent(items)
     return {
         "items": items,
         "sales_type_available": sales_type_available,
@@ -348,6 +351,23 @@ def list_replenishment(
             "total": total,
         },
     }
+
+
+def _enrich_warehouse_rent(items: list[dict[str, Any]]) -> None:
+    """Use the same GoodCang 30-day snapshot and pull-month FX as inventory detail."""
+    if not items:
+        return
+    rows, rates, rate_month, source_count = inventory_detail_repository.read_rent_snapshot()
+    totals, errors, _ = inventory_detail_service._rent_totals(rows, rates, rate_month)
+    for item in items:
+        site = str(item.get("site") or "").strip()
+        sku = str(item.get("sku") or "").strip()
+        key = (site, inventory_detail_service.rent_sku_key(sku))
+        amount = (
+            None if not source_count or not site or not sku or key in errors
+            else totals.get(key, Decimal(0))
+        )
+        item["warehouse_rent_amount_cny"] = str(amount) if amount is not None else None
 
 
 def _count_filtered(

@@ -16,7 +16,7 @@ from backend.services.ebay_inventory_workbook import normalize_site
 from backend.services.ebay_inventory_price_parser import parse_prices
 from backend.services.ebay_inventory_core_code import normalize_core_code, sku_core_code
 from backend.services.inventory_report_etl_service import (
-    _ebay_assignment, _ebay_product_sku_map, _ebay_rule_map,
+    _ebay_assignment, _ebay_product_sku_map, _ebay_rule_map, _previous_month,
 )
 
 ZERO = Decimal("0")
@@ -214,7 +214,7 @@ def _profit_rate(profit: Decimal, paid_amount: Decimal) -> Decimal | None:
 
 
 def _build_items(source_rows, rent_rows, rates, metadata, owner_rules, sku_map,
-                 max_floor_rows=None):
+                 max_floor_rows=None, previous_owner_rules=None):
     """先按原SKU计算，再按站点+中间码汇总；筛选和分页必须在汇总之后。"""
     sales_floor = _max_sales_floor_map(max_floor_rows)
     aliases = defaultdict(set)
@@ -255,7 +255,8 @@ def _build_items(source_rows, rent_rows, rates, metadata, owner_rules, sku_map,
         )
         price, price_warning = _product_price(source, metadata)
         inventory_age, age_warning = _inventory_age(source, metadata, aliases, collisions)
-        owner, owner_source = _ebay_assignment(sku, owner_rules, sku_map)
+        owner, owner_source = _ebay_assignment(
+            sku, owner_rules, sku_map, previous_owner_rules)
         match_key = (site, rent_sku_key(sku))
         rent_warning = None
         if match_key in collisions:
@@ -458,11 +459,16 @@ def load_calculated_inventory():
     """Unfiltered, unrounded Decimal rows shared by the live view and daily history."""
     source_rows, metadata, rent_rows, rates, max_floor_rows = repository.read_snapshot()
     owner_month = datetime.now(CHINA).strftime("%Y-%m")
+    previous_owner_month = _previous_month(owner_month)
     raw_rules = owner_repository.owner_rules(owner_month, "ebay") if source_rows else []
+    previous_raw_rules = (
+        owner_repository.owner_rules(previous_owner_month, "ebay") if source_rows else []
+    )
     rules = _ebay_rule_map(raw_rules)
+    previous_rules = _ebay_rule_map(previous_raw_rules)
     sku_map = _ebay_product_sku_map(owner_month, include_next=False) if source_rows else {}
     items, warnings = _build_items(source_rows, rent_rows, rates, metadata, rules, sku_map,
-                                   max_floor_rows)
+                                   max_floor_rows, previous_rules)
     stat_date = datetime.now(CHINA).date()
     previous_days = history_repository.read_previous_sales_snapshots(stat_date) if items else []
     apply_recent_stat_sales(items, previous_days)
@@ -472,8 +478,11 @@ def load_calculated_inventory():
     if "inventory_batch_id" in metadata and not metadata["inventory_batch_id"]:
         warnings.append("没有可用的成功周报库存快照，请先执行仓位库存明细周报任务；不回退旧库存表")
     if source_rows and not raw_rules:
-        warnings.append(f"{owner_month}没有eBay负责人规则，未匹配行显示未分配，不回退到其他月份")
+        warnings.append(
+            f"{owner_month}没有eBay负责人规则；仅回退{previous_owner_month}，仍未匹配的显示未分配"
+        )
     metadata = {**metadata, "owner_rule_month": owner_month,
+                "owner_fallback_rule_month": previous_owner_month,
                 "grouping_policy": "site_core_code_v2", "source_sku_count": len(source_rows),
                 "product_group_count": len(items),
                 "average_monthly_sales_policy": "current_and_previous_two_30d_snapshots_v1",
