@@ -71,13 +71,13 @@ export const inventoryColumnHelp = {
     sourceApi: '派生字段，不再需要上传等级表；由本页的历史最大月销与利润率实时计算。',
     sourceTable: '无独立配置表；输入为本页的 max_monthly_sales 与 profit_rate。',
     formula: '按业务方公式分档：历史最大月销≤4时，利润率≥15%为D，否则E；≤9时依次为15%→C、10%→D、其余E；≤14时依次为30%/20%→A、18%→B、15%→C、10%/5%→D、其余E；≤19与≤29两档相同，依次为30%→S、20%→A、18%→B、15%/10%→C、5%→D、其余E；≥30时依次为20%→S、18%→B、15%/10%→C、5%→D、其余E。区间为「销量≤n」与「利润率≥x」，边界值算在本档内。',
-    emptyHandling: '三个月销售额为0时利润率除不出来，等级显示--，不会判为E；历史无销量按0计，落入最低销量档。'
+    emptyHandling: '最近90天有效销售额为0时利润率除不出来，等级显示--，不会判为E；历史无销量按0计，落入最低销量档。'
   },
   profit_rate: {
     sourceApi: `派生字段，与补货2.0同一算式，复用订单来源：${orderImport}`,
     sourceTable: `${orderTable}（order_profit_cny、paid_amount_cny、refund_amount_cny、shipping_status）`,
-    formula: '利润率＝近3个完整自然月的order_profit_cny总和 ÷（同期paid_amount_cny总和 − 发货状态含“已退款”的refund_amount_cny总和）。与补货2.0的算式一致，差别是本页按库存明细的统一约定排除发货状态含“已作废”的订单，因此同一SKU两页数值可能略有差异。返回原始比值，页面与Excel只设置百分比格式。',
-    emptyHandling: '分母为0（近三月无销售额）时返回null，显示--，不按0处理，也不参与等级评定。'
+    formula: '利润率＝最近90个完整自然日（北京时间统计日-90天至统计日零点，不含今天）的order_profit_cny总和 ÷（同期paid_amount_cny总和 − 发货状态含“已退款”的refund_amount_cny总和）。本页排除发货状态含“已作废”的订单；与补货2.0的统计时间范围可能不同。返回原始比值，页面与Excel只设置百分比格式。',
+    emptyHandling: '分母为0（最近90天无有效销售额）时返回null，显示--，不按0处理，也不参与等级评定。'
   },
   max_monthly_sales: {
     sourceApi: `派生字段，复用销量来源：${orderImport}`,

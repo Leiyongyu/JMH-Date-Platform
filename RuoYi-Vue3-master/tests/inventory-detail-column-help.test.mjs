@@ -95,6 +95,7 @@ test('lineage distinguishes Excel imports, reserved fields and monetary missing 
   assert.match(inventoryColumnHelp.grade.formula, /历史最大月销≤4/)
   assert.match(inventoryColumnHelp.grade.emptyHandling, /不会判为E/)
   assert.match(inventoryColumnHelp.profit_rate.formula, /order_profit_cny/)
+  assert.match(inventoryColumnHelp.profit_rate.formula, /最近90个完整自然日.*不含今天/)
   assert.match(inventoryColumnHelp.max_monthly_sales.formula, /任意连续30天里的最高销量/)
   assert.match(inventoryColumnHelp.max_monthly_sales.formula, /不按自然月切分/)
   assert.match(inventoryColumnHelp.owner.sourceApi, /Excel/)

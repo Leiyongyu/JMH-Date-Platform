@@ -91,9 +91,12 @@ def test_actual_sales_ctes_exclude_voided_and_upper_date_boundary():
     cursor.fetchall.return_value = []
     inventory._source_rows(cursor,
         sales_window=(date(2026, 6, 1), date(2026, 9, 1)),
-        recent_window=(date(2026, 8, 22), date(2026, 9, 21)))
+        recent_window=(date(2026, 8, 22), date(2026, 9, 21)),
+        profit_window=(date(2026, 6, 23), date(2026, 9, 21)))
     sql, params = cursor.execute.call_args.args
-    assert params == (date(2026, 8, 22), date(2026, 9, 21), date(2026, 6, 1), date(2026, 9, 1))
+    assert params == (date(2026, 8, 22), date(2026, 9, 21),
+                      date(2026, 6, 1), date(2026, 9, 1),
+                      date(2026, 6, 23), date(2026, 9, 21))
     db = sqlite3.connect(":memory:")
     try:
         db.execute("CREATE TABLE dwd_ebay_sku_analysis_order (site_name TEXT,inventory_sku TEXT,payment_time TEXT,purchase_quantity NUMERIC,shipping_status TEXT,order_profit_cny NUMERIC,paid_amount_cny NUMERIC,refund_amount_cny NUMERIC)")
@@ -114,14 +117,47 @@ def test_actual_sales_ctes_exclude_voided_and_upper_date_boundary():
         # Execute the production SELECT bodies, not a separately rewritten predicate.
         for name, bounds, expected in [
             ("recent_sales", params[:2], 23),
-            ("complete_month_sales", params[2:], 126),
+            ("complete_month_sales", params[2:4], 126),
         ]:
             body = sql.split(name + " AS (", 1)[1].split("\n        ),", 1)[0]
             body = body.replace("%s", "?").replace("%%", "%")
             actual = db.execute(body, tuple(str(day) for day in bounds)).fetchall()
-            # 本用例只校验作废过滤与日期边界；月度CTE另外带的利润/销售额列
-            # 由利润率用例覆盖，这里不比对列数。
+            # 本用例只校验销量窗口；利润率另用独立的90天CTE。
             assert [row[:3] for row in actual] == [("德国", "DAS-10053-0121", expected)]
+    finally:
+        db.close()
+
+
+def test_actual_profit_cte_uses_90_days_excluding_today_and_voided_orders():
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    today = date(2026, 9, 21)
+    profit_window = inventory._profit_window(today)
+    inventory._source_rows(cursor,
+        sales_window=(date(2026, 6, 1), date(2026, 9, 1)),
+        recent_window=(date(2026, 8, 22), today),
+        profit_window=profit_window)
+    sql, params = cursor.execute.call_args.args
+    assert params[4:] == profit_window
+    body = sql.split("profit_90d AS (", 1)[1].split("\n        ),", 1)[0]
+    body = body.replace("%s", "?").replace("%%", "%")
+    db = sqlite3.connect(":memory:")
+    try:
+        db.execute("CREATE TABLE dwd_ebay_sku_analysis_order "
+                   "(site_name TEXT,inventory_sku TEXT,payment_time TEXT,"
+                   "shipping_status TEXT,order_profit_cny NUMERIC,"
+                   "paid_amount_cny NUMERIC,refund_amount_cny NUMERIC)")
+        start = profit_window[0].isoformat()
+        db.executemany("INSERT INTO dwd_ebay_sku_analysis_order VALUES "
+                       "('德国','DAS-10053-0121',?,?,?,?,?)", [
+            (f"{profit_window[0] - timedelta(days=1)} 23:59:59", "已发货", 100, 100, 0),
+            (f"{start} 00:00:00", "已发货", 10, 100, 0),
+            ("2026-09-20 23:59:59", "已退款", 5, 50, 20),
+            ("2026-07-01 12:00:00", "已作废", 200, 200, 0),
+            ("2026-09-21 00:00:00", "已发货", 300, 300, 0),
+        ])
+        rows = db.execute(body, tuple(str(day) for day in profit_window)).fetchall()
+        assert rows == [("德国", "DAS-10053-0121", 15, 130)]
     finally:
         db.close()
 

@@ -109,11 +109,17 @@ def _bounded_rows(cursor, label: str) -> list[dict[str, Any]]:
 
 
 def _three_month_sales_window(reference_date: date | None = None) -> tuple[date, date]:
-    """与补货2.0同口径：前三个完整自然月，固定三个月，不使用订单最新日。"""
+    """Legacy monthly sales input; profit has its own rolling 90-day window."""
     current = reference_date or datetime.now(timezone(timedelta(hours=8))).date()
     end = current.replace(day=1)
     start_index = end.year * 12 + end.month - 1 - 3
     return date(start_index // 12, start_index % 12 + 1, 1), end
+
+
+def _profit_window(reference_date: date | None = None) -> tuple[date, date]:
+    """The 90 complete China-calendar days before the calculation date."""
+    end = reference_date or datetime.now(timezone(timedelta(hours=8))).date()
+    return end - timedelta(days=90), end
 
 
 def _recent_sales_window(reference_date: date | None = None) -> tuple[date, date]:
@@ -123,13 +129,15 @@ def _recent_sales_window(reference_date: date | None = None) -> tuple[date, date
 
 
 def _source_rows(cursor, sales_window: tuple[date, date] | None = None,
-                 recent_window: tuple[date, date] | None = None) -> list[dict[str, Any]]:
-    # 库存作为行全集。近30天截至北京时间昨天，月均销量取前三个完整自然月。
+                 recent_window: tuple[date, date] | None = None,
+                 profit_window: tuple[date, date] | None = None) -> list[dict[str, Any]]:
+    # 库存作为行全集。近30天销量、月销量与90天利润各用独立窗口。
     price_table = _product_price_table()
     age_table = _inventory_age_table()
     reference_date = datetime.now(timezone(timedelta(hours=8))).date()
     sales_window = sales_window or _three_month_sales_window(reference_date)
     recent_window = recent_window or _recent_sales_window(reference_date)
+    profit_window = profit_window or _profit_window(reference_date)
     # Match Python's second-segment strip, including tabs/newlines, not just SQL spaces.
     middle_sql = "REGEXP_REPLACE(SUBSTRING_INDEX(SUBSTRING_INDEX(inventory.sku,'-',2),'-',-1), '^[[:space:]]+|[[:space:]]+$', '')"
     query = f"""
@@ -143,11 +151,17 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None,
             GROUP BY source.site_name,source.inventory_sku
         ),
         complete_month_sales AS (
-            -- 利润率沿用补货2.0的算式：三月利润/(三月销售额-已退款退款额)。
-            -- 差别是本页按既有约定排除已作废订单，补货2.0不排除，因此同一SKU
-            -- 两页的利润率可能有小幅差异，属业务选定口径，不是计算错误。
             SELECT source.site_name,source.inventory_sku,
-                   SUM(source.purchase_quantity) sales_qty_3m,
+                   SUM(source.purchase_quantity) sales_qty_3m
+            FROM dwd_ebay_sku_analysis_order source
+            WHERE source.payment_time >= %s AND source.payment_time < %s
+              AND COALESCE(source.shipping_status,'') NOT LIKE '%%已作废%%'
+            GROUP BY source.site_name,source.inventory_sku
+        ),
+        profit_90d AS (
+            -- 利润率改为北京时间今天以前90个完整自然日；退款和作废口径不变。
+            -- 别名 three_month_* 为历史快照兼容保留，值现在来自90天窗口。
+            SELECT source.site_name,source.inventory_sku,
                    SUM(source.order_profit_cny) three_month_profit_cny,
                    SUM(source.paid_amount_cny)
                      -SUM(CASE WHEN source.shipping_status LIKE '%%已退款%%'
@@ -230,8 +244,8 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None,
                CAST(inventory.pending_outbound_quantity AS DECIMAL(30,6)) pending_outbound_quantity,
                COALESCE(recent.sales_qty_30d,0) sales_qty_30d,
                COALESCE(monthly.sales_qty_3m,0) sales_qty_3m,
-               COALESCE(monthly.three_month_profit_cny,0) three_month_profit_cny,
-               COALESCE(monthly.three_month_paid_amount_cny,0) three_month_paid_amount_cny,
+               COALESCE(profit.three_month_profit_cny,0) three_month_profit_cny,
+               COALESCE(profit.three_month_paid_amount_cny,0) three_month_paid_amount_cny,
                prices.imported_unit_price,prices.price_source_rows,
                ages.age_days,ages.age_source_rows,ages.age_source_products,ages.age_invalid_rows
         FROM inventory_summary inventory
@@ -244,6 +258,11 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None,
           ON CONVERT(monthly.site_name USING utf8mb4) COLLATE utf8mb4_unicode_ci
            = CONVERT(inventory.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
          AND CONVERT(monthly.inventory_sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
+           = CONVERT(inventory.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
+        LEFT JOIN profit_90d profit
+          ON CONVERT(profit.site_name USING utf8mb4) COLLATE utf8mb4_unicode_ci
+           = CONVERT(inventory.site USING utf8mb4) COLLATE utf8mb4_unicode_ci
+         AND CONVERT(profit.inventory_sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
            = CONVERT(inventory.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
         LEFT JOIN product_names products
           ON CONVERT(products.sku USING utf8mb4) COLLATE utf8mb4_unicode_ci
@@ -265,7 +284,7 @@ def _source_rows(cursor, sales_window: tuple[date, date] | None = None,
         LIMIT {MAX_ROWS + 1}
     """
     try:
-        cursor.execute(query, (*recent_window, *sales_window))
+        cursor.execute(query, (*recent_window, *sales_window, *profit_window))
     except ProgrammingError as exc:
         if exc.args and exc.args[0] == 1146 and _PRICE_TABLE in str(exc):
             raise ValueError(_PRICE_MISSING) from exc
@@ -467,6 +486,7 @@ def read_snapshot() -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str
     reference_date = datetime.now(timezone(timedelta(hours=8))).date()
     sales_window = _three_month_sales_window(reference_date)
     recent_window = _recent_sales_window(reference_date)
+    profit_window = _profit_window(reference_date)
     with db_connection() as connection:
         try:
             with connection.cursor() as cursor:
@@ -478,8 +498,12 @@ def read_snapshot() -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str
                                 sales_date_from=recent_window[0],
                                 sales_date_to_exclusive=recent_window[1],
                                 sales_anchor_date=recent_window[1] - timedelta(days=1),
-                                sales_policy="calendar_30d_exclude_today_void_v1")
-                items = _source_rows(cursor, sales_window=sales_window, recent_window=recent_window)
+                                sales_policy="calendar_30d_exclude_today_void_v1",
+                                profit_date_from=profit_window[0],
+                                profit_date_to_exclusive=profit_window[1],
+                                profit_policy="rolling_90d_exclude_today_void_v1")
+                items = _source_rows(cursor, sales_window=sales_window,
+                                     recent_window=recent_window, profit_window=profit_window)
                 # 高水位与库存明细同一事务内读取，否则等级可能用上另一批数据的下限。
                 max_floor = _max_monthly_sales_rows(cursor)
                 rent = _rent_rows(cursor)

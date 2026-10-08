@@ -547,8 +547,8 @@ def test_source_sql_is_inventory_driven_with_calendar_30_day_window():
     assert "FROM inventory_summary inventory" in query
     assert "sales_anchor AS" not in query
     assert "INTERVAL 29 DAY" not in query
-    assert query.count("COALESCE(source.shipping_status,'') NOT LIKE '%%已作废%%'") == 3
-    assert query.count("%s") == 4
+    assert query.count("COALESCE(source.shipping_status,'') NOT LIKE '%%已作废%%'") == 4
+    assert query.count("%s") == 6
     assert "GROUP BY source.site_name,source.inventory_sku" in query
     # Window only deduplicates the seven warehouses in the selected weekly batch;
     # product-name lookup still avoids a full order-table window sort.
@@ -640,6 +640,9 @@ def test_read_snapshot_uses_one_transaction_and_metadata_fx_month(monkeypatch):
     sales_window = (date(2026, 6, 1), date(2026, 9, 1))
     window_reader = MagicMock(return_value=sales_window)
     monkeypatch.setattr(repository, "_three_month_sales_window", window_reader)
+    profit_window = (date(2026, 6, 3), date(2026, 9, 1))
+    profit_reader = MagicMock(return_value=profit_window)
+    monkeypatch.setattr(repository, "_profit_window", profit_reader)
     monkeypatch.setattr(repository, "_source_metadata", metadata_reader)
     monkeypatch.setattr(repository, "_source_rows", source_reader)
     floor_reader = MagicMock(return_value=[])
@@ -655,8 +658,10 @@ def test_read_snapshot_uses_one_transaction_and_metadata_fx_month(monkeypatch):
         reader.assert_called_once_with(cursor)
     reference_date = window_reader.call_args.args[0]
     source_reader.assert_called_once_with(cursor, sales_window=sales_window,
-                                         recent_window=repository._recent_sales_window(reference_date))
+                                         recent_window=repository._recent_sales_window(reference_date),
+                                         profit_window=profit_window)
     window_reader.assert_called_once()
+    profit_reader.assert_called_once_with(reference_date)
     rate_reader.assert_called_once_with(cursor, "2026-08")
     # 历史月销必须与库存明细同一事务，且上界为当月1号，当月不计入。
     # 高水位必须与库存明细同一事务读取，否则等级可能用上另一批数据的下限。
@@ -664,6 +669,9 @@ def test_read_snapshot_uses_one_transaction_and_metadata_fx_month(monkeypatch):
     assert result[1] is metadata
     assert metadata["monthly_sales_date_from"] == sales_window[0]
     assert metadata["monthly_sales_date_to_exclusive"] == sales_window[1]
+    assert metadata["profit_date_from"] == profit_window[0]
+    assert metadata["profit_date_to_exclusive"] == profit_window[1]
+    assert metadata["profit_policy"] == "rolling_90d_exclude_today_void_v1"
 
 
 def test_read_snapshot_rolls_back_on_source_failure(monkeypatch):
@@ -707,16 +715,39 @@ def test_three_month_window_default_uses_china_current_month(monkeypatch):
     assert observed_zones[0].utcoffset(None) == timedelta(hours=8)
 
 
+@pytest.mark.parametrize("today", [
+    date(2026, 9, 1), date(2026, 10, 8), date(2026, 1, 1), date(2024, 3, 1),
+])
+def test_profit_window_uses_previous_90_complete_days(today):
+    start, end = repository._profit_window(today)
+    assert start == today - timedelta(days=90)
+    assert end == today
+    assert (end - start).days == 90
+
+
+def test_profit_window_default_uses_china_today(monkeypatch):
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is not None and tz.utcoffset(None) == timedelta(hours=8)
+            return datetime(2026, 8, 31, 16, 5, tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(repository, "datetime", FixedDateTime)
+    assert repository._profit_window() == (date(2026, 9, 1) - timedelta(days=90), date(2026, 9, 1))
+
+
 def test_monthly_sales_sql_uses_explicit_calendar_window_and_preserves_inventory_rows(monkeypatch):
     window = (date(2026, 6, 1), date(2026, 9, 1))
+    profit_window = (date(2026, 6, 3), date(2026, 9, 1))
     # Supplying a captured window must not consult the clock or use MAX(payment_time).
     monkeypatch.setattr(repository, "_three_month_sales_window", MagicMock(side_effect=AssertionError("clock read again")))
     cursor = MagicMock()
     rows = [source(sku="FRD-NO-SALES", sales_qty_3m=0), source(sku="FRD-WITH-SALES", sales_qty_3m=30)]
     cursor.fetchall.return_value = rows
-    assert repository._source_rows(cursor, sales_window=window) == rows
+    assert repository._source_rows(cursor, sales_window=window, profit_window=profit_window) == rows
     query, params = cursor.execute.call_args.args
-    assert tuple(params[2:]) == window
+    assert tuple(params[2:4]) == window
+    assert tuple(params[4:]) == profit_window
     cte = query.split("complete_month_sales AS (", 1)[1].split("\n        ),", 1)[0]
     assert re.search(r"SUM\(\w+\.purchase_quantity\)\s+(?:AS\s+)?sales_qty_3m", cte, re.I)
     assert re.search(r"\w+\.payment_time\s*>=\s*%s", cte)
@@ -727,7 +758,12 @@ def test_monthly_sales_sql_uses_explicit_calendar_window_and_preserves_inventory
     assert "FROM inventory_summary inventory" in query
     assert re.search(r"LEFT JOIN\s+complete_month_sales\s+", query, re.I)
     assert re.search(r"COALESCE\(\w+\.sales_qty_3m\s*,\s*0\)\s+(?:AS\s+)?sales_qty_3m", query, re.I)
-    assert query.count("%s") == 4
+    assert query.count("%s") == 6
+    assert re.search(r"LEFT JOIN\s+profit_90d\s+", query, re.I)
+    profit_cte = query.split("profit_90d AS (", 1)[1].split("\n        ),", 1)[0]
+    assert "SUM(source.order_profit_cny)" in profit_cte
+    assert "source.shipping_status LIKE '%%已退款%%'" in profit_cte
+    assert "NOT LIKE '%%已作废%%'" in profit_cte
 
 
 def test_snapshot_window_does_not_follow_old_sales_anchor(monkeypatch):
@@ -738,6 +774,9 @@ def test_snapshot_window_does_not_follow_old_sales_anchor(monkeypatch):
     window = (date(2026, 6, 1), date(2026, 9, 1))
     clock = MagicMock(return_value=window)
     monkeypatch.setattr(repository, "_three_month_sales_window", clock)
+    profit_window = (date(2026, 6, 23), date(2026, 9, 21))
+    profit_clock = MagicMock(return_value=profit_window)
+    monkeypatch.setattr(repository, "_profit_window", profit_clock)
     recent_window = (date(2026, 8, 22), date(2026, 9, 21))
     recent_clock = MagicMock(return_value=recent_window)
     monkeypatch.setattr(repository, "_recent_sales_window", recent_clock)
@@ -750,13 +789,17 @@ def test_snapshot_window_does_not_follow_old_sales_anchor(monkeypatch):
     _, result, _, _, _ = repository.read_snapshot()
     clock.assert_called_once()
     recent_clock.assert_called_once_with(clock.call_args.args[0])
-    source_reader.assert_called_once_with(cursor, sales_window=window, recent_window=recent_window)
+    profit_clock.assert_called_once_with(clock.call_args.args[0])
+    source_reader.assert_called_once_with(cursor, sales_window=window,
+                                         recent_window=recent_window, profit_window=profit_window)
     assert result["sales_anchor_date"] == date(2026, 9, 20)
     assert result["sales_source_latest_date"] == date(2020, 2, 29)
     assert result["sales_date_from"] == recent_window[0]
     assert result["sales_date_to_exclusive"] == recent_window[1]
     assert result["monthly_sales_date_from"] == date(2026, 6, 1)
     assert result["monthly_sales_date_to_exclusive"] == date(2026, 9, 1)
+    assert result["profit_date_from"] == date(2026, 6, 23)
+    assert result["profit_date_to_exclusive"] == date(2026, 9, 21)
 
 
 def test_monthly_ratio_uses_cycle_inventory_and_fixed_three_month_average(isolated):

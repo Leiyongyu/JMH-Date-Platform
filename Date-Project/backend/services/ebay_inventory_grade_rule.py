@@ -42,7 +42,7 @@ GRADES: tuple[str, ...] = ("S", "A", "B", "C", "D", "E")
 def calculate_grade(max_monthly_sales, profit_rate) -> str | None:
     """返回S/A/B/C/D/E；利润率缺失时返回None（页面显示--）。
 
-    利润率为None代表三个月销售额为0，除不出比率。Excel里这种行是#DIV/0!，
+    利润率为None代表最近90天有效销售额为0，除不出比率。Excel里这种行是#DIV/0!，
     不是"利润率低"，因此不落到E，而是不给等级，避免把无数据当成差评级。
     没有历史销量按0处理：0是真实的"从没卖过"，不是缺失。
     """
