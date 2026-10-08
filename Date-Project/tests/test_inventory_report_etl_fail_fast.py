@@ -263,20 +263,26 @@ def test_sales_target_uses_department_specific_factor():
     assert us1 > ebay
 
 
-def test_sales_target_usd_uses_rate_and_missing_rate_returns_none():
+def test_sales_target_usd_matches_monthly_inventory_excel_fixed_rate():
     row = {
-        "department_code": "AMZ-US1",
-        "overseas_end_inventory_total_cost": service.Decimal("100"),
-        "fba_end_inventory_total_cost": service.Decimal("200"),
-        "overseas_end_in_transit_total_cost": service.Decimal("30"),
-        "fba_end_in_transit_total_cost": service.Decimal("70"),
+        "department_code": "EBAY-1",
+        "overseas_end_inventory_total_cost": service.Decimal("3705222.25"),
+        "fba_end_inventory_total_cost": service.ZERO,
+        "overseas_end_in_transit_total_cost": service.Decimal("4188243.13"),
+        "fba_end_in_transit_total_cost": service.ZERO,
     }
-    rate = service.Decimal("7.1234")
+    inventory = service.Decimal("3705222.25")
+    combined = inventory + service.Decimal("4188243.13")
+    expected = (
+        inventory / 3 / service.Decimal("0.45") / service.Decimal("6.6")
+        + combined / 5 / service.Decimal("0.45") / service.Decimal("6.6")
+    ) / 2
 
-    target_usd = service._sales_target(row, rate)
-
-    assert target_usd * rate == service._sales_target_cny(row)
-    assert service._sales_target(row, None) is None
+    target_usd = service._sales_target(row)
+    assert target_usd == expected
+    assert target_usd.quantize(service.Decimal("0.01")) == service.Decimal(
+        "473698.17"
+    )
 
 
 def _overseas_source(sys_wid, warehouse_name, qty):

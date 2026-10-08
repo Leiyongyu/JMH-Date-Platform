@@ -49,6 +49,7 @@ SALES_TARGET_FACTORS = {
     "AMZ-US2-MJ": Decimal("0.4"),
     "AMZ-US1-ZXY": Decimal("0.4"),
 }
+SALES_TARGET_USD_RATE = Decimal("6.6")
 
 LOCAL_EXCLUDED_WIDS = {"19056", "1194"}
 # 月度库存永久排除的Amazon店铺SID；只作用于月度库存，绩效排名和滞销清货不受影响。
@@ -426,7 +427,7 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
                 )
             else:
                 item["actual_achievement_amount"] = None
-            sales_target_usd = _sales_target(item, usd_rate)
+            sales_target_usd = _sales_target(item)
             actual_amount = item["actual_achievement_amount"]
             actual_amount_usd = _usd_amount(actual_amount, usd_rate)
             item["sales_target_usd"] = sales_target_usd
@@ -606,7 +607,7 @@ def get_dimension_summary(
         item = dict(source)
         inventory_amount = _warehouse_inventory_amount(item)
         transit_amount = _warehouse_transit_amount(item)
-        sales_target_usd = _sales_target(item, usd_rate)
+        sales_target_usd = _sales_target(item)
         department = normalize_text(item.get("department_code")).upper()
         platform = normalize_text(item.get("platform_code")).upper()
         dimension_value = normalize_text(item.get("dimension_value"))
@@ -691,6 +692,28 @@ def get_dimension_summary(
             items, total, data["stat_month"], report_month,
             ctu_owner_costs, ctu_available,
         )
+        # GROUP uses the same _sales_target formula on department_summary rows.
+        # Read only that source here; re-running the full GROUP service would
+        # duplicate owner-rule and warehouse-age queries in this request.
+        group_data = repo.department_summary(data["stat_month"])
+        if group_data["stat_month"] != data["stat_month"]:
+            raise ValueError("个人与组别月度库存统计月份不一致")
+        group_targets = {
+            normalize_text(row.get("department_code")).upper(): _sales_target(row)
+            for row in group_data["items"]
+            if int(row.get("is_total") or 0) != 1
+        }
+        group_values = list(group_targets.values())
+        group_total = (
+            sum(group_values, ZERO)
+            if group_values and all(value is not None for value in group_values)
+            else None
+        )
+        for item in items:
+            department = normalize_text(item.get("department_code")).upper()
+            item["group_sales_target_usd"] = group_targets.get(department)
+        if total is not None:
+            total["group_sales_target_usd"] = group_total
     return {
         "stat_month": data["stat_month"],
         "source_stat_month": data["stat_month"],
@@ -1517,13 +1540,18 @@ def _sales_target_cny(row: dict[str, Any]) -> Decimal:
     return (inventory_target + total_target) / Decimal("2")
 
 
-def _sales_target(
-    row: dict[str, Any],
-    usd_rate: Decimal | None,
-) -> Decimal | None:
-    if usd_rate is None or usd_rate <= ZERO:
-        return None
-    return _sales_target_cny(row) / usd_rate
+def _sales_target(row: dict[str, Any]) -> Decimal:
+    """按月度库存Excel的固定6.6汇率计算销售目标USD。"""
+    inventory_amount = _warehouse_inventory_amount(row)
+    combined_amount = inventory_amount + _warehouse_transit_amount(row)
+    factor = _department_factor(row)
+    inventory_target = (
+        inventory_amount / Decimal("3") / factor / SALES_TARGET_USD_RATE
+    )
+    combined_target = (
+        combined_amount / Decimal("5") / factor / SALES_TARGET_USD_RATE
+    )
+    return (inventory_target + combined_target) / Decimal("2")
 
 
 def _usd_amount(

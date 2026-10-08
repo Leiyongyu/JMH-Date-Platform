@@ -135,6 +135,28 @@ def test_rules_and_sku_mapping_loaded_once_for_health_and_costs(env):
     assert env["calls"].count(("health", "2026-09")) == 1
 
 
+def test_owner_displays_department_target_without_splitting_it(env, monkeypatch):
+    monkeypatch.setattr(service.repo, "usd_rate", lambda _month: D(2))
+    monkeypatch.setattr(service.repo, "department_summary", lambda _month: {
+        "stat_month": "2026-08",
+        "items": [
+            {"department_code": "AMZ-EU", "is_total": 0,
+             "fba_end_inventory_total_cost": D(300)},
+            {"department_code": "AUTO-PARTS-TOTAL", "is_total": 1},
+        ],
+    })
+
+    result = service.get_dimension_summary("OWNER", "2026-08")
+    owner = result["items"][0]
+    expected = service._sales_target(
+        {"department_code": "AMZ-EU", "fba_end_inventory_total_cost": D(300)},
+    )
+    assert expected.quantize(D("0.01")) == D("40.40")
+    assert D(owner["group_sales_target_usd"]) == expected
+    assert D(owner["sales_target_usd"]) != expected
+    assert D(result["total"]["group_sales_target_usd"]) == expected
+
+
 def test_year_boundary_uses_source_rules_and_report_snapshot(env):
     env["stat_month"] = "2026-12"
     service.get_dimension_summary("OWNER", "2026-12")
@@ -243,10 +265,10 @@ def test_owner_export_has_same_two_values_and_store_is_unchanged(env, monkeypatc
     _, content = exporter.export_monthly_inventory_report("2026-08", "OWNER")
     book = load_workbook(BytesIO(content), read_only=True)
     values = list(book.active.values)
-    assert values[0][-2:] == ("90-180库龄成本", "180+库龄成本")
+    assert values[0][-3:] == ("90-180库龄成本", "180+库龄成本", "所属组别销售目标（USD）")
     for excel, row in zip(values[1:], [data["total"], *data["items"]]):
-        assert excel[-2] == float(row["inventory_age_90_180_cost"])
-        assert excel[-1] == float(row["inventory_age_180_plus_cost"])
+        assert excel[-3] == float(row["inventory_age_90_180_cost"])
+        assert excel[-2] == float(row["inventory_age_180_plus_cost"])
         if row.get("is_age_cost_only"):
             assert excel[3] is None  # total value unknown, not zero
             assert excel[4:8] == (None, None, None, None)

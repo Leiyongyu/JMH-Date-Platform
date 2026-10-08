@@ -119,7 +119,13 @@ def test_department_summary_uses_report_month_sales_volume(monkeypatch):
         lambda _month: {
             "stat_month": "2026-07",
             "items": [
-                {"department_code": code, "is_total": is_total}
+                {
+                    "department_code": code,
+                    "is_total": is_total,
+                    "fba_end_inventory_total_cost": (
+                        Decimal("300") if code == "EBAY-1" else Decimal("0")
+                    ),
+                }
                 for code, is_total in departments
             ],
         },
@@ -162,6 +168,8 @@ def test_department_summary_uses_report_month_sales_volume(monkeypatch):
     assert result["rate_month"] == "2026-08"
     assert result["usd_rate"] == "10"
     assert result["report_month"] == "2026-08"
+    assert rows["EBAY-1"]["sales_target_usd"] == "26.94"
+    assert rows["AUTO-PARTS-TOTAL"]["sales_target_usd"] == "26.94"
 
     monkeypatch.setattr(service.repo, "usd_rate", lambda _month: None)
     missing_rate_result = service.get_department_summary("2026-07")
@@ -171,7 +179,10 @@ def test_department_summary_uses_report_month_sales_volume(monkeypatch):
     }
     assert missing_rate_rows["EBAY-1"]["actual_achievement_amount"] == "90"
     assert missing_rate_rows["EBAY-1"]["actual_achievement_amount_usd"] is None
-    assert missing_rate_rows["EBAY-1"]["sales_target_usd"] is None
+    assert (
+        missing_rate_rows["EBAY-1"]["sales_target_usd"]
+        == rows["EBAY-1"]["sales_target_usd"]
+    )
     assert missing_rate_rows["EBAY-1"]["target_achievement_rate"] is None
     assert missing_rate_result["usd_rate"] is None
 

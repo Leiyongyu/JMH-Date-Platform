@@ -27,39 +27,53 @@ def export_monthly_inventory_report(
     stat_month: str | None,
     dimension_type: str,
 ) -> tuple[str, bytes]:
-    """按维度导出月度库存报表；页面与Excel共用后端计算结果。"""
+    """导出指定维度；维度列表由 ERP 按当前用户权限生成。"""
     dimension = str(dimension_type or "").strip().upper()
-    if dimension not in DIMENSION_LABELS:
-        raise ValueError("dimension_type必须是GROUP、STORE或OWNER")
-    if dimension == "GROUP":
-        data = get_department_summary(stat_month)
-        rows = list(data.get("items") or [])
-        headers = _group_headers(data.get("report_month"))
+    permission_filtered = dimension.startswith("VISIBLE:")
+    requested = (dimension.removeprefix("VISIBLE:") if permission_filtered else dimension).split(",")
+    if dimension == "ALL":
+        dimensions = tuple(DIMENSION_LABELS)
+    elif (not requested or len(requested) != len(set(requested))
+          or any(item not in DIMENSION_LABELS for item in requested)):
+        raise ValueError("dimension_type必须是ALL或GROUP、STORE、OWNER的非重复组合")
     else:
-        data = get_dimension_summary(dimension, stat_month)
-        detail_rows = list(data.get("items") or [])
-        total = data.get("total")
-        rows = ([total] if total else []) + detail_rows
-        headers = _dimension_headers(dimension)
-    if not rows:
-        report_month = data.get("report_month") or stat_month or "当前月份"
-        raise ValueError(f"{report_month} 没有可导出的月度库存数据")
+        dimensions = tuple(item for item in DIMENSION_LABELS if item in requested)
 
     workbook = Workbook(write_only=True)
-    _append_sheet(
-        workbook,
-        f"月度库存-{DIMENSION_LABELS[dimension]}",
-        headers,
-        rows,
-    )
+    combined = permission_filtered or len(dimensions) > 1 or dimension == "ALL"
+    report_month = None
+    has_rows = False
+    for current in dimensions:
+        if current == "GROUP":
+            data = get_department_summary(stat_month)
+            rows = list(data.get("items") or [])
+            headers = _group_headers(data.get("report_month"))
+        else:
+            data = get_dimension_summary(current, stat_month)
+            detail_rows = list(data.get("items") or [])
+            total = data.get("total")
+            rows = ([total] if total else []) + detail_rows
+            headers = _dimension_headers(current)
+        current_month = data.get("report_month") or stat_month or "当前月份"
+        if report_month is not None and current_month != report_month:
+            raise ValueError("三个维度的月度库存统计月份不一致，请重新选择月份")
+        report_month = current_month
+        if not combined and not rows:
+            raise ValueError(f"{report_month} 没有可导出的月度库存数据")
+        has_rows = has_rows or bool(rows)
+        sheet_title = (
+            {"GROUP": "组别", "STORE": "店铺", "OWNER": "个人"}[current]
+            if combined else f"月度库存-{DIMENSION_LABELS[current]}"
+        )
+        _append_sheet(workbook, sheet_title, headers, rows)
+    if not has_rows:
+        raise ValueError(f"{report_month} 没有可导出的月度库存数据")
+
     output = BytesIO()
     workbook.save(output)
-    report_month = data.get("report_month") or stat_month or "当前月份"
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    filename = (
-        f"{report_month}-月度库存-{DIMENSION_LABELS[dimension]}-"
-        f"{timestamp}.xlsx"
-    )
+    filename_label = "汇总" if combined else DIMENSION_LABELS[dimensions[0]]
+    filename = f"{report_month}-月度库存-{filename_label}-{timestamp}.xlsx"
     return filename, output.getvalue()
 
 
@@ -115,6 +129,7 @@ def _dimension_headers(dimension: str) -> list[Header]:
             ("成都仓30天以上货值（仅eBay）", _field("ctu_over_30_cost"), "money"),
             ("90-180库龄成本", _field("inventory_age_90_180_cost"), "money"),
             ("180+库龄成本", _field("inventory_age_180_plus_cost"), "money"),
+            ("所属组别销售目标（USD）", _field("group_sales_target_usd"), "money"),
         ])
     return headers
 

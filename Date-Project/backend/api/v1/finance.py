@@ -368,9 +368,7 @@ async def get_monthly_inventory_report_export(
     stat_month: str | None = Query(
         None, pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"
     ),
-    dimension_type: str = Query(
-        "GROUP", pattern="^(GROUP|STORE|OWNER)$"
-    ),
+    dimension_type: str = Query("GROUP"),
 ):
     try:
         download_name, content = await run_in_threadpool(

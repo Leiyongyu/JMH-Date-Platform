@@ -88,12 +88,14 @@
           <el-button
             type="primary"
             :loading="calculating"
+            :disabled="!sourceStatMonth"
             v-hasPermi="['finance:monthlyInventoryReport:edit']"
             @click="handleCalculate"
           >
             计算
           </el-button>
           <el-button
+            v-if="allowedDimensions.length"
             :loading="exporting"
             v-hasPermi="['finance:monthlyInventoryReport:list']"
             @click="handleExport"
@@ -105,14 +107,15 @@
 
       <div class="dimension-switch">
         <el-radio-group v-model="activeDimension" @change="loadSummary">
-          <el-radio-button value="group">组别</el-radio-button>
-          <el-radio-button value="store">店铺</el-radio-button>
-          <el-radio-button value="owner">个人</el-radio-button>
+          <el-radio-button v-if="canViewGroup" value="group">组别</el-radio-button>
+          <el-radio-button v-if="canViewStore" value="store">店铺</el-radio-button>
+          <el-radio-button v-if="canViewOwner" value="owner">个人</el-radio-button>
         </el-radio-group>
+        <span v-if="!allowedDimensions.length">暂无可查看的月度库存维度，请联系管理员分配权限。</span>
       </div>
 
       <el-table
-        v-if="activeDimension === 'group'"
+        v-if="activeDimension === 'group' && canViewGroup"
         v-loading="summaryLoading"
         :data="summaryRows"
         border
@@ -180,7 +183,7 @@
         </el-table-column>
         <el-table-column min-width="175" align="right">
           <template #header>
-            <el-tooltip :content="usdRateTip" placement="top">
+            <el-tooltip :content="salesTargetTip" placement="top">
               <span class="report-column-tip">销售目标（USD）</span>
             </el-tooltip>
           </template>
@@ -247,7 +250,7 @@
       </el-table>
 
       <el-table
-        v-else
+        v-else-if="(activeDimension === 'store' && canViewStore) || (activeDimension === 'owner' && canViewOwner)"
         v-loading="summaryLoading"
         :data="dimensionDisplayRows"
         height="calc(100vh - 285px)"
@@ -319,7 +322,7 @@
           align="right"
         >
           <template #header>
-            <el-tooltip :content="usdRateTip" placement="top">
+            <el-tooltip :content="salesTargetTip" placement="top">
               <span class="report-column-tip">销售目标（USD）</span>
             </el-tooltip>
           </template>
@@ -370,6 +373,14 @@
             </template>
             <template #default="{ row }">{{ row.inventory_age_180_plus_cost == null ? '--' : optionalMoney(row.inventory_age_180_plus_cost) }}</template>
           </el-table-column>
+          <el-table-column prop="group_sales_target_usd" min-width="190" align="right">
+            <template #header>
+              <el-tooltip content="取该负责人所属组别在组别维度按固定6.6汇率计算的销售目标；同组负责人显示相同组别目标，不按人数拆分。" placement="top">
+                <span class="report-column-tip">所属组别销售目标（USD）</span>
+              </el-tooltip>
+            </template>
+            <template #default="{ row }">{{ optionalMoney(row.group_sales_target_usd) }}</template>
+          </el-table-column>
         </template>
       </el-table>
     </el-card>
@@ -379,6 +390,7 @@
 
 <script setup>
 import { computed, getCurrentInstance, onMounted, ref } from 'vue'
+import { checkPermi } from '@/utils/permission'
 import purchaseOrderFormatGuide from '@/assets/images/monthly-inventory/purchase-order-pending-arrival-export-fields.png'
 import {
   exportMonthlyInventoryReport,
@@ -395,6 +407,14 @@ const availablePeriods = ref([])
 const selectedYear = ref('')
 const selectedMonth = ref('')
 const activeDimension = ref('group')
+const canViewGroup = computed(() => checkPermi(['finance:monthlyInventoryReport:viewGroup']))
+const canViewStore = computed(() => checkPermi(['finance:monthlyInventoryReport:viewStore']))
+const canViewOwner = computed(() => checkPermi(['finance:monthlyInventoryReport:viewOwner']))
+const allowedDimensions = computed(() => [
+  canViewGroup.value && 'group',
+  canViewStore.value && 'store',
+  canViewOwner.value && 'owner'
+].filter(Boolean))
 const summaryRows = ref([])
 const dimensionRows = ref([])
 const dimensionTotalRow = ref(null)
@@ -500,6 +520,9 @@ const editableSummaryRows = computed(() =>
   summaryRows.value.filter(row => Number(row.is_total) !== 1)
 )
 
+const SALES_TARGET_USD_RATE = 6.6
+const salesTargetTip = '按月度库存表公式计算：在库金额÷3与（在库＋在途金额）÷5，分别除以组别系数和固定汇率6.6后取平均'
+
 const usdRateInfo = computed(() => {
   const rows = summaryRows.value.length ? summaryRows.value : dimensionRows.value
   return rows.find(row => numberValue(row?.usd_rate) > 0) || null
@@ -509,7 +532,7 @@ const usdRateTip = computed(() => {
   const rateMonth = usdRateInfo.value?.rate_month || statMonth.value
   const rate = numberValue(usdRateInfo.value?.usd_rate)
   if (!rate) {
-    return `${rateMonth || '当前月份'}未取得领星USD汇率，金额及达成率暂不计算`
+    return `${rateMonth || '当前月份'}未取得领星USD汇率，实际达成（USD）及达成率暂不计算`
   }
   return `按${rateMonth}领星USD我的汇率 ${rate.toLocaleString('zh-CN', { maximumFractionDigits: 6 })} 折算`
 })
@@ -635,15 +658,11 @@ function salesSprintTarget(row) {
       ? targets.reduce((sum, value) => sum + value, 0)
       : null
   }
-  const usdRate = numberValue(row?.usd_rate)
-  if (!usdRate) {
-    return null
-  }
   const inventoryAmount = overseasFbaInventoryAmount(row)
   const totalAmount = combinedWarehouseTotalAmount(row)
   const factor = departmentFactor(row)
-  const inventoryTarget = inventoryAmount / 3 / factor / usdRate
-  const totalTarget = totalAmount / 5 / factor / usdRate
+  const inventoryTarget = inventoryAmount / 3 / factor / SALES_TARGET_USD_RATE
+  const totalTarget = totalAmount / 5 / factor / SALES_TARGET_USD_RATE
   return (inventoryTarget + totalTarget) / 2
 }
 
@@ -696,6 +715,15 @@ async function handleYearChange() {
 }
 
 async function loadSummary() {
+  if (!allowedDimensions.value.includes(activeDimension.value)) {
+    activeDimension.value = allowedDimensions.value[0] || ''
+  }
+  if (!activeDimension.value) {
+    summaryRows.value = []
+    dimensionRows.value = []
+    dimensionTotalRow.value = null
+    return
+  }
   if (!sourceStatMonth.value) {
     summaryRows.value = []
     dimensionRows.value = []
@@ -725,14 +753,18 @@ async function loadSummary() {
 }
 
 async function handleCalculate() {
-  const reportMonth = currentNaturalMonth()
-  const calculationMonth = previousNaturalMonth(reportMonth)
+  const reportMonth = statMonth.value
+  const calculationMonth = sourceStatMonth.value
+  if (!reportMonth || !calculationMonth) {
+    proxy.$modal.msgError('请选择已有数据的统计月份再计算')
+    return
+  }
   calculating.value = true
   try {
     const response = await rebuildMonthlyInventoryReport(calculationMonth)
     const result = response.data || {}
     proxy.$modal.msgSuccess(
-      `${reportMonth} 报表计算完成，共生成 ${result.department_summary_rows || 0} 条最终汇总数据`
+      `${reportMonth} 报表计算完成（使用 ${calculationMonth} 已有源数据），共生成 ${result.department_summary_rows || 0} 条最终汇总数据`
     )
     await loadPeriods()
     await loadSummary()
@@ -785,18 +817,9 @@ async function handleExport() {
     proxy.$modal.msgError('请选择需要导出的月份')
     return
   }
-  const dimensionType = activeDimension.value === 'group'
-    ? 'GROUP'
-    : activeDimension.value === 'store' ? 'STORE' : 'OWNER'
-  const dimensionLabel = dimensionType === 'GROUP'
-    ? '组别'
-    : dimensionType === 'STORE' ? '店铺' : '负责人'
   exporting.value = true
   try {
-    const data = await exportMonthlyInventoryReport(
-      sourceStatMonth.value,
-      dimensionType
-    )
+    const data = await exportMonthlyInventoryReport(sourceStatMonth.value)
     const blob = data instanceof Blob
       ? data
       : new Blob([data], {
@@ -808,12 +831,15 @@ async function handleExport() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${statMonth.value}-月度库存-${dimensionLabel}-${timestamp}.xlsx`
+    link.download = `${statMonth.value}-月度库存-汇总-${timestamp}.xlsx`
     document.body.appendChild(link)
     link.click()
     link.remove()
     URL.revokeObjectURL(url)
-    proxy.$modal.msgSuccess(`${statMonth.value}月度库存${dimensionLabel}导出成功`)
+    const exportedLabels = allowedDimensions.value.map(item => ({
+      group: '组别', store: '店铺', owner: '个人'
+    })[item]).join('、')
+    proxy.$modal.msgSuccess(`${statMonth.value}月度库存${exportedLabels}导出成功`)
   } catch (error) {
     const responseData = error?.response?.data
     const message = responseData instanceof Blob

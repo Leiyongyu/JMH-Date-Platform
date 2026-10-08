@@ -5,6 +5,7 @@ import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.system.service.finance.PerformancePythonClient;
+import com.ruoyi.framework.web.service.PermissionService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -13,7 +14,9 @@ import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -33,9 +36,12 @@ import org.springframework.web.multipart.MultipartFile;
 public class MonthlyInventoryReportController extends BaseController
 {
     private final PerformancePythonClient pythonClient;
-    public MonthlyInventoryReportController(PerformancePythonClient pythonClient)
+    private final PermissionService permissionService;
+    public MonthlyInventoryReportController(PerformancePythonClient pythonClient,
+            PermissionService permissionService)
     {
         this.pythonClient = pythonClient;
+        this.permissionService = permissionService;
     }
 
     @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list')")
@@ -56,7 +62,7 @@ public class MonthlyInventoryReportController extends BaseController
         }
     }
 
-    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list')")
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list') and @ss.hasPermi('finance:monthlyInventoryReport:viewGroup')")
     @GetMapping("/summary")
     public AjaxResult summary(
             @RequestParam(required = false) String statMonth,
@@ -84,9 +90,14 @@ public class MonthlyInventoryReportController extends BaseController
     {
         try
         {
+            requireDimensionPermission(dimensionType);
             return success(data(
                     pythonClient.monthlyInventoryReportDimensionSummary(
                             dimensionType, statMonth, requestId)));
+        }
+        catch (AccessDeniedException e)
+        {
+            throw e;
         }
         catch (Exception e)
         {
@@ -105,14 +116,16 @@ public class MonthlyInventoryReportController extends BaseController
     {
         try
         {
+            String allowedDimensions = exportDimensions(dimensionType);
             byte[] file = pythonClient.exportMonthlyInventoryReport(
-                    statMonth, dimensionType, requestId);
+                    statMonth, allowedDimensions, requestId);
             String reportMonth = YearMonth.parse(statMonth).plusMonths(1)
                     .toString();
             String dimensionLabel = switch (dimensionType.toUpperCase())
             {
                 case "STORE" -> "店铺";
                 case "OWNER" -> "负责人";
+                case "ALL" -> "汇总";
                 default -> "组别";
             };
             String timestamp = LocalDateTime.now().format(
@@ -129,6 +142,10 @@ public class MonthlyInventoryReportController extends BaseController
                     .contentLength(file.length)
                     .body(file);
         }
+        catch (AccessDeniedException e)
+        {
+            throw e;
+        }
         catch (RuntimeException e)
         {
             byte[] message = String.valueOf(e.getMessage()).getBytes(
@@ -139,7 +156,46 @@ public class MonthlyInventoryReportController extends BaseController
                     .body(message);
         }
     }
-    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list')")
+
+    private void requireDimensionPermission(String dimensionType)
+    {
+        String dimension = String.valueOf(dimensionType).toUpperCase(Locale.ROOT);
+        String permission = switch (dimension)
+        {
+            case "GROUP" -> "finance:monthlyInventoryReport:viewGroup";
+            case "STORE" -> "finance:monthlyInventoryReport:viewStore";
+            case "OWNER" -> "finance:monthlyInventoryReport:viewOwner";
+            default -> throw new IllegalArgumentException("月度库存维度无效");
+        };
+        if (!permissionService.hasPermi(permission))
+        {
+            throw new AccessDeniedException("没有查看该月度库存维度的权限");
+        }
+    }
+
+    private String exportDimensions(String requestedDimension)
+    {
+        String requested = String.valueOf(requestedDimension).toUpperCase(Locale.ROOT);
+        if (!"ALL".equals(requested))
+        {
+            requireDimensionPermission(requested);
+            return requested;
+        }
+        List<String> allowed = List.of("GROUP", "STORE", "OWNER").stream()
+                .filter(dimension -> permissionService.hasPermi(switch (dimension)
+                {
+                    case "GROUP" -> "finance:monthlyInventoryReport:viewGroup";
+                    case "STORE" -> "finance:monthlyInventoryReport:viewStore";
+                    default -> "finance:monthlyInventoryReport:viewOwner";
+                }))
+                .toList();
+        if (allowed.isEmpty())
+        {
+            throw new AccessDeniedException("没有可导出的月度库存维度权限");
+        }
+        return "VISIBLE:" + String.join(",", allowed);
+    }
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list') and @ss.hasPermi('finance:monthlyInventoryReport:viewGroup')")
     @GetMapping("/list")
     public AjaxResult list(
             @RequestParam String sourceType,

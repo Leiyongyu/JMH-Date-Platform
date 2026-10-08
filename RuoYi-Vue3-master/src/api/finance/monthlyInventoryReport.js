@@ -24,13 +24,13 @@ export function getMonthlyInventoryDimensionSummary(statMonth, dimensionType) {
   })
 }
 
-export function exportMonthlyInventoryReport(statMonth, dimensionType) {
+export function exportMonthlyInventoryReport(statMonth, dimensionType = 'ALL') {
   return request({
     url: '/finance/monthly-inventory-report/export',
     method: 'get',
     params: { statMonth, dimensionType },
     responseType: 'blob',
-    timeout: 120000,
+    timeout: 300000,
     skipErrorMessage: true
   })
 }

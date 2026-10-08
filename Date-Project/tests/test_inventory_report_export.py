@@ -215,6 +215,90 @@ def test_dimension_export_prepends_backend_total(monkeypatch):
     assert values[2][0] == "店铺A"
 
 
+def test_all_export_contains_three_dimensions_in_one_workbook(monkeypatch):
+    calls = []
+
+    def group_summary(month):
+        calls.append(("GROUP", month))
+        return {
+            "report_month": "2026-08",
+            "items": [{"department_name": "eBay", "total_goods_value": "100.00"}],
+        }
+
+    def dimension_summary(dimension, month):
+        calls.append((dimension, month))
+        return {
+            "report_month": "2026-08",
+            "total": {"is_dimension_total": 1, "total_goods_value": "100.00"},
+            "items": [{"dimension_value": "店铺A" if dimension == "STORE" else "张三",
+                       "platform_code": "AMZ", "total_goods_value": "100.00"}],
+        }
+
+    monkeypatch.setattr(export_service, "get_department_summary", group_summary)
+    monkeypatch.setattr(export_service, "get_dimension_summary", dimension_summary)
+
+    filename, content = export_service.export_monthly_inventory_report(
+        "2026-07", "ALL"
+    )
+    workbook = load_workbook(BytesIO(content), read_only=True)
+    assert filename.startswith("2026-08-月度库存-汇总-")
+    assert workbook.sheetnames == ["组别", "店铺", "个人"]
+    assert calls == [("GROUP", "2026-07"), ("STORE", "2026-07"),
+                     ("OWNER", "2026-07")]
+    assert workbook["组别"]["A2"].value == "eBay"
+    assert workbook["店铺"]["A2"].value == "合计（仅Amazon FBA）"
+    assert workbook["店铺"]["A3"].value == "店铺A"
+    assert workbook["个人"]["A3"].value == "张三"
+
+
+def test_all_export_keeps_empty_dimension_sheet(monkeypatch):
+    monkeypatch.setattr(export_service, "get_department_summary", lambda _month: {
+        "report_month": "2026-08", "items": [{"department_name": "eBay"}],
+    })
+    monkeypatch.setattr(export_service, "get_dimension_summary",
+                        lambda _dimension, _month: {
+                            "report_month": "2026-08", "items": [], "total": None,
+                        })
+
+    _, content = export_service.export_monthly_inventory_report("2026-07", "ALL")
+    workbook = load_workbook(BytesIO(content), read_only=True)
+    assert workbook.sheetnames == ["组别", "店铺", "个人"]
+    assert len(list(workbook["店铺"].iter_rows(values_only=True))) == 1
+    assert len(list(workbook["个人"].iter_rows(values_only=True))) == 1
+
+
+def test_permission_filtered_export_omits_unrequested_dimension(monkeypatch):
+    monkeypatch.setattr(export_service, "get_department_summary", lambda _month: {
+        "report_month": "2026-08", "items": [{"department_name": "eBay"}],
+    })
+
+    def dimension_summary(dimension, _month):
+        assert dimension == "OWNER"
+        return {"report_month": "2026-08", "items": [
+            {"dimension_value": "张三", "group_sales_target_usd": "123.45"},
+        ], "total": None}
+
+    monkeypatch.setattr(export_service, "get_dimension_summary", dimension_summary)
+    _, content = export_service.export_monthly_inventory_report(
+        "2026-07", "VISIBLE:GROUP,OWNER"
+    )
+    workbook = load_workbook(BytesIO(content), read_only=True)
+    assert workbook.sheetnames == ["组别", "个人"]
+    assert workbook["个人"]["A2"].value == "张三"
+    assert workbook["个人"]["Q2"].value == 123.45
+
+    _, owner_only = export_service.export_monthly_inventory_report(
+        "2026-07", "VISIBLE:OWNER"
+    )
+    assert load_workbook(BytesIO(owner_only), read_only=True).sheetnames == ["个人"]
+
+
+@pytest.mark.parametrize("dimension", ["GROUP,GROUP", "GROUP,UNKNOWN", "ALL,OWNER"])
+def test_export_rejects_invalid_dimension_combinations(dimension):
+    with pytest.raises(ValueError, match="dimension_type"):
+        export_service.export_monthly_inventory_report("2026-07", dimension)
+
+
 def test_export_rejects_empty_month(monkeypatch):
     monkeypatch.setattr(
         export_service,
