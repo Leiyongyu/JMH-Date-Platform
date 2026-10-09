@@ -428,7 +428,12 @@ def post_monthly_inventory_report_rebuild(
     request: Request,
 ):
     try:
-        data = rebuild_monthly_inventory_report(payload.stat_month)
+        # Manual recalculation owns the selected inventory report month only.
+        # Its source month's order-profit detail belongs to the previous
+        # displayed report month, so it must remain untouched.
+        data = rebuild_monthly_inventory_report(
+            payload.stat_month, preserve_sales_detail=True,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

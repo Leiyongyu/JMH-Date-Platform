@@ -125,7 +125,7 @@
       >
         <el-table-column prop="department_name" label="组别" width="145" fixed="left">
           <template #default="{ row }">
-            <strong>{{ row.department_name }}</strong>
+            <strong>{{ departmentLabel(row.department_name) }}</strong>
           </template>
         </el-table-column>
         <el-table-column label="总货值" min-width="160" align="right" fixed="left">
@@ -273,7 +273,9 @@
         <el-table-column prop="platform_code" label="平台" width="90" align="center" fixed="left">
           <template #default="{ row }">{{ platformLabel(row.platform_code) }}</template>
         </el-table-column>
-        <el-table-column prop="department_code" label="组别" width="130" fixed="left" />
+        <el-table-column prop="department_code" label="组别" width="130" fixed="left">
+          <template #default="{ row }">{{ departmentLabel(row.department_code) }}</template>
+        </el-table-column>
         <el-table-column label="总货值" min-width="150" align="right">
           <template #default="{ row }">{{ row.is_age_cost_only ? '--' : money(row.total_goods_value) }}</template>
         </el-table-column>
@@ -351,7 +353,7 @@
         <template v-if="activeDimension === 'owner'">
           <el-table-column prop="ctu_over_30_cost" min-width="220" align="right">
             <template #header>
-              <el-tooltip content="仅eBay成都仓31天及以上货值，使用与组别相同的快照月，按源月eBay负责人规则归属；包含未分配，合计仅eBay。Amazon不参与；快照缺失显示--" placement="top">
+              <el-tooltip content="仅eBay成都仓31天及以上货值，使用与组别相同的快照月，按本报表已保存的负责人规则月份归属；包含未分配，合计仅eBay。Amazon不参与；快照缺失显示--" placement="top">
                 <span class="report-column-tip">成都仓30天以上货值（仅eBay）</span>
               </el-tooltip>
             </template>
@@ -574,6 +576,10 @@ function platformLabel(value) {
     return ''
   }
   return platform === 'EBAY' ? 'eBay' : 'Amazon'
+}
+
+function departmentLabel(value) {
+  return value === 'EBAY-1' ? 'eBay' : (value || '')
 }
 
 function dimensionName(row) {

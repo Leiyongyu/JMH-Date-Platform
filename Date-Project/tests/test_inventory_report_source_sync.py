@@ -85,6 +85,40 @@ def test_source_sync_stops_before_inventory_when_currency_sync_fails(monkeypatch
     assert "已停止月度库存任务链" in str(error.value)
 
 
+def test_source_sync_does_not_overwrite_existing_month_view(monkeypatch):
+    calls = []
+    monkeypatch.setattr(service, "_month_scope", lambda _month: (
+        "2026-09", "2026-09-01", "2026-09-30",
+    ))
+    monkeypatch.setattr(service, "sync_inventory_currency_rates", lambda _month: {})
+    monkeypatch.setattr(service.repo, "amazon_seller_ids", lambda: ["seller-1"])
+    monkeypatch.setattr(service.repo, "warehouse_wids", lambda: ["warehouse-1"])
+    monkeypatch.setattr(service, "LingXingInventoryDomain", lambda: object())
+    monkeypatch.setattr(service, "_fetch_fba", lambda *_args, **_kwargs: [{}])
+    monkeypatch.setattr(
+        service, "_fetch_warehouse_report", lambda **_kwargs: [{}],
+    )
+    monkeypatch.setattr(service.repo, "replace_source_month", lambda *_args: {
+        "deleted_rows": 0, "inserted_rows": 3,
+    })
+    monkeypatch.setattr(
+        service, "rebuild_monthly_inventory_report",
+        lambda month, *, refresh_view_snapshot: (
+            calls.append((month, refresh_view_snapshot)) or {
+                "fba_detail_rows": 1, "overseas_detail_rows": 1,
+                "local_detail_rows": 1, "amz_sales_detail_rows": 0,
+                "dimension_summary_rows": 1, "department_summary_rows": 1,
+                "inserted_rows": 5, "deleted_rows": 0,
+            }
+        ),
+    )
+
+    result = service.sync_monthly_inventory_report_sources("2026-09")
+
+    assert result["status"] == "completed"
+    assert calls == [("2026-09", False)]
+
+
 class _FakeDomain:
     def __init__(self, response):
         self.response = response

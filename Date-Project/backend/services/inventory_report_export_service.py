@@ -81,7 +81,7 @@ def _group_headers(report_month: str | None) -> list[Header]:
     business_label = _month_label(report_month, "当月")
     next_label = _month_label(_next_month(report_month), "次月")
     return [
-        ("组别", _field("department_name"), "text"),
+        ("组别", _department_name, "text"),
         ("总货值", _field("total_goods_value"), "money"),
         ("本地仓-期末在途数量", _field("local_end_in_transit_qty"), "qty"),
         ("本地仓-期末在途总成本", _field("local_end_in_transit_total_cost"), "money"),
@@ -112,7 +112,7 @@ def _dimension_headers(dimension: str) -> list[Header]:
     headers = [
         (first_title, _dimension_name(dimension), "text"),
         ("平台", _platform_name, "text"),
-        ("组别", _field("department_code"), "text"),
+        ("组别", _department_name, "text"),
         ("总货值", _field("total_goods_value"), "money"),
         ("海外仓/FBA仓-期末在途数量", _combined("overseas_end_in_transit_qty", "fba_end_in_transit_qty"), "qty"),
         ("海外仓/FBA仓-期末在途总成本", _combined("overseas_end_in_transit_total_cost", "fba_end_in_transit_total_cost"), "money"),
@@ -184,6 +184,11 @@ def _append_sheet(
 
 def _field(key: str) -> Callable[[dict[str, Any]], Any]:
     return lambda row: row.get(key)
+
+
+def _department_name(row: dict[str, Any]) -> str:
+    value = row.get("department_name") or row.get("department_code") or ""
+    return "eBay" if value == "EBAY-1" else str(value)
 
 
 def _combined(

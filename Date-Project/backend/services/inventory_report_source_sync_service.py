@@ -180,7 +180,11 @@ def sync_monthly_inventory_report_sources(stat_month: str | None = None) -> dict
     metrics["ods_rows"] = replace_stats["inserted_rows"]
 
     try:
-        etl_result = rebuild_monthly_inventory_report(month)
+        # A source refresh may create a new month's view, but must not
+        # overwrite a month that has already been calculated and frozen.
+        etl_result = rebuild_monthly_inventory_report(
+            month, refresh_view_snapshot=False,
+        )
     except Exception as exc:
         raise InventoryReportSourceSyncError(
             "TRANSFORM", f"库存报表清洗与汇总失败: {exc}", metrics

@@ -10,6 +10,7 @@ def offline_health_sources(monkeypatch):
     monkeypatch.setattr(service.repo, "inventory_age_health_rows", lambda _month: [])
     monkeypatch.setattr(service.repo, "owner_rules", lambda *_args: [])
     monkeypatch.setattr(service.repo, "ebay_product_sku_map", lambda _month: {})
+    monkeypatch.setattr(service.repo, "view_snapshot", lambda *_args: None)
 
 
 def test_department_summary_uses_next_month_clearance_age_costs(monkeypatch):

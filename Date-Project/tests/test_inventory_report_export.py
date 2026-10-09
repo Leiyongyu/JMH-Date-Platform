@@ -132,6 +132,7 @@ def test_dimension_summary_returns_backend_total_and_derived_fields(monkeypatch)
         ),
     )
 
+    monkeypatch.setattr(etl.repo, "view_snapshot", lambda *_args: None)
     result = etl.get_dimension_summary("STORE", "2026-07")
     row = result["items"][0]
     total = result["total"]
@@ -222,7 +223,7 @@ def test_all_export_contains_three_dimensions_in_one_workbook(monkeypatch):
         calls.append(("GROUP", month))
         return {
             "report_month": "2026-08",
-            "items": [{"department_name": "eBay", "total_goods_value": "100.00"}],
+            "items": [{"department_name": "EBAY-1", "total_goods_value": "100.00"}],
         }
 
     def dimension_summary(dimension, month):
@@ -231,7 +232,9 @@ def test_all_export_contains_three_dimensions_in_one_workbook(monkeypatch):
             "report_month": "2026-08",
             "total": {"is_dimension_total": 1, "total_goods_value": "100.00"},
             "items": [{"dimension_value": "店铺A" if dimension == "STORE" else "张三",
-                       "platform_code": "AMZ", "total_goods_value": "100.00"}],
+                       "platform_code": "AMZ" if dimension == "STORE" else "EBAY",
+                       "department_code": "AMZ-US1" if dimension == "STORE" else "EBAY-1",
+                       "total_goods_value": "100.00"}],
         }
 
     monkeypatch.setattr(export_service, "get_department_summary", group_summary)
@@ -249,6 +252,7 @@ def test_all_export_contains_three_dimensions_in_one_workbook(monkeypatch):
     assert workbook["店铺"]["A2"].value == "合计（仅Amazon FBA）"
     assert workbook["店铺"]["A3"].value == "店铺A"
     assert workbook["个人"]["A3"].value == "张三"
+    assert workbook["个人"]["C3"].value == "eBay"
 
 
 def test_all_export_keeps_empty_dimension_sheet(monkeypatch):

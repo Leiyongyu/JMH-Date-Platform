@@ -17,6 +17,7 @@ COST_FIELDS = {"inventory_age_90_180_cost", "inventory_age_180_plus_cost", "inve
 @pytest.fixture
 def env(monkeypatch):
     state = dict(costs=[], health=[], rules={"amazon": [], "ebay": []}, sku_map={}, calls=[],
+                 rule_month="report",
                  base=[{"platform_code": "AMZ", "dimension_type": "OWNER",
                         "department_code": "AMZ-EU", "dimension_value": "未分配",
                         "fba_end_inventory_qty": D(10), "fba_end_inventory_total_cost": D(100)}],
@@ -26,8 +27,23 @@ def env(monkeypatch):
         raise AssertionError("Tests must not access a real database")
 
     monkeypatch.setattr(service.repo, "db_connection", forbid)
-    monkeypatch.setattr(service.repo, "dimension_summary", lambda dim, month: {
-        "stat_month": state["stat_month"], "items": deepcopy(state["base"])})
+    monkeypatch.setattr(service.repo, "view_snapshot", lambda *_args: None)
+    monkeypatch.setattr(
+        service.repo, "months",
+        lambda _limit: ([{"stat_month": state["stat_month"]}]
+                        if state["stat_month"] else []),
+    )
+    def dimension_summary(dim, month):
+        items = deepcopy(state["base"])
+        rule_month = state["rule_month"]
+        if rule_month == "report" and state["stat_month"]:
+            rule_month = service._next_month(state["stat_month"])
+        if rule_month:
+            for item in items:
+                item["owner_rule_month"] = rule_month
+        return {"stat_month": state["stat_month"], "items": items}
+
+    monkeypatch.setattr(service.repo, "dimension_summary", dimension_summary)
     monkeypatch.setattr(service.repo, "inventory_age_cost_rows", lambda month: (
         state["calls"].append(("costs", month)) or deepcopy(state["costs"])))
     monkeypatch.setattr(service.repo, "inventory_age_health_rows", lambda month: (
@@ -197,6 +213,35 @@ def test_owner_age_health_and_ctu_use_report_month_assignment(env, monkeypatch):
     assert D(current["ctu_over_30_cost"]) == D(5)
     assert ("EBAY", "EBAY-1", "上月负责人") not in rows
     assert calls == [("2026-09", "amazon"), ("2026-09", "ebay")]
+
+
+def test_legacy_month_without_saved_rule_marker_keeps_old_assignment(env, monkeypatch):
+    env["rule_month"] = None
+    env["base"] = [{
+        "platform_code": "EBAY", "dimension_type": "OWNER",
+        "department_code": "EBAY-1", "dimension_value": "原负责人",
+        "overseas_end_inventory_qty": D(10),
+    }]
+    env["costs"] = [ebay("BMW-30032-0018", 10, 20)]
+    env["health"] = deepcopy(env["costs"])
+    env["ctu"] = [{"sku": "BMW-30032-0018", "over_30_cost": D(5)}]
+    calls = []
+
+    def owner_rules(month, platform):
+        calls.append((month, platform))
+        if platform == "ebay":
+            return [{"rule_type": "EBAY_BRAND", "match_key": "BMW",
+                     "principal_name": "原负责人" if month == "2026-08" else "新负责人"}]
+        return []
+
+    monkeypatch.setattr(service.repo, "owner_rules", owner_rules)
+    rows = by_key(service.get_dimension_summary("OWNER", "2026-08"))
+    old = rows[("EBAY", "EBAY-1", "原负责人")]
+    assert D(old["inventory_age_90_180_cost"]) == D(10)
+    assert D(old["inventory_181_plus_sku_count"]) == D(1)
+    assert D(old["ctu_over_30_cost"]) == D(5)
+    assert ("EBAY", "EBAY-1", "新负责人") not in rows
+    assert calls == [("2026-08", "amazon"), ("2026-08", "ebay")]
 
 
 def test_existing_owner_metrics_and_total_are_unchanged_by_cost_only_rows(env):

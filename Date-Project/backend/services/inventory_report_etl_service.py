@@ -109,7 +109,10 @@ SOURCE_NAMES = {
 }
 
 
-def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str, Any]:
+def rebuild_monthly_inventory_report(
+    stat_month: str | None = None, *, preserve_sales_detail: bool = False,
+    refresh_view_snapshot: bool = True,
+) -> dict[str, Any]:
     month = _month(stat_month)
     report_month = _next_month(month)
     sources = repo.source_rows(month)
@@ -157,6 +160,7 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
         sources.get("purchase_order_transit", []),
         source_amazon_rules,
         ebay_rules,
+        owner_rule_month=report_month,
     )
     department_rows = _department_summaries(
         month,
@@ -175,6 +179,11 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
         amz_sales_rows,
         dimension_rows,
         department_rows,
+        replace_amz_sales=not preserve_sales_detail,
+    )
+    repo.save_view_snapshots(
+        month, _report_view_payloads(month),
+        only_missing=not refresh_view_snapshot,
     )
     return {
         "stat_month": month,
@@ -263,8 +272,40 @@ def list_months(limit: int = 24) -> list[dict[str, Any]]:
     return items
 
 
-def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
-    data = repo.department_summary(stat_month)
+def _report_view_payloads(stat_month: str) -> dict[str, dict[str, Any]]:
+    return {
+        "GROUP": get_department_summary(stat_month, use_snapshot=False),
+        "STORE": get_dimension_summary("STORE", stat_month, use_snapshot=False),
+        "OWNER": get_dimension_summary("OWNER", stat_month, use_snapshot=False),
+    }
+
+
+def backfill_missing_monthly_inventory_snapshots() -> int:
+    """Freeze all existing months without changing their DWD rows."""
+    months = repo.missing_legacy_snapshot_months()
+    for month in months:
+        repo.save_view_snapshots(
+            month, _report_view_payloads(month), only_missing=True,
+        )
+    return len(months)
+
+
+def _selected_view_month(stat_month: str | None, use_snapshot: bool) -> str | None:
+    if stat_month or not use_snapshot:
+        return stat_month
+    rows = repo.months(1)
+    return str(rows[0]["stat_month"]) if rows else None
+
+
+def get_department_summary(
+    stat_month: str | None = None, *, use_snapshot: bool = True,
+) -> dict[str, Any]:
+    selected_month = _selected_view_month(stat_month, use_snapshot)
+    if use_snapshot and selected_month:
+        snapshot = repo.view_snapshot(selected_month, "GROUP")
+        if snapshot is not None:
+            return snapshot
+    data = repo.department_summary(selected_month)
     month = data["stat_month"]
     report_month = _next_month(month) if month else None
     age_cost_month = _next_month(month) if month else None
@@ -501,12 +542,19 @@ def get_department_summary(stat_month: str | None = None) -> dict[str, Any]:
 def get_dimension_summary(
     dimension_type: str,
     stat_month: str | None = None,
+    *,
+    use_snapshot: bool = True,
 ) -> dict[str, Any]:
     """读取店铺或负责人维度汇总，并由后端统一计算展示派生字段。"""
     dimension = normalize_text(dimension_type).upper()
     if dimension not in {"STORE", "OWNER"}:
         raise ValueError("dimension_type必须是STORE或OWNER")
-    data = repo.dimension_summary(dimension, stat_month)
+    selected_month = _selected_view_month(stat_month, use_snapshot)
+    if use_snapshot and selected_month:
+        snapshot = repo.view_snapshot(selected_month, dimension)
+        if snapshot is not None:
+            return snapshot
+    data = repo.dimension_summary(dimension, selected_month)
     report_month = (
         _next_month(data["stat_month"]) if data["stat_month"] else None
     )
@@ -591,8 +639,16 @@ def get_dimension_summary(
     owner_90_180, owner_180_plus = {}, {}
     ctu_owner_costs, ctu_available = {}, False
     if dimension == "OWNER" and report_month:
-        # Both traversals share request-local rule maps; no extra rule/map queries.
-        owner_context = _inventory_owner_context(report_month)
+        # Historical rows without a saved rule month keep their original
+        # source-month attribution until that report month is recalculated.
+        owner_rule_month = next(
+            (normalize_text(row.get("owner_rule_month"))
+             for row in data["items"] if row.get("owner_rule_month")),
+            data["stat_month"],
+        )
+        owner_context = _inventory_owner_context(
+            report_month, rule_month=owner_rule_month,
+        )
         health_groups, health_stores, health_owners, health_platforms = (
             _inventory_health_maps(
                 report_month, owner_context=owner_context,
@@ -1114,6 +1170,8 @@ def _dimension_summaries(
     purchase_transit_rows,
     amazon_rules,
     ebay_rules,
+    *,
+    owner_rule_month=None,
 ):
     aggregates: dict[tuple[str, str, str, str, str | None], dict[str, Any]] = {}
 
@@ -1144,6 +1202,7 @@ def _dimension_summaries(
                 "dimension_type": dimension_type,
                 "dimension_value": value,
                 "department_code": department_code,
+                "owner_rule_month": owner_rule_month,
                 "source_rows": 0,
                 **{metric: ZERO for metric in METRIC_KEYS},
             },
@@ -1582,17 +1641,18 @@ def _usd_amount(
     return _num(amount) / usd_rate
 
 
-def _inventory_owner_context(pull_month: str):
-    """库龄快照按页面展示月的负责人规则归属，并在请求内复用映射。"""
+def _inventory_owner_context(pull_month: str, *, rule_month: str | None = None):
+    """库龄快照月份与已保存的负责人规则月份分别指定。"""
+    selected_rule_month = rule_month or pull_month
     return (
-        _amazon_rule_maps(repo.owner_rules(pull_month, "amazon")),
-        _ebay_rule_map(repo.owner_rules(pull_month, "ebay")),
+        _amazon_rule_maps(repo.owner_rules(selected_rule_month, "amazon")),
+        _ebay_rule_map(repo.owner_rules(selected_rule_month, "ebay")),
         _ebay_product_sku_map(pull_month, include_next=False),
     )
 
 
 def _ctu_ebay_cost_by_owner(pull_month: str, *, owner_context):
-    """按快照展示月的eBay负责人规则归属成本；保留所有批次金额及未分配。"""
+    """按本报表保存的eBay负责人规则归属成本；保留所有批次及未分配。"""
     rows = clearance_repo.ctu_ebay_owner_cost_rows(pull_month)
     costs = defaultdict(lambda: ZERO)
     _, ebay_rules, ebay_sku_map = owner_context
@@ -1742,7 +1802,7 @@ def _inventory_health_maps(
     store_skus: dict[tuple[str, str], set[str]] = defaultdict(set)
     owner_skus: dict[tuple[str, str, str], set[str]] = defaultdict(set)
     platforms: set[str] = set()
-    # 库龄快照和负责人规则都使用页面展示月。
+    # 快照月份和负责人规则月份可能不同，取本报表保存的规则版本。
     amazon_rules, ebay_rules, ebay_sku_map = (
         owner_context if owner_context is not None else _inventory_owner_context(pull_month)
     )

@@ -442,6 +442,36 @@ def _ensure_inventory_report_sales_volume_columns(cursor) -> None:
             )
 
 
+def _ensure_inventory_report_owner_rule_month(cursor) -> None:
+    """Legacy months retain their original owner-rule month until recalculated."""
+    cursor.execute(
+        "SHOW COLUMNS FROM dws_inventory_report_dimension_summary "
+        "LIKE 'owner_rule_month'"
+    )
+    if cursor.fetchone() is None:
+        cursor.execute(
+            "ALTER TABLE dws_inventory_report_dimension_summary "
+            "ADD COLUMN owner_rule_month CHAR(7) NULL "
+            "COMMENT '个人库存及库龄归属使用的负责人规则月份；NULL为历史源月' "
+            "AFTER department_code"
+        )
+
+
+def _ensure_inventory_report_view_snapshot(cursor) -> None:
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS monthly_inventory_report_view_snapshot (
+            stat_month CHAR(7) NOT NULL,
+            dimension_type VARCHAR(8) NOT NULL,
+            payload_json LONGTEXT NOT NULL,
+            calculated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (stat_month, dimension_type)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        COMMENT='月度库存三个维度已计算页面快照，仅重算选中月份时覆盖'
+        """
+    )
+
+
 def _ensure_after_sales_range_columns(cursor) -> None:
     """Add auditable calculation versions without relying on vendor-specific DDL."""
     definitions = (
@@ -567,6 +597,8 @@ def init_database() -> None:
                     cursor.execute(statement)
             _remove_inventory_report_chengdu_columns(cursor)
             _ensure_inventory_report_sales_volume_columns(cursor)
+            _ensure_inventory_report_owner_rule_month(cursor)
+            _ensure_inventory_report_view_snapshot(cursor)
             _ensure_after_sales_range_columns(cursor)
             _ensure_image_sop_owner_columns(cursor)
             _ensure_customs_declaration_columns(cursor)

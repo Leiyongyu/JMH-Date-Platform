@@ -19,6 +19,9 @@ from backend.infrastructure.request_context import RequestIdMiddleware
 from backend.image_sop.app import app as image_sop_app
 from backend.ebay_tool.app import router as ebay_tool_router
 from backend.image_sop.cleanup import cleanup_keep_recent
+from backend.services.inventory_report_etl_service import (
+    backfill_missing_monthly_inventory_snapshots,
+)
 
 
 def create_app() -> FastAPI:
@@ -157,6 +160,7 @@ async def redirect_script_tools() -> RedirectResponse:
 @app.on_event("startup")
 async def startup() -> None:
     init_database()
+    await asyncio.to_thread(backfill_missing_monthly_inventory_snapshots)
     await asyncio.to_thread(cleanup_keep_recent)
     app.state.image_sop_cleanup_task = asyncio.create_task(
         _image_sop_cleanup_loop()

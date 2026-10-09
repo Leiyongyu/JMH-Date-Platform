@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from decimal import Decimal
 from typing import Any
@@ -62,7 +63,7 @@ PURCHASE_ORDER_TRANSIT_FIELDS = (
 
 DIMENSION_FIELDS = (
     "stat_month", "source_type", "platform_code", "dimension_type",
-    "dimension_value", "department_code", "source_rows",
+    "dimension_value", "department_code", "owner_rule_month", "source_rows",
     "end_in_transit_qty", "end_in_transit_total_cost", "end_inventory_qty",
     "end_inventory_total_cost",
 )
@@ -268,15 +269,21 @@ def replace_clean_month(
     amz_sales_rows: list[dict[str, Any]],
     dimension_rows: list[dict[str, Any]],
     department_rows: list[dict[str, Any]],
+    *,
+    replace_amz_sales: bool = True,
 ) -> dict[str, int]:
-    payloads = (
+    payloads = [
         ("dwd_inventory_report_fba_detail", FBA_FIELDS, fba_rows),
         ("dwd_inventory_report_overseas_detail", OVERSEAS_FIELDS, overseas_rows),
         ("dwd_inventory_report_local_detail", WAREHOUSE_FIELDS, local_rows),
-        ("dwd_inventory_report_amz_sales_detail", AMZ_SALES_FIELDS, amz_sales_rows),
         ("dws_inventory_report_dimension_summary", DIMENSION_FIELDS, dimension_rows),
         ("dws_inventory_report_department_summary", DEPARTMENT_FIELDS, department_rows),
-    )
+    ]
+    if replace_amz_sales:
+        payloads.insert(3, (
+            "dwd_inventory_report_amz_sales_detail", AMZ_SALES_FIELDS,
+            amz_sales_rows,
+        ))
     deleted_rows = 0
     with db_connection() as connection:
         try:
@@ -301,7 +308,7 @@ def replace_clean_month(
         "fba_detail_rows": len(fba_rows),
         "overseas_detail_rows": len(overseas_rows),
         "local_detail_rows": len(local_rows),
-        "amz_sales_detail_rows": len(amz_sales_rows),
+        "amz_sales_detail_rows": len(amz_sales_rows) if replace_amz_sales else 0,
         "dimension_summary_rows": len(dimension_rows),
         "department_summary_rows": len(department_rows),
         "inserted_rows": sum(len(rows) for _, _, rows in payloads),
@@ -322,6 +329,67 @@ def months(limit: int = 24) -> list[dict[str, Any]]:
             (max(1, min(limit, 120)),),
         )
         return list(cursor.fetchall())
+
+
+def view_snapshot(stat_month: str, dimension_type: str) -> dict[str, Any] | None:
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT payload_json FROM monthly_inventory_report_view_snapshot "
+            "WHERE stat_month=%s AND dimension_type=%s",
+            (stat_month, dimension_type),
+        )
+        row = cursor.fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+
+def save_view_snapshots(
+    stat_month: str,
+    payloads: dict[str, dict[str, Any]],
+    *,
+    only_missing: bool = False,
+) -> None:
+    operation = "INSERT IGNORE" if only_missing else "INSERT"
+    update = "" if only_missing else (
+        " ON DUPLICATE KEY UPDATE payload_json=VALUES(payload_json), "
+        "calculated_at=CURRENT_TIMESTAMP"
+    )
+    with db_connection() as connection:
+        try:
+            with connection.cursor() as cursor:
+                for dimension in ("GROUP", "STORE", "OWNER"):
+                    cursor.execute(
+                        f"{operation} INTO monthly_inventory_report_view_snapshot "
+                        "(stat_month,dimension_type,payload_json) VALUES (%s,%s,%s)"
+                        + update,
+                        (
+                            stat_month,
+                            dimension,
+                            json.dumps(payloads[dimension], ensure_ascii=False, default=str),
+                        ),
+                    )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
+
+def missing_legacy_snapshot_months() -> list[str]:
+    """Freeze every existing month, including the latest, before source changes."""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT d.stat_month
+            FROM (SELECT DISTINCT stat_month
+                  FROM dws_inventory_report_department_summary) d
+            LEFT JOIN monthly_inventory_report_view_snapshot s
+                   ON s.stat_month=d.stat_month
+                  AND s.dimension_type IN ('GROUP','STORE','OWNER')
+            GROUP BY d.stat_month
+            HAVING COUNT(s.dimension_type) < 3
+            ORDER BY d.stat_month
+            """
+        )
+        return [str(row["stat_month"]) for row in cursor.fetchall()]
 
 
 def department_summary(stat_month: str | None = None) -> dict[str, Any]:
@@ -378,6 +446,7 @@ def dimension_summary(
                 dimension_type,
                 dimension_value,
                 department_code,
+                MAX(owner_rule_month) AS owner_rule_month,
                 COALESCE(SUM(source_rows),0) AS source_rows,
                 COALESCE(SUM(CASE WHEN source_type='LOCAL'
                     THEN end_in_transit_qty ELSE 0 END),0)
