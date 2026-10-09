@@ -48,8 +48,9 @@ def test_rebuild_uses_display_month_rules_for_inventory_only(
     monkeypatch.setattr(service.repo, "overseas_included_wids", lambda: [1])
     inventory_rules = {}
 
-    def clean_fba(month, rows, shops, rules):
-        inventory_rules["amazon"] = rules[0][("EU", "BRAND", "BMW")]
+    def clean_fba(month, rows, shops, rules, *, assignment_rules):
+        inventory_rules["group"] = rules[0][("EU", "BRAND", "BMW")]
+        inventory_rules["amazon"] = assignment_rules[0][("EU", "BRAND", "BMW")]
         return [], {}
 
     def clean_overseas(month, rows, rules, sku_map, wids):
@@ -62,7 +63,7 @@ def test_rebuild_uses_display_month_rules_for_inventory_only(
 
     monkeypatch.setattr(service, "_clean_fba", clean_fba)
     monkeypatch.setattr(service, "_clean_overseas", clean_overseas)
-    monkeypatch.setattr(service, "_clean_local", lambda *args: ([], {}))
+    monkeypatch.setattr(service, "_clean_local", lambda *args, **kwargs: ([], {}))
     monkeypatch.setattr(service, "_clean_amz_sales", clean_sales)
     monkeypatch.setattr(service, "_dimension_summaries", lambda *args: [])
     monkeypatch.setattr(service, "_department_summaries", lambda *args, **kwargs: [])
@@ -74,9 +75,70 @@ def test_rebuild_uses_display_month_rules_for_inventory_only(
 
     assert result["stat_month"] == source_month
     assert inventory_rules == {
-        "amazon": report_month, "ebay": report_month, "sales": source_month,
+        "group": source_month, "amazon": report_month,
+        "ebay": report_month, "sales": source_month,
     }
     assert calls == [
-        (report_month, "amazon"), (report_month, "ebay"),
-        (source_month, "amazon"),
+        (source_month, "amazon"), (report_month, "amazon"),
+        (report_month, "ebay"),
     ]
+
+
+def test_owner_change_does_not_change_fba_group_or_store_summary():
+    source_rules = service._amazon_rule_maps([{
+        "group_code": "US1", "rule_type": "STORE",
+        "match_key": "无前缀店铺", "principal_name": "原负责人",
+    }])
+    report_rules = service._amazon_rule_maps([{
+        "group_code": "US2", "rule_type": "STORE",
+        "match_key": "无前缀店铺", "principal_name": "新负责人",
+    }])
+    source = [{
+        "id": 1, "sync_batch_id": "batch-1", "sid": "99999",
+        "msku": "SKU-001", "end_count": 3, "end_total_amount": 30,
+    }]
+    shops = {"99999": "无前缀店铺"}
+    old_rows, _ = service._clean_fba("2026-09", source, shops, source_rules)
+    new_rows, _ = service._clean_fba(
+        "2026-09", source, shops, source_rules, assignment_rules=report_rules,
+    )
+    assert old_rows[0]["department_code"] == new_rows[0]["department_code"] == "AMZ-US1"
+    assert old_rows[0]["principal_name"] == "原负责人"
+    assert new_rows[0]["principal_name"] == "新负责人"
+
+    def summaries(rows):
+        dimensions = service._dimension_summaries(
+            "2026-09", rows, [], [], [], source_rules, {},
+        )
+        groups = service._department_summaries("2026-09", rows, [], [])
+        stores = [row for row in dimensions if row["dimension_type"] == "STORE"]
+        owners = [row for row in dimensions if row["dimension_type"] == "OWNER"]
+        return stores, groups, owners
+
+    old_stores, old_groups, old_owners = summaries(old_rows)
+    new_stores, new_groups, new_owners = summaries(new_rows)
+    assert old_stores == new_stores
+    assert old_groups == new_groups
+    assert old_owners != new_owners
+
+
+def test_owner_change_keeps_special_local_warehouse_group():
+    source_rules = service._amazon_rule_maps([{
+        "group_code": "US1", "rule_type": "STORE",
+        "match_key": "无前缀店铺", "principal_name": "原负责人",
+    }])
+    report_rules = service._amazon_rule_maps([{
+        "group_code": "US2", "rule_type": "STORE",
+        "match_key": "无前缀店铺", "principal_name": "新负责人",
+    }])
+    source = [{
+        "id": 1, "sync_batch_id": "batch-1", "sys_wid": "18680",
+        "seller_name": "无前缀店铺", "sku": "SKU-001", "day_end_count": 3,
+    }]
+    old_rows, _ = service._clean_local("2026-09", source, source_rules, {})
+    new_rows, _ = service._clean_local(
+        "2026-09", source, source_rules, {}, assignment_rules=report_rules,
+    )
+    assert old_rows[0]["department_code"] == new_rows[0]["department_code"] == "AMZ-US1-ZXY"
+    assert old_rows[0]["principal_name"] == "原负责人"
+    assert new_rows[0]["principal_name"] == "新负责人"

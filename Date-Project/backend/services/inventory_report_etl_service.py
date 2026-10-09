@@ -116,13 +116,16 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
     _require_complete_sources(month, sources)
     opening_inventory = repo.opening_inventory_by_department(month)
     shops = repo.amazon_shop_map()
+    # Keep group/store classification on its original source-month rules.
+    source_amazon_rules = _amazon_rule_maps(repo.owner_rules(month, "amazon"))
     # Inventory is sourced from the previous complete month, but its OWNER
     # dimension belongs to the month displayed by the report.
     amazon_rules = _amazon_rule_maps(repo.owner_rules(report_month, "amazon"))
     ebay_rules = _ebay_rule_map(repo.owner_rules(report_month, "ebay"))
     ebay_sku_map = _ebay_product_sku_map(month)
     fba_rows, fba_stats = _clean_fba(
-        month, sources["fba"], shops, amazon_rules
+        month, sources["fba"], shops, source_amazon_rules,
+        assignment_rules=amazon_rules,
     )
     overseas_included_wids = repo.overseas_included_wids()
     if not overseas_included_wids:
@@ -138,13 +141,13 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
         overseas_included_wids,
     )
     local_rows, local_stats = _clean_local(
-        month, sources["local"], amazon_rules, ebay_rules, ebay_sku_map
+        month, sources["local"], source_amazon_rules, ebay_rules, ebay_sku_map,
+        assignment_rules=amazon_rules,
     )
     # Order-profit rows are sales for their own stat_month, not inventory for
     # the following report month. Keep their assignment on that sales month.
-    amz_sales_rules = _amazon_rule_maps(repo.owner_rules(month, "amazon"))
     amz_sales_rows, amz_sales_stats = _clean_amz_sales(
-        month, sources["order_profit"], shops, amz_sales_rules
+        month, sources["order_profit"], shops, source_amazon_rules
     )
     dimension_rows = _dimension_summaries(
         month,
@@ -152,7 +155,7 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
         overseas_rows,
         local_rows,
         sources.get("purchase_order_transit", []),
-        amazon_rules,
+        source_amazon_rules,
         ebay_rules,
     )
     department_rows = _department_summaries(
@@ -780,7 +783,7 @@ def import_inventory_report_purchase_order(
     }
 
 
-def _clean_fba(month, source_rows, shops, rules):
+def _clean_fba(month, source_rows, shops, rules, *, assignment_rules=None):
     rows: list[dict[str, Any]] = []
     excluded_shop_rows = 0
     excluded_special_msku_rows = 0
@@ -803,6 +806,10 @@ def _clean_fba(month, source_rows, shops, rules):
             principal, match_source, matched_group = _amazon_assignment(
                 store_name, local_sku or msku, rules
             )
+            if assignment_rules is not None:
+                principal, match_source, _ = _amazon_assignment(
+                    store_name, local_sku or msku, assignment_rules
+                )
             group_code = group_code or matched_group
             department_code = _department(group_code)
             if not department_code:
@@ -969,6 +976,8 @@ def _clean_local(
     amazon_rules,
     ebay_rules,
     ebay_sku_map=None,
+    *,
+    assignment_rules=None,
 ):
     # 本地仓源数据只有seller_name、没有sid；当前永久排除店铺没有本地仓记录。
     # 因店铺名并非稳定主键，此处不增加名称过滤；以后源数据出现对应记录时，
@@ -1003,6 +1012,10 @@ def _clean_local(
                 principal, match_source, matched_group = _amazon_assignment(
                     seller_name, sku, amazon_rules
                 )
+                if assignment_rules is not None:
+                    principal, match_source, _ = _amazon_assignment(
+                        seller_name, sku, assignment_rules
+                    )
                 if configured_group == "US3":
                     group_code = (
                         _amazon_group(seller_name)
