@@ -111,12 +111,15 @@ SOURCE_NAMES = {
 
 def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str, Any]:
     month = _month(stat_month)
+    report_month = _next_month(month)
     sources = repo.source_rows(month)
     _require_complete_sources(month, sources)
     opening_inventory = repo.opening_inventory_by_department(month)
     shops = repo.amazon_shop_map()
-    amazon_rules = _amazon_rule_maps(repo.owner_rules(month, "amazon"))
-    ebay_rules = _ebay_rule_map(repo.owner_rules(month, "ebay"))
+    # Inventory is sourced from the previous complete month, but its OWNER
+    # dimension belongs to the month displayed by the report.
+    amazon_rules = _amazon_rule_maps(repo.owner_rules(report_month, "amazon"))
+    ebay_rules = _ebay_rule_map(repo.owner_rules(report_month, "ebay"))
     ebay_sku_map = _ebay_product_sku_map(month)
     fba_rows, fba_stats = _clean_fba(
         month, sources["fba"], shops, amazon_rules
@@ -137,8 +140,11 @@ def rebuild_monthly_inventory_report(stat_month: str | None = None) -> dict[str,
     local_rows, local_stats = _clean_local(
         month, sources["local"], amazon_rules, ebay_rules, ebay_sku_map
     )
+    # Order-profit rows are sales for their own stat_month, not inventory for
+    # the following report month. Keep their assignment on that sales month.
+    amz_sales_rules = _amazon_rule_maps(repo.owner_rules(month, "amazon"))
     amz_sales_rows, amz_sales_stats = _clean_amz_sales(
-        month, sources["order_profit"], shops, amazon_rules
+        month, sources["order_profit"], shops, amz_sales_rules
     )
     dimension_rows = _dimension_summaries(
         month,
@@ -1564,17 +1570,16 @@ def _usd_amount(
 
 
 def _inventory_owner_context(pull_month: str):
-    """库存归属用源月负责人规则，产品映射用库龄快照月。仅在本次请求复用。"""
-    rule_month = _previous_month(pull_month)
+    """库龄快照按页面展示月的负责人规则归属，并在请求内复用映射。"""
     return (
-        _amazon_rule_maps(repo.owner_rules(rule_month, "amazon")),
-        _ebay_rule_map(repo.owner_rules(rule_month, "ebay")),
+        _amazon_rule_maps(repo.owner_rules(pull_month, "amazon")),
+        _ebay_rule_map(repo.owner_rules(pull_month, "ebay")),
         _ebay_product_sku_map(pull_month, include_next=False),
     )
 
 
 def _ctu_ebay_cost_by_owner(pull_month: str, *, owner_context):
-    """按源月eBay负责人规则归属快照成本；保留所有批次金额及未分配。"""
+    """按快照展示月的eBay负责人规则归属成本；保留所有批次金额及未分配。"""
     rows = clearance_repo.ctu_ebay_owner_cost_rows(pull_month)
     costs = defaultdict(lambda: ZERO)
     _, ebay_rules, ebay_sku_map = owner_context
@@ -1724,7 +1729,7 @@ def _inventory_health_maps(
     store_skus: dict[tuple[str, str], set[str]] = defaultdict(set)
     owner_skus: dict[tuple[str, str, str], set[str]] = defaultdict(set)
     platforms: set[str] = set()
-    # 库龄快照使用页面展示月，库存负责人规则使用其对应的源数据月。
+    # 库龄快照和负责人规则都使用页面展示月。
     amazon_rules, ebay_rules, ebay_sku_map = (
         owner_context if owner_context is not None else _inventory_owner_context(pull_month)
     )

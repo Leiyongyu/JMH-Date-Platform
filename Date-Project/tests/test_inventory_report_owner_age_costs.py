@@ -128,8 +128,9 @@ def test_owner_sums_equal_every_group_and_total_including_unassigned(env):
 def test_rules_and_sku_mapping_loaded_once_for_health_and_costs(env):
     populate(env)
     service.get_dimension_summary("OWNER", "2026-08")
-    assert env["calls"].count(("rules", "2026-08", "amazon")) == 1
-    assert env["calls"].count(("rules", "2026-08", "ebay")) == 1
+    assert env["calls"].count(("rules", "2026-09", "amazon")) == 1
+    assert env["calls"].count(("rules", "2026-09", "ebay")) == 1
+    assert not any(call[:2] == ("rules", "2026-08") for call in env["calls"])
     assert env["calls"].count(("sku_map", "2026-09")) == 1
     assert env["calls"].count(("costs", "2026-09")) == 1
     assert env["calls"].count(("health", "2026-09")) == 1
@@ -157,13 +158,45 @@ def test_owner_displays_department_target_without_splitting_it(env, monkeypatch)
     assert D(result["total"]["group_sales_target_usd"]) == expected
 
 
-def test_year_boundary_uses_source_rules_and_report_snapshot(env):
+def test_year_boundary_uses_report_rules_and_report_snapshot(env):
     env["stat_month"] = "2026-12"
     service.get_dimension_summary("OWNER", "2026-12")
     assert ("health", "2027-01") in env["calls"]
     assert ("costs", "2027-01") in env["calls"]
-    assert ("rules", "2026-12", "amazon") in env["calls"]
+    assert ("rules", "2027-01", "amazon") in env["calls"]
+    assert ("rules", "2027-01", "ebay") in env["calls"]
     assert ("sku_map", "2027-01") in env["calls"]
+
+
+def test_owner_age_health_and_ctu_use_report_month_assignment(env, monkeypatch):
+    env["base"] = [{
+        "platform_code": "EBAY", "dimension_type": "OWNER",
+        "department_code": "EBAY-1", "dimension_value": "当月负责人",
+        "overseas_end_inventory_qty": D(10),
+    }]
+    env["costs"] = [ebay("BMW-30032-0018", 10, 20)]
+    env["health"] = deepcopy(env["costs"])
+    env["ctu"] = [{"sku": "BMW-30032-0018", "over_30_cost": D(5)}]
+    calls = []
+
+    def owner_rules(month, platform):
+        calls.append((month, platform))
+        if platform == "ebay":
+            owner = "当月负责人" if month == "2026-09" else "上月负责人"
+            return [{"rule_type": "EBAY_BRAND", "match_key": "BMW",
+                     "principal_name": owner}]
+        return []
+
+    monkeypatch.setattr(service.repo, "owner_rules", owner_rules)
+    result = service.get_dimension_summary("OWNER", "2026-08")
+    rows = by_key(result)
+    current = rows[("EBAY", "EBAY-1", "当月负责人")]
+    assert D(current["inventory_age_90_180_cost"]) == D(10)
+    assert D(current["inventory_age_180_plus_cost"]) == D(20)
+    assert D(current["inventory_181_plus_sku_count"]) == D(1)
+    assert D(current["ctu_over_30_cost"]) == D(5)
+    assert ("EBAY", "EBAY-1", "上月负责人") not in rows
+    assert calls == [("2026-09", "amazon"), ("2026-09", "ebay")]
 
 
 def test_existing_owner_metrics_and_total_are_unchanged_by_cost_only_rows(env):

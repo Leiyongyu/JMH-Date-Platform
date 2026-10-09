@@ -36,7 +36,7 @@ def test_ebay_cost_matches_group_sum_and_keeps_other_metrics(env):
     assert {k:v for k,v in actual["total"].items() if k not in ignored} == {k:v for k,v in baseline["total"].items() if k not in ignored}
 
 
-def test_snapshot_none_vs_zero_and_source_rule_month(env):
+def test_snapshot_none_vs_zero_and_report_rule_month(env):
     env["base"] = [dict(platform_code="EBAY", department_code="EBAY-1", dimension_value="未分配")]
     env["stat_month"] = "2026-12"
     missing = service.get_dimension_summary("OWNER")
@@ -47,7 +47,7 @@ def test_snapshot_none_vs_zero_and_source_rule_month(env):
     assert D(zero["total"]["ctu_over_30_cost"]) == 0
     assert zero["items"][0]["ctu_cost_month"] == "2027-01"
     assert ("ctu", "2027-01") in env["calls"]
-    assert ("rules", "2026-12", "ebay") in env["calls"]
+    assert ("rules", "2027-01", "ebay") in env["calls"]
     assert ("sku_map", "2027-01") in env["calls"]
 
 
