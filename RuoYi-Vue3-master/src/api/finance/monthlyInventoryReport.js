@@ -71,3 +71,28 @@ export function importMonthlyInventoryPurchaseOrder(statMonth, file) {
     timeout: 600000
   })
 }
+
+export function previewMonthlyInventoryHistory(file) {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/finance/monthly-inventory-report/history-preview',
+    method: 'post',
+    data,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 600000
+  })
+}
+
+export function importMonthlyInventoryHistory(file, fileSha256) {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/finance/monthly-inventory-report/history-import',
+    method: 'post',
+    params: { fileSha256 },
+    data,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 600000
+  })
+}

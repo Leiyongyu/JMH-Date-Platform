@@ -16,6 +16,7 @@ from backend.parsers.performance_common import (
 from backend.parsers.inventory_report_purchase_order_parser import (
     parse_inventory_report_purchase_order_excel,
 )
+from backend.services.inventory_report_group_rows import with_group_display_rows
 from backend.repositories import clearance_repository as clearance_repo
 from backend.repositories import inventory_report_etl_repository as repo
 
@@ -304,7 +305,7 @@ def get_department_summary(
     if use_snapshot and selected_month:
         snapshot = repo.view_snapshot(selected_month, "GROUP")
         if snapshot is not None:
-            return snapshot
+            return with_group_display_rows(snapshot)
     data = repo.department_summary(selected_month)
     month = data["stat_month"]
     report_month = _next_month(month) if month else None
@@ -529,14 +530,14 @@ def get_department_summary(
         total_item["rate_month"] = rate_month
         total_item["usd_rate"] = usd_rate
     _apply_report_derived_fields(items)
-    return {
+    return with_group_display_rows({
         "stat_month": month,
         "source_stat_month": month,
         "report_month": report_month,
         "rate_month": rate_month,
         "usd_rate": str(usd_rate) if usd_rate is not None else None,
         "items": [_report_json_ready(item) for item in items],
-    }
+    })
 
 
 def get_dimension_summary(
@@ -554,6 +555,17 @@ def get_dimension_summary(
         snapshot = repo.view_snapshot(selected_month, dimension)
         if snapshot is not None:
             return snapshot
+        group_snapshot = repo.view_snapshot(selected_month, "GROUP")
+        if group_snapshot and group_snapshot.get("historical_import"):
+            # The uploaded workbook contains GROUP rows only. Never synthesize
+            # STORE/OWNER rows from unrelated live sources for that month.
+            return {
+                "stat_month": selected_month,
+                "report_month": _next_month(selected_month),
+                "historical_import": True,
+                "items": [],
+                "total": None,
+            }
     data = repo.dimension_summary(dimension, selected_month)
     report_month = (
         _next_month(data["stat_month"]) if data["stat_month"] else None

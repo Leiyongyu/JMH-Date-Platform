@@ -1,17 +1,68 @@
 package com.ruoyi.web.controller.finance;
 
 import com.ruoyi.framework.web.service.PermissionService;
+import com.ruoyi.common.core.domain.model.LoginUser;
 import com.ruoyi.system.service.finance.PerformancePythonClient;
 import java.util.Map;
+import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.multipart.MultipartFile;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class MonthlyInventoryReportControllerTest
 {
+    @AfterEach
+    void clearSecurityContext()
+    {
+        SecurityContextHolder.clearContext();
+    }
+
+    private void authenticate(Long userId)
+    {
+        LoginUser user = new LoginUser();
+        user.setUserId(userId);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(user, null, List.of()));
+    }
+
+    @Test
+    void historyPreviewAndImportRequireAdminRoleOrBuiltInSuperAdmin()
+    {
+        var client = mock(PerformancePythonClient.class);
+        var permissions = mock(PermissionService.class);
+        var controller = new MonthlyInventoryReportController(
+                client, permissions);
+        var file = mock(MultipartFile.class);
+        authenticate(101L);
+        assertThrows(AccessDeniedException.class,
+                () -> controller.previewHistory(file, null));
+        assertThrows(AccessDeniedException.class,
+                () -> controller.importHistory(file, "digest", null));
+        verifyNoInteractions(client);
+
+        when(permissions.hasRole("admin")).thenReturn(true);
+        when(client.previewMonthlyInventoryHistory(file, null))
+                .thenReturn(Map.of("data", Map.of("sheets", List.of())));
+        when(client.importMonthlyInventoryHistory(file, "digest", null))
+                .thenReturn(Map.of("data", Map.of("imported_months", List.of())));
+        assertEquals(200, controller.previewHistory(file, null).get("code"));
+        assertEquals(200, controller.importHistory(file, "digest", null).get("code"));
+
+        when(permissions.hasRole("admin")).thenReturn(false);
+        authenticate(1L);
+        assertEquals(200, controller.previewHistory(file, null).get("code"));
+        assertEquals(200, controller.importHistory(file, "digest", null).get("code"));
+        verify(client, times(2)).previewMonthlyInventoryHistory(file, null);
+        verify(client, times(2)).importMonthlyInventoryHistory(file, "digest", null);
+    }
+
     @Test
     void exportIncludesOnlyDimensionsAllowedForCurrentUser()
     {

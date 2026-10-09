@@ -4,6 +4,7 @@ import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.system.service.finance.PerformancePythonClient;
 import com.ruoyi.framework.web.service.PermissionService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -290,6 +291,51 @@ public class MonthlyInventoryReportController extends BaseController
         catch (Exception e)
         {
             return error(e.getMessage());
+        }
+    }
+
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:edit') and @ss.hasPermi('finance:monthlyInventoryReport:viewGroup')")
+    @PostMapping("/history-preview")
+    public AjaxResult previewHistory(
+            @RequestParam("file") MultipartFile file,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        requireAdminRole();
+        try
+        {
+            return success(data(pythonClient.previewMonthlyInventoryHistory(file, requestId)));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
+    @Log(title = "月度库存组别历史补录", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:edit') and @ss.hasPermi('finance:monthlyInventoryReport:viewGroup')")
+    @PostMapping("/history-import")
+    public AjaxResult importHistory(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam String fileSha256,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        requireAdminRole();
+        try
+        {
+            return success(data(pythonClient.importMonthlyInventoryHistory(
+                    file, fileSha256, requestId)));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
+    private void requireAdminRole()
+    {
+        if (!SecurityUtils.isAdmin() && !permissionService.hasRole("admin"))
+        {
+            throw new AccessDeniedException("只有系统管理员角色可以补录月度库存组别历史数据");
         }
     }
 

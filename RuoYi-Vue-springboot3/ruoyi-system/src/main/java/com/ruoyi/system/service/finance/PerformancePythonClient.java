@@ -211,6 +211,20 @@ public class PerformancePythonClient extends PythonHttpSupport
                 Map.of("limit", limit), requestId);
     }
 
+    public Map<String, Object> previewMonthlyInventoryHistory(
+            MultipartFile file, String requestId)
+    {
+        return upload("/monthly-inventory-report/history-preview",
+                Map.of(), file, requestId, null);
+    }
+
+    public Map<String, Object> importMonthlyInventoryHistory(
+            MultipartFile file, String fileSha256, String requestId)
+    {
+        return upload("/monthly-inventory-report/history-imports",
+                Map.of("file_sha256", fileSha256), file, requestId, null);
+    }
+
     public Map<String, Object> monthlyInventoryReportSummary(
             String statMonth, String requestId)
     {

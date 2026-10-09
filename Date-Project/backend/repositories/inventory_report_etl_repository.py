@@ -319,16 +319,77 @@ def months(limit: int = 24) -> list[dict[str, Any]]:
     with db_connection() as connection, connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT stat_month,MAX(updated_at) AS updated_at,
-                   COUNT(*) AS department_rows
-            FROM dws_inventory_report_department_summary
-            GROUP BY stat_month
+            SELECT m.stat_month,MAX(m.updated_at) AS updated_at,
+                   MAX(m.department_rows) AS department_rows
+            FROM (
+                SELECT stat_month,MAX(updated_at) AS updated_at,
+                       COUNT(*) AS department_rows
+                FROM dws_inventory_report_department_summary
+                GROUP BY stat_month
+                UNION ALL
+                SELECT stat_month,calculated_at AS updated_at,0 AS department_rows
+                FROM monthly_inventory_report_view_snapshot
+                WHERE dimension_type='GROUP'
+            ) m
+            GROUP BY m.stat_month
             ORDER BY stat_month DESC
             LIMIT %s
             """,
             (max(1, min(limit, 120)),),
         )
         return list(cursor.fetchall())
+
+
+def history_month_statuses(months: list[str]) -> dict[str, str]:
+    """A month with any computed row or snapshot must never be overwritten."""
+    if not months:
+        return {}
+    placeholders = ",".join(["%s"] * len(months))
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT DISTINCT stat_month FROM dws_inventory_report_department_summary "
+            f"WHERE stat_month IN ({placeholders})",
+            months,
+        )
+        computed = {str(row["stat_month"]) for row in cursor.fetchall()}
+        cursor.execute(
+            "SELECT stat_month FROM monthly_inventory_report_view_snapshot "
+            f"WHERE dimension_type='GROUP' AND stat_month IN ({placeholders})",
+            months,
+        )
+        snapshots = {str(row["stat_month"]) for row in cursor.fetchall()}
+    return {month: "existing_calculation" if month in computed else "existing_snapshot"
+            for month in months if month in computed or month in snapshots}
+
+
+def insert_history_group_snapshots(
+    payloads: list[tuple[str, dict[str, Any]]],
+) -> tuple[list[str], list[str]]:
+    """Atomic insert-only import. Existing months remain bit-for-bit unchanged."""
+    imported: list[str] = []
+    skipped: list[str] = []
+    with db_connection() as connection:
+        try:
+            with connection.cursor() as cursor:
+                for month, payload in payloads:
+                    cursor.execute(
+                        "SELECT 1 FROM dws_inventory_report_department_summary "
+                        "WHERE stat_month=%s LIMIT 1", (month,),
+                    )
+                    if cursor.fetchone():
+                        skipped.append(month)
+                        continue
+                    cursor.execute(
+                        "INSERT IGNORE INTO monthly_inventory_report_view_snapshot "
+                        "(stat_month,dimension_type,payload_json) VALUES (%s,'GROUP',%s)",
+                        (month, json.dumps(payload, ensure_ascii=False)),
+                    )
+                    (imported if cursor.rowcount == 1 else skipped).append(month)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    return imported, skipped
 
 
 def view_snapshot(stat_month: str, dimension_type: str) -> dict[str, Any] | None:

@@ -42,6 +42,10 @@ from backend.services.inventory_report_etl_service import (
 from backend.services.inventory_report_export_service import (
     export_monthly_inventory_report,
 )
+from backend.services.inventory_report_history_import_service import (
+    history_preview,
+    import_history,
+)
 from backend.services.inventory_report_source_sync_service import (
     InventoryReportSourceSyncError,
     sync_monthly_inventory_order_profit,
@@ -503,6 +507,32 @@ async def post_monthly_inventory_report_purchase_order_import(
         request_id=request.state.request_id,
         message="monthly inventory purchase order transit imported",
     )
+
+
+@router.post("/monthly-inventory-report/history-preview")
+async def post_monthly_inventory_history_preview(
+    request: Request, file: UploadFile = File(...),
+):
+    content, file_name = await read_excel_upload(file)
+    try:
+        data = await run_in_threadpool(history_preview, content, file_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success_response(data, request_id=request.state.request_id)
+
+
+@router.post("/monthly-inventory-report/history-imports", status_code=201)
+async def post_monthly_inventory_history_import(
+    request: Request,
+    file: UploadFile = File(...),
+    file_sha256: str = Query(..., pattern=r"^[a-f0-9]{64}$"),
+):
+    content, file_name = await read_excel_upload(file)
+    try:
+        data = await run_in_threadpool(import_history, content, file_name, file_sha256)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success_response(data, request_id=request.state.request_id)
 
 
 @router.get("/slow-moving-clearance/inventory-age-detail-exports")

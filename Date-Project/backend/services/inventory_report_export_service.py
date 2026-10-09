@@ -196,8 +196,10 @@ def _combined(
     right_key: str,
 ) -> Callable[[dict[str, Any]], Any]:
     return lambda row: (
-        None if row.get("is_age_cost_only")
-        else _decimal(row.get(left_key)) + _decimal(row.get(right_key))
+        None if row.get("is_age_cost_only") or (
+            row.get("historical_import")
+            and row.get(left_key) is None and row.get(right_key) is None
+        ) else _decimal(row.get(left_key)) + _decimal(row.get(right_key))
     )
 
 

@@ -86,9 +86,23 @@
             />
           </span>
           <el-button
+            v-if="canImportHistory"
+            type="warning"
+            :loading="historyUploading"
+            @click="historyFileInput?.click()"
+          >上传组别历史数据</el-button>
+          <input
+            v-if="canImportHistory"
+            ref="historyFileInput"
+            type="file"
+            accept=".xlsx,.xlsm"
+            class="native-file-input"
+            @change="handleHistoryFileChange"
+          />
+          <el-button
             type="primary"
             :loading="calculating"
-            :disabled="!sourceStatMonth"
+            :disabled="!sourceStatMonth || isImportedHistoryMonth"
             v-hasPermi="['finance:monthlyInventoryReport:edit']"
             @click="handleCalculate"
           >
@@ -129,49 +143,49 @@
           </template>
         </el-table-column>
         <el-table-column label="总货值" min-width="160" align="right" fixed="left">
-          <template #default="{ row }">{{ money(row.total_goods_value) }}</template>
+          <template #default="{ row }">{{ groupMoney(row, row.total_goods_value) }}</template>
         </el-table-column>
 
         <el-table-column label="本地仓" align="center">
           <el-table-column prop="local_end_in_transit_qty" label="期末在途数量" min-width="190" align="right">
-            <template #default="{ row }">{{ qty(row.local_end_in_transit_qty) }}</template>
+            <template #default="{ row }">{{ groupQty(row, row.local_end_in_transit_qty) }}</template>
           </el-table-column>
           <el-table-column prop="local_end_in_transit_total_cost" label="期末在途总成本" min-width="190" align="right">
-            <template #default="{ row }">{{ money(row.local_end_in_transit_total_cost) }}</template>
+            <template #default="{ row }">{{ groupMoney(row, row.local_end_in_transit_total_cost) }}</template>
           </el-table-column>
           <el-table-column prop="local_end_inventory_qty" label="期末库存数量" min-width="130" align="right">
-            <template #default="{ row }">{{ qty(row.local_end_inventory_qty) }}</template>
+            <template #default="{ row }">{{ groupQty(row, row.local_end_inventory_qty) }}</template>
           </el-table-column>
           <el-table-column prop="local_end_inventory_total_cost" label="期末库存总成本" min-width="145" align="right">
-            <template #default="{ row }">{{ money(row.local_end_inventory_total_cost) }}</template>
+            <template #default="{ row }">{{ groupMoney(row, row.local_end_inventory_total_cost) }}</template>
           </el-table-column>
         </el-table-column>
 
         <el-table-column label="海外仓/FBA仓" align="center">
           <el-table-column label="期末在途数量" min-width="130" align="right">
             <template #default="{ row }">
-              {{ qty(combinedWarehouseValue(row, 'overseas_end_in_transit_qty', 'fba_end_in_transit_qty')) }}
+              {{ groupQty(row, combinedWarehouseValue(row, 'overseas_end_in_transit_qty', 'fba_end_in_transit_qty')) }}
             </template>
           </el-table-column>
           <el-table-column label="期末在途总成本" min-width="145" align="right">
             <template #default="{ row }">
-              {{ money(combinedWarehouseValue(row, 'overseas_end_in_transit_total_cost', 'fba_end_in_transit_total_cost')) }}
+              {{ groupMoney(row, combinedWarehouseValue(row, 'overseas_end_in_transit_total_cost', 'fba_end_in_transit_total_cost')) }}
             </template>
           </el-table-column>
           <el-table-column label="期末库存数量" min-width="130" align="right">
             <template #default="{ row }">
-              {{ qty(combinedWarehouseValue(row, 'overseas_end_inventory_qty', 'fba_end_inventory_qty')) }}
+              {{ groupQty(row, combinedWarehouseValue(row, 'overseas_end_inventory_qty', 'fba_end_inventory_qty')) }}
             </template>
           </el-table-column>
           <el-table-column label="期末库存总成本" min-width="145" align="right">
             <template #default="{ row }">
-              {{ money(combinedWarehouseValue(row, 'overseas_end_inventory_total_cost', 'fba_end_inventory_total_cost')) }}
+              {{ groupMoney(row, combinedWarehouseValue(row, 'overseas_end_inventory_total_cost', 'fba_end_inventory_total_cost')) }}
             </template>
           </el-table-column>
         </el-table-column>
 
         <el-table-column label="FBA在途金额+FBA在库金额" min-width="210" align="right">
-          <template #default="{ row }">{{ money(row.fba_transit_inventory_amount) }}</template>
+          <template #default="{ row }">{{ groupMoney(row, row.fba_transit_inventory_amount) }}</template>
         </el-table-column>
         <el-table-column min-width="145" align="right">
           <template #header>
@@ -386,24 +400,55 @@
         </template>
       </el-table>
     </el-card>
+    <el-dialog v-model="historyPreviewVisible" title="确认组别历史数据补录" width="900px">
+      <p>只补录组别维度。已存在的月份不会覆盖；空白或公式错误保留为空，AMZ-US3 每月独立保留。</p>
+      <el-table :data="historyPreview.sheets || []" border max-height="430">
+        <el-table-column prop="sheet" label="Sheet" min-width="230" />
+        <el-table-column prop="report_month" label="展示月份" width="110" />
+        <el-table-column prop="row_count" label="组别行" width="80" />
+        <el-table-column prop="error_cells" label="公式错误格" width="95" />
+        <el-table-column label="处理" min-width="125">
+          <template #default="{ row }">{{ row.status === 'available' ? '可导入' : '已有数据，跳过' }}</template>
+        </el-table-column>
+        <el-table-column label="未找到的字段" min-width="200">
+          <template #default="{ row }">{{ (row.missing_fields || []).join('、') || '无' }}</template>
+        </el-table-column>
+        <el-table-column label="忽略的额外表头" min-width="180">
+          <template #default="{ row }">{{ (row.ignored_headers || []).join('、') || '无' }}</template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="historyPreviewVisible = false">取消</el-button>
+        <el-button type="primary" :loading="historyUploading" :disabled="!(historyPreview.sheets || []).some(row => row.status === 'available')" @click="confirmHistoryImport">确认补录</el-button>
+      </template>
+    </el-dialog>
 
   </div>
 </template>
 
 <script setup>
 import { computed, getCurrentInstance, onMounted, ref } from 'vue'
-import { checkPermi } from '@/utils/permission'
+import { checkPermi, checkRole } from '@/utils/permission'
+import useUserStore from '@/store/modules/user'
 import purchaseOrderFormatGuide from '@/assets/images/monthly-inventory/purchase-order-pending-arrival-export-fields.png'
 import {
   exportMonthlyInventoryReport,
   getMonthlyInventoryDimensionSummary,
   getMonthlyInventorySummary,
   importMonthlyInventoryPurchaseOrder,
+  previewMonthlyInventoryHistory,
+  importMonthlyInventoryHistory,
   listMonthlyInventoryMonths,
   rebuildMonthlyInventoryReport
 } from '@/api/finance/monthlyInventoryReport'
 
 const { proxy } = getCurrentInstance()
+const userStore = useUserStore()
+const canImportHistory = computed(() =>
+  (Number(userStore.id) === 1 || checkRole(['admin'])) &&
+  checkPermi(['finance:monthlyInventoryReport:edit']) &&
+  checkPermi(['finance:monthlyInventoryReport:viewGroup'])
+)
 
 const availablePeriods = ref([])
 const selectedYear = ref('')
@@ -426,6 +471,11 @@ const calculating = ref(false)
 const exporting = ref(false)
 const purchaseOrderUploading = ref(false)
 const purchaseOrderFileInput = ref(null)
+const historyFileInput = ref(null)
+const historyUploading = ref(false)
+const historyPreviewVisible = ref(false)
+const historyPreview = ref({ sheets: [] })
+const historyFile = ref(null)
 
 function nextNaturalMonth(value) {
   if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(String(value || ''))) {
@@ -489,6 +539,10 @@ const sourceStatMonth = computed(() => {
   )
   return String(selected?.stat_month || '')
 })
+const isImportedHistoryMonth = computed(() => {
+  const selected = availablePeriods.value.find(item => periodReportMonth(item) === statMonth.value)
+  return selected && Number(selected.department_rows) === 0
+})
 
 const businessMonthLabel = computed(() => {
   const month = Number(selectedMonth.value)
@@ -518,12 +572,19 @@ const turnoverSkuTip = computed(
   () => `${businessMonthLabel.value}周转天数（目标小于120天）-SKU数量`
 )
 
-const editableSummaryRows = computed(() =>
-  summaryRows.value.filter(row => Number(row.is_total) !== 1)
-)
+const editableSummaryRows = computed(() => {
+  const hasUs3 = summaryRows.value.some(row => row.department_code === 'AMZ-US3')
+  return summaryRows.value.filter(row =>
+    Number(row.is_total) !== 1 &&
+    (!hasUs3 || !['AMZ-US2-MJ', 'AMZ-US1-ZXY'].includes(row.department_code))
+  )
+})
 
 const SALES_TARGET_USD_RATE = 6.6
-const salesTargetTip = '按月度库存表公式计算：在库金额÷3与（在库＋在途金额）÷5，分别除以组别系数和固定汇率6.6后取平均'
+const isHistoricalGroup = computed(() => summaryRows.value.some(row => row.historical_import))
+const salesTargetTip = computed(() => isHistoricalGroup.value
+  ? '历史Excel中的销售目标原值，未重新计算'
+  : '按月度库存表公式计算：在库金额÷3与（在库＋在途金额）÷5，分别除以组别系数和固定汇率6.6后取平均')
 
 const usdRateInfo = computed(() => {
   const rows = summaryRows.value.length ? summaryRows.value : dimensionRows.value
@@ -531,6 +592,7 @@ const usdRateInfo = computed(() => {
 })
 
 const usdRateTip = computed(() => {
+  if (isHistoricalGroup.value) return '历史Excel中的实际达成原值，未重新换算'
   const rateMonth = usdRateInfo.value?.rate_month || statMonth.value
   const rate = numberValue(usdRateInfo.value?.usd_rate)
   if (!rate) {
@@ -561,6 +623,14 @@ function money(value) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   })
+}
+
+function groupQty(row, value) {
+  return row?.historical_import && (value === null || value === undefined || value === '') ? '' : qty(value)
+}
+
+function groupMoney(row, value) {
+  return row?.historical_import && (value === null || value === undefined || value === '') ? '' : money(value)
 }
 
 function optionalPercent(value) {
@@ -622,6 +692,7 @@ function percent(value) {
 }
 
 function combinedWarehouseValue(row, overseasField, fbaField) {
+  if (row?.historical_import && row?.[overseasField] == null && row?.[fbaField] == null) return null
   return numberValue(row?.[overseasField]) + numberValue(row?.[fbaField])
 }
 
@@ -658,6 +729,7 @@ function overseasFbaInventoryAmount(row) {
 }
 
 function salesSprintTarget(row) {
+  if (row?.historical_import) return row.sales_target_usd
   if (Number(row?.is_total) === 1) {
     const targets = editableSummaryRows.value.map(item => salesSprintTarget(item))
     return targets.length && targets.every(value => value !== null)
@@ -677,6 +749,7 @@ function summaryRowClass({ row }) {
 }
 
 function spanUs3MergedColumns({ row, column }) {
+  if (row?.historical_import) return [1, 1]
   if (![
     'local_end_in_transit_qty',
     'local_end_in_transit_total_cost',
@@ -782,6 +855,45 @@ async function handleCalculate() {
 function handleUploadCommand(command) {
   if (command === 'purchaseOrder') {
     purchaseOrderFileInput.value?.click()
+  }
+}
+
+async function handleHistoryFileChange(event) {
+  if (!canImportHistory.value) return
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  if (!/\.(xlsx|xlsm)$/i.test(file.name)) {
+    proxy.$modal.msgError('只支持.xlsx或.xlsm文件')
+    return
+  }
+  historyUploading.value = true
+  try {
+    const response = await previewMonthlyInventoryHistory(file)
+    historyFile.value = file
+    historyPreview.value = response.data || { sheets: [] }
+    historyPreviewVisible.value = true
+  } finally {
+    historyUploading.value = false
+  }
+}
+
+async function confirmHistoryImport() {
+  if (!canImportHistory.value) return
+  if (!historyFile.value || !historyPreview.value.file_sha256) return
+  historyUploading.value = true
+  try {
+    const response = await importMonthlyInventoryHistory(
+      historyFile.value, historyPreview.value.file_sha256
+    )
+    const result = response.data || {}
+    proxy.$modal.msgSuccess(`补录${(result.imported_months || []).length}个月，跳过${(result.skipped_months || []).length}个月`)
+    historyPreviewVisible.value = false
+    historyFile.value = null
+    await loadPeriods()
+    await loadSummary()
+  } finally {
+    historyUploading.value = false
   }
 }
 

@@ -131,9 +131,14 @@ def test_owner_sums_equal_every_group_and_total_including_unassigned(env):
     assert rows[("AMZ", "AMZ-EU", "未分配")]["inventory_age_180_plus_cost"] == "-2"
     for expected in group["items"]:
         total = int(expected["is_total"]) == 1
+        group_codes = (
+            {"AMZ-US2-MJ", "AMZ-US1-ZXY"}
+            if expected["department_code"] == "AMZ-US3"
+            else {expected["department_code"]}
+        )
         for field in ("inventory_age_90_180_cost", "inventory_age_180_plus_cost"):
             actual = sum((D(row[field]) for row in owner["items"]
-                          if total or row["department_code"] == expected["department_code"]), D(0))
+                          if total or row["department_code"] in group_codes), D(0))
             assert actual == D(expected[field])
             if total:
                 assert D(owner["total"][field]) == actual
