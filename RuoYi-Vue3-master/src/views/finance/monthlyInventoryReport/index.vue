@@ -294,6 +294,21 @@
           <template #default="{ row }">{{ row.is_age_cost_only ? '--' : money(row.total_goods_value) }}</template>
         </el-table-column>
 
+        <el-table-column v-if="activeDimension === 'owner'" label="本地仓" align="center">
+          <el-table-column label="期末在途数量" min-width="125" align="right">
+            <template #default="{ row }">{{ optionalQty(row.local_end_in_transit_qty) }}</template>
+          </el-table-column>
+          <el-table-column label="期末在途总成本" min-width="145" align="right">
+            <template #default="{ row }">{{ optionalMoney(row.local_end_in_transit_total_cost) }}</template>
+          </el-table-column>
+          <el-table-column label="期末库存数量" min-width="125" align="right">
+            <template #default="{ row }">{{ optionalQty(row.local_end_inventory_qty) }}</template>
+          </el-table-column>
+          <el-table-column label="期末库存总成本" min-width="145" align="right">
+            <template #default="{ row }">{{ optionalMoney(row.local_end_inventory_total_cost) }}</template>
+          </el-table-column>
+        </el-table-column>
+
         <el-table-column label="海外仓/FBA仓" align="center">
           <el-table-column label="期末在途数量" min-width="125" align="right">
             <template #default="{ row }">

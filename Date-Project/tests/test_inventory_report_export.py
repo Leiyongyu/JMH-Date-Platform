@@ -289,7 +289,7 @@ def test_permission_filtered_export_omits_unrequested_dimension(monkeypatch):
     workbook = load_workbook(BytesIO(content), read_only=True)
     assert workbook.sheetnames == ["组别", "个人"]
     assert workbook["个人"]["A2"].value == "张三"
-    assert workbook["个人"]["Q2"].value == 123.45
+    assert workbook["个人"]["U2"].value == 123.45
 
     _, owner_only = export_service.export_monthly_inventory_report(
         "2026-07", "VISIBLE:OWNER"

@@ -20,6 +20,7 @@ class HomeInventorySkuTaskTest
         new HomeInventorySkuTask(client).captureMonthly();
         assertEquals(OperationSyncResult.STATUS_SUCCESS,OperationSyncContext.get().getStatus());
         assertTrue(OperationSyncContext.get().toJobMessage(null).contains("2026-09"));
+        assertEquals("home_product_nature", OperationSyncContext.get().getSyncType());
     }
     @Test void captureFailurePropagatesToQuartz()
     {

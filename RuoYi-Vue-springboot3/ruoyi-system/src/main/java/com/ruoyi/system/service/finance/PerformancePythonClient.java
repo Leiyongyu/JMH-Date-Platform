@@ -57,28 +57,7 @@ public class PerformancePythonClient extends PythonHttpSupport
     {
         try
         {
-            HttpRequest request = baseRequest("/home-inventory/product-nature-snapshot", requestId)
-                    .POST(HttpRequest.BodyPublishers.noBody()).build();
-            return sendJson(request, false);
-        }
-        catch (Exception e) { throw asRuntime(e); }
-    }
-
-    public Map<String, Object> homeInventorySummary(String month, String requestId)
-    {
-        return get("/home-inventory/summary", StringUtils.hasText(month) ? Map.of("month", month) : Map.of(), requestId);
-    }
-
-    public Map<String, Object> homeInventorySku(String month, String requestId)
-    {
-        return get("/home-inventory/sku", Map.of("month", month), requestId);
-    }
-
-    public Map<String, Object> captureHomeInventorySku(String requestId)
-    {
-        try
-        {
-            HttpRequest request = baseRequest("/home-inventory/sku-snapshot", requestId)
+            HttpRequest request = baseRequest("/product-nature/snapshot", requestId)
                     .POST(HttpRequest.BodyPublishers.noBody()).build();
             return sendJson(request, false);
         }

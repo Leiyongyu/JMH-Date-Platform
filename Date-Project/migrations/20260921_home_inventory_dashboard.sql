@@ -1,4 +1,5 @@
--- 在Python业务库 date-project 执行；仅新建表，不补造过去月份。
+-- 历史迁移，首页库存分析看板已下线。新部署不再执行本脚本；已有表保留，不自动删除。
+-- 原用途：在Python业务库 date-project 新建月度 SKU 合计表，不补造过去月份。
 CREATE TABLE IF NOT EXISTS dws_home_inventory_sku_monthly (
     stat_month CHAR(7) NOT NULL COMMENT '实际统计月份YYYY-MM；同月更新，跨月保留',
     rule_version INT NOT NULL COMMENT 'SKU统计口径版本，跨版本不做环比',

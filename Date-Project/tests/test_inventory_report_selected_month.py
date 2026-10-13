@@ -217,7 +217,7 @@ def test_rebuild_uses_display_month_rules_for_inventory_only(
     monkeypatch.setattr(service, "_clean_overseas", clean_overseas)
     monkeypatch.setattr(service, "_clean_local", lambda *args, **kwargs: ([], {}))
     monkeypatch.setattr(service, "_clean_amz_sales", clean_sales)
-    def dimension_summaries(*args, owner_rule_month):
+    def dimension_summaries(*args, owner_rule_month, **kwargs):
         inventory_rules["saved_rule_month"] = owner_rule_month
         return []
 

@@ -125,6 +125,12 @@ def _dimension_headers(dimension: str) -> list[Header]:
         ("目标达成率", _field("target_achievement_rate"), "percent"),
     ]
     if dimension == "OWNER":
+        headers[4:4] = [
+            ("本地仓-期末在途数量", _field("local_end_in_transit_qty"), "qty"),
+            ("本地仓-期末在途总成本", _field("local_end_in_transit_total_cost"), "money"),
+            ("本地仓-期末库存数量", _field("local_end_inventory_qty"), "qty"),
+            ("本地仓-期末库存总成本", _field("local_end_inventory_total_cost"), "money"),
+        ]
         headers.extend([
             ("成都仓30天以上货值（仅eBay）", _field("ctu_over_30_cost"), "money"),
             ("90-180库龄成本", _field("inventory_age_90_180_cost"), "money"),

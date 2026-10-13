@@ -195,16 +195,31 @@ def ebay_product_sku_map(snapshot_month: str) -> dict[str, str]:
 def replace_purchase_order_transit(
     stat_month: str,
     rows: list[dict[str, Any]],
+    owner_rows: list[dict[str, Any]],
 ) -> dict[str, int]:
-    """全表替换采购单在途源数据，并同步已存在的部门汇总快照。"""
+    """只替换所选月份的采购单及其个人透视，保留其他月份。"""
     table = "ods_inventory_report_purchase_order_transit"
     with db_connection() as connection:
         try:
             with connection.cursor() as cursor:
-                cursor.execute(f"SELECT COUNT(*) AS total FROM `{table}`")
+                cursor.execute(
+                    f"SELECT COUNT(*) AS total FROM `{table}` WHERE stat_month=%s",
+                    (stat_month,),
+                )
                 deleted_rows = int(cursor.fetchone()["total"] or 0)
-                cursor.execute(f"DELETE FROM `{table}`")
+                cursor.execute(
+                    f"DELETE FROM `{table}` WHERE stat_month=%s", (stat_month,)
+                )
                 _insert_rows(cursor, table, PURCHASE_ORDER_TRANSIT_FIELDS, rows)
+                cursor.execute(
+                    "DELETE FROM dws_inventory_report_dimension_summary "
+                    "WHERE stat_month=%s AND dimension_type='OWNER' "
+                    "AND source_type='LOCAL_PO'", (stat_month,)
+                )
+                _insert_rows(
+                    cursor, "dws_inventory_report_dimension_summary",
+                    DIMENSION_FIELDS, owner_rows,
+                )
                 updated_rows = _apply_purchase_order_transit_to_summary(
                     cursor, stat_month
                 )
@@ -417,7 +432,7 @@ def save_view_snapshots(
     with db_connection() as connection:
         try:
             with connection.cursor() as cursor:
-                for dimension in ("GROUP", "STORE", "OWNER"):
+                for dimension in payloads:
                     cursor.execute(
                         f"{operation} INTO monthly_inventory_report_view_snapshot "
                         "(stat_month,dimension_type,payload_json) VALUES (%s,%s,%s)"
@@ -497,7 +512,7 @@ def dimension_summary(
         dimension_filter = (
             " AND platform_code='AMZ' AND source_type='FBA'"
             if dimension == "STORE"
-            else " AND source_type IN ('OVERSEAS','FBA')"
+            else " AND source_type IN ('OVERSEAS','FBA','LOCAL','LOCAL_PO')"
         )
         cursor.execute(
             f"""
@@ -509,17 +524,17 @@ def dimension_summary(
                 department_code,
                 MAX(owner_rule_month) AS owner_rule_month,
                 COALESCE(SUM(source_rows),0) AS source_rows,
-                COALESCE(SUM(CASE WHEN source_type='LOCAL'
-                    THEN end_in_transit_qty ELSE 0 END),0)
+                SUM(CASE WHEN source_type='LOCAL_PO'
+                    THEN end_in_transit_qty END)
                     AS local_end_in_transit_qty,
-                COALESCE(SUM(CASE WHEN source_type='LOCAL'
-                    THEN end_in_transit_total_cost ELSE 0 END),0)
+                SUM(CASE WHEN source_type='LOCAL_PO'
+                    THEN end_in_transit_total_cost END)
                     AS local_end_in_transit_total_cost,
-                COALESCE(SUM(CASE WHEN source_type='LOCAL'
-                    THEN end_inventory_qty ELSE 0 END),0)
+                SUM(CASE WHEN source_type='LOCAL'
+                    THEN end_inventory_qty END)
                     AS local_end_inventory_qty,
-                COALESCE(SUM(CASE WHEN source_type='LOCAL'
-                    THEN end_inventory_total_cost ELSE 0 END),0)
+                SUM(CASE WHEN source_type='LOCAL'
+                    THEN end_inventory_total_cost END)
                     AS local_end_inventory_total_cost,
                 COALESCE(SUM(CASE WHEN source_type='OVERSEAS'
                     THEN end_in_transit_qty ELSE 0 END),0)

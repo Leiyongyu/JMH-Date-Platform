@@ -6,9 +6,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi import FastAPI
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 from backend.api import deps
-from backend.api.v1 import amz_owner_sku, ebay_owner_sku, home_inventory
+from backend.api.v1 import amz_owner_sku, ebay_owner_sku, home_product_nature_snapshot
 from backend.services import home_product_nature_service as s
 from backend.repositories import home_product_nature_repository as r
 
@@ -229,7 +230,8 @@ def test_month_end_amz_overwrite_ebay_freeze_in_one_transaction(monkeypatch):
     assert {c.args[1]['batch_id'] for c in pub.call_args_list}=={result['batch_id']}
     assert [c.args[3] for c in pub.call_args_list]==['MONTHLY','FROZEN']
     assert all(c.args[1]['live'] is False for c in pub.call_args_list)
-    assert 'dws_home_inventory_sku_monthly' in cur.execute.call_args.args[0]
+    assert not any('dws_home_inventory_sku_monthly' in call.args[0]
+                   for call in cur.execute.call_args_list)
 
 
 def test_month_end_second_platform_failure_rolls_back_everything(monkeypatch):
@@ -309,11 +311,24 @@ def test_all_routes_internal_auth_and_invalid_query(monkeypatch,platform,router,
 def test_api_error_redaction_and_capture_auth(monkeypatch):
     monkeypatch.setattr(deps,'settings',SimpleNamespace(python_internal_api_token='test'))
     monkeypatch.setattr(s,'get_report',MagicMock(side_effect=RuntimeError('db-password')))
-    app=FastAPI();app.include_router(amz_owner_sku.router);app.include_router(home_inventory.router)
+    app=FastAPI();app.include_router(amz_owner_sku.router);app.include_router(home_product_nature_snapshot.router)
     with TestClient(app) as client:
         result=client.get('/api/v1/finance/amz-owner-sku/nature/summary',headers={'X-Internal-Token':'test'})
         assert result.status_code==500 and 'db-password' not in result.text
-        assert client.post('/api/v1/finance/home-inventory/product-nature-snapshot').status_code==401
+        assert client.post('/api/v1/finance/product-nature/snapshot').status_code==401
+
+
+def test_product_nature_snapshot_route_is_internal_and_does_not_use_inventory_api(monkeypatch):
+    endpoint=home_product_nature_snapshot.router.routes[0]
+    assert endpoint.path=='/api/v1/finance/product-nature/snapshot'
+    assert endpoint.methods=={'POST'}
+    assert endpoint.dependant.dependencies[0].call is deps.require_internal_access
+    request=Request({'type':'http','method':'POST','path':endpoint.path,'headers':[]})
+    monkeypatch.setattr(home_product_nature_snapshot,'capture_monthly',lambda:{'stat_month':'2026-09'})
+    assert home_product_nature_snapshot.capture_snapshot(request)['data']['stat_month']=='2026-09'
+    monkeypatch.setattr(home_product_nature_snapshot,'capture_monthly',lambda:(_ for _ in ()).throw(ValueError('not ready')))
+    with pytest.raises(HTTPException,match='not ready'):
+        home_product_nature_snapshot.capture_snapshot(request)
 
 
 def test_repo_transaction_rollback_and_lock_release(monkeypatch):

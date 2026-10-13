@@ -12,6 +12,29 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class HomeProductNatureClientTest
 {
+    @Test void monthlyCaptureUsesProductNatureEndpoint() throws Exception
+    {
+        var received = new AtomicReference<String>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            received.set(exchange.getRequestMethod() + " " + exchange.getRequestURI().getPath());
+            byte[] body = "{\"code\":0,\"data\":{\"stat_month\":\"2026-09\",\"total\":0}}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try
+        {
+            var properties = new PerformancePythonProperties();
+            properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            var client = new PerformancePythonClient(properties, new ObjectMapper());
+            assertNotNull(client.captureHomeProductNature("trace").get("data"));
+            assertEquals("POST /product-nature/snapshot", received.get());
+        }
+        finally { server.stop(0); }
+    }
+
     @Test void ownerQueryForwardsSegmentAndBatchButNotArbitraryParameters() throws Exception
     {
         var received = new AtomicReference<String>();

@@ -7,7 +7,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
-/** 月末记录当时真实在售SKU数；不拉取外部接口，不接受补填历史月份。 */
+/** 保留旧 Quartz 调用目标；实际执行首页商品性质月末快照采集。 */
 @Component("homeInventorySkuTask")
 public class HomeInventorySkuTask
 {
@@ -17,10 +17,10 @@ public class HomeInventorySkuTask
     {
         OperationSyncContext.clear();
         long started = System.currentTimeMillis();
-        Map<?, ?> report = (Map<?, ?>) client.captureHomeProductNature("inventory-sku-" + UUID.randomUUID()).get("data");
+        Map<?, ?> report = (Map<?, ?>) client.captureHomeProductNature("product-nature-" + UUID.randomUUID()).get("data");
         if (report == null || report.get("stat_month") == null || !(report.get("total") instanceof Number))
-            throw new IllegalStateException("库存看板SKU快照返回不完整");
-        var result = OperationSyncResult.success("home_inventory_sku", "首页在售SKU月度快照",
+            throw new IllegalStateException("商品性质月末快照返回不完整");
+        var result = OperationSyncResult.success("home_product_nature", "首页商品性质月末快照",
                 "homeInventorySkuTask.captureMonthly()", 1, 1, System.currentTimeMillis() - started);
         result.setBusinessSummary("统计月份=" + report.get("stat_month") + "；SKU=" + report.get("total")
                 + "；实际采集=" + report.get("captured_at"));

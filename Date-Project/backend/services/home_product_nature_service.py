@@ -537,21 +537,8 @@ def capture_monthly():
             kind = repo.stored_kind(report['platform'])
             report.update(batch_id=batch,live=False,period_kind=kind)
             repo.publish(conn,report,facts,kind)
-        # Keep the old inventory card's existing attribution intact (CL monthly
-        # exception included), while publishing both reports in one transaction.
-        from backend.services.home_inventory_service import SNAPSHOT_TABLE, VERSION as SKU_VERSION
-        platforms={r['platform']:dict(total=r['reconciliation']['legacy_total'],source_updated_at=r['source_updated_at'],warnings=r['warnings']) for r,_ in prepared}
-        old=dict(stat_month=month,rule_version=SKU_VERSION,total=sum(v['total'] for v in platforms.values()),
-                 platforms=platforms,captured_at=prepared[0][0]['captured_at'],nature_batch_id=batch)
-        with conn.cursor() as cur:
-            cur.execute(f'''INSERT INTO {SNAPSHOT_TABLE}
-                (stat_month,rule_version,sku_count,amz_sku_count,ebay_sku_count,captured_at,payload_json)
-                VALUES (%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE rule_version=VALUES(rule_version),
-                sku_count=VALUES(sku_count),amz_sku_count=VALUES(amz_sku_count),ebay_sku_count=VALUES(ebay_sku_count),
-                captured_at=VALUES(captured_at),payload_json=VALUES(payload_json)''',
-                (month,SKU_VERSION,old['total'],platforms['amz']['total'],platforms['ebay']['total'],old['captured_at'],repo.encode(old)))
         if now().strftime('%Y-%m') != month:
             raise ValueError('发布期间跨月，回滚整个批次')
-        return dict(stat_month=month,total=sum(r['sku_count'] for r,_ in prepared),legacy_total=old['total'],
-                    captured_at=old['captured_at'],batch_id=batch,already_frozen=False,
+        return dict(stat_month=month,total=sum(r['sku_count'] for r,_ in prepared),
+                    captured_at=prepared[0][0]['captured_at'],batch_id=batch,already_frozen=False,
                     amz_storage_policy='OVERWRITE_CURRENT_MONTH',ebay_already_frozen=existing_ebay is not None)

@@ -159,8 +159,9 @@ def rebuild_monthly_inventory_report(
         overseas_rows,
         local_rows,
         sources.get("purchase_order_transit", []),
-        source_amazon_rules,
+        amazon_rules,
         ebay_rules,
+        ebay_sku_map=ebay_sku_map,
         owner_rule_month=report_month,
     )
     department_rows = _department_summaries(
@@ -835,9 +836,28 @@ def import_inventory_report_purchase_order(
         _month(stat_month),
         operator,
     )
-    replace_stats = repo.replace_purchase_order_transit(
-        parsed["stat_month"], parsed["rows"]
+    month = parsed["stat_month"]
+    report_month = _next_month(month)
+    owner_rows = _dimension_summaries(
+        month, [], [], [], parsed["rows"],
+        _amazon_rule_maps(repo.owner_rules(report_month, "amazon")),
+        _ebay_rule_map(repo.owner_rules(report_month, "ebay")),
+        ebay_sku_map=_ebay_product_sku_map(month),
+        owner_rule_month=report_month,
     )
+    replace_stats = repo.replace_purchase_order_transit(
+        month, parsed["rows"], owner_rows
+    )
+    group_snapshot = repo.view_snapshot(month, "GROUP")
+    # Hand-imported history has no individual inventory detail. Its GROUP
+    # snapshot must not be reconstructed from unrelated live source tables.
+    if not (group_snapshot and group_snapshot.get("historical_import")):
+        group_data = repo.department_summary(month)
+        if group_data["items"]:
+            repo.save_view_snapshots(month, {
+                "GROUP": get_department_summary(month, use_snapshot=False),
+                "OWNER": get_dimension_summary("OWNER", month, use_snapshot=False),
+            })
     return {
         "stat_month": parsed["stat_month"],
         "batch_id": parsed["batch_id"],
@@ -1077,12 +1097,12 @@ def _clean_local(
             elif sys_wid in LOCAL_AMZ_WIDS:
                 platform = "AMZ"
                 configured_group = LOCAL_AMZ_WIDS[sys_wid]
-                principal, match_source, matched_group = _amazon_assignment(
-                    seller_name, sku, amazon_rules
+                principal, match_source, matched_group = _amazon_local_assignment(
+                    seller_name, sku, configured_group, amazon_rules
                 )
                 if assignment_rules is not None:
-                    principal, match_source, _ = _amazon_assignment(
-                        seller_name, sku, assignment_rules
+                    principal, match_source, _ = _amazon_local_assignment(
+                        seller_name, sku, configured_group, assignment_rules
                     )
                 if configured_group == "US3":
                     group_code = (
@@ -1183,6 +1203,7 @@ def _dimension_summaries(
     amazon_rules,
     ebay_rules,
     *,
+    ebay_sku_map=None,
     owner_rule_month=None,
 ):
     aggregates: dict[tuple[str, str, str, str, str | None], dict[str, Any]] = {}
@@ -1223,7 +1244,7 @@ def _dimension_summaries(
         for metric in METRIC_KEYS:
             aggregate[metric] += _num(metrics.get(metric))
 
-    # 店铺和个人维度均只统计FBA/海外仓；本地仓仅保留在组别汇总。
+    # 店铺仍只统计FBA；本地仓个人维度仅归属eBay/EU，US保留在组别汇总。
     for source_type, rows in (
         ("FBA", fba_rows),
         ("OVERSEAS", overseas_rows),
@@ -1249,6 +1270,36 @@ def _dimension_summaries(
                     row.get("department_code"),
                     metrics,
                 )
+    for row in local_rows:
+        if row.get("department_code") not in {"EBAY-1", "AMZ-EU"}:
+            continue
+        add(
+            "LOCAL", row["platform_code"], "OWNER",
+            row.get("principal_name"), row.get("department_code"),
+            {**row, "end_in_transit_qty": ZERO,
+             "end_in_transit_total_cost": ZERO},
+        )
+    for row in purchase_transit_rows:
+        if row.get("department_code") not in {"EBAY-1", "AMZ-EU"}:
+            continue
+        platform = normalize_text(row.get("platform_code")).upper()
+        if platform == "AMZ":
+            principal, _source, _group = _amazon_local_assignment(
+                row.get("store_name"), row.get("sku"),
+                row.get("group_code"), amazon_rules
+            )
+        elif platform == "EBAY":
+            principal, _source = _ebay_assignment(
+                row.get("sku"), ebay_rules, ebay_sku_map
+            )
+        else:
+            principal = UNASSIGNED
+        add(
+            "LOCAL_PO", platform, "OWNER", principal,
+            row.get("department_code"),
+            {"end_in_transit_qty": row.get("pending_arrival_qty"),
+             "end_in_transit_total_cost": row.get("sku_pending_total_cost")},
+        )
     return list(aggregates.values())
 
 
@@ -1574,7 +1625,11 @@ def _dimension_total_item(
         "inventory_181_plus_sku_count",
     )
     for field in sum_fields:
-        total[field] = sum((_num(item.get(field)) for item in items), ZERO)
+        values = [item.get(field) for item in items]
+        total[field] = (
+            None if field.startswith("local_") and all(v is None for v in values)
+            else sum((_num(v) for v in values), ZERO)
+        )
     total_actual = _complete_metric_sum(items, "actual_achievement_amount")
     total_actual_usd = _complete_metric_sum(
         items, "actual_achievement_amount_usd"
@@ -1913,6 +1968,22 @@ def _amazon_assignment(store_name, sku, rule_maps):
     if matched:
         return matched[0], "AMAZON_STORE", group or matched[1]
     return UNASSIGNED, "UNMATCHED", group
+
+
+def _amazon_local_assignment(store_name, sku, group_code, rule_maps):
+    """Known EU warehouse permits brand matching even without a store name.
+
+    US owner rules are store-based; a missing US store cannot be inferred from
+    warehouse or SKU, so it remains unassigned.
+    """
+    store = normalize_text(store_name)
+    if not store and normalize_text(group_code).upper() == "EU":
+        principal, source, group = _amazon_assignment("EU-", sku, rule_maps)
+        return principal, (
+            "EU_BRAND_FROM_WAREHOUSE" if principal != UNASSIGNED
+            else "EU_BRAND_UNMATCHED_FROM_WAREHOUSE"
+        ), group
+    return _amazon_assignment(store, sku, rule_maps)
 
 
 def _ebay_product_sku_map(

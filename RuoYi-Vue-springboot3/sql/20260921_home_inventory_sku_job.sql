@@ -1,4 +1,5 @@
--- 在ERP库执行：只新增缺失任务，不覆盖管理员已有配置，不修改业务数据。
+-- 历史脚本：库存分析看板已下线，请勿再执行本脚本。
+-- 商品性质月末采集继续使用同一 Quartz 调用目标，部署请参考 20260923_home_product_nature_job.sql。
 USE jmh_data_platform;
 INSERT INTO sys_job (job_name,job_group,invoke_target,cron_expression,misfire_policy,concurrent,status,create_by,create_time,remark)
 SELECT '首页在售SKU月度快照','SYSTEM','homeInventorySkuTask.captureMonthly()',
