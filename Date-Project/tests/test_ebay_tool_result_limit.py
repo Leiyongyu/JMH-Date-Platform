@@ -162,6 +162,8 @@ def test_filters_and_delivery_context(monkeypatch):
     tool.search_ebay("OE-1", "EBAY_DE", sort="price", free_shipping=True,
                      delivery_country="DE", delivery_postal_code="10115")
     assert "maxDeliveryCost:0" in captured[-1][0][1]["filter"]
+    assert "deliveryCountry:DE" in captured[-1][0][1]["filter"]
+    assert "deliveryPostalCode:10115" in captured[-1][0][1]["filter"]
     assert captured[-1][1]["delivery_country"] == "DE"
 
 
@@ -209,6 +211,38 @@ def test_mixed_site_batch_sends_prices_to_ebay_in_site_currency(monkeypatch):
         tool.tasks.pop(task_id, None)
 
 
+@pytest.mark.parametrize("us_postal,expected_us", [("08505", "08505"), ("92236", "92236")])
+def test_mixed_site_delivery_filters_follow_each_site(monkeypatch, us_postal, expected_us):
+    captured = {}
+
+    def get(url, params, marketplace, **kwargs):
+        captured[marketplace] = (params["filter"], kwargs)
+        return {"itemSummaries": raw_items(1)}, None
+
+    monkeypatch.setattr(tool, "_api_get", get)
+    targets = [{"inputKey": f"10144{site.upper()}", "site": site, "oe": "OE-1",
+                "groupKey": f"10144{site.upper()}"} for site in ("us", "uk", "de")]
+    task_id = "offline-delivery-location"
+    try:
+        tool.search_batch([], "auto", task_id, search_strategy="best_match",
+                          targets=targets, us_postal_code=us_postal)
+        assert "deliveryCountry:US" in captured["EBAY_US"][0]
+        assert f"deliveryPostalCode:{expected_us}" in captured["EBAY_US"][0]
+        assert "deliveryCountry:DE" in captured["EBAY_DE"][0]
+        assert "deliveryPostalCode:42489" in captured["EBAY_DE"][0]
+        assert "deliveryCountry:GB" in captured["EBAY_GB"][0]
+        assert "deliveryPostalCode:" not in captured["EBAY_GB"][0]
+        assert captured["EBAY_GB"][1]["delivery_postal_code"] == ""
+        locations = {row["site"]: row["queryDelivery"] for row in tool.tasks[task_id]["results"]}
+        assert locations == {
+            "US": {"country": "US", "postalCode": expected_us},
+            "UK": {"country": "GB", "postalCode": ""},
+            "DE": {"country": "DE", "postalCode": "42489"},
+        }
+    finally:
+        tool.tasks.pop(task_id, None)
+
+
 def test_delivery_context_header_is_encoded_and_no_placeholder_affiliate(monkeypatch):
     captured = []
     monkeypatch.setattr(tool, "get_access_token", lambda: "unit-token")
@@ -241,13 +275,14 @@ def test_delivery_context_header_is_encoded_and_no_placeholder_affiliate(monkeyp
     {"price_max": "NaN"},
     {"price_min": "10.123"},
     {"price_max": "100],sellers:{invalid}"},
+    {"us_postal_code": "00000"},
 ])
 def test_both_entry_points_reject_invalid_options(monkeypatch, fields):
     monkeypatch.setattr(tool, "_parse_excel_keywords_from_bytes", lambda *a, **kw: (["OE-1"], "oe", 1, 0, "test.xlsx"))
     options = dict(site="de", free_shipping="false", search_strategy="category_lock",
                    ebay_sort=None, delivery_country="", delivery_postal_code="",
                    pickup_country="", pickup_postal_code="", pickup_radius="", pickup_unit="",
-                   price_min="", price_max="")
+                   price_min="", price_max="", us_postal_code="08505")
     options.update(fields)
     with pytest.raises(HTTPException) as text_error:
         run_immediate(tool.api_scrape(nkw="OE-1", input_type="oe", **options))
@@ -265,7 +300,7 @@ def test_text_and_excel_submit_identical_search_options(monkeypatch):
     fields = dict(site="de", free_shipping="false", search_strategy="category_lock",
                   ebay_sort="price", delivery_country="DE", delivery_postal_code="10115",
                   pickup_country="", pickup_postal_code="", pickup_radius="", pickup_unit="",
-                  price_min="100", price_max="200")
+                  price_min="100", price_max="200", us_postal_code="08505")
     assert run_immediate(tool.api_scrape(nkw="OE-1", input_type="oe", **fields)) == {"ok": True}
     assert run_immediate(tool.api_scrape_file(
         file=StubUpload(), **fields

@@ -681,9 +681,8 @@
                     <span class="filter-hint">查询前按商品标价筛选，不含运费；支持只填一端。US：美元，UK：英镑，DE：欧元；混合站点分别使用各站币种。</span>
                 </div>
                 <div class="options-row" id="delivery-location">
-                    <span class="filter-hint">价格＋运费排序可填参考配送地点；商品标价仍不含运费。</span>
-                    <label>配送国家<select id="delivery-country"><option value="">不指定</option><option value="DE">德国</option><option value="GB">英国</option><option value="US">美国</option></select></label>
-                    <label>配送邮编<input id="delivery-postal-code" maxlength="12" placeholder="选填，与国家一起填写"></label>
+                    <span class="filter-hint">配送国家按输入编号的站点自动匹配：美国、英国、德国。德国使用 42489；英国只按国家筛选。</span>
+                    <label>美国配送地区（仅 US 站）<select id="us-postal-code"><option value="08505">美东 · 08505</option><option value="92236">美西 · 92236</option></select></label>
                 </div>
                 <div class="options-row" id="pickup-location" style="display:none">
                     <span class="filter-hint">最近自提仅查符合自提条件的商品，不代表普通快递离你最近。</span>
@@ -1066,6 +1065,7 @@ function syncSearchLocationOptions() {
     const free = document.getElementById('free-shipping');
     if (pickup) free.checked = false;
     free.disabled = pickup;
+    document.getElementById('us-postal-code').disabled = pickup;
 }
 
 function appendSearchOptions(fd) {
@@ -1085,6 +1085,7 @@ function appendSearchOptions(fd) {
     }
     fd.append('price_min', priceMin.value);
     fd.append('price_max', priceMax.value);
+    fd.append('us_postal_code', document.getElementById('us-postal-code').value);
     if (sort === 'distance') {
         const country = document.getElementById('pickup-country').value;
         const postal = document.getElementById('pickup-postal-code').value.trim();
@@ -1098,15 +1099,6 @@ function appendSearchOptions(fd) {
         fd.append('pickup_postal_code', postal);
         fd.append('pickup_radius', radius);
         fd.append('pickup_unit', unit);
-    } else {
-        const country = document.getElementById('delivery-country').value;
-        const postal = document.getElementById('delivery-postal-code').value.trim();
-        if (Boolean(country) !== Boolean(postal)) throw new Error('参考配送国家和邮编必须同时填写');
-        if (postal && !/^[A-Za-z0-9 -]{3,12}$/.test(postal)) throw new Error('参考配送邮编格式不正确');
-        if (country) {
-            fd.append('delivery_country', country);
-            fd.append('delivery_postal_code', postal);
-        }
     }
 }
 
@@ -1478,6 +1470,11 @@ function buildMainContent(r, idx, total) {
             ? `${r.queryPrice.min}–${r.queryPrice.max}`
             : r.queryPrice.min ? `≥ ${r.queryPrice.min}` : `≤ ${r.queryPrice.max}`;
         html += `<p>本次查询价格区间：${esc(range)} ${esc(r.queryPrice.currency)}（商品标价，不含运费）</p>`;
+    }
+    if (r.queryDelivery?.country) {
+        const location = r.queryDelivery.postalCode
+            ? `${r.queryDelivery.country} · ${r.queryDelivery.postalCode}` : r.queryDelivery.country;
+        html += `<p>本次配送地点：${esc(location)}</p>`;
     }
     if (r.actualSort && r.strategy !== 'error') {
         const sortName = EBAY_SORT_LABELS[r.actualSort] || r.actualSort;

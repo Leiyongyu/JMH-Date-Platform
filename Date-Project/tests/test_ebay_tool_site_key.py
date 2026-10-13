@@ -23,7 +23,7 @@ def options():
     return dict(site="auto", free_shipping="false", search_strategy="category_lock",
                 ebay_sort="price", delivery_country="", delivery_postal_code="",
                 pickup_country="", pickup_postal_code="", pickup_radius="", pickup_unit="",
-                price_min="", price_max="")
+                price_min="", price_max="", us_postal_code="08505")
 
 
 @pytest.fixture

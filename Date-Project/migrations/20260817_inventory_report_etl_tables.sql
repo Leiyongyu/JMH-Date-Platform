@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS `dwd_inventory_report_local_detail` (
     `group_code` VARCHAR(32) NULL COMMENT '库存归属组别',
     `department_code` VARCHAR(32) NULL COMMENT '汇总部门编码',
     `principal_name` VARCHAR(100) NOT NULL DEFAULT '未分配' COMMENT '负责人姓名',
-    `principal_match_source` VARCHAR(32) NOT NULL DEFAULT 'UNMATCHED' COMMENT '负责人匹配来源',
+    `principal_match_source` VARCHAR(64) NOT NULL DEFAULT 'UNMATCHED' COMMENT '负责人匹配来源',
     `end_in_transit_qty` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '期末在途数量',
     `end_in_transit_total_cost` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '期末在途总成本',
     `end_inventory_qty` DECIMAL(24,6) NOT NULL DEFAULT 0 COMMENT '期末库存数量',

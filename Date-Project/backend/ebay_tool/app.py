@@ -241,6 +241,19 @@ SITES: dict[str, dict] = {
     },
 }
 
+US_DELIVERY_POSTAL_CODES = {"08505", "92236"}
+DEFAULT_US_DELIVERY_POSTAL_CODE = "08505"
+
+
+def _site_delivery_location(site_key: str, us_postal_code: str) -> tuple[str, str]:
+    if site_key == "us":
+        return "US", us_postal_code
+    if site_key == "de":
+        return "DE", "42489"
+    if site_key == "uk":
+        return "GB", ""
+    raise ValueError(f"不支持的 eBay 站点: {site_key}")
+
 # ── OAuth2 Token 缓存 ──
 _token_cache: dict = {"token": None, "expires": 0}
 _token_lock = threading.Lock()
@@ -350,6 +363,10 @@ def search_ebay(
         filters.append("buyingOptions:{FIXED_PRICE}")
     if free_shipping:
         filters.append("maxDeliveryCost:0")
+    if sort != "distance" and delivery_country:
+        filters.append(f"deliveryCountry:{delivery_country}")
+        if delivery_postal_code:
+            filters.append(f"deliveryPostalCode:{delivery_postal_code}")
     if price_min or price_max:
         currency = next(cfg["currency"] for cfg in SITES.values() if cfg["marketplace"] == marketplace)
         price_range = f"{price_min}..{price_max}" if price_max else price_min
@@ -650,6 +667,7 @@ def scrape_one_oe(
     pickup_unit: str = "",
     price_min: str = "",
     price_max: str = "",
+    us_postal_code: str = DEFAULT_US_DELIVERY_POSTAL_CODE,
 ) -> tuple[list[dict], str | None, int, str, dict | None, list[float]]:
     """搜索单个 OE；展示顺序始终来自最终一次 Browse API 响应。"""
     cfg = SITES[site_key]
@@ -657,6 +675,10 @@ def scrape_one_oe(
     sort = (
         "price" if search_strategy == "category_lock" else ""
     ) if ebay_sort is None else EBAY_SORTS.get(ebay_sort, ebay_sort)
+    if sort != "distance" and not delivery_country:
+        delivery_country, delivery_postal_code = _site_delivery_location(
+            site_key, us_postal_code
+        )
     common = dict(
         limit=RESULT_LIMIT, free_shipping=free_shipping,
         delivery_country=delivery_country,
@@ -751,6 +773,7 @@ def search_batch(
     targets: list[dict[str, str]] | None = None,
     price_min: str = "",
     price_max: str = "",
+    us_postal_code: str = DEFAULT_US_DELIVERY_POSTAL_CODE,
 ) -> None:
     """后台线程：3 并发搜索 OE 号"""
     work_items = targets if targets is not None else [
@@ -765,6 +788,12 @@ def search_batch(
     def do_one(target: dict[str, str]) -> dict:
         oe = target["oe"]
         site = target["site"]
+        query_delivery = ("", "")
+        if ebay_sort != "distance":
+            query_delivery = (
+                (delivery_country, delivery_postal_code)
+                if delivery_country else _site_delivery_location(site, us_postal_code)
+            )
         items, warning, sold, strategy, cat_info, all_prices = scrape_one_oe(
             oe, site, free_shipping=free_shipping, search_strategy=search_strategy,
             ebay_sort=ebay_sort, delivery_country=delivery_country,
@@ -772,6 +801,7 @@ def search_batch(
             pickup_country=pickup_country, pickup_postal_code=pickup_postal_code,
             pickup_radius=pickup_radius, pickup_unit=pickup_unit,
             price_min=price_min, price_max=price_max,
+            us_postal_code=us_postal_code,
         )
         for item in items:
             item["inputKey"] = target.get("inputKey", "")
@@ -797,6 +827,7 @@ def search_batch(
             "categoryFallback": strategy == "category_fallback",
             "fetchedCount": len(items),
             "queryPrice": {"min": price_min, "max": price_max, "currency": SITES[site]["currency"]},
+            "queryDelivery": {"country": query_delivery[0], "postalCode": query_delivery[1]},
         }
 
     try:
@@ -866,6 +897,7 @@ def _start_search_task(
     targets: list[dict[str, str]] | None = None,
     price_min: str = "",
     price_max: str = "",
+    us_postal_code: str = DEFAULT_US_DELIVERY_POSTAL_CODE,
 ) -> dict:
     """公共逻辑：启动后台搜索任务并返回响应"""
     oe_list = list(dict.fromkeys(oe_list))
@@ -894,6 +926,7 @@ def _start_search_task(
             "targets": targets,
             "price_min": price_min,
             "price_max": price_max,
+            "us_postal_code": us_postal_code,
         },
     )
     t.daemon = True
@@ -1066,6 +1099,7 @@ def _validated_search_options(
     pickup_country: str, pickup_postal_code: str,
     pickup_radius: str, pickup_unit: str,
     price_min: str = "", price_max: str = "",
+    us_postal_code: str = DEFAULT_US_DELIVERY_POSTAL_CODE,
 ) -> dict:
     """Validate browser fields once for both text and Excel entry points."""
     bounds = []
@@ -1082,13 +1116,16 @@ def _validated_search_options(
         raise HTTPException(status_code=400, detail="不支持的 eBay 获取排序")
     country = delivery_country.strip().upper()
     postal = delivery_postal_code.strip()
-    if bool(country) != bool(postal):
-        raise HTTPException(status_code=400, detail="参考配送国家和邮编必须同时填写")
+    if postal and not country:
+        raise HTTPException(status_code=400, detail="参考配送邮编需要同时填写国家")
     if country and (
         not re.fullmatch(r"[A-Z]{2}", country)
-        or not re.fullmatch(r"[A-Za-z0-9 -]{3,12}", postal)
+        or (postal and not re.fullmatch(r"[A-Za-z0-9 -]{3,12}", postal))
     ):
         raise HTTPException(status_code=400, detail="参考配送地点格式不正确")
+    us_postal_code = us_postal_code.strip()
+    if us_postal_code not in US_DELIVERY_POSTAL_CODES:
+        raise HTTPException(status_code=400, detail="美国配送邮编仅支持 08505 或 92236")
 
     pickup = {
         "pickup_country": pickup_country.strip().upper(),
@@ -1121,6 +1158,7 @@ def _validated_search_options(
         "delivery_postal_code": postal,
         "price_min": price_min,
         "price_max": price_max,
+        "us_postal_code": us_postal_code,
         **pickup,
     }
 
@@ -1141,6 +1179,7 @@ async def api_scrape(
     pickup_unit: str = Form(""),
     price_min: str = Form(""),
     price_max: str = Form(""),
+    us_postal_code: str = Form(DEFAULT_US_DELIVERY_POSTAL_CODE),
 ):
     cleanup_tasks()
 
@@ -1156,7 +1195,7 @@ async def api_scrape(
     options = _validated_search_options(
         site, ss, fs, ebay_sort, delivery_country, delivery_postal_code,
         pickup_country, pickup_postal_code, pickup_radius, pickup_unit,
-        price_min, price_max,
+        price_min, price_max, us_postal_code,
     )
     if not raw_text:
         raise HTTPException(status_code=400, detail="请输入至少一个产品编号")
@@ -1196,6 +1235,7 @@ async def api_scrape_file(
     pickup_unit: str = Form(""),
     price_min: str = Form(""),
     price_max: str = Form(""),
+    us_postal_code: str = Form(DEFAULT_US_DELIVERY_POSTAL_CODE),
     file: UploadFile = File(...),
 ):
     """通过上传 Excel 文件批量查询"""
@@ -1212,7 +1252,7 @@ async def api_scrape_file(
     options = _validated_search_options(
         site, ss, fs, ebay_sort, delivery_country, delivery_postal_code,
         pickup_country, pickup_postal_code, pickup_radius, pickup_unit,
-        price_min, price_max,
+        price_min, price_max, us_postal_code,
     )
 
     if not file.filename:
