@@ -1,9 +1,9 @@
 """
 eBay 价格抓取工具 — FastAPI 子应用
 ==================================
-从 Flask 版 (app_api_v3.py) 转换而来，保持所有业务逻辑不变。
+从 Flask 版 (app_api_v3.py) 转换而来。
 
-策略：两遍搜索 + 类目锁定（category lock）+ 可选 getItem 核验
+策略：可选类目锁定和 eBay 获取排序；类型核验只标记，不重排结果。
 
 依赖：
   pip install requests openpyxl fastapi python-multipart
@@ -18,8 +18,11 @@ import threading
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from copy import copy
+from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import quote
 
 import requests as _requests
 import urllib3
@@ -42,6 +45,11 @@ CATEGORY_MIN_SHARE = 0.40
 RESULT_LIMIT = 100
 VERIFY_ENABLED = True
 VERIFY_TOP_N = 5
+EBAY_SORTS = {
+    "best_match": "", "price": "price", "-price": "-price",
+    "newlyListed": "newlyListed", "endingSoonest": "endingSoonest",
+    "distance": "distance",
+}
 
 # ═══════════════════════ SKU-OE 对应关系配置 ═══════════════════════
 
@@ -49,7 +57,15 @@ SKU_OE_FILE = str(Path(__file__).resolve().parent / "SKU主OE对照表.xlsx")
 _sku_oe_map: dict[str, str] = {}
 _middle_code_oe_map: dict[str, str] = {}
 _custom_middle_codes: dict[str, str] = {}
+_site_key_oe_map: dict[str, tuple[str, str, str]] = {}
+_mapping_schema = "legacy"
 _sku_oe_lock = threading.Lock()
+
+
+def _split_site_key(value: str) -> tuple[str, str] | None:
+    """A 列完整键是来源；不依赖 B/C 公式的 Excel 缓存值。"""
+    match = re.fullmatch(r"([A-Z0-9]+)(DE|UK|US)", value.strip().upper())
+    return (match.group(1), match.group(2).lower()) if match else None
 
 
 def _extract_middle_code(sku: str) -> str:
@@ -62,24 +78,58 @@ def _extract_middle_code(sku: str) -> str:
     return ""
 
 
-def load_sku_oe_map() -> None:
-    """从 Excel 文件加载 SKU-OE 对应关系（含中间码）"""
+def load_sku_oe_map() -> bool:
+    """加载旧 SKU-OE 表或新的“中间码+站点”四列表。"""
     global _sku_oe_map, _middle_code_oe_map, _custom_middle_codes
+    global _site_key_oe_map, _mapping_schema
     with _sku_oe_lock:
         try:
             if not os.path.exists(SKU_OE_FILE):
                 _sku_oe_map = {}
                 _middle_code_oe_map = {}
                 _custom_middle_codes = {}
-                return
+                _site_key_oe_map = {}
+                _mapping_schema = "legacy"
+                return False
 
-            wb = load_workbook(SKU_OE_FILE, read_only=True)
+            # 普通模式只保存实际存在的单元格；此文件的只读维度可能被格式扩到百万行。
+            wb = load_workbook(SKU_OE_FILE, read_only=False, data_only=True)
             ws = wb.active
             new_map: dict[str, str] = {}
             mc_map: dict[str, str] = {}
             custom_mc: dict[str, str] = {}
+            site_map: dict[str, tuple[str, str, str]] = {}
 
             header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
+            is_site_key = bool(
+                header_row and len(header_row) >= 4
+                and "中间码" in str(header_row[0] or "")
+                and "站点" in str(header_row[0] or "")
+                and "OE" in str(header_row[3] or "").upper()
+            )
+            if is_site_key:
+                for row in ws.iter_rows(min_row=2, max_col=4, values_only=True):
+                    if not row[0]:
+                        continue
+                    key = str(row[0]).strip().upper()
+                    parts = _split_site_key(key)
+                    oe = str(row[3]).strip() if row[3] is not None else ""
+                    if not parts:
+                        continue
+                    middle, site = parts
+                    if key in site_map:
+                        raise ValueError(f"映射键重复：{key}")
+                    site_map[key] = (middle, site, oe)
+                if not site_map:
+                    raise ValueError("四列表没有有效的中间码+站点键")
+                wb.close()
+                _site_key_oe_map = site_map
+                _sku_oe_map = {key: item[2] for key, item in site_map.items() if item[2]}
+                _middle_code_oe_map = {}
+                _custom_middle_codes = {}
+                _mapping_schema = "site_key"
+                return True
+
             has_mc_col = (
                 header_row
                 and len(header_row) > 2
@@ -107,14 +157,20 @@ def load_sku_oe_map() -> None:
             _sku_oe_map = new_map
             _middle_code_oe_map = mc_map
             _custom_middle_codes = custom_mc
+            _site_key_oe_map = {}
+            _mapping_schema = "legacy"
+            return True
         except Exception as e:
             print(f"加载 SKU-OE 对应表失败: {e}")
+            return False
 
 
 def save_sku_oe_map() -> bool:
     """保存 SKU-OE 对应关系到 Excel 文件（含中间码列）"""
     global _sku_oe_map
     with _sku_oe_lock:
+        if _mapping_schema == "site_key":
+            return False  # 不用旧三列写法覆盖用户的四列源文件。
         try:
             wb = Workbook()
             ws = wb.active
@@ -150,6 +206,8 @@ def get_oe_by_sku(sku: str) -> str | None:
     if not sku:
         return None
     key = sku.strip()
+    if _mapping_schema == "site_key":
+        return (_site_key_oe_map.get(key.upper()) or ("", "", ""))[2] or None
     oe = _sku_oe_map.get(key)
     if oe:
         return oe
@@ -224,18 +282,20 @@ def get_access_token() -> str:
 
 
 def _api_get(
-    url: str, params: dict, marketplace: str, retry_on_401: bool = True
+    url: str, params: dict, marketplace: str, retry_on_401: bool = True,
+    delivery_country: str = "", delivery_postal_code: str = "",
 ) -> tuple[dict | None, str | None]:
     """带鉴权的 GET 请求，401 时自动刷新 token 重试一次"""
     token = get_access_token()
     headers = {
         "Authorization": f"Bearer {token}",
         "X-EBAY-C-MARKETPLACE-ID": marketplace,
-        "X-EBAY-C-ENDUSERCTX": (
-            "affiliateCampaignId=<ePNCampaignId>,"
-            "affiliateReferenceId=<referenceId>"
-        ),
     }
+    if delivery_country and delivery_postal_code:
+        location = f"country={delivery_country},zip={delivery_postal_code}"
+        headers["X-EBAY-C-ENDUSERCTX"] = (
+            "contextualLocation=" + quote(location, safe="")
+        )
     resp = _requests.get(
         url, params=params, headers=headers, timeout=30, verify=False
     )
@@ -268,10 +328,18 @@ def search_ebay(
     fixed_price_only: bool = False,
     fieldgroups: str = "",
     free_shipping: bool = False,
+    delivery_country: str = "",
+    delivery_postal_code: str = "",
+    pickup_country: str = "",
+    pickup_postal_code: str = "",
+    pickup_radius: int | None = None,
+    pickup_unit: str = "",
+    price_min: str = "",
+    price_max: str = "",
 ) -> tuple[dict | None, str | None]:
     """
     调用 eBay Browse API 搜索商品
-    sort:             "" 默认(Best Match)，"price" 价格升序
+    sort:             "" 默认最佳匹配，其余值由入口白名单校验
     category_id:      限定叶子类目（v3 类目锁定用）
     fixed_price_only: 只保留一口价（排除拍卖，v3 第二遍搜索用）
     fieldgroups:      传 "MATCHING_ITEMS,CATEGORY_REFINEMENTS" 可拿 refinement 类目分布
@@ -281,7 +349,19 @@ def search_ebay(
     if fixed_price_only:
         filters.append("buyingOptions:{FIXED_PRICE}")
     if free_shipping:
-        filters.append("deliveryOptions:{FREE_SHIPPING}")
+        filters.append("maxDeliveryCost:0")
+    if price_min or price_max:
+        currency = next(cfg["currency"] for cfg in SITES.values() if cfg["marketplace"] == marketplace)
+        price_range = f"{price_min}..{price_max}" if price_max else price_min
+        filters.extend([f"price:[{price_range}]", f"priceCurrency:{currency}"])
+    if sort == "distance":
+        filters.extend([
+            "deliveryOptions:{SELLER_ARRANGED_LOCAL_PICKUP}",
+            f"pickupCountry:{pickup_country}",
+            f"pickupPostalCode:{pickup_postal_code}",
+            f"pickupRadius:{pickup_radius}",
+            f"pickupRadiusUnit:{pickup_unit}",
+        ])
 
     params: dict = {
         "q": keyword,
@@ -296,7 +376,11 @@ def search_ebay(
     if fieldgroups:
         params["fieldgroups"] = fieldgroups
 
-    return _api_get(BROWSE_URL, params, marketplace)
+    return _api_get(
+        BROWSE_URL, params, marketplace,
+        delivery_country=delivery_country,
+        delivery_postal_code=delivery_postal_code,
+    )
 
 
 def get_item_product_type(item_id: str, marketplace: str) -> str:
@@ -405,6 +489,8 @@ def format_item(item: dict) -> dict:
         "seller": seller_username,
         "sellerFeedback": seller_feedback,
         "shipping": shipping_cost,
+        "listedAt": item.get("itemCreationDate", ""),
+        "endsAt": item.get("itemEndDate", ""),
         "buyingOptions": buying_options,
         "estimatedSold": estimated_sold,
     }
@@ -504,15 +590,13 @@ def _pick_dominant_category(
 
 def _verify_top_items(items: list[dict], marketplace: str) -> list[dict]:
     """
-    可选核验：对最便宜的前 VERIFY_TOP_N 条调 getItem 取 Produktart，
-    与多数派类型不符的标记 suspect 并排到队尾（不删除，保留人工判断空间）
+    可选核验当前 eBay 排名前 VERIFY_TOP_N 条；只标记疑似类型，不改变排名。
     """
     if not VERIFY_ENABLED or not items:
         return items
 
     check_n = min(VERIFY_TOP_N, len(items))
     head = items[:check_n]
-    tail = items[check_n:]
 
     types: list[str] = []
     for it in head:
@@ -528,16 +612,10 @@ def _verify_top_items(items: list[dict], marketplace: str) -> list[dict]:
     if known.count(modal_type) < 2:
         return items
 
-    normal: list[dict] = []
-    suspect: list[dict] = []
     for it, t in zip(head, types):
         if t and t != modal_type:
             it["suspect"] = True
-            suspect.append(it)
-        else:
-            normal.append(it)
-
-    return normal + suspect + tail
+    return items
 
 
 def _finalize_oe(
@@ -548,24 +626,14 @@ def _finalize_oe(
     cat_info: dict | None,
     verify: bool = False,
 ) -> tuple[list[dict], None, str, dict | None, list[float]]:
-    """公共收尾：format → 设 oe → 排序 → 可选核验 → 限制返回数量。"""
+    """公共收尾：按 eBay 原始顺序格式化、核验前五条、限制返回数量。"""
     result = [format_item(it) for it in items_raw]
     for it in result:
         it["oe"] = oe
-    result.sort(key=lambda x: x["pf"])
-    all_prices = [it["pf"] for it in result]
+    all_prices = [it["pf"] for it in result[:RESULT_LIMIT]]
     if verify:
         result = _verify_top_items(result, mp)
     return result[:RESULT_LIMIT], None, strategy, cat_info, all_prices
-
-
-def _raw_cat_id(item: dict) -> str:
-    """从原始 item 取叶子类目 ID（与 _pick_dominant_category 路径 B 逻辑一致）"""
-    cats = item.get("categories") or []
-    if cats:
-        return cats[-1].get("categoryId", "")
-    leaf_ids = item.get("leafCategoryIds") or []
-    return leaf_ids[0] if leaf_ids else ""
 
 
 def scrape_one_oe(
@@ -573,64 +641,58 @@ def scrape_one_oe(
     site_key: str,
     free_shipping: bool = False,
     search_strategy: str = "category_lock",
+    ebay_sort: str | None = None,
+    delivery_country: str = "",
+    delivery_postal_code: str = "",
+    pickup_country: str = "",
+    pickup_postal_code: str = "",
+    pickup_radius: int | None = None,
+    pickup_unit: str = "",
+    price_min: str = "",
+    price_max: str = "",
 ) -> tuple[list[dict], str | None, int, str, dict | None, list[float]]:
-    """
-    搜索单个 OE 号
-    search_strategy:
-      best_match     — 单遍搜索，Best Match 取样，本地按价格排序（相关性优先）
-      category_lock  — 两遍搜索 + 类目锁定 + getItem 核验（v3 策略，价格精确优先）
-    返回 (items, warning, sold_total, strategy, cat_info, all_prices)
-    """
+    """搜索单个 OE；展示顺序始终来自最终一次 Browse API 响应。"""
     cfg = SITES[site_key]
     mp = cfg["marketplace"]
+    sort = (
+        "price" if search_strategy == "category_lock" else ""
+    ) if ebay_sort is None else EBAY_SORTS.get(ebay_sort, ebay_sort)
+    common = dict(
+        limit=RESULT_LIMIT, free_shipping=free_shipping,
+        delivery_country=delivery_country,
+        delivery_postal_code=delivery_postal_code,
+        pickup_country=pickup_country,
+        pickup_postal_code=pickup_postal_code,
+        pickup_radius=pickup_radius,
+        pickup_unit=pickup_unit,
+        price_min=price_min, price_max=price_max,
+    )
 
-    # ═══ Best Match 策略：单遍搜索，相关性优先 ═══
     if search_strategy == "best_match":
-        data, error = search_ebay(oe, mp, limit=RESULT_LIMIT, free_shipping=free_shipping)
+        data, error = search_ebay(oe, mp, sort=sort, **common)
         if error:
             return [], error, 0, "error", None, []
-
-        items_raw = data.get("itemSummaries", [])
+        items_raw = (data or {}).get("itemSummaries", [])
         if not items_raw:
-            return (
-                [],
-                f"OE '{oe}' 在 {cfg['domain']} 上未找到结果",
-                0,
-                "error",
-                None,
-                [],
-            )
-
+            return [], f"OE '{oe}' 在 {cfg['domain']} 上未找到结果", 0, "error", None, []
         sold_total = sum(item.get("soldQuantity", 0) or 0 for item in items_raw)
         items, _, _, _, all_prices = _finalize_oe(
             items_raw, oe, "best_match", mp, None
         )
         return items, None, sold_total, "best_match", None, all_prices
 
-    # ═══ 类目锁定策略：两遍搜索 + 类目锁定 ═══
+    # First pass identifies a dominant category with the same inventory filters.
     data1, error = search_ebay(
-        oe,
-        mp,
-        limit=100,
+        oe, mp, sort=sort,
         fieldgroups="MATCHING_ITEMS,CATEGORY_REFINEMENTS",
-        free_shipping=free_shipping,
+        fixed_price_only=True,
+        **common,
     )
     if error:
         return [], error, 0, "error", None, []
-
-    items_raw1 = data1.get("itemSummaries", [])
+    items_raw1 = (data1 or {}).get("itemSummaries", [])
     if not items_raw1:
-        return (
-            [],
-            f"OE '{oe}' 在 {cfg['domain']} 上未找到结果",
-            0,
-            "error",
-            None,
-            [],
-        )
-
-    sold_total = sum(item.get("soldQuantity", 0) or 0 for item in items_raw1)
-
+        return [], f"OE '{oe}' 在 {cfg['domain']} 上未找到结果", 0, "error", None, []
     cat_id, cat_name, share, dist_top = _pick_dominant_category(data1, items_raw1)
     cat_info = {
         "id": cat_id,
@@ -638,47 +700,34 @@ def scrape_one_oe(
         "share": round(share, 3),
         "top": dist_top,
     }
-
-    # ═══ 类目不可信 → 退回全局 Best Match（沿用第一遍的100条取样） ═══
-    if not cat_id:
-        items, _, strategy, ci, all_prices = _finalize_oe(
-            items_raw1[:RESULT_LIMIT], oe, "best_match_fallback", mp, cat_info
+    strategy = "category_locked" if cat_id else "category_fallback"
+    data2 = None
+    error2 = None
+    if cat_id:
+        data2, error2 = search_ebay(
+            oe, mp, sort=sort, category_id=cat_id,
+            fixed_price_only=True, **common,
         )
-        return items, None, sold_total, strategy, ci, all_prices
-
-    # ═══ 第二遍：锁类目 + 价格升序 + 仅一口价 ═══
-    data2, error2 = search_ebay(
-        oe,
-        mp,
-        limit=RESULT_LIMIT,
-        sort="price",
-        category_id=cat_id,
-        fixed_price_only=True,
-        free_shipping=free_shipping,
-    )
-    items_raw2 = (
-        (data2 or {}).get("itemSummaries", []) if not error2 else []
-    )
-
-    if items_raw2:
-        items, _, strategy, ci, all_prices = _finalize_oe(
-            items_raw2, oe, "category_locked", mp, cat_info, verify=True
+    if not cat_id or error2 or not (data2 or {}).get("itemSummaries"):
+        strategy = "category_fallback"
+        cat_info["fallbackReason"] = (
+            "无法确定主要类目" if not cat_id else
+            "类目查询失败" if error2 else "类目下无结果"
         )
-        return items, None, sold_total, strategy, ci, all_prices
-
-    # ═══ 第二遍为空 → 退回第一遍中属于整件类目的商品 ═══
-    pool = [it for it in items_raw1 if _raw_cat_id(it) == cat_id]
-    if pool:
-        items, _, strategy, ci, all_prices = _finalize_oe(
-            pool, oe, "category_pool_fallback", mp, cat_info, verify=True
+        # Never present the probe sample as if it obeyed the selected sort.
+        data2, error2 = search_ebay(
+            oe, mp, sort=sort, fixed_price_only=True, **common,
         )
-        return items, None, sold_total, strategy, ci, all_prices
-
-    # 类目 id 与第一遍摘要对不上（少见），退回全局 Best Match
-    items, _, strategy, ci, all_prices = _finalize_oe(
-        items_raw1[:RESULT_LIMIT], oe, "best_match_fallback", mp, cat_info
+    if error2:
+        return [], error2, 0, "error", cat_info, []
+    selected = (data2 or {}).get("itemSummaries", [])
+    if not selected:
+        return [], f"OE '{oe}' 在 {cfg['domain']} 上未找到结果", 0, "error", cat_info, []
+    sold_total = sum(item.get("soldQuantity", 0) or 0 for item in selected)
+    items, _, _, _, all_prices = _finalize_oe(
+        selected, oe, strategy, mp, cat_info, verify=True,
     )
-    return items, None, sold_total, strategy, ci, all_prices
+    return items, None, sold_total, strategy, cat_info, all_prices
 
 
 # ═══════════════════════ 批量搜索（异步任务） ═══════════════════════
@@ -692,19 +741,47 @@ def search_batch(
     task_id: str,
     free_shipping: bool = False,
     search_strategy: str = "category_lock",
+    ebay_sort: str | None = None,
+    delivery_country: str = "",
+    delivery_postal_code: str = "",
+    pickup_country: str = "",
+    pickup_postal_code: str = "",
+    pickup_radius: int | None = None,
+    pickup_unit: str = "",
+    targets: list[dict[str, str]] | None = None,
+    price_min: str = "",
+    price_max: str = "",
 ) -> None:
     """后台线程：3 并发搜索 OE 号"""
-    total = len(oe_list)
+    work_items = targets if targets is not None else [
+        {"inputKey": "", "site": site_key, "oe": oe,
+         "groupKey": f"{site_key}:{oe}"} for oe in oe_list
+    ]
+    total = len(work_items)
     all_results: list[dict | None] = []
     completed = 0
     lock = threading.Lock()
 
-    def do_one(oe: str) -> dict:
+    def do_one(target: dict[str, str]) -> dict:
+        oe = target["oe"]
+        site = target["site"]
         items, warning, sold, strategy, cat_info, all_prices = scrape_one_oe(
-            oe, site_key, free_shipping=free_shipping, search_strategy=search_strategy
+            oe, site, free_shipping=free_shipping, search_strategy=search_strategy,
+            ebay_sort=ebay_sort, delivery_country=delivery_country,
+            delivery_postal_code=delivery_postal_code,
+            pickup_country=pickup_country, pickup_postal_code=pickup_postal_code,
+            pickup_radius=pickup_radius, pickup_unit=pickup_unit,
+            price_min=price_min, price_max=price_max,
         )
+        for item in items:
+            item["inputKey"] = target.get("inputKey", "")
+            item["site"] = site.upper()
+            item["groupKey"] = target["groupKey"]
         return {
             "oe": oe,
+            "inputKey": target.get("inputKey", ""),
+            "site": site.upper(),
+            "groupKey": target["groupKey"],
             "count": len(items),
             "items": items,
             "warning": warning if not items else None,
@@ -712,18 +789,26 @@ def search_batch(
             "strategy": strategy,
             "categoryInfo": cat_info,
             "allPrices": all_prices,
+            "actualSort": (
+                "price" if ebay_sort is None and search_strategy == "category_lock"
+                else "best_match" if ebay_sort is None
+                else ebay_sort
+            ),
+            "categoryFallback": strategy == "category_fallback",
+            "fetchedCount": len(items),
+            "queryPrice": {"min": price_min, "max": price_max, "currency": SITES[site]["currency"]},
         }
 
     try:
         with ThreadPoolExecutor(max_workers=3) as pool:
-            future_map = {pool.submit(do_one, oe): oe for oe in oe_list}
-            oe_index = {oe: i for i, oe in enumerate(oe_list)}
+            future_map = {pool.submit(do_one, target): i for i, target in enumerate(work_items)}
             all_results = [None] * total
 
             for fut in as_completed(future_map):
-                oe = future_map[fut]
+                index = future_map[fut]
+                target = work_items[index]
                 result = fut.result()
-                all_results[oe_index[oe]] = result
+                all_results[index] = result
                 with lock:
                     completed += 1
                 tasks[task_id] = {
@@ -731,7 +816,7 @@ def search_batch(
                     "progress": {
                         "current": completed,
                         "total": total,
-                        "oe": oe,
+                        "oe": f"{target.get('inputKey') or target['oe']} ({target['site'].upper()})",
                     },
                 }
 
@@ -770,21 +855,46 @@ def _start_search_task(
     sku_mapping: dict | None = None,
     not_found_skus: list[str] | None = None,
     file_info: dict | None = None,
+    *,
+    ebay_sort: str | None = None,
+    delivery_country: str = "",
+    delivery_postal_code: str = "",
+    pickup_country: str = "",
+    pickup_postal_code: str = "",
+    pickup_radius: int | None = None,
+    pickup_unit: str = "",
+    targets: list[dict[str, str]] | None = None,
+    price_min: str = "",
+    price_max: str = "",
 ) -> dict:
     """公共逻辑：启动后台搜索任务并返回响应"""
     oe_list = list(dict.fromkeys(oe_list))
-    if not oe_list:
-        raise HTTPException(status_code=400, detail="未能识别有效的产品编号")
+    if not oe_list and not targets:
+        raise HTTPException(status_code=400, detail="没有可查询的中间码+站点映射")
+
+    work_count = len(targets) if targets is not None else len(oe_list)
 
     task_id = str(int(time.time() * 1000))[-8:]
     tasks[task_id] = {
         "status": "running",
-        "progress": {"current": 0, "total": len(oe_list), "oe": "启动中..."},
+        "progress": {"current": 0, "total": work_count, "oe": "启动中..."},
     }
 
     t = threading.Thread(
         target=search_batch,
         args=(oe_list, site, task_id, free_shipping, search_strategy),
+        kwargs={
+            "ebay_sort": ebay_sort,
+            "delivery_country": delivery_country,
+            "delivery_postal_code": delivery_postal_code,
+            "pickup_country": pickup_country,
+            "pickup_postal_code": pickup_postal_code,
+            "pickup_radius": pickup_radius,
+            "pickup_unit": pickup_unit,
+            "targets": targets,
+            "price_min": price_min,
+            "price_max": price_max,
+        },
     )
     t.daemon = True
     t.start()
@@ -792,6 +902,7 @@ def _start_search_task(
     resp: dict = {
         "task_id": task_id,
         "oe_list": oe_list,
+        "input_keys": [target["inputKey"] for target in targets] if targets is not None else [],
         "sku_mapping": sku_mapping or {},
         "not_found_skus": not_found_skus or [],
     }
@@ -837,8 +948,39 @@ def _resolve_oe_list(
     return oe_list, sku_mapping, not_found_skus
 
 
+def _resolve_site_key_targets(
+    input_list: list[str],
+) -> tuple[list[dict[str, str]], dict[str, str], list[str]]:
+    """按完整的中间码+站点键精确匹配，不跨站点借用 OE。"""
+    targets: list[dict[str, str]] = []
+    mapping: dict[str, str] = {}
+    not_found: list[str] = []
+    with _sku_oe_lock:
+        if _mapping_schema != "site_key":
+            raise HTTPException(status_code=400, detail="当前对照表不是“中间码+站点”四列格式，请刷新映射表")
+        known_middle_codes = {entry[0] for entry in _site_key_oe_map.values()}
+        for raw in input_list:
+            key = raw.strip().upper()
+            parts = _split_site_key(key)
+            if not parts:
+                not_found.append(f"{raw}（格式应为中间码+DE/UK/US）")
+                continue
+            entry = _site_key_oe_map.get(key)
+            if entry is None:
+                reason = "对应站点没有映射" if parts[0] in known_middle_codes else "中间码不存在"
+                not_found.append(f"{raw}（{reason}）")
+            elif not entry[2]:
+                not_found.append(f"{raw}（对应中间码和站点的 OE 号为空）")
+            else:
+                middle, site, oe = entry
+                targets.append({"inputKey": key, "middleCode": middle,
+                                "site": site, "oe": oe, "groupKey": key})
+                mapping[key] = oe
+    return targets, mapping, not_found
+
+
 def _parse_excel_keywords_from_bytes(
-    content: bytes, filename: str
+    content: bytes, filename: str, site_key_mode: bool = False,
 ) -> tuple[list[str], str, int, int, str]:
     """
     解析上传的 Excel 文件内容，提取 SKU / OE 列表。
@@ -847,7 +989,7 @@ def _parse_excel_keywords_from_bytes(
       两列表：A1 为 SKU、B1 为 OE，数据从第 2 行开始。
     返回 (keywords, input_type, total_rows, skipped_rows, file_name)
     """
-    wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
+    wb = load_workbook(BytesIO(content), read_only=False, data_only=True)
     ws = wb.active
     if ws is None:
         wb.close()
@@ -869,7 +1011,10 @@ def _parse_excel_keywords_from_bytes(
     col_a = normalize_header(header[0]) if len(header) > 0 and header[0] else ""
     col_b = normalize_header(header[1]) if len(header) > 1 and header[1] else ""
 
-    has_sku_col = col_a in ("sku", "skuid", "skuno")
+    if site_key_mode and col_a not in ("中间码+站点", "中间码站点", "sitekey"):
+        raise ValueError("Excel A1 表头必须是“中间码+站点”")
+
+    has_sku_col = col_a in ("sku", "skuid", "skuno") and not site_key_mode
     has_oe_col = col_b in ("oe", "oeno", "oenumber", "oenr", "partnumber", "partno")
 
     keywords: list[str] = []
@@ -898,7 +1043,7 @@ def _parse_excel_keywords_from_bytes(
                     keywords.append(part)
             if not val:
                 skipped_rows += 1
-        input_type = "oe"
+        input_type = "site_key" if site_key_mode else "oe"
 
     # 去重保序
     seen: set[str] = set()
@@ -915,6 +1060,71 @@ def _parse_excel_keywords_from_bytes(
 # ═══════════════════════ 搜索 API ═══════════════════════
 
 
+def _validated_search_options(
+    site: str, strategy: str, free_shipping: bool,
+    ebay_sort: str | None, delivery_country: str, delivery_postal_code: str,
+    pickup_country: str, pickup_postal_code: str,
+    pickup_radius: str, pickup_unit: str,
+    price_min: str = "", price_max: str = "",
+) -> dict:
+    """Validate browser fields once for both text and Excel entry points."""
+    bounds = []
+    for label, value in (("最低价", price_min), ("最高价", price_max)):
+        value = value.strip()
+        if value and (len(value) > 32 or not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,2})?", value)):
+            raise HTTPException(status_code=400, detail=f"查询{label}必须是大于等于0的数字，最多两位小数")
+        bounds.append(value)
+    price_min, price_max = bounds
+    if price_min and price_max and Decimal(price_min) > Decimal(price_max):
+        raise HTTPException(status_code=400, detail="查询最低价不能大于最高价")
+    selected_sort = ebay_sort.strip() if ebay_sort is not None else None
+    if selected_sort is not None and selected_sort not in EBAY_SORTS:
+        raise HTTPException(status_code=400, detail="不支持的 eBay 获取排序")
+    country = delivery_country.strip().upper()
+    postal = delivery_postal_code.strip()
+    if bool(country) != bool(postal):
+        raise HTTPException(status_code=400, detail="参考配送国家和邮编必须同时填写")
+    if country and (
+        not re.fullmatch(r"[A-Z]{2}", country)
+        or not re.fullmatch(r"[A-Za-z0-9 -]{3,12}", postal)
+    ):
+        raise HTTPException(status_code=400, detail="参考配送地点格式不正确")
+
+    pickup = {
+        "pickup_country": pickup_country.strip().upper(),
+        "pickup_postal_code": pickup_postal_code.strip(),
+        "pickup_radius": None,
+        "pickup_unit": pickup_unit.strip(),
+    }
+    if selected_sort == "distance":
+        if free_shipping:
+            raise HTTPException(status_code=400, detail="最近自提不能同时选择仅免运费")
+        if country:
+            raise HTTPException(status_code=400, detail="最近自提不使用参考配送地点")
+        if (
+            not re.fullmatch(r"[A-Z]{2}", pickup["pickup_country"])
+            or not re.fullmatch(r"[A-Za-z0-9 -]{3,12}", pickup["pickup_postal_code"])
+            or not pickup_radius.strip().isdigit()
+            or pickup["pickup_unit"] not in {"km", "mi"}
+        ):
+            raise HTTPException(status_code=400, detail="请填写完整有效的自提国家、邮编、半径和单位")
+        radius = int(pickup_radius.strip())
+        if not 1 <= radius <= 500:
+            raise HTTPException(status_code=400, detail="自提半径必须为 1-500")
+        pickup["pickup_radius"] = radius
+    elif any((pickup_country, pickup_postal_code, pickup_radius, pickup_unit)):
+        raise HTTPException(status_code=400, detail="自提地点仅用于最近自提排序")
+
+    return {
+        "ebay_sort": selected_sort,
+        "delivery_country": country,
+        "delivery_postal_code": postal,
+        "price_min": price_min,
+        "price_max": price_max,
+        **pickup,
+    }
+
+
 @router.post("/api/scrape")
 async def api_scrape(
     nkw: str = Form(""),
@@ -922,6 +1132,15 @@ async def api_scrape(
     input_type: str = Form("auto"),
     free_shipping: str = Form("false"),
     search_strategy: str = Form("category_lock"),
+    ebay_sort: str | None = Form(None),
+    delivery_country: str = Form(""),
+    delivery_postal_code: str = Form(""),
+    pickup_country: str = Form(""),
+    pickup_postal_code: str = Form(""),
+    pickup_radius: str = Form(""),
+    pickup_unit: str = Form(""),
+    price_min: str = Form(""),
+    price_max: str = Form(""),
 ):
     cleanup_tasks()
 
@@ -931,8 +1150,14 @@ async def api_scrape(
     if ss not in ("best_match", "category_lock"):
         ss = "category_lock"
 
-    if site not in SITES:
+    key_mode = input_type.strip() == "site_key"
+    if (key_mode and site != "auto") or (not key_mode and site not in SITES):
         raise HTTPException(status_code=400, detail="不支持的站点")
+    options = _validated_search_options(
+        site, ss, fs, ebay_sort, delivery_country, delivery_postal_code,
+        pickup_country, pickup_postal_code, pickup_radius, pickup_unit,
+        price_min, price_max,
+    )
     if not raw_text:
         raise HTTPException(status_code=400, detail="请输入至少一个产品编号")
 
@@ -940,19 +1165,37 @@ async def api_scrape(
     if not input_list:
         raise HTTPException(status_code=400, detail="未能识别有效的产品编号")
 
+    if key_mode:
+        targets, mapping, not_found = _resolve_site_key_targets(input_list)
+        if not targets:
+            raise HTTPException(status_code=400, detail="没有可查询的映射：" + "、".join(not_found[:10]))
+        return _start_search_task(
+            [], site, fs, ss, mapping, not_found, targets=targets, **options
+        )
+
     oe_list, sku_mapping, not_found_skus = _resolve_oe_list(
         input_list, input_type.strip()
     )
     return _start_search_task(
-        oe_list, site, fs, ss, sku_mapping, not_found_skus
+        oe_list, site, fs, ss, sku_mapping, not_found_skus, **options
     )
 
 
 @router.post("/api/scrape-file")
 async def api_scrape_file(
     site: str = Form("de"),
+    input_type: str = Form(""),
     free_shipping: str = Form("false"),
     search_strategy: str = Form("category_lock"),
+    ebay_sort: str | None = Form(None),
+    delivery_country: str = Form(""),
+    delivery_postal_code: str = Form(""),
+    pickup_country: str = Form(""),
+    pickup_postal_code: str = Form(""),
+    pickup_radius: str = Form(""),
+    pickup_unit: str = Form(""),
+    price_min: str = Form(""),
+    price_max: str = Form(""),
     file: UploadFile = File(...),
 ):
     """通过上传 Excel 文件批量查询"""
@@ -963,8 +1206,14 @@ async def api_scrape_file(
     if ss not in ("best_match", "category_lock"):
         ss = "category_lock"
 
-    if site not in SITES:
+    key_mode = input_type == "site_key"
+    if (key_mode and site != "auto") or (not key_mode and site not in SITES):
         raise HTTPException(status_code=400, detail="不支持的站点")
+    options = _validated_search_options(
+        site, ss, fs, ebay_sort, delivery_country, delivery_postal_code,
+        pickup_country, pickup_postal_code, pickup_radius, pickup_unit,
+        price_min, price_max,
+    )
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="请选择要上传的 Excel 文件")
@@ -982,7 +1231,7 @@ async def api_scrape_file(
     try:
         content = await file.read()
         keywords, input_type_val, total_rows, skipped_rows, file_name = (
-            _parse_excel_keywords_from_bytes(content, file.filename)
+            _parse_excel_keywords_from_bytes(content, file.filename, site_key_mode=key_mode)
         )
     except Exception as e:
         raise HTTPException(
@@ -994,18 +1243,27 @@ async def api_scrape_file(
             status_code=400, detail="Excel 中未读取到有效的 SKU 或 OE 数据"
         )
 
-    oe_list, sku_mapping, not_found_skus = _resolve_oe_list(
-        keywords, input_type_val
-    )
-
     file_info = {
         "fileName": file_name,
         "totalRows": total_rows,
         "skippedRows": skipped_rows,
         "inputType": input_type_val,
     }
+    if key_mode:
+        targets, mapping, not_found = _resolve_site_key_targets(keywords)
+        if not targets:
+            raise HTTPException(status_code=400, detail="没有可查询的映射：" + "、".join(not_found[:10]))
+        return _start_search_task(
+            [], site, fs, ss, mapping, not_found, file_info,
+            targets=targets, **options,
+        )
+
+    oe_list, sku_mapping, not_found_skus = _resolve_oe_list(
+        keywords, input_type_val
+    )
     return _start_search_task(
-        oe_list, site, fs, ss, sku_mapping, not_found_skus, file_info
+        oe_list, site, fs, ss, sku_mapping, not_found_skus, file_info,
+        **options,
     )
 
 
@@ -1042,16 +1300,113 @@ async def api_check():
 @router.get("/api/sku/list")
 async def api_sku_list():
     with _sku_oe_lock:
-        items = [
-            {
-                "sku": sku,
-                "oe": oe,
-                "middleCode": _custom_middle_codes.get(sku)
-                or _extract_middle_code(sku),
-            }
-            for sku, oe in sorted(_sku_oe_map.items())
-        ]
-    return {"items": items, "total": len(items)}
+        if _mapping_schema == "site_key":
+            items = [
+                {"sku": key, "oe": oe, "middleCode": middle, "site": site.upper()}
+                for key, (middle, site, oe) in sorted(_site_key_oe_map.items())
+            ]
+        else:
+            items = [
+                {
+                    "sku": sku,
+                    "oe": oe,
+                    "middleCode": _custom_middle_codes.get(sku)
+                    or _extract_middle_code(sku),
+                }
+                for sku, oe in sorted(_sku_oe_map.items())
+            ]
+    return {"items": items, "total": len(items), "readOnly": False,
+            "siteKeyMode": _mapping_schema == "site_key"}
+
+
+def _save_site_key_entry(original_key: str | None, key: str, oe: str) -> None:
+    """保留四列表和现有公式；文件保存成功后才更新查询用的内存映射。"""
+    global _site_key_oe_map, _sku_oe_map
+    parts = _split_site_key(key)
+    if not parts:
+        raise HTTPException(status_code=400, detail="中间码+站点格式错误，应如 10144US、10144UK、10144DE")
+    if not oe:
+        raise HTTPException(status_code=400, detail="OE 号不能为空")
+    if oe.startswith("="):
+        raise HTTPException(status_code=400, detail="OE 号不能以 = 开头")
+    with _sku_oe_lock:
+        if _mapping_schema != "site_key":
+            raise HTTPException(status_code=409, detail="当前不是中间码+站点四列表，请刷新映射表")
+        wb = None
+        temp_path = None
+        try:
+            source_stat = os.stat(SKU_OE_FILE)
+            wb = load_workbook(SKU_OE_FILE)
+            ws = wb.active
+            headers = [ws.cell(1, col).value for col in range(1, 5)]
+            if not ("中间码" in str(headers[0] or "") and "站点" in str(headers[0] or "")
+                    and "OE" in str(headers[3] or "").upper()):
+                raise HTTPException(status_code=409, detail="Excel 表头已变化，请先核对四列表")
+            positions: dict[str, int] = {}
+            for row in range(2, ws.max_row + 1):
+                raw = ws.cell(row, 1).value
+                if raw is None or not str(raw).strip():
+                    continue
+                existing = str(raw).strip().upper()
+                if existing in positions:
+                    raise HTTPException(status_code=409, detail=f"Excel 中存在重复映射键：{existing}")
+                positions[existing] = row
+            if original_key is None:
+                if key in positions:
+                    raise HTTPException(status_code=409, detail=f"中间码+站点 {key} 已存在，请使用编辑")
+                row = ws.max_row + 1
+                for col in range(1, 5):
+                    ws.cell(row, col)._style = copy(ws.cell(row - 1, col)._style)
+                ws.cell(row, 2, f"=LEFT(A{row},LEN(A{row})-2)")
+                ws.cell(row, 3, f"=RIGHT(A{row},2)")
+            else:
+                row = positions.get(original_key)
+                if row is None:
+                    raise HTTPException(status_code=409, detail=f"原映射 {original_key} 不存在，请刷新后重试")
+                if key != original_key and key in positions:
+                    raise HTTPException(status_code=409, detail=f"中间码+站点 {key} 已存在")
+            ws.cell(row, 1, key)
+            ws.cell(row, 4, oe)
+            updated: dict[str, tuple[str, str, str]] = {}
+            for data_row in range(2, ws.max_row + 1):
+                raw_key = ws.cell(data_row, 1).value
+                if raw_key is None or not str(raw_key).strip():
+                    continue
+                normalized = str(raw_key).strip().upper()
+                row_parts = _split_site_key(normalized)
+                if row_parts:
+                    raw_oe = ws.cell(data_row, 4).value
+                    updated[normalized] = (row_parts[0], row_parts[1], str(raw_oe).strip() if raw_oe is not None else "")
+            # 同目录临时文件 + 原子替换，避免保存失败时损坏源文件或污染内存。
+            fd, temp_path = tempfile.mkstemp(prefix="sku-oe-", suffix=".xlsx", dir=str(Path(SKU_OE_FILE).parent))
+            os.close(fd)
+            wb.save(temp_path)
+            wb.close()
+            wb = None
+            current_stat = os.stat(SKU_OE_FILE)
+            if (current_stat.st_mtime_ns, current_stat.st_size) != (source_stat.st_mtime_ns, source_stat.st_size):
+                raise HTTPException(status_code=409, detail="Excel 文件保存期间被其他程序修改，请刷新后重试")
+            os.replace(temp_path, SKU_OE_FILE)
+            temp_path = None
+        except HTTPException:
+            raise
+        except (OSError, PermissionError) as exc:
+            raise HTTPException(status_code=500, detail=f"保存 Excel 失败，文件可能正在被占用：{exc}") from exc
+        finally:
+            if wb is not None:
+                wb.close()
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+        _site_key_oe_map = updated
+        _sku_oe_map = {item_key: item[2] for item_key, item in updated.items() if item[2]}
+
+
+def _require_writable_legacy_map() -> None:
+    if _mapping_schema == "site_key":
+        raise HTTPException(
+            status_code=409,
+            detail="当前为“中间码+站点”四列表；删除和整表导入暂不支持，请使用新增或编辑",
+        )
 
 
 @router.post("/api/sku/add")
@@ -1059,6 +1414,11 @@ async def api_sku_add(request: Request):
     data = await request.json()
     if not data:
         raise HTTPException(status_code=400, detail="缺少数据")
+    if _mapping_schema == "site_key":
+        key = str(data.get("sku") or "").strip().upper()
+        oe = str(data.get("oe") or "").strip()
+        _save_site_key_entry(None, key, oe)
+        return {"success": True, "sku": key, "oe": oe}
 
     sku = data.get("sku", "").strip()
     oe = data.get("oe", "").strip()
@@ -1090,6 +1450,12 @@ async def api_sku_update(request: Request):
     data = await request.json()
     if not data:
         raise HTTPException(status_code=400, detail="缺少数据")
+    if _mapping_schema == "site_key":
+        original = str(data.get("originalSku") or data.get("sku") or "").strip().upper()
+        key = str(data.get("sku") or "").strip().upper()
+        oe = str(data.get("oe") or "").strip()
+        _save_site_key_entry(original, key, oe)
+        return {"success": True, "sku": key, "oe": oe}
 
     sku = data.get("sku", "").strip()
     oe = data.get("oe", "").strip()
@@ -1125,6 +1491,7 @@ async def api_sku_update(request: Request):
 
 @router.post("/api/sku/delete")
 async def api_sku_delete(request: Request):
+    _require_writable_legacy_map()
     data = await request.json()
     if not data:
         raise HTTPException(status_code=400, detail="缺少数据")
@@ -1162,11 +1529,16 @@ async def api_sku_lookup(request: Request):
         for sku in skus:
             sku = sku.strip()
             if sku:
-                oe = _sku_oe_map.get(sku) or _middle_code_oe_map.get(
-                    sku.upper()
-                )
+                if _mapping_schema == "site_key":
+                    entry = _site_key_oe_map.get(sku.upper())
+                    oe = entry[2] if entry else ""
+                else:
+                    oe = _sku_oe_map.get(sku) or _middle_code_oe_map.get(sku.upper())
                 if oe:
-                    results.append({"sku": sku, "oe": oe})
+                    result = {"sku": sku, "oe": oe}
+                    if _mapping_schema == "site_key":
+                        result["site"] = entry[1].upper()
+                    results.append(result)
                 else:
                     not_found.append(sku)
 
@@ -1179,14 +1551,16 @@ async def api_sku_lookup(request: Request):
 
 @router.post("/api/sku/refresh")
 async def api_sku_refresh():
-    load_sku_oe_map()
-    return {"success": True, "total": len(_sku_oe_map)}
+    if not load_sku_oe_map():
+        raise HTTPException(status_code=500, detail="对照表重新加载失败，请检查文件、表头和重复键")
+    return {"success": True, "total": len(_site_key_oe_map) if _mapping_schema == "site_key" else len(_sku_oe_map)}
 
 
 @router.post("/api/sku/import")
 async def api_sku_import(file: UploadFile = File(...)):
     """从 Excel 文件批量导入 SKU-OE 映射（覆盖式）"""
     global _sku_oe_map
+    _require_writable_legacy_map()
 
     if not file.filename:
         raise HTTPException(
@@ -1323,13 +1697,19 @@ async def api_export(request: Request, background_tasks: BackgroundTasks):
         "Seller",
         "Rate",
         "Shipping",
+        "Listed At",
+        "Ends At",
         "Link",
         "Images",
+        "Input Key",
+        "Site",
     ]
-    col_widths = [16, 12, 50, 14, 8, 12, 40, 18]
+    col_widths = [16, 12, 50, 14, 8, 12, 23, 23, 40, 18, 18, 10]
     for c, (h, w) in enumerate(zip(headers, col_widths), 1):
         cell = ws.cell(row=1, column=c, value=h)
-        cell.font = cell.font.copy(bold=True)
+        font = copy(cell.font)
+        font.bold = True
+        cell.font = font
         ws.column_dimensions[get_column_letter(c)].width = w
 
     img_height = 80
@@ -1343,11 +1723,18 @@ async def api_export(request: Request, background_tasks: BackgroundTasks):
         fb = item.get("sellerFeedback", "")
         ws.cell(row=i, column=5, value=f"{fb}%" if fb else "")
         ws.cell(row=i, column=6, value=item.get("shipping", ""))
+        ws.cell(row=i, column=7, value=item.get("listedAt", ""))
+        ws.cell(row=i, column=8, value=item.get("endsAt", ""))
+        ws.cell(row=i, column=11, value=item.get("inputKey", ""))
+        ws.cell(row=i, column=12, value=item.get("site", ""))
         link = item.get("link", "")
         if link:
-            cell = ws.cell(row=i, column=7, value=link)
+            cell = ws.cell(row=i, column=9, value=link)
             cell.hyperlink = link
-            cell.font = cell.font.copy(color="0563C1", underline="single")
+            font = copy(cell.font)
+            font.color = "0563C1"
+            font.underline = "single"
+            cell.font = font
 
         img_url = (item.get("images") or [None])[0]
         if img_url:
@@ -1358,7 +1745,7 @@ async def api_export(request: Request, background_tasks: BackgroundTasks):
                     xl_img = XlImage(img_data)
                     xl_img.height = img_height
                     xl_img.width = img_height
-                    anchor = f"H{i}"
+                    anchor = f"J{i}"
                     ws.add_image(xl_img, anchor)
             except Exception:
                 pass
