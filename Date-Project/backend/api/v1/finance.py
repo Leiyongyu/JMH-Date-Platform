@@ -30,7 +30,8 @@ from backend.services.performance_service import (
 from backend.services.performance_source_export_service import (
     export_amz_performance_source,
 )
-from backend.services.clearance_export_service import export_inventory_age_details
+from backend.services.clearance_export_service import export_inventory_age_details, export_monthly_summary
+from backend.services.clearance_drilldown_service import list_dimensions as clearance_dimensions
 from backend.services.inventory_report_etl_service import (
     get_department_summary,
     get_dimension_summary,
@@ -327,10 +328,37 @@ def get_slow_moving_clearance_summary(
     )
 
 
+@router.get("/slow-moving-clearance/dimensions")
+def get_slow_moving_clearance_dimensions(
+    request: Request,
+    pull_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+    group_code: str = Query(..., pattern=r"^(EBAY-1|EU|US1|US2|US2-MJ|US1-ZXY)$"),
+    site_code: str | None = Query(None, min_length=1, max_length=120),
+):
+    if site_code is not None and group_code != 'EBAY-1':
+        raise HTTPException(status_code=400, detail='仅 eBay 支持站点下钻到个人')
+    return success_response(
+        clearance_dimensions(pull_month, group_code, site_code),
+        request_id=request.state.request_id,
+    )
+
+
 @router.get("/slow-moving-clearance/months")
 def get_slow_moving_clearance_months(request: Request, limit: int = 24):
     return success_response(
         clearance_repo.months(limit),
+        request_id=request.state.request_id,
+    )
+
+
+@router.get("/slow-moving-clearance/owners")
+def get_slow_moving_clearance_owners(
+    request: Request,
+    pull_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+    site_code: str | None = Query(None, min_length=1, max_length=120),
+):
+    return success_response(
+        clearance_dimensions(pull_month, 'EBAY-1', site_code, dimension='OWNER'),
         request_id=request.state.request_id,
     )
 
@@ -533,6 +561,24 @@ async def post_monthly_inventory_history_import(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return success_response(data, request_id=request.state.request_id)
+
+
+@router.get("/slow-moving-clearance/monthly-summary-exports")
+async def get_clearance_monthly_summary_export(
+    pull_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+):
+    try:
+        file_path, download_name = await run_in_threadpool(export_monthly_summary, pull_month)
+        return FileResponse(
+            file_path,
+            filename=download_name,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            background=BackgroundTask(Path(file_path).unlink, missing_ok=True),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"滞销清货当月汇总导出失败: {exc}") from exc
 
 
 @router.get("/slow-moving-clearance/inventory-age-detail-exports")

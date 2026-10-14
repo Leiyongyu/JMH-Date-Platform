@@ -7,16 +7,19 @@
           <h2>滞销清货</h2>
           <p>按 eBay、EU、US1、US2 及拆分后的 US3 组别，展示海外仓/FBA库龄成本与成都仓30天以上库存。</p>
         </div>
-        <el-button
-          class="cost-action-trigger"
-          type="primary"
-          plain
-          :loading="costExporting"
-          @click="handleCostDetailExport"
-        >
-          <el-icon><Download /></el-icon>
-          <span>导出库龄明细</span>
-        </el-button>
+        <el-dropdown trigger="click" :disabled="costExporting || loading" @command="handleExport">
+          <el-button class="cost-action-trigger" type="primary" plain :loading="costExporting" :disabled="loading">
+            <el-icon><Download /></el-icon>
+            <span>导出</span>
+            <el-icon><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="summary">导出当月汇总（组别 / 店铺 / 个人 / 站点）</el-dropdown-item>
+              <el-dropdown-item command="detail">导出库龄明细</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </el-card>
 
@@ -153,9 +156,55 @@
             </template>
           </el-table-column>
         </el-table-column>
+        <el-table-column label="下钻" width="200" fixed="right" align="center">
+          <template #default="{ row }">
+            <el-button link type="primary" :disabled="loading" @click="openDrilldown(row)">
+              {{ row.group_code === 'EBAY-1' ? '按站点查看' : '按店铺查看' }}
+            </el-button>
+            <el-button v-if="row.group_code === 'EBAY-1'" link type="primary" :disabled="loading" @click="openDrilldown(row, 'OWNER')">按个人查看</el-button>
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
 
+    <el-dialog v-model="drilldown.visible" :title="drilldown.title" width="94%" destroy-on-close @close="closeDrilldown">
+      <p class="drilldown-hint">
+        快照月份：{{ drilldown.month }}。仅拆分海外仓/FBA库龄；成都仓仍按组别展示。
+        {{ drilldown.isEbay ? '美国东西仓合并 US，捷克仓归 DE；个人按各自快照月份的负责人规则匹配，未匹配计入未分配。' : '按中文店铺主体合并各国家站点，不按 SID 拆分；可识别同名店铺的共享仓一并汇总，不重复分摊。' }}
+        仅上月存在的站点/店铺/负责人仍保留用于核对，当前数量及成本为 0；差值＝上月成本－本月成本。
+      </p>
+      <el-alert v-for="warning in drilldown.warnings" :key="warning" :title="warning" type="warning" :closable="false" show-icon />
+      <el-alert v-if="drilldown.error" :title="drilldown.error" type="error" :closable="false" show-icon />
+      <el-table v-loading="drilldown.loading" :data="drilldown.rows" border stripe show-summary :summary-method="drilldownSummary" max-height="65vh" class="age-table">
+        <el-table-column prop="dimension_name" :label="drilldown.dimension === 'OWNER' ? '负责人' : drilldown.isEbay ? '站点' : '中文店铺名称'" min-width="240" fixed show-overflow-tooltip />
+        <el-table-column prop="source_row_count" label="本月明细行数" width="120" align="right" />
+        <el-table-column v-for="bucket in drilldownBuckets" :key="bucket.key" :label="bucket.label" align="center">
+          <el-table-column :prop="`${bucket.key}_qty`" label="库存数量" min-width="120" align="right">
+            <template #default="{ row }">{{ number(row[`${bucket.key}_qty`]) }}</template>
+          </el-table-column>
+          <el-table-column :prop="`${bucket.key}_cost`" label="库龄成本" min-width="140" align="right">
+            <template #default="{ row }">{{ money(row[`${bucket.key}_cost`]) }}</template>
+          </el-table-column>
+          <el-table-column v-if="bucket.previous" :prop="bucket.previous" label="上月库龄成本" min-width="140" align="right">
+            <template #default="{ row }">{{ moneyOrDash(row[bucket.previous]) }}</template>
+          </el-table-column>
+          <el-table-column v-if="bucket.previous" :prop="`${bucket.key}_variance`" label="差值" min-width="140" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'negative-value': isNegative(row[`${bucket.key}_variance`]) }">{{ moneyOrDash(row[`${bucket.key}_variance`]) }}</span>
+            </template>
+          </el-table-column>
+        </el-table-column>
+        <el-table-column label="合计" align="center">
+          <el-table-column prop="total_inventory_qty" label="库存数量" min-width="120" align="right">
+            <template #default="{ row }">{{ number(row.total_inventory_qty) }}</template>
+          </el-table-column>
+          <el-table-column prop="total_inventory_cost" label="库龄成本" min-width="140" align="right">
+            <template #default="{ row }">{{ money(row.total_inventory_cost) }}</template>
+          </el-table-column>
+        </el-table-column>
+      </el-table>
+      <template #footer><el-button @click="drilldown.visible = false">关闭</el-button></template>
+    </el-dialog>
   </div>
 </template>
 
@@ -163,6 +212,9 @@
 import { getCurrentInstance, onMounted, reactive, ref } from 'vue'
 import {
   exportInventoryAgeDetails,
+  exportClearanceMonthlySummary,
+  getSlowMovingClearanceOwners,
+  getSlowMovingClearanceDimensions,
   getSlowMovingClearanceSummary,
   listSlowMovingClearance,
   listSlowMovingClearanceMonths
@@ -180,6 +232,57 @@ const query = reactive({
   pageSize: 20,
   pullMonth: undefined
 })
+const drilldown = reactive({ visible: false, loading: false, title: '', month: '', isEbay: false, rows: [], error: '', dimension: '', warnings: [] })
+let drilldownRequest = 0
+const drilldownBuckets = [
+  { key: 'inventory_0_90', label: '0–90天' },
+  { key: 'inventory_91_180', label: '91–180天', previous: 'previous_month_91_180_cost' },
+  { key: 'inventory_181_plus', label: '181天以上', previous: 'previous_month_181_plus_cost' }
+]
+
+function closeDrilldown() {
+  drilldownRequest++
+  drilldown.rows = []
+  drilldown.warnings = []
+  drilldown.loading = false
+}
+
+function drilldownSummary({ columns, data }) {
+  return columns.map((column, index) => {
+    if (index === 0) return '合计'
+    const values = data.map(row => row[column.property]).filter(value => value !== null && value !== undefined)
+    if (!values.length) return '--'
+    const total = values.reduce((sum, value) => sum + Number(value), 0)
+    return /cost|variance/.test(column.property) ? money(total) : number(total)
+  })
+}
+
+async function openDrilldown(row, dimension) {
+  if (loading.value) return
+  const month = query.pullMonth || summary.pull_month
+  if (!month) return
+  const isOwner = dimension === 'OWNER' && row.group_code === 'EBAY-1'
+  const request = ++drilldownRequest
+  Object.assign(drilldown, {
+    visible: true, loading: true, rows: [], error: '', month, warnings: [],
+    dimension: isOwner ? 'OWNER' : row.group_code === 'EBAY-1' ? 'SITE' : 'STORE',
+    isEbay: row.group_code === 'EBAY-1',
+    title: `${row.group_name} · ${month} · ${isOwner ? '个人库龄明细（全部站点）' : row.group_code === 'EBAY-1' ? '站点库龄明细' : '店铺库龄明细'}`
+  })
+  try {
+    const response = isOwner
+      ? await getSlowMovingClearanceOwners(month)
+      : await getSlowMovingClearanceDimensions(month, row.group_code)
+    if (request === drilldownRequest) {
+      drilldown.rows = response.data?.items || []
+      drilldown.warnings = response.data?.warnings || []
+    }
+  } catch (error) {
+    if (request === drilldownRequest) drilldown.error = '下钻数据加载失败，请关闭后重试'
+  } finally {
+    if (request === drilldownRequest) drilldown.loading = false
+  }
+}
 
 function number(value) {
   return Number(value || 0).toLocaleString('zh-CN', {
@@ -215,19 +318,27 @@ function spanCtuUs3({ row, column }) {
   return [1, 1]
 }
 
+let listRequest = 0
 async function loadData() {
+  const request = ++listRequest
   loading.value = true
   try {
     const [listResponse, summaryResponse] = await Promise.all([
-      listSlowMovingClearance(query),
+      listSlowMovingClearance({ ...query }),
       getSlowMovingClearanceSummary(query.pullMonth)
     ])
+    if (request !== listRequest) return
     rows.value = listResponse.rows || []
     Object.keys(summary).forEach(key => delete summary[key])
     Object.assign(summary, summaryResponse.data || {})
     query.pullMonth = summary.pull_month || listResponse.pullMonth || query.pullMonth
+  } catch (error) {
+    if (request === listRequest) {
+      rows.value = []
+      Object.keys(summary).forEach(key => delete summary[key])
+    }
   } finally {
-    loading.value = false
+    if (request === listRequest) loading.value = false
   }
 }
 
@@ -242,34 +353,49 @@ async function loadMonths() {
 }
 
 function handleMonthChange() {
+  drilldown.visible = false
+  closeDrilldown()
   query.pageNum = 1
   loadData()
 }
 
-async function handleCostDetailExport() {
+async function handleExport(command) {
+  if (costExporting.value || loading.value) return
   const month = query.pullMonth || summary.pull_month
   if (!month) {
     proxy.$modal.msgError('请选择需要导出的快照月份')
     return
   }
   costExporting.value = true
+  const label = command === 'summary' ? '滞销清货当月汇总' : '库龄明细'
   try {
-    const data = await exportInventoryAgeDetails(month)
+    const data = await (command === 'summary' ? exportClearanceMonthlySummary(month) : exportInventoryAgeDetails(month))
     const blob = data instanceof Blob
       ? data
       : new Blob([data], {
           type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         })
+    // Auth / backend failures may arrive as JSON blobs with HTTP 200.
+    if (/json|text/i.test(blob.type)) {
+      const text = await blob.text()
+      let message = '导出失败，请重试'
+      try {
+        const error = JSON.parse(text)
+        message = error.msg || error.detail || message
+      } catch (_) { /* Do not download an error response as Excel. */ }
+      proxy.$modal.msgError(message)
+      return
+    }
     const timestamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${month}-库龄明细-${timestamp}.xlsx`
+    link.download = `${month}-${label}-${timestamp}.xlsx`
     document.body.appendChild(link)
     link.click()
     link.remove()
     URL.revokeObjectURL(url)
-    proxy.$modal.msgSuccess(`${month} 库龄明细导出成功`)
+    proxy.$modal.msgSuccess(`${month} ${label}导出成功`)
   } finally {
     costExporting.value = false
   }
@@ -337,6 +463,7 @@ onMounted(() => Promise.all([loadMonths(), loadData()]))
 .table-title { color: #1e293b; font-size: 16px; font-weight: 650; }
 .table-hint { margin-top: 4px; color: #94a3b8; font-size: 12px; }
 .negative-value { color: #dc2626; }
+.drilldown-hint { color: #64748b; line-height: 1.8; margin: 0 0 14px; }
 .cost-action-trigger { min-width: 164px; }
 .age-table :deep(.el-table__header th) { background: #f8fafc; color: #475569; }
 @media (max-width: 768px) {

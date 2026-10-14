@@ -177,10 +177,29 @@ public class PerformancePythonClient extends PythonHttpSupport
         return get("/slow-moving-clearance/summary", params, requestId);
     }
 
+    public Map<String, Object> clearanceDimensions(
+            String pullMonth, String groupCode, String siteCode, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pull_month", pullMonth);
+        params.put("group_code", groupCode);
+        params.put("site_code", siteCode);
+        return get("/slow-moving-clearance/dimensions", params, requestId);
+    }
+
     public Map<String, Object> clearanceMonths(int limit, String requestId)
     {
         return get("/slow-moving-clearance/months",
                 Map.of("limit", limit), requestId);
+    }
+
+    public Map<String, Object> clearanceOwners(
+            String pullMonth, String siteCode, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pull_month", pullMonth);
+        params.put("site_code", siteCode);
+        return get("/slow-moving-clearance/owners", params, requestId);
     }
 
     public Map<String, Object> monthlyInventoryReportMonths(
@@ -479,13 +498,22 @@ public class PerformancePythonClient extends PythonHttpSupport
             String pullMonth,
             String requestId)
     {
+        return exportClearanceWorkbook("/slow-moving-clearance/inventory-age-detail-exports", pullMonth, requestId);
+    }
+
+    public byte[] exportClearanceMonthlySummary(String pullMonth, String requestId)
+    {
+        return exportClearanceWorkbook("/slow-moving-clearance/monthly-summary-exports", pullMonth, requestId);
+    }
+
+    private byte[] exportClearanceWorkbook(String path, String pullMonth, String requestId)
+    {
         try
         {
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("pull_month", pullMonth);
             HttpRequest request = baseRequest(
-                    "/slow-moving-clearance/inventory-age-detail-exports"
-                            + queryString(params),
+                    path + queryString(params),
                     requestId)
                     .setHeader("Accept", EXCEL_CONTENT_TYPE)
                     .GET()

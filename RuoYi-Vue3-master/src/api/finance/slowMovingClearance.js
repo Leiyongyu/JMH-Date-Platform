@@ -8,11 +8,27 @@ export function listSlowMovingClearance(query) {
   })
 }
 
+export function getSlowMovingClearanceDimensions(pullMonth, groupCode, siteCode) {
+  return request({
+    url: '/finance/slow-moving-clearance/dimensions',
+    method: 'get',
+    params: { pullMonth, groupCode, siteCode }
+  })
+}
+
 export function getSlowMovingClearanceSummary(pullMonth) {
   return request({
     url: '/finance/slow-moving-clearance/summary',
     method: 'get',
     params: { pullMonth }
+  })
+}
+
+export function getSlowMovingClearanceOwners(pullMonth, siteCode) {
+  return request({
+    url: '/finance/slow-moving-clearance/owners',
+    method: 'get',
+    params: { pullMonth, siteCode: siteCode || undefined }
   })
 }
 
@@ -27,6 +43,16 @@ export function listSlowMovingClearanceMonths(limit = 24) {
 export function exportInventoryAgeDetails(pullMonth) {
   return request({
     url: '/finance/slow-moving-clearance/inventory-age-cost/export',
+    method: 'get',
+    params: { pullMonth },
+    responseType: 'blob',
+    timeout: 600000
+  })
+}
+
+export function exportClearanceMonthlySummary(pullMonth) {
+  return request({
+    url: '/finance/slow-moving-clearance/monthly-summary/export',
     method: 'get',
     params: { pullMonth },
     responseType: 'blob',

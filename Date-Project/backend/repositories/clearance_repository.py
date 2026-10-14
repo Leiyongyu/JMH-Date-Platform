@@ -604,6 +604,107 @@ def summary(month: str | None) -> dict:
     return result
 
 
+def list_site_dimensions(month: str) -> dict[str, Any]:
+    """Read stored age costs only; never reprice or redistribute shared stock.
+
+    Include dimensions present only last month so previous costs and variances
+    still reconcile to the group. CTU stock has no reliable store allocation.
+    """
+    previous_month = (datetime.strptime(month, "%Y-%m") - timedelta(days=1)).strftime("%Y-%m")
+    fields = [
+        "inventory_0_90_qty", "inventory_0_90_cost",
+        "inventory_91_180_qty", "inventory_91_180_cost",
+        "inventory_181_plus_qty", "inventory_181_plus_cost",
+        "total_inventory_qty", "total_inventory_cost",
+    ]
+    site = """CASE
+            WHEN UPPER(TRIM(warehouse_code)) IN ('USEA','USWE','US') THEN 'US'
+            WHEN UPPER(TRIM(warehouse_code)) IN ('UK','GB') THEN 'UK'
+            WHEN UPPER(TRIM(warehouse_code)) IN ('DE','CZ') THEN 'DE'
+            ELSE CONCAT('未识别仓库：',COALESCE(NULLIF(TRIM(warehouse_code),''),'未知'))
+        END"""
+    metrics = []
+    for bucket, prefix in [("0_90", "inventory_0_90"), ("91_180", "inventory_91_180"), ("181_PLUS", "inventory_181_plus")]:
+        for suffix, source in [("qty", "inventory_quantity"), ("cost", "inventory_age_cost")]:
+            metrics.append(f"CASE WHEN inventory_age_bucket='{bucket}' THEN {source} ELSE 0 END AS {prefix}_{suffix}")
+    source_sql = f"""
+            SELECT pull_month,{site} AS dimension_key,{site} AS dimension_name,
+                   {','.join(metrics)},inventory_quantity AS total_inventory_qty,
+                   inventory_age_cost AS total_inventory_cost
+            FROM dwd_ebay_inventory_age_cost_snapshot
+            WHERE pull_month IN (%s,%s)
+        """
+    params = (month, previous_month)
+    sums = ','.join(f'COALESCE(SUM({field}),0) AS {field}' for field in fields)
+    current_fields = ','.join(f'COALESCE(c.{field},0) AS {field}' for field in fields)
+    with db_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""
+            WITH source_rows AS ({source_sql}), aggregated AS (
+                SELECT pull_month,dimension_key,MAX(dimension_name) AS dimension_name,
+                       COUNT(*) AS source_row_count,{sums}
+                FROM source_rows GROUP BY pull_month,dimension_key
+            ), dimension_keys AS (
+                SELECT DISTINCT dimension_key FROM aggregated
+            ), previous_available AS (
+                SELECT MAX(pull_month) AS previous_cost_month FROM aggregated WHERE pull_month=%s
+            )
+            SELECT k.dimension_key,COALESCE(c.dimension_name,p.dimension_name) AS dimension_name,
+                   COALESCE(c.source_row_count,0) AS source_row_count,{current_fields},
+                   a.previous_cost_month,
+                   CASE WHEN a.previous_cost_month IS NOT NULL THEN COALESCE(p.inventory_91_180_cost,0) END AS previous_month_91_180_cost,
+                   CASE WHEN a.previous_cost_month IS NOT NULL THEN COALESCE(p.inventory_91_180_cost,0)-COALESCE(c.inventory_91_180_cost,0) END AS inventory_91_180_variance,
+                   CASE WHEN a.previous_cost_month IS NOT NULL THEN COALESCE(p.inventory_181_plus_cost,0) END AS previous_month_181_plus_cost,
+                   CASE WHEN a.previous_cost_month IS NOT NULL THEN COALESCE(p.inventory_181_plus_cost,0)-COALESCE(c.inventory_181_plus_cost,0) END AS inventory_181_plus_variance
+            FROM dimension_keys k
+            CROSS JOIN previous_available a
+            LEFT JOIN aggregated c ON c.dimension_key=k.dimension_key AND c.pull_month=%s
+            LEFT JOIN aggregated p ON p.dimension_key=k.dimension_key AND p.pull_month=%s
+            ORDER BY k.dimension_key
+            """,
+            (*params, previous_month, month, previous_month),
+        )
+        items = list(cur.fetchall())
+    return {"pull_month": month, "group_code": "EBAY-1",
+            "dimension": "SITE",
+            "items": items, "total": len(items)}
+
+
+def drilldown_source_rows(month: str, group_code: str) -> list[dict[str, Any]]:
+    """Aggregate stored amounts before name normalization/owner assignment.
+
+    Keep the two months separate so changing shop IDs, names or owners cannot
+    move last month's costs onto the current month's identity prematurely.
+    """
+    previous = (datetime.strptime(month, "%Y-%m") - timedelta(days=1)).strftime("%Y-%m")
+    if group_code == "EBAY-1":
+        sql = """
+            SELECT pull_month,warehouse_code,sku,source_product_sku,inventory_age_bucket,
+                   COUNT(*) AS source_row_count,
+                   COALESCE(SUM(inventory_quantity),0) AS inventory_quantity,
+                   COALESCE(SUM(inventory_age_cost),0) AS inventory_age_cost
+            FROM dwd_ebay_inventory_age_cost_snapshot
+            WHERE pull_month IN (%s,%s)
+            GROUP BY pull_month,warehouse_code,sku,source_product_sku,inventory_age_bucket
+        """
+        params = (month, previous)
+    else:
+        fields = [f'{prefix}_{suffix}' for prefix in (
+            'inventory_0_90', 'inventory_91_180', 'inventory_181_plus', 'total_inventory'
+        ) for suffix in ('qty', 'cost')]
+        sql = f"""
+            SELECT pull_month,sid,store_name,warehouse_name,COUNT(*) AS source_row_count,
+                   {','.join(f'COALESCE(SUM({field}),0) AS {field}' for field in fields)}
+            FROM dwd_amz_fba_inventory_monthly_snapshot
+            WHERE pull_month IN (%s,%s) AND group_code=%s
+            GROUP BY pull_month,sid,store_name,warehouse_name
+        """
+        params = (month, previous, group_code)
+    with db_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        return list(cur.fetchall())
+
+
 def months(limit: int = 24) -> list[dict]:
     with db_connection() as conn, conn.cursor() as cur:
         cur.execute(

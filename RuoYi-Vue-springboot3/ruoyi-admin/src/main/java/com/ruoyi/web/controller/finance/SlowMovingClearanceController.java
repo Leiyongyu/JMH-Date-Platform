@@ -88,6 +88,42 @@ public class SlowMovingClearanceController extends BaseController
         }
     }
 
+    @PreAuthorize("@ss.hasPermi('finance:slowMovingClearance:list')")
+    @GetMapping("/dimensions")
+    public AjaxResult dimensions(
+            @RequestParam String pullMonth,
+            @RequestParam String groupCode,
+            @RequestParam(required = false) String siteCode,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        try
+        {
+            return success(data(pythonClient.clearanceDimensions(
+                    pullMonth, groupCode, siteCode, requestId)));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
+    @PreAuthorize("@ss.hasPermi('finance:slowMovingClearance:list')")
+    @GetMapping("/owners")
+    public AjaxResult owners(
+            @RequestParam String pullMonth,
+            @RequestParam(required = false) String siteCode,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        try
+        {
+            return success(data(pythonClient.clearanceOwners(pullMonth, siteCode, requestId)));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
     @Log(title = "滞销清货库龄成本明细导出",
             businessType = BusinessType.EXPORT)
     @PreAuthorize("@ss.hasPermi('finance:slowMovingClearance:list')")
@@ -108,6 +144,24 @@ public class SlowMovingClearanceController extends BaseController
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename*=UTF-8''" + filename)
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .contentLength(file.length)
+                .body(file);
+    }
+
+    @Log(title = "滞销清货当月汇总导出", businessType = BusinessType.EXPORT)
+    @PreAuthorize("@ss.hasPermi('finance:slowMovingClearance:list')")
+    @GetMapping("/monthly-summary/export")
+    public ResponseEntity<byte[]> exportMonthlySummary(
+            @RequestParam String pullMonth,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        byte[] file = pythonClient.exportClearanceMonthlySummary(pullMonth, requestId);
+        String filename = URLEncoder.encode(pullMonth + "-滞销清货当月汇总.xlsx",
+                StandardCharsets.UTF_8).replace("+", "%20");
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename)
                 .contentType(MediaType.parseMediaType(
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                 .contentLength(file.length)

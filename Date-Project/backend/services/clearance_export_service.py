@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -13,6 +14,89 @@ from openpyxl.utils import get_column_letter
 
 from backend.config import settings
 from backend.repositories import clearance_repository as repo
+from backend.services.clearance_drilldown_service import list_dimensions
+
+
+SUMMARY_METRICS = [
+    ("0–90天库存数量", "inventory_0_90_qty", "qty"),
+    ("0–90天库龄成本", "inventory_0_90_cost", "money"),
+    ("91–180天库存数量", "inventory_91_180_qty", "qty"),
+    ("91–180天库龄成本", "inventory_91_180_cost", "money"),
+    ("91–180天上月库龄成本", "previous_month_91_180_cost", "money"),
+    ("91–180天差值（上月－本月）", "inventory_91_180_variance", "money"),
+    ("181天以上库存数量", "inventory_181_plus_qty", "qty"),
+    ("181天以上库龄成本", "inventory_181_plus_cost", "money"),
+    ("181天以上上月库龄成本", "previous_month_181_plus_cost", "money"),
+    ("181天以上差值（上月－本月）", "inventory_181_plus_variance", "money"),
+    ("海外仓/FBA合计库存数量", "total_inventory_qty", "qty"),
+    ("海外仓/FBA合计库龄成本", "total_inventory_cost", "money"),
+]
+
+
+def export_monthly_summary(pull_month: str) -> tuple[str, str]:
+    """Export the selected snapshot using the same group/drilldown readers as UI.
+
+    No refresh or repricing. Owners aggregate ALL sites by their month's brand
+    rules. CTU cannot be allocated to shops/people and is group-only.
+    """
+    if not re.fullmatch(r"20\d{2}-(0[1-9]|1[0-2])", pull_month or ""):
+        raise ValueError("请选择有效的快照月份（YYYY-MM）")
+    groups = [dict(row) for row in repo.list_groups(pull_month)["items"]]
+    if not groups:
+        raise ValueError(f"{pull_month} 没有可导出的滞销清货数据")
+    stores, people, sites = [], [], []
+    seen_ctu_us3 = False
+    for row in groups:
+        code = row["group_code"]
+        row["pull_month"] = pull_month
+        if code in {"US2-MJ", "US1-ZXY"}:
+            # The UI merges these CTU cells. In a flat Excel sheet keep the
+            # shared US3 value once, regardless of group ordering/missing row.
+            if seen_ctu_us3:
+                row["ctu_over_30_qty"] = row["ctu_over_30_cost"] = None
+                row["note"] = "成都仓为共享US3，已计入另一拆分组行，不重复计数"
+            else:
+                row["note"] = "成都仓为US2-MJ与US1-ZXY共享US3，仅在本行计一次"
+                seen_ctu_us3 = True
+        if code == "EBAY-1":
+            people = list_dimensions(pull_month, code, dimension="OWNER")["items"]
+            sites = list_dimensions(pull_month, code)["items"]
+        else:
+            stores.extend({**item, "group_code": code} for item in
+                          list_dimensions(pull_month, code)["items"])
+
+    month_header = [("快照月份", "pull_month", "text")]
+    group_headers = month_header + [
+        ("区域", "region_name", "text"), ("组别", "group_code", "text"),
+        ("店铺/仓库数", "shop_count", "qty"),
+        ("成都仓30天以上库存数量", "ctu_over_30_qty", "qty"),
+        ("成都仓30天以上库龄成本", "ctu_over_30_cost", "money"),
+    ] + SUMMARY_METRICS + [("备注", "note", "text")]
+    workbook = Workbook(write_only=True)
+    _append_sheet(workbook, f"组别-{pull_month}", group_headers, groups,
+                  [24] * (len(group_headers) - 1) + [62], "2563EB")
+    for label, identity, items in [("店铺", "中文店铺名称", stores),
+                                    ("个人", "eBay负责人", people),
+                                    ("站点", "eBay站点", sites)]:
+        headers = month_header + [("组别", "group_code", "text"),
+                                  (identity, "dimension_name", "text"),
+                                  ("本月明细行数", "source_row_count", "qty")] + SUMMARY_METRICS
+        output = [{**item, "pull_month": pull_month,
+                   "group_code": item.get("group_code", "EBAY-1")} for item in items]
+        _append_sheet(workbook, f"{label}-{pull_month}", headers, output,
+                      [24] * len(headers), "2563EB")
+    export_dir = Path(settings.export_output_dir)
+    export_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", prefix=f"clearance_summary_{pull_month}_",
+                                     dir=str(export_dir), delete=False) as temp:
+        path = temp.name
+    try:
+        workbook.save(path)
+    except Exception:
+        Path(path).unlink(missing_ok=True)
+        raise
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    return path, f"{pull_month}-滞销清货当月汇总-{timestamp}.xlsx"
 
 
 FBA_HEADERS = [
@@ -141,6 +225,8 @@ def _append_sheet(
             if key == "store_name" and not str(value or "").strip():
                 value = "0"
             cell = WriteOnlyCell(sheet, value=_excel_value(value))
+            if value_type == "text" and isinstance(value, str):
+                cell.data_type = "s"  # Store names are data, never Excel formulas.
             if value_type == "qty":
                 cell.number_format = "#,##0.######"
             elif value_type == "money":
