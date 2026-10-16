@@ -40,6 +40,7 @@ docs/
 !docs/
 docs/*
 !docs/JMH报关单插件对接方案.md
+!docs/销售看板历史数据接入.md
 !Date-Project/docs/
 Date-Project/docs/*
 !Date-Project/docs/仓位库存明细周报-实现方案.md

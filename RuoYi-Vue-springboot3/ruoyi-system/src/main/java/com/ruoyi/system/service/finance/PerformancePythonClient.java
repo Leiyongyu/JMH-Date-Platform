@@ -33,6 +33,26 @@ public class PerformancePythonClient extends PythonHttpSupport
         return get("/performance-rankings", params, requestId);
     }
 
+    public Map<String, Object> salesDashboardOptions(String requestId)
+    {
+        return get("/sales-dashboard/options", Map.of(), requestId);
+    }
+
+    public Map<String, Object> salesDashboardReport(Map<String, ?> params, String requestId)
+    {
+        return get("/sales-dashboard/report", params, requestId);
+    }
+
+    public Map<String, Object> previewSalesHistory(MultipartFile file, String requestId)
+    {
+        return upload("/sales-dashboard/preview", Map.of(), file, requestId, null);
+    }
+
+    public Map<String, Object> importSalesHistory(MultipartFile file, String sha256, String operator, String requestId)
+    {
+        return upload("/sales-dashboard/import", Map.of("file_sha256", sha256, "operator", operator), file, requestId, null);
+    }
+
     public Map<String, Object> amzOwnerSkuSummary(String requestId)
     {
         return get("/amz-owner-sku/summary", Map.of(), requestId);
