@@ -1,5 +1,6 @@
 package com.ruoyi.system.service.operation.ebay;
 
+import com.ruoyi.common.constant.Constants;
 import com.ruoyi.common.exception.ServiceException;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayOutputStream;
@@ -14,6 +15,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.apache.poi.ss.SpreadsheetVersion;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
@@ -32,6 +34,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class EbayReplenishmentV2ExportService
 {
+    public static final String COLUMN_PERMISSION_PREFIX = "operations:ebayReplenishmentV2:exportColumn:";
+
     private enum Format
     {
         TEXT("@"), INTEGER("#,##0"), DECIMAL("#,##0.00"),
@@ -43,7 +47,7 @@ public class EbayReplenishmentV2ExportService
 
     private record Column(String title, String key, Format format, int width) {}
 
-    // 与页面columnDefs保持相同顺序；无论用户隐藏哪些列，都导出完整36列。
+    // 与页面保持相同顺序；页面隐藏列不影响导出，但角色字段权限必须在后端过滤。
     private static final List<Column> COLUMNS = List.of(
             new Column("站点", "site", Format.TEXT, 12),
             new Column("SKU", "sku", Format.TEXT, 27),
@@ -92,12 +96,13 @@ public class EbayReplenishmentV2ExportService
             COLUMNS.get(11),
             new Column("未分类退货量", "unclassified_return_qty", Format.INTEGER, 20));
 
-    public void export(Object data, Map<String, ?> filters, HttpServletResponse response)
+    public void export(Object data, Map<String, ?> filters, Set<String> permissions,
+            HttpServletResponse response)
     {
         try
         {
             // 先完成整个文件，再发送响应，解析/校验失败不会下载半个Excel。
-            byte[] bytes = buildExcel(data, filters);
+            byte[] bytes = buildExcel(data, filters, permissions);
             String filename = "eBay补货2.0-" + LocalDateTime.now().format(
                     DateTimeFormatter.ofPattern("yyyyMMddHHmmss")) + ".xlsx";
             response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -113,8 +118,29 @@ public class EbayReplenishmentV2ExportService
         }
     }
 
-    byte[] buildExcel(Object data, Map<String, ?> filters) throws IOException
+    /** 只接受登录会话的有效权限；没有列权限时明确拒绝，不回退为全部字段。 */
+    public void checkExportPermission(Set<String> permissions)
     {
+        if (permittedColumns(COLUMNS, permissions).isEmpty()
+                && permittedColumns(MONTH_COLUMNS, permissions).isEmpty())
+            throw new ServiceException("未配置eBay补货2.0导出字段权限，请联系管理员在角色管理中勾选导出字段", 403);
+    }
+
+    private static List<Column> permittedColumns(List<Column> columns, Set<String> permissions)
+    {
+        if (permissions == null || permissions.isEmpty()) return List.of();
+        return columns.stream().filter(column -> permissions.contains(Constants.ALL_PERMISSION)
+                || permissions.contains(COLUMN_PERMISSION_PREFIX + column.key())).toList();
+    }
+
+    byte[] buildExcel(Object data, Map<String, ?> filters, Set<String> permissions) throws IOException
+    {
+        checkExportPermission(permissions);
+        List<Column> mainColumns = permittedColumns(COLUMNS, permissions);
+        List<Column> monthColumns = permittedColumns(MONTH_COLUMNS, permissions);
+        // 仅允许站点/SKU时，不额外生成重复三遍、没有任何指标或日期的明细Sheet。
+        if (monthColumns.stream().allMatch(column -> Set.of("site", "sku").contains(column.key())))
+            monthColumns = List.of();
         if (!(data instanceof Map<?, ?> payload))
             throw new ServiceException("导出数据结构异常，请检查Python服务版本");
         List<Map<?, ?>> items = maps(payload.get("items"));
@@ -131,24 +157,25 @@ public class EbayReplenishmentV2ExportService
         {
             Map<Format, CellStyle> styles = styles(workbook);
             CellStyle header = headerStyle(workbook);
-            Sheet main = sheet(workbook, "补货2.0", COLUMNS, header);
-            Sheet monthly = sheet(workbook, "90天分段明细", MONTH_COLUMNS, header);
+            Sheet main = mainColumns.isEmpty() ? null : sheet(workbook, "补货2.0", mainColumns, header);
+            Sheet monthly = monthColumns.isEmpty() ? null : sheet(workbook, "90天分段明细", monthColumns, header);
             int rowIndex = 1;
             int monthIndex = 1;
             for (Map<?, ?> item : items)
             {
-                writeRow(main, rowIndex++, COLUMNS, item, styles);
+                if (main != null) writeRow(main, rowIndex++, mainColumns, item, styles);
+                if (monthly == null) continue;
                 for (Map<?, ?> metric : maps(item.get("monthly_metrics")))
                 {
                     Map<Object, Object> detail = new LinkedHashMap<>(metric);
                     detail.put("site", item.get("site"));
                     detail.put("sku", item.get("sku"));
-                    writeRow(monthly, monthIndex++, MONTH_COLUMNS, detail, styles);
+                    writeRow(monthly, monthIndex++, monthColumns, detail, styles);
                 }
             }
-            main.setAutoFilter(new CellRangeAddress(0, rowIndex - 1, 0, COLUMNS.size() - 1));
-            monthly.setAutoFilter(new CellRangeAddress(0, monthIndex - 1, 0, MONTH_COLUMNS.size() - 1));
-            writeNotes(workbook, payload, filters, items.size(), header, styles);
+            if (main != null) main.setAutoFilter(new CellRangeAddress(0, rowIndex - 1, 0, mainColumns.size() - 1));
+            if (monthly != null) monthly.setAutoFilter(new CellRangeAddress(0, monthIndex - 1, 0, monthColumns.size() - 1));
+            writeNotes(workbook, payload, filters, items.size(), mainColumns, monthColumns, header, styles);
             workbook.write(output);
             return output.toByteArray();
         }
@@ -174,7 +201,13 @@ public class EbayReplenishmentV2ExportService
     private static Sheet sheet(Workbook workbook, String name, List<Column> columns, CellStyle header)
     {
         Sheet sheet = workbook.createSheet(name);
-        sheet.createFreezePane(2, 1);
+        int frozenColumns = 0;
+        for (Column column : columns)
+        {
+            if (!Set.of("site", "sku").contains(column.key())) break;
+            frozenColumns++;
+        }
+        sheet.createFreezePane(frozenColumns, 1);
         sheet.setRepeatingRows(new CellRangeAddress(0, 0, -1, -1));
         Row row = sheet.createRow(0);
         row.setHeightInPoints(32);
@@ -265,7 +298,8 @@ public class EbayReplenishmentV2ExportService
     }
 
     private static void writeNotes(Workbook workbook, Map<?, ?> payload, Map<String, ?> filters,
-            int count, CellStyle header, Map<Format, CellStyle> styles)
+            int count, List<Column> mainColumns, List<Column> monthColumns,
+            CellStyle header, Map<Format, CellStyle> styles)
     {
         List<Column> columns = List.of(new Column("项目", "name", Format.TEXT, 25),
                 new Column("说明", "value", Format.TEXT, 110));
@@ -273,7 +307,9 @@ public class EbayReplenishmentV2ExportService
         notes.createFreezePane(0, 1);
         Map<String, Object> entries = new LinkedHashMap<>();
         entries.put("生成时间", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-        entries.put("主表记录数", count);
+        entries.put("产品记录数", count);
+        entries.put("主表导出字段", mainColumns.stream().map(Column::title).toList());
+        entries.put("分段明细导出字段", monthColumns.stream().map(Column::title).toList());
         entries.put("主表销量等日期区间", payload.get("latest_complete_month"));
         entries.put("90天分段区间", payload.get("months"));
         entries.put("滚动统计基准日", payload.get("reference_date"));
@@ -287,7 +323,7 @@ public class EbayReplenishmentV2ExportService
         entries.put("销售类型筛选", selected(filters.get("sales_type")));
         entries.put("排序字段", filters.get("sort_field") == null ? "sales_qty_30d" : filters.get("sort_field"));
         entries.put("排序方向", filters.get("sort_order") == null ? "desc" : filters.get("sort_order"));
-        entries.put("数据范围", "当前筛选下全部记录，不受页码、每页条数或隐藏列影响；重置筛选后导出全表。");
+        entries.put("数据范围", "当前筛选下全部记录，不受分页或页面隐藏列影响；仅导出当前账号各角色授权字段的并集，页面展示不受导出字段权限影响。");
         entries.put("金额与比率", "金额为人民币，显示2位小数；比例存数值、显示百分数；数量和天数按页面格式显示。");
         entries.put("空值", "缺失值显示--，真实0保留；质量问题退货量/率为0时按页面显示--。");
         entries.put("数据生成方式", "导出时重新查询现有数据库并复用列表公式，不调用任何外部拉取任务；数据更新后可能与先前打开的页面不同。");

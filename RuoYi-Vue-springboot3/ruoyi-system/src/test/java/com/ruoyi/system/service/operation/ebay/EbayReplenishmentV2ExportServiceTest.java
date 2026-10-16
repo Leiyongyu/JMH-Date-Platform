@@ -7,6 +7,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Arrays;
+import java.util.stream.Collectors;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -16,6 +20,20 @@ import static org.mockito.Mockito.*;
 
 class EbayReplenishmentV2ExportServiceTest
 {
+    private static final Set<String> ALL_PERMISSIONS = Set.of("*:*:*");
+
+    private static Set<String> columns(String... keys)
+    {
+        return Arrays.stream(keys).map(key -> EbayReplenishmentV2ExportService.COLUMN_PERMISSION_PREFIX + key)
+                .collect(Collectors.toSet());
+    }
+
+    private static List<String> headers(org.apache.poi.ss.usermodel.Sheet sheet)
+    {
+        return java.util.stream.IntStream.range(0, sheet.getRow(0).getLastCellNum())
+                .mapToObj(index -> sheet.getRow(0).getCell(index).getStringCellValue()).toList();
+    }
+
     private Map<String, Object> payload()
     {
         Map<String, Object> item = new LinkedHashMap<>();
@@ -41,7 +59,7 @@ class EbayReplenishmentV2ExportServiceTest
     @Test
     void writes37ColumnsWithNumbersBlanksAndSeparateMonthlyDetails() throws Exception
     {
-        byte[] bytes = new EbayReplenishmentV2ExportService().buildExcel(payload(), Map.of());
+        byte[] bytes = new EbayReplenishmentV2ExportService().buildExcel(payload(), Map.of(), ALL_PERMISSIONS);
         try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes)))
         {
             assertEquals(3, workbook.getNumberOfSheets());
@@ -80,7 +98,7 @@ class EbayReplenishmentV2ExportServiceTest
         when(mapper.selectByKeys(anyList())).thenReturn(List.of());
         var data = payload();
         new EbayReplenishmentV2LeadTimeService(mapper).enrich(data);
-        byte[] bytes = new EbayReplenishmentV2ExportService().buildExcel(data, Map.of());
+        byte[] bytes = new EbayReplenishmentV2ExportService().buildExcel(data, Map.of(), ALL_PERMISSIONS);
         try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes)))
         {
             assertEquals(67, workbook.getSheet("补货2.0").getRow(1).getCell(29).getNumericCellValue());
@@ -93,7 +111,7 @@ class EbayReplenishmentV2ExportServiceTest
         var data = payload();
         data.put("pagination", Map.of("total", 510));
         var error = assertThrows(ServiceException.class,
-                () -> new EbayReplenishmentV2ExportService().buildExcel(data, Map.of()));
+                () -> new EbayReplenishmentV2ExportService().buildExcel(data, Map.of(), ALL_PERMISSIONS));
         assertTrue(error.getMessage().contains("记录数与总数不一致"));
     }
 
@@ -103,6 +121,89 @@ class EbayReplenishmentV2ExportServiceTest
         var data = payload();
         data.put("items", List.of());
         assertThrows(ServiceException.class,
-                () -> new EbayReplenishmentV2ExportService().buildExcel(data, Map.of()));
+                () -> new EbayReplenishmentV2ExportService().buildExcel(data, Map.of(), ALL_PERMISSIONS));
+    }
+
+    @Test
+    void restrictsBothSheetsAndNeverSerializesDeniedValues() throws Exception
+    {
+        var data = payload();
+        var item = (Map<String, Object>) ((List<?>) data.get("items")).get(0);
+        item.put("gross_profit_amount", "DENIED_MAIN_PROFIT");
+        item.put("monthly_metrics", List.of(Map.of("month", "DENIED_DATE", "sales_qty", 10,
+                "gross_profit_amount", "DENIED_DETAIL_PROFIT", "quality_return_qty", "DENIED_QUALITY")));
+        byte[] bytes = new EbayReplenishmentV2ExportService().buildExcel(data, Map.of(),
+                columns("site", "sku", "sales_qty", "operations_note"));
+        try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes)))
+        {
+            assertEquals(List.of("站点", "SKU", "销量", "运营"), headers(workbook.getSheet("补货2.0")));
+            assertEquals(List.of("站点", "SKU", "销量"), headers(workbook.getSheet("90天分段明细")));
+            assertEquals("运营的完整备注超过五字", workbook.getSheet("补货2.0").getRow(1).getCell(3).getStringCellValue());
+            for (var sheet : workbook) for (var row : sheet) for (var cell : row)
+            {
+                String value = new DataFormatter().formatCellValue(cell);
+                assertFalse(value.contains("DENIED_"));
+                assertFalse(value.contains("开发完整备注"));
+            }
+        }
+        // 导出过滤不能修改列表原数据。
+        assertEquals("DENIED_MAIN_PROFIT", item.get("gross_profit_amount"));
+        assertEquals("开发完整备注", item.get("development_note"));
+    }
+
+    @Test
+    void unionsRolesWithoutGrantingUnselectedColumns() throws Exception
+    {
+        var permissions = new HashSet<>(columns("site", "operations_note"));
+        permissions.addAll(columns("sku", "development_note"));
+        byte[] bytes = new EbayReplenishmentV2ExportService().buildExcel(payload(), Map.of(), permissions);
+        try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes)))
+        {
+            assertEquals(List.of("站点", "SKU", "运营", "开发"), headers(workbook.getSheet("补货2.0")));
+            assertNull(workbook.getSheet("90天分段明细"));
+            assertEquals(2, workbook.getNumberOfSheets());
+        }
+    }
+
+    @Test
+    void allowsOnlyDetailColumnsWithoutLeakingMainTable() throws Exception
+    {
+        byte[] bytes = new EbayReplenishmentV2ExportService().buildExcel(payload(), Map.of(),
+                columns("month", "quality_return_qty"));
+        try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes)))
+        {
+            assertNull(workbook.getSheet("补货2.0"));
+            assertEquals(List.of("日期区间", "产品质量问题退货量"), headers(workbook.getSheet("90天分段明细")));
+            assertEquals(0, workbook.getSheet("90天分段明细").getPaneInformation().getVerticalSplitPosition());
+        }
+    }
+
+    @Test
+    void singleColumnWorkbookHasNoHiddenUnauthorizedColumns() throws Exception
+    {
+        byte[] bytes = new EbayReplenishmentV2ExportService().buildExcel(payload(), Map.of(), columns("development_note"));
+        try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes)))
+        {
+            var sheet = workbook.getSheet("补货2.0");
+            assertEquals(List.of("开发"), headers(sheet));
+            assertEquals(1, sheet.getRow(1).getLastCellNum());
+            assertEquals("开发完整备注", sheet.getRow(1).getCell(0).getStringCellValue());
+            assertFalse(sheet.isColumnHidden(0));
+            assertEquals(0, sheet.getPaneInformation().getVerticalSplitPosition());
+        }
+    }
+
+    @Test
+    void failsClosedForMissingUnknownOrPageOnlyPermissions()
+    {
+        var service = new EbayReplenishmentV2ExportService();
+        for (Set<String> permissions : List.of(Set.<String>of(), columns("not_a_column"),
+                Set.of("operations:ebayReplenishmentV2:list", "operations:ebayReplenishmentV2:purchase")))
+        {
+            var error = assertThrows(ServiceException.class, () -> service.buildExcel(payload(), Map.of(), permissions));
+            assertTrue(error.getMessage().contains("导出字段权限"));
+            assertEquals(403, error.getCode());
+        }
+        assertThrows(ServiceException.class, () -> service.checkExportPermission(null));
     }
 }

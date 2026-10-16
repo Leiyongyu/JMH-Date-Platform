@@ -13,6 +13,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.List;
+import java.util.Set;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -86,10 +87,12 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestHeader(value = "X-Request-ID", required = false) String requestId,
             HttpServletResponse response)
     {
+        Set<String> permissions = getLoginUser().getPermissions();
+        exportService.checkExportPermission(permissions);
         Map<String, Object> params = queryParameters(
                 site, sku, productLevel, productNature, salesType, operationsConfirmed, sortField, sortOrder);
         Object result = enrich(data(client.exportData(params, requestId)));
-        exportService.export(result, params, response);
+        exportService.export(result, params, permissions, response);
     }
 
     private Map<String, Object> queryParameters(String site, String sku, String productLevel,

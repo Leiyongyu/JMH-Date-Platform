@@ -72,7 +72,7 @@
 
     <el-row :gutter="10" class="mb8 table-toolbar">
       <el-col :span="1.5">
-        <el-tooltip content="导出当前筛选下全部记录和所有字段，不受分页或隐藏列限制；不筛选即导出全部数据" placement="top">
+        <el-tooltip content="导出当前筛选下全部记录，仅包含角色授权的导出字段；不受分页或页面隐藏列限制，页面可见字段不受影响" placement="top">
           <el-button
             type="warning"
             plain
