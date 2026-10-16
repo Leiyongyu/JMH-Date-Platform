@@ -9,6 +9,7 @@
 - `--` 表示无法计算等级，支持独立筛选。无法计算的建议量不计入合计，真实0保留；无记录的等级合计为0。编辑时效成功后的单行重新计算会同步调整所属等级及全部等级的合计。
 - 最后新增负责人列，使用北京时间当天所属月份的 `dwd_performance_owner_rule`，限定 `platform=ebay`、`rule_type=EBAY_BRAND`，按SKU首段品牌匹配；跨站点同品牌同负责人。FLL/LEJ归方黎力、CL归陈丽，沿用绩效排名固定归属。当月缺规则或负责人为空时显示“未分配”，不回退其他月份。
 - 列表返回 `level_summary`、`owner_rule_month`；负责人导出使用独立字段权限 `operations:ebayReplenishmentV2:exportColumn:principal_name`，不影响页面可见性。
+- 负责人下拉支持搜索、清空及“未分配”（有对应记录时出现）；选项来自当前计算版本的全部记录，不局限于当前页。按保存的负责人精确筛选，不在查询时重新分配；列表、分页总数、等级补货量合计及导出共同使用该条件。前端/Java参数为 `principalName`，Python为 `principal_name`，列表返回 `principals`。从已有结果JSON读取，无需新增表或修改表结构，旧计算版本也可直接筛选。此筛选不改变角色数据权限。
 
 ## 读取与计算优化（2026-10-16）
 

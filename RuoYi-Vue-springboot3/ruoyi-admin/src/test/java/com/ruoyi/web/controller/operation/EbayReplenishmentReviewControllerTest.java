@@ -37,8 +37,8 @@ class EbayReplenishmentReviewControllerTest
         var client = mock(EbayReplenishmentV2PythonClient.class);
         when(client.list(anyMap(), any())).thenReturn(Map.of("data", Map.of()));
         var controller = new EbayReplenishmentV2Controller(client, null, null);
-        controller.list(null, null, null, null, null, true, 1, 50, null, null, false, false, "trace");
-        controller.list(null, null, null, null, null, false, 1, 50, null, null, false, false, "trace");
+        controller.list(null, null, null, null, null, true, 1, 50, null, null, false, false, null, "trace");
+        controller.list(null, null, null, null, null, false, 1, 50, null, null, false, false, null, "trace");
         ArgumentCaptor<Map<String, Object>> params = ArgumentCaptor.forClass(Map.class);
         verify(client, times(2)).list(params.capture(), eq("trace"));
         assertEquals(true, params.getAllValues().get(0).get("operations_confirmed"));
@@ -54,11 +54,12 @@ class EbayReplenishmentReviewControllerTest
         when(client.list(anyMap(), any())).thenReturn(Map.of("data", payload));
         var controller = new EbayReplenishmentV2Controller(client, leadTime, null);
         assertEquals(payload, controller.list(null, "BMW-1-2", null, null, null, null, 1, 50,
-                "suggestedReplenishmentQty2", "desc", true, true, "trace").get("data"));
+                "suggestedReplenishmentQty2", "desc", true, true, " 任雅婷 ", "trace").get("data"));
         ArgumentCaptor<Map<String, Object>> params = ArgumentCaptor.forClass(Map.class);
         verify(client).list(params.capture(), eq("trace"));
         assertEquals(true, params.getValue().get("refresh"));
         assertEquals(true, params.getValue().get("exact_sku"));
+        assertEquals("任雅婷", params.getValue().get("principal_name"));
         verifyNoInteractions(leadTime);
     }
 }

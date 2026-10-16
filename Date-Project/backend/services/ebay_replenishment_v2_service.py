@@ -97,6 +97,7 @@ def list_replenishment(
     refresh: bool = False,
     calculation_version: str | None = None,
     exact_sku: bool = False,
+    principal_name: str | None = None,
 ) -> dict[str, Any]:
     """按同一北京时间基准读取近90天，拆为三个连续30天区间，不含今天。"""
 
@@ -107,7 +108,7 @@ def list_replenishment(
                      sort_field=sort_field,sort_order=sort_order,sales_type=sales_type,
                      operations_confirmed=operations_confirmed,paginate=paginate,
                      include_level_summary=include_level_summary,refresh=refresh,
-                     calculation_version=calculation_version,exact_sku=exact_sku)
+                     calculation_version=calculation_version,exact_sku=exact_sku,principal_name=principal_name)
     sales_type_filter = sales_type_service.normalize_filter(sales_type)
     sku_analysis_service._ensure_tables()
     months = rolling_periods()
@@ -127,10 +128,12 @@ def list_replenishment(
     # 否则每页会少于 page_size、总数也会是筛选前的值。
     level_filter = (product_level or "").strip().upper() or None
     nature_filter = (product_nature or "").strip() or None
+    principal_filter = (principal_name or '').strip() or None
     paginate_in_sql = (
         paginate
         and level_filter is None
         and nature_filter is None
+        and principal_filter is None
         and not derived_sort_field
         and not include_level_summary
     )
@@ -364,6 +367,11 @@ def list_replenishment(
         forecast_rules=forecast_rules,
         level_rules=level_rules,
     )
+    owner_rules = _ebay_rule_map(owner_rule_rows)
+    for item in items:
+        item['principal_name'], item['owner_match_source'] = _ebay_assignment(item.get('sku'), owner_rules)
+    if principal_filter is not None:
+        items = [item for item in items if item['principal_name'] == principal_filter]
     if nature_filter is not None:
         items = [
             item
@@ -381,9 +389,6 @@ def list_replenishment(
         if paginate:
             offset = (page - 1) * page_size
             items = items[offset:offset + page_size]
-    owner_rules = _ebay_rule_map(owner_rule_rows)
-    for item in items:
-        item['principal_name'], item['owner_match_source'] = _ebay_assignment(item.get('sku'), owner_rules)
     _enrich_warehouse_rent(items)
     return {
         "items": items,

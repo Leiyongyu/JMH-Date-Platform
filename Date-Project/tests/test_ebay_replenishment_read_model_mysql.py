@@ -236,3 +236,29 @@ def test_midnight_and_concurrent_refreshes(isolated,monkeypatch):
     assert next_day['reference_date']=='2026-10-17'
     assert next_day['calculation_version']!=versions[0]
     assert model.query(calculation_version=old['calculation_version'])['reference_date']=='2026-10-16'
+
+
+def test_owner_filter_options_totals_pagination_and_pinned_export(isolated):
+    records=execute(isolated,'SELECT id FROM dwd_ebay_sku_analysis_order ORDER BY id LIMIT 3')
+    for record,sku in zip(records,('FLL-TEST-001','CL-TEST-002','UNASSIGNED-TEST-003')):
+        execute(isolated,"UPDATE dwd_ebay_sku_analysis_order SET inventory_sku=%s,site_name='德国',payment_time='2026-10-15' WHERE id=%s",(sku,record['id']))
+    data=model.query(paginate=False)
+    assert {'方黎力','陈丽','未分配'}.issubset(set(data['principals']))
+    for principal in data['principals']:
+        expected=[row for row in data['items'] if row['principal_name']==principal]
+        exported=model.query(principal_name=principal,paginate=False,calculation_version=data['calculation_version'])
+        assert exported['items']==expected
+        assert exported['pagination']['total']==len(expected)
+        assert exported['level_summary']==legacy._level_replenishment_summary(expected)
+        page=model.query(principal_name=principal,page=2,page_size=1)
+        assert page['items']==expected[1:2]
+        assert page['principals']==data['principals']
+        assert page['level_summary']==exported['level_summary']
+        for grade in ('S','A','B','C','--'):
+            selected=model.query(principal_name=principal,site='德国',product_level=grade,paginate=False)
+            site_rows=[row for row in expected if row['site']=='德国']
+            assert selected['level_summary']==legacy._level_replenishment_summary(site_rows)
+            assert selected['items']==[row for row in site_rows if (row['product_level'] or '--')==grade]
+    empty=model.query(principal_name="x' OR 1=1 --")
+    assert empty['items']==[] and empty['pagination']['total']==0
+    assert empty['principals']==data['principals']

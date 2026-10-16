@@ -13,6 +13,12 @@
           <el-option v-for="site in siteOptions" :key="site" :label="site" :value="site" />
         </el-select>
       </el-form-item>
+      <el-form-item label="负责人" prop="principalName">
+        <el-select v-model="queryParams.principalName" placeholder="全部负责人" clearable filterable
+          :disabled="loading" style="width: 160px" @change="handleQuery">
+          <el-option v-for="principal in principalOptions" :key="principal" :label="principal" :value="principal" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="SKU" prop="sku">
         <el-input
           v-model="queryParams.sku"
@@ -450,6 +456,7 @@ const exporting = ref(false)
 const rows = ref([])
 const total = ref(0)
 const siteOptions = ref([])
+const principalOptions = ref([])
 // 与后端 _product_level 的取值保持一致：D 级已并入 C，长尾产品统一按 B 展示
 const productLevelOptions = ['', 'S', 'A', 'B', 'C', '--']
 const levelSummary = ref({})
@@ -627,6 +634,7 @@ const queryParams = reactive({
   pageNum: 1,
   pageSize: 50,
   site: undefined,
+  principalName: undefined,
     sku: undefined,
     productLevel: '',
     productNature: undefined,
@@ -686,6 +694,7 @@ async function loadRows(forceRefresh = false) {
     months.value = Array.isArray(data.months) ? data.months : []
     latestCompleteMonth.value = data.latest_complete_month || months.value[0] || ''
     siteOptions.value = Array.isArray(data.sites) ? data.sites : []
+    principalOptions.value = Array.isArray(data.principals) ? data.principals : []
     levelSummary.value = data.level_summary || {}
     ownerRuleMonth.value = data.owner_rule_month || ''
     calculationVersion.value = data.calculation_version || ''
@@ -805,6 +814,7 @@ function buildRequestParams() {
     pageNum: queryParams.pageNum,
     pageSize: queryParams.pageSize,
     site: queryParams.site || undefined,
+    principalName: queryParams.principalName || undefined,
     sku: String(queryParams.sku || '').trim() || undefined,
     productLevel: queryParams.productLevel || undefined,
     productNature: queryParams.productNature || undefined,

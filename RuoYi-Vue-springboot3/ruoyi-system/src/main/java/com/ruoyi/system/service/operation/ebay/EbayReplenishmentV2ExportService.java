@@ -319,6 +319,7 @@ public class EbayReplenishmentV2ExportService
         entries.put("90天分段区间", payload.get("months"));
         entries.put("滚动统计基准日", payload.get("reference_date"));
         entries.put("站点筛选", selected(filters.get("site")));
+        entries.put("负责人筛选", selected(filters.get("principal_name")));
         entries.put("SKU包含筛选", selected(filters.get("sku")));
         entries.put("滚动统计口径", "北京时间当天之前连续90天，不含今天；分为连续三个30天区间。近7/15/30天同样截至昨天。预估销量=90天销量/3。");
         entries.put("运营确认筛选", filters.get("operations_confirmed") == null ? "全部" : Boolean.TRUE.equals(filters.get("operations_confirmed")) ? "已确认" : "待确认");

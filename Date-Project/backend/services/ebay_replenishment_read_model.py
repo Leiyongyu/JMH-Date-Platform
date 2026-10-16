@@ -42,6 +42,7 @@ SORT_FIELDS = dict(zip(
 SORT_FIELDS.update({name: name for name in SORT_FIELDS.values()})
 METRICS = ('sales_qty', 'gross_profit_amount', 'paid_amount', 'return_qty',
            'return_amount', 'quality_return_qty', 'unclassified_return_qty')
+OWNER_SQL = "COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(base.payload,'$.principal_name')),''),'未分配')"
 
 
 def _json(value):
@@ -287,7 +288,7 @@ def _fresh(state, today):
 def query(*, site=None, sku=None, product_name=None, product_level=None, product_nature=None,
           sales_type=None, operations_confirmed=None, page=1, page_size=50, sort_field=None,
           sort_order=None, paginate=True, include_level_summary=True, refresh=False,
-          calculation_version=None, exact_sku=False):
+          calculation_version=None, exact_sku=False, principal_name=None):
     if calculation_version and not re.fullmatch(r'[0-9a-f]{32}', calculation_version):
         raise ValueError('无效计算版本，请刷新页面')
     sales_type = normalize_filter(sales_type)
@@ -297,7 +298,7 @@ def query(*, site=None, sku=None, product_name=None, product_level=None, product
             product_level=product_level,product_nature=product_nature,sales_type=sales_type,
             operations_confirmed=operations_confirmed,page=page,page_size=page_size,
             sort_field=sort_field,sort_order=sort_order,paginate=paginate,
-            include_level_summary=include_level_summary,exact_sku=exact_sku)
+            include_level_summary=include_level_summary,exact_sku=exact_sku,principal_name=principal_name)
     except ProgrammingError as exc:
         if exc.args[0] == 1146 and PREFIX in str(exc):
             raise ValueError('补货2.0优化表未部署，请执行20261016_ebay_replenishment_read_model.sql') from exc
@@ -307,6 +308,10 @@ def query(*, site=None, sku=None, product_name=None, product_level=None, product
 def read_generation(generation, **filters):
     page, size = max(int(filters['page']),1), min(max(int(filters['page_size']),1),200)
     clauses, args = ['base.generation=%s'], [generation]
+    principal = (filters.get('principal_name') or '').strip()
+    if principal:
+        clauses.append(f'{OWNER_SQL}=%s')
+        args.append(principal)
     for field in ('site','product_nature'):
         value = (filters.get(field) or '').strip()
         if value:
@@ -334,6 +339,11 @@ def read_generation(generation, **filters):
             raise ValueError('计算版本已过期，请刷新页面后重试导出')
         result = _decode(header['metadata'])
         args[0] = result.get('data_generation',generation)
+        # Options cover the complete saved version, not the current page/filter.
+        # Read from payload so existing generations need no migration or rebuild.
+        cursor.execute(f'''SELECT DISTINCT {OWNER_SQL} principal_name
+            FROM {PREFIX}result base WHERE base.generation=%s ORDER BY principal_name''', (args[0],))
+        result['principals'] = [row['principal_name'] for row in cursor.fetchall()]
         # The summary and returned page use the same consistent DB snapshot;
         # live confirmation/type filters are applied before the grade filter.
         cursor.execute(f'''SELECT COALESCE(NULLIF(base.product_level,''),'--') grade,COUNT(*) n,

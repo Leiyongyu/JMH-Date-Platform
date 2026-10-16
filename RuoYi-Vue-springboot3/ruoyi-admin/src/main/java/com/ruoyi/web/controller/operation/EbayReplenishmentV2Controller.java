@@ -62,6 +62,7 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestParam(required = false) String sortOrder,
             @RequestParam(defaultValue = "false") boolean refresh,
             @RequestParam(defaultValue = "false") boolean exactSku,
+            @RequestParam(required = false) String principalName,
             @RequestHeader(value = "X-Request-ID", required = false)
                     String requestId)
     {
@@ -70,6 +71,7 @@ public class EbayReplenishmentV2Controller extends BaseController
         params.put("page", Math.max(pageNum, 1));
         params.put("refresh", refresh);
         params.put("exact_sku", exactSku);
+        params.put("principal_name", trimToNull(principalName));
         params.put("page_size", Math.min(
                 Math.max(pageSize, 1), MAX_PAGE_SIZE));
         Object result = data(client.list(params, requestId));
@@ -89,6 +91,7 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestParam(required = false) String sortField,
             @RequestParam(required = false) String sortOrder,
             @RequestParam(required = false) String calculationVersion,
+            @RequestParam(required = false) String principalName,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId,
             HttpServletResponse response)
     {
@@ -97,6 +100,7 @@ public class EbayReplenishmentV2Controller extends BaseController
         Map<String, Object> params = queryParameters(
                 site, sku, productLevel, productNature, salesType, operationsConfirmed, sortField, sortOrder);
         params.put("calculation_version", trimToNull(calculationVersion));
+        params.put("principal_name", trimToNull(principalName));
         Object result = enrich(data(client.exportData(params, requestId)));
         exportService.export(result, params, permissions, response);
     }

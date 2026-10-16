@@ -35,7 +35,7 @@ test('export pins the displayed generation and refreshes a mixed edited page fir
     rowRecalcTimers: new Map(), recalculatingRowKeys: new Set(),
     leadTimeSaveTimers: new Map(), leadTimeSaveChains: new Map(), salesTypeSaving: new Set(),
     noteBusy: new Set(), confirmingRows: new Set(), ElMessage: { warning: () => assert.fail('unexpected warning') },
-    buildRequestParams: () => ({ pageNum: 2, pageSize: 50, productLevel: 'S' }),
+    buildRequestParams: () => ({ pageNum: 2, pageSize: 50, productLevel: 'S', principalName: '任雅婷' }),
     exportEbayReplenishmentV2: async params => sent.push(params),
     loadRows: async force => { assert.equal(force, true); reloads++; context.calculationVersion.value = 'version2' }
   })
@@ -43,6 +43,7 @@ test('export pins the displayed generation and refreshes a mixed edited page fir
   await context.handleExport()
   assert.equal(sent[0].calculationVersion, 'version1')
   assert.equal(sent[0].productLevel, 'S')
+  assert.equal(sent[0].principalName, '任雅婷')
   assert.equal(sent[0].pageNum, undefined)
   assert.equal(reloads, 0)
   context.calculationVersion.value = ''
@@ -65,4 +66,18 @@ test('export waits for debounced or running recalculation', async () => {
   context.recalculatingRowKeys.add('row')
   await context.handleExport()
   assert.equal(warnings, 2)
+})
+
+test('owner dropdown forwards selected and unassigned names, clearing removes the filter', () => {
+  assert.match(page, /label="负责人" prop="principalName"/)
+  assert.match(page, /v-model="queryParams.principalName"[^]*?@change="handleQuery"/)
+  assert.match(page, /principalOptions.value = Array.isArray\(data.principals\)/)
+  assert.match(code('resetQuery'), /resetFields\(\)/)
+  const context = vm.createContext({ queryParams: { pageNum: 3, pageSize: 50, principalName: '未分配' } })
+  vm.runInContext(code('buildRequestParams'), context)
+  assert.equal(context.buildRequestParams().principalName, '未分配')
+  context.queryParams.principalName = '任雅婷'
+  assert.equal(context.buildRequestParams().principalName, '任雅婷')
+  context.queryParams.principalName = ''
+  assert.equal(context.buildRequestParams().principalName, undefined)
 })

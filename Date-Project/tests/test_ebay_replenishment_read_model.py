@@ -117,11 +117,13 @@ def test_api_forwards_refresh_exact_sku_and_pinned_export(monkeypatch):
     seen=[]
     monkeypatch.setattr(api.service,'list_replenishment',lambda **kw:seen.append(kw) or {})
     request=SimpleNamespace(state=SimpleNamespace(request_id='unit'))
-    api.list_replenishment(request,refresh=True,exact_sku=True)
+    api.list_replenishment(request,refresh=True,exact_sku=True,principal_name='任雅婷')
     assert seen[-1]['use_read_model'] and seen[-1]['refresh'] and seen[-1]['exact_sku']
-    api.export_replenishment_data(request,calculation_version='a'*32)
+    assert seen[-1]['principal_name']=='任雅婷'
+    api.export_replenishment_data(request,calculation_version='a'*32,principal_name='未分配')
     assert seen[-1]['calculation_version']=='a'*32
     assert seen[-1]['use_read_model'] and not seen[-1]['paginate']
+    assert seen[-1]['principal_name']=='未分配'
 
 
 def test_numeric_sort_keys_keep_precision_and_zero_denominator():
