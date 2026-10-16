@@ -72,7 +72,7 @@ public class EbayReplenishmentV2Controller extends BaseController
         return success(enrich(result));
     }
 
-    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list')")
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list') and @ss.hasPermi('operations:ebayReplenishmentV2:export')")
     @Log(title = "eBay补货2.0导出", businessType = BusinessType.EXPORT)
     @PostMapping("/export")
     public void export(

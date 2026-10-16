@@ -24,6 +24,10 @@ public class TreeSelect implements Serializable
     /** 节点名称 */
     private String label;
 
+    /** 菜单权限标识；供角色权限树稳定识别功能分支，部门节点不返回此字段。 */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    private String perms;
+
     /** 节点禁用 */
     private boolean disabled = false;
 
@@ -48,6 +52,7 @@ public class TreeSelect implements Serializable
     {
         this.id = menu.getMenuId();
         this.label = menu.getMenuName();
+        this.perms = menu.getPerms();
         this.children = menu.getChildren().stream().map(TreeSelect::new).collect(Collectors.toList());
     }
 
@@ -74,6 +79,16 @@ public class TreeSelect implements Serializable
     public boolean isDisabled()
     {
         return disabled;
+    }
+
+    public String getPerms()
+    {
+        return perms;
+    }
+
+    public void setPerms(String perms)
+    {
+        this.perms = perms;
     }
 
     public void setDisabled(boolean disabled)

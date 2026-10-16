@@ -79,7 +79,7 @@
             icon="Download"
             :loading="exporting"
             :disabled="loading || savingLeadTimeKeys.size > 0 || salesTypeSaving.size > 0"
-            v-hasPermi="['operations:ebayReplenishmentV2:list']"
+            v-hasPermi="['operations:ebayReplenishmentV2:export']"
             @click="handleExport"
           >导出全部数据</el-button>
         </el-tooltip>
@@ -1133,6 +1133,10 @@ function formatMonthlyValue(value, column) {
 }
 
 async function handleExport() {
+  if (!checkPermi(['operations:ebayReplenishmentV2:export'])) {
+    ElMessage.warning('没有eBay补货2.0导出权限，请联系管理员授权')
+    return
+  }
   if (exporting.value) return
   if (leadTimeSaveTimers.size || leadTimeSaveChains.size || salesTypeSaving.size || noteBusy.size || confirmingRows.size) {
     ElMessage.warning('请完成备注编辑，并等待时效、销售类型或确认保存后再导出')

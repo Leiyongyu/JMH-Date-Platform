@@ -141,7 +141,7 @@
       />
 
       <!-- 添加或修改角色配置对话框 -->
-      <el-dialog :title="title" v-model="open" width="500px" append-to-body>
+      <el-dialog :title="title" v-model="open" width="min(780px, 94vw)" top="5vh" append-to-body>
          <el-form ref="roleRef" :model="form" :rules="rules" label-width="100px">
             <el-form-item label="角色名称" prop="roleName">
                <el-input v-model="form.roleName" placeholder="请输入角色名称" />
@@ -174,7 +174,7 @@
                <el-checkbox v-model="menuNodeAll" @change="handleCheckedTreeNodeAll($event, 'menu')">全选/全不选</el-checkbox>
                <el-checkbox v-model="form.menuCheckStrictly" @change="handleCheckedTreeConnect($event, 'menu')">父子联动</el-checkbox>
                <el-tree
-                  class="tree-border"
+                  class="tree-border permission-tree"
                   :data="menuOptions"
                   show-checkbox
                   ref="menuRef"
@@ -182,7 +182,18 @@
                   :check-strictly="!form.menuCheckStrictly"
                   empty-text="加载中，请稍候"
                   :props="{ label: 'label', children: 'children' }"
-               ></el-tree>
+               >
+                  <template #default="{ node, data }">
+                     <span class="permission-tree-node">
+                        <span>{{ node.label }}</span>
+                        <span v-if="data.perms === EBAY_EXPORT_PERMISSION" class="permission-branch-actions"
+                           title="只操作此导出分支，点击角色弹窗的确定后保存" @click.stop @keydown.stop>
+                           <el-button link type="primary" size="small" @click.stop="setExportBranchChecked(menuRef, data, true)">全选字段</el-button>
+                           <el-button link type="danger" size="small" @click.stop="setExportBranchChecked(menuRef, data, false)">全部取消</el-button>
+                        </span>
+                     </span>
+                  </template>
+               </el-tree>
             </el-form-item>
             <el-form-item label="备注">
                <el-input v-model="form.remark" type="textarea" placeholder="请输入内容"></el-input>
@@ -245,6 +256,7 @@
 <script setup name="Role">
 import { addRole, changeRoleStatus, dataScope, delRole, getRole, listRole, updateRole, deptTreeSelect } from "@/api/system/role"
 import { roleMenuTreeselect, treeselect as menuTreeselect } from "@/api/system/menu"
+import { EBAY_EXPORT_PERMISSION, setExportBranchChecked } from './exportFieldSelection.mjs'
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
@@ -587,3 +599,22 @@ function cancelDataScope() {
 
 getList()
 </script>
+
+<style scoped>
+.permission-tree {
+  width: 100%;
+  min-height: 120px;
+  max-height: min(420px, calc(100vh - 500px));
+  overflow: auto;
+}
+.permission-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 12px;
+}
+.permission-branch-actions {
+  display: inline-flex;
+  align-items: center;
+}
+</style>

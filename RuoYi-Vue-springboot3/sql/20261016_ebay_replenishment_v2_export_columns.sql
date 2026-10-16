@@ -4,6 +4,7 @@
 -- 同字段在主表和90天分段明细共用权限；多角色取并集，内置全权限账号仍导出全部。
 -- 首次创建字段权限时，为已有页面查看权限（旧版也凭此导出）的有效角色保留全部字段。
 -- 重复执行只为本次新建的权限补初始授权，不重新勾选管理员已取消的字段。
+-- 然后执行 20261016_ebay_replenishment_v2_export_menu.sql，建立“导出”总开关和层级。
 -- 注意：另行执行“leiyongyu角色全量授权”脚本仍会补回这些角色取消的字段，这是全量授权本身的含义。
 USE `jmh_data_platform`;
 SET NAMES utf8mb4;
@@ -65,6 +66,12 @@ SET @ebay_export_page_id := (
     WHERE perms='operations:ebayReplenishmentV2:list' AND menu_type='C' AND status='0'
     ORDER BY menu_id LIMIT 1
 );
+-- 已部署导出总开关时，复用其父级，不把字段移回页面下。
+SET @ebay_export_field_parent_id := COALESCE((
+    SELECT menu_id FROM sys_menu
+    WHERE perms='operations:ebayReplenishmentV2:export' AND parent_id=@ebay_export_page_id AND menu_type='F'
+    ORDER BY menu_id LIMIT 1
+), @ebay_export_page_id);
 
 UPDATE tmp_ebay_replenishment_export_columns c
 SET is_new = NOT EXISTS (
@@ -76,7 +83,7 @@ INSERT INTO sys_menu (
     menu_name,parent_id,order_num,path,component,query,route_name,
     is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time,remark
 )
-SELECT CONCAT('导出字段-',c.field_title),@ebay_export_page_id,c.sort_order,'',NULL,NULL,'',
+SELECT CONCAT('导出字段-',c.field_title),@ebay_export_field_parent_id,c.sort_order,'',NULL,NULL,'',
        1,0,'F','0','0',CONCAT('operations:ebayReplenishmentV2:exportColumn:',c.field_key),
        '#','SYSTEM',NOW(),'只控制补货2.0 Excel导出列，不控制页面展示；同字段各Sheet共用权限'
 FROM tmp_ebay_replenishment_export_columns c
@@ -87,7 +94,7 @@ SELECT DISTINCT r.role_id,m.menu_id
 FROM sys_role r
 JOIN sys_role_menu page_grant ON page_grant.role_id=r.role_id AND page_grant.menu_id=@ebay_export_page_id
 JOIN tmp_ebay_replenishment_export_columns c ON c.is_new=1
-JOIN sys_menu m ON m.parent_id=@ebay_export_page_id AND m.menu_type='F' AND m.status='0'
+JOIN sys_menu m ON m.parent_id=@ebay_export_field_parent_id AND m.menu_type='F' AND m.status='0'
     AND m.perms=CONCAT('operations:ebayReplenishmentV2:exportColumn:',c.field_key) COLLATE utf8mb4_unicode_ci
 WHERE r.status='0' AND r.del_flag='0'
   AND NOT EXISTS (
@@ -99,7 +106,7 @@ COMMIT;
 SELECT COUNT(*) AS export_field_permission_count
 FROM sys_menu m JOIN tmp_ebay_replenishment_export_columns c
   ON m.perms=CONCAT('operations:ebayReplenishmentV2:exportColumn:',c.field_key) COLLATE utf8mb4_unicode_ci
-WHERE m.parent_id=@ebay_export_page_id AND m.status='0' AND m.menu_type='F';
+WHERE m.parent_id=@ebay_export_field_parent_id AND m.status='0' AND m.menu_type='F';
 
 DROP TEMPORARY TABLE tmp_ebay_replenishment_export_columns;
 -- 角色配置后，账号退出重新登录以刷新权限；无任何导出字段权限时，导出会提示联系管理员。

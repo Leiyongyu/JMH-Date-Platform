@@ -1,5 +1,9 @@
 package com.ruoyi.web.controller.operation;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ruoyi.common.core.domain.TreeSelect;
+import com.ruoyi.common.core.domain.entity.SysDept;
+import com.ruoyi.common.core.domain.entity.SysMenu;
 import com.ruoyi.common.core.domain.model.LoginUser;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.framework.web.service.PermissionService;
@@ -31,7 +35,28 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 class EbayReplenishmentExportPermissionControllerTest
 {
     private static final String LIST = "operations:ebayReplenishmentV2:list";
+    private static final String EXPORT = "operations:ebayReplenishmentV2:export";
     private static final String FIELD = EbayReplenishmentV2ExportService.COLUMN_PERMISSION_PREFIX;
+
+    @Test
+    void permissionTreeExposesStableBranchIdentityWithoutChangingDepartmentNodes() throws Exception
+    {
+        var field = new SysMenu();
+        field.setMenuId(3L); field.setMenuName("SKU"); field.setPerms(FIELD + "sku");
+        var export = new SysMenu();
+        export.setMenuId(2L); export.setMenuName("导出"); export.setPerms(EXPORT);
+        export.setChildren(List.of(field));
+        var page = new SysMenu();
+        page.setMenuId(1L); page.setMenuName("eBay补货2.0"); page.setPerms(LIST);
+        page.setChildren(List.of(export));
+        var mapper = new ObjectMapper();
+        var json = mapper.readTree(mapper.writeValueAsString(new TreeSelect(page)));
+        assertEquals(EXPORT, json.get("children").get(0).get("perms").asText());
+        assertEquals(FIELD + "sku", json.get("children").get(0).get("children").get(0).get("perms").asText());
+        var dept = new SysDept();
+        dept.setDeptId(9L); dept.setDeptName("测试部门");
+        assertFalse(mapper.readTree(mapper.writeValueAsString(new TreeSelect(dept))).has("perms"));
+    }
 
     @Configuration
     @EnableMethodSecurity
@@ -80,10 +105,14 @@ class EbayReplenishmentExportPermissionControllerTest
         try (var context = new AnnotationConfigApplicationContext(Config.class))
         {
             var controller = context.getBean(EbayReplenishmentV2Controller.class);
-            login(Set.of(FIELD + "sku"));
-            assertThrows(AccessDeniedException.class, () -> controller.export(null, null, null, null,
-                    null, null, null, null, "trace", new MockHttpServletResponse()));
-            login(Set.of(LIST));
+            for (Set<String> denied : List.of(Set.of(FIELD + "sku"), Set.of(LIST),
+                    Set.of(LIST, FIELD + "sku"), Set.of(EXPORT, FIELD + "sku")))
+            {
+                login(denied);
+                assertThrows(AccessDeniedException.class, () -> controller.export(null, null, null, null,
+                        null, null, null, null, "trace", new MockHttpServletResponse()));
+            }
+            login(Set.of(LIST, EXPORT));
             var response = new MockHttpServletResponse();
             assertThrows(ServiceException.class, () -> controller.export(null, null, null, null,
                     null, null, null, null, "trace", response));
@@ -96,7 +125,7 @@ class EbayReplenishmentExportPermissionControllerTest
     @Test
     void exportUsesSessionNotClientSuppliedPermissionsOrColumns() throws Exception
     {
-        login(Set.of(LIST, FIELD + "sku"));
+        login(Set.of(LIST, EXPORT, FIELD + "sku"));
         try (var context = new AnnotationConfigApplicationContext(Config.class))
         {
             var client = context.getBean(EbayReplenishmentV2PythonClient.class);

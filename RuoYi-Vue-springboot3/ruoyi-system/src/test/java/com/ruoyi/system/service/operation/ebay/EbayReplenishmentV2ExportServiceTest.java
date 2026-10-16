@@ -24,8 +24,10 @@ class EbayReplenishmentV2ExportServiceTest
 
     private static Set<String> columns(String... keys)
     {
-        return Arrays.stream(keys).map(key -> EbayReplenishmentV2ExportService.COLUMN_PERMISSION_PREFIX + key)
+        Set<String> permissions = Arrays.stream(keys).map(key -> EbayReplenishmentV2ExportService.COLUMN_PERMISSION_PREFIX + key)
                 .collect(Collectors.toSet());
+        permissions.add(EbayReplenishmentV2ExportService.EXPORT_PERMISSION);
+        return permissions;
     }
 
     private static List<String> headers(org.apache.poi.ss.usermodel.Sheet sheet)
@@ -201,9 +203,13 @@ class EbayReplenishmentV2ExportServiceTest
                 Set.of("operations:ebayReplenishmentV2:list", "operations:ebayReplenishmentV2:purchase")))
         {
             var error = assertThrows(ServiceException.class, () -> service.buildExcel(payload(), Map.of(), permissions));
-            assertTrue(error.getMessage().contains("导出字段权限"));
+            assertTrue(error.getMessage().contains("导出"));
             assertEquals(403, error.getCode());
         }
         assertThrows(ServiceException.class, () -> service.checkExportPermission(null));
+        assertThrows(ServiceException.class, () -> service.checkExportPermission(
+                Set.of(EbayReplenishmentV2ExportService.COLUMN_PERMISSION_PREFIX + "sku")));
+        var error = assertThrows(ServiceException.class, () -> service.checkExportPermission(columns()));
+        assertTrue(error.getMessage().contains("导出字段权限"));
     }
 }

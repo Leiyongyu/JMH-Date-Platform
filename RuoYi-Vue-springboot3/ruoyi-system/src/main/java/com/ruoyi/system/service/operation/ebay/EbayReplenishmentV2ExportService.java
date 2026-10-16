@@ -34,6 +34,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class EbayReplenishmentV2ExportService
 {
+    public static final String EXPORT_PERMISSION = "operations:ebayReplenishmentV2:export";
     public static final String COLUMN_PERMISSION_PREFIX = "operations:ebayReplenishmentV2:exportColumn:";
 
     private enum Format
@@ -121,6 +122,9 @@ public class EbayReplenishmentV2ExportService
     /** 只接受登录会话的有效权限；没有列权限时明确拒绝，不回退为全部字段。 */
     public void checkExportPermission(Set<String> permissions)
     {
+        if (permissions == null || !(permissions.contains(Constants.ALL_PERMISSION)
+                || permissions.contains(EXPORT_PERMISSION)))
+            throw new ServiceException("没有eBay补货2.0导出权限，请联系管理员授权", 403);
         if (permittedColumns(COLUMNS, permissions).isEmpty()
                 && permittedColumns(MONTH_COLUMNS, permissions).isEmpty())
             throw new ServiceException("未配置eBay补货2.0导出字段权限，请联系管理员在角色管理中勾选导出字段", 403);
