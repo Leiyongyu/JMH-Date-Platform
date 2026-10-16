@@ -4,8 +4,8 @@ from decimal import Decimal
 from backend.services import ebay_replenishment_v2_service as service
 
 
-def test_forecast_metrics_average_all_three_complete_months_including_zero_month():
-    months = service._complete_months(date(2026, 8, 31))
+def test_forecast_metrics_average_all_threerolling_periods_including_zero_month():
+    months = service.rolling_periods(date(2026, 8, 31))
     rows = [
         {
             "site": "德国",

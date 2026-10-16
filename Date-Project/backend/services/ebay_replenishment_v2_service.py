@@ -12,6 +12,8 @@ from backend.services import ebay_inventory_detail_service as inventory_detail_s
 from backend.services import ebay_level_rule_service as level_service
 from backend.services import ebay_replenishment_sales_type_service as sales_type_service
 from backend.repositories import ebay_replenishment_sales_type_repository as sales_type_repository
+from backend.repositories import ebay_replenishment_review_repository as review_repository
+from backend.services.ebay_replenishment_periods import rolling_periods, reference_today
 from backend.services.ebay_order_product_key import product_orders_cte, product_sku, latest_product_source_ctes
 from backend.services.ebay_forecast_rule_engine import (
     PreparedRules,
@@ -72,20 +74,15 @@ def list_replenishment(
     sort_field: str | None = None,
     sort_order: str | None = None,
     sales_type: str | None = None,
+    operations_confirmed: bool | None = None,
     *,
     paginate: bool = True,
 ) -> dict[str, Any]:
-    """Return the latest three complete natural months by site and SKU.
-
-    All measures deliberately keep the existing SKU-analysis payment-month
-    definitions.  The latest complete month is also exposed as each row's
-    primary value; the complete three-month series is returned in
-    ``monthly_metrics`` for the UI hover card.
-    """
+    """按同一北京时间基准读取近90天，拆为三个连续30天区间，不含今天。"""
 
     sales_type_filter = sales_type_service.normalize_filter(sales_type)
     sku_analysis_service._ensure_tables()
-    months = _complete_months()
+    months = rolling_periods()
     page = max(_positive_int(page, 1), 1)
     page_size = min(max(_positive_int(page_size, 50), 1), 200)
     forecast_sort_requested = (sort_field or "") in {
@@ -118,6 +115,12 @@ def list_replenishment(
     sales_type_join = sales_type_repository.join_sql()
     sales_type_select = "COALESCE(sales_type.sales_type,'NORMAL') AS sales_type"
     sales_type_available = True
+    review_join = review_repository.join_sql()
+    review_select = review_repository.select_sql()
+    review_available = True
+    if operations_confirmed is not None:
+        where_sql += (" AND " if where_sql else "WHERE ") + "COALESCE(review.operations_confirmed,0)=%s"
+        filter_params.append(int(operations_confirmed))
     if sales_type_filter:
         where_sql += (" AND " if where_sql else "WHERE ") + "COALESCE(sales_type.sales_type,'NORMAL')=%s"
         filter_params.append(sales_type_filter)
@@ -128,9 +131,13 @@ def list_replenishment(
         site, sku, alias="recent"
     )
     limit_sql = "LIMIT %s OFFSET %s" if paginate_in_sql else ""
-    month_params = [month["month"] for month in months for _ in range(7)] + [months[0]["month"]]
+    month_params = [month["month"] for month in months for _ in range(7)]
     query = f"""
-        WITH {product_orders_cte()}, period_rows AS (
+        WITH periods AS (
+            SELECT %s period_label, CAST(%s AS DATE) start_date, CAST(%s AS DATE) end_date
+            UNION ALL SELECT %s, %s, %s
+            UNION ALL SELECT %s, %s, %s
+        ), {product_orders_cte()}, period_rows AS (
             SELECT id,site_name,inventory_sku,payment_time,purchase_quantity,
                    paid_amount_cny,order_profit_cny,refund_quantity,refund_amount_cny,
                    shipping_status,
@@ -146,24 +153,23 @@ def list_replenishment(
             {source_where_sql}
         ),
         anchor AS (
-            SELECT COALESCE(DATE(MAX(payment_time)),CURDATE()) anchor_date
-            FROM dwd_ebay_sku_analysis_order
+            SELECT CAST(%s AS DATE) anchor_date
         ),
         recent_windows AS (
             SELECT recent.site_name,recent.inventory_sku,
                    SUM(CASE WHEN recent.payment_time
-                            >= DATE_SUB(anchor.anchor_date,INTERVAL 6 DAY)
+                            >= DATE_SUB(anchor.anchor_date,INTERVAL 7 DAY)
                             THEN recent.purchase_quantity ELSE 0 END) sales_qty_7d,
                    SUM(CASE WHEN recent.payment_time
-                            >= DATE_SUB(anchor.anchor_date,INTERVAL 14 DAY)
+                            >= DATE_SUB(anchor.anchor_date,INTERVAL 15 DAY)
                             THEN recent.purchase_quantity ELSE 0 END) sales_qty_15d,
                    SUM(recent.purchase_quantity) sales_qty_30d
             FROM product_orders recent
             CROSS JOIN anchor
             WHERE recent.payment_time
-                  >= DATE_SUB(anchor.anchor_date,INTERVAL 29 DAY)
+                  >= DATE_SUB(anchor.anchor_date,INTERVAL 30 DAY)
               AND recent.payment_time
-                  < DATE_ADD(anchor.anchor_date,INTERVAL 1 DAY)
+                  < anchor.anchor_date
               {recent_where_sql}
             GROUP BY recent.site_name,recent.inventory_sku
         ),
@@ -173,9 +179,8 @@ def list_replenishment(
         {latest_product_source_ctes()},
         monthly AS (
             SELECT site_name,inventory_sku,
-                   DATE_FORMAT(payment_time,'%%Y-%%m') stat_month,
+                   periods.period_label stat_month,
                    SUM(purchase_quantity) sales_qty,
-                   COUNT(DISTINCT CASE WHEN purchase_quantity > 0 THEN DATE(payment_time) END) sales_days,
                    SUM(order_profit_cny) gross_profit_amount,
                    SUM(paid_amount_cny)
                      -SUM(CASE WHEN shipping_status LIKE '%%已退款%%'
@@ -185,8 +190,9 @@ def list_replenishment(
                             THEN refund_amount_cny ELSE 0 END) return_amount,
                    SUM(quality_return_qty) quality_return_qty,
                    SUM(unclassified_return_qty) unclassified_return_qty
-            FROM period_rows
-            GROUP BY site_name,inventory_sku,DATE_FORMAT(payment_time,'%%Y-%%m')
+            FROM period_rows JOIN periods
+              ON payment_time >= periods.start_date AND payment_time < periods.end_date
+            GROUP BY site_name,inventory_sku,periods.period_label
         ),
         base AS (
             SELECT monthly.site_name site,
@@ -212,8 +218,7 @@ def list_replenishment(
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_qty ELSE 0 END),0) return_qty_m3,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.return_amount ELSE 0 END),0) return_amount_m3,
                    COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.quality_return_qty ELSE 0 END),0) quality_return_qty_m3,
-                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.unclassified_return_qty ELSE 0 END),0) unclassified_return_qty_m3,
-                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.sales_days ELSE 0 END),0) sales_days
+                   COALESCE(SUM(CASE WHEN monthly.stat_month=%s THEN monthly.unclassified_return_qty ELSE 0 END),0) unclassified_return_qty_m3
             FROM monthly
             LEFT JOIN latest_source
               ON latest_source.site_name=monthly.site_name
@@ -224,6 +229,7 @@ def list_replenishment(
         {inventory_ctes()}
         SELECT base.*,
                {sales_type_select},
+               {review_select},
                COALESCE(inventory_summary.chengdu_in_transit_quantity,0)
                    chengdu_in_transit_quantity,
                COALESCE(inventory_summary.chengdu_sellable_quantity,0)
@@ -238,6 +244,7 @@ def list_replenishment(
                COUNT(*) OVER() total_count
         FROM base
         {sales_type_join}
+        {review_join}
         LEFT JOIN recent_windows
           ON recent_windows.site_name=base.site
          AND recent_windows.inventory_sku=base.sku
@@ -251,9 +258,11 @@ def list_replenishment(
         {limit_sql}
     """
     params: list[Any] = [
+        *[value for period in months for value in (period["month"], period["start_date"], period["end_date"])],
         range_start,
         range_end,
         *source_filter_params,
+        range_end,
         *recent_filter_params,
         *month_params,
         *filter_params,
@@ -262,18 +271,25 @@ def list_replenishment(
         params.extend([page_size, (page - 1) * page_size])
 
     with db_connection() as connection, connection.cursor() as cursor:
-        try:
-            cursor.execute(query, params)
-        except Exception as exc:
-            if not sales_type_repository.missing_table(exc):
-                raise
-            if sales_type_filter:
-                raise ValueError(sales_type_repository.MIGRATION_MESSAGE) from exc
-            # 缺部署表时保留旧列表，明确返回不可编辑状态，不把丢失配置伪装成正常。
-            query = query.replace(sales_type_join, "").replace(sales_type_select, "NULL AS sales_type")
-            sales_type_join = ""
-            sales_type_available = False
-            cursor.execute(query, params)
+        while True:
+            try:
+                cursor.execute(query, params)
+                break
+            except Exception as exc:
+                if sales_type_available and sales_type_repository.missing_table(exc):
+                    if sales_type_filter:
+                        raise ValueError(sales_type_repository.MIGRATION_MESSAGE) from exc
+                    query = query.replace(sales_type_join, "").replace(sales_type_select, "NULL AS sales_type")
+                    sales_type_join = ""
+                    sales_type_available = False
+                elif review_available and review_repository.missing_table(exc):
+                    if operations_confirmed is not None:
+                        raise ValueError(review_repository.MIGRATION_MESSAGE) from exc
+                    query = query.replace(review_join, "").replace(review_select, review_repository.empty_select_sql())
+                    review_join = ""
+                    review_available = False
+                else:
+                    raise
         rows = cursor.fetchall()
         total = int(rows[0].get("total_count") or 0) if rows else 0
         if paginate and not rows and page > 1:
@@ -286,6 +302,7 @@ def list_replenishment(
                 where_sql,
                 filter_params,
                 sales_type_join,
+                review_join,
             )
         cursor.execute(
             f"""WITH {product_orders_cte()} SELECT DISTINCT site_name
@@ -298,7 +315,6 @@ def list_replenishment(
         sites = [row["site_name"] for row in cursor.fetchall()]
 
     lead_time_days = repository.lead_time_days_by_sku() if rows else {}
-    training_days = repository.training_period_days() if rows else None
     formula_configs = repository.formula_by_level() if rows else {}
     first_listing_dates = repository.first_listing_date_by_sku() if rows else {}
     inventory_ages = repository.overseas_inventory_age_by_sku() if rows else {}
@@ -313,7 +329,6 @@ def list_replenishment(
         inventory_ages=inventory_ages,
         forecast_rules=forecast_rules,
         level_rules=level_rules,
-        training_days=training_days,
     )
     if level_filter is not None or nature_filter is not None:
         items = [
@@ -341,9 +356,12 @@ def list_replenishment(
     return {
         "items": items,
         "sales_type_available": sales_type_available,
+        "review_available": review_available,
         "months": [month["month"] for month in months],
         "latest_complete_month": months[0]["month"],
-        "training_days": str(training_days) if training_days is not None else None,
+        "reference_date": range_end.isoformat(),
+        "periods": [{"label": p["month"], "start_date": p["start_date"].isoformat(),
+                     "end_date_exclusive": p["end_date"].isoformat()} for p in months],
         "sites": sites,
         "pagination": {
             "page": page if paginate else 1,
@@ -379,6 +397,7 @@ def _count_filtered(
     where_sql,
     filter_params,
     sales_type_join="",
+    review_join="",
 ) -> int:
     query = f"""
         WITH {product_orders_cte()}, period_keys AS (
@@ -396,7 +415,7 @@ def _count_filtered(
               ON latest_source.site_name=period_key.site_name
              AND latest_source.inventory_sku=period_key.inventory_sku
         )
-        SELECT COUNT(*) total FROM base {sales_type_join} {where_sql}
+        SELECT COUNT(*) total FROM base {sales_type_join} {review_join} {where_sql}
     """
     cursor.execute(
         query,
@@ -440,30 +459,6 @@ def _source_filters(
     return (" AND " + " AND ".join(clauses), params) if clauses else ("", params)
 
 
-def _complete_months(reference_date: date | None = None) -> list[dict[str, Any]]:
-    current = reference_date or date.today()
-    current_month_start = date(current.year, current.month, 1)
-    months: list[dict[str, Any]] = []
-    end_date = current_month_start
-    for _ in range(3):
-        start_date = _previous_month_start(end_date)
-        months.append(
-            {
-                "month": start_date.strftime("%Y-%m"),
-                "start_date": start_date,
-                "end_date": end_date,
-            }
-        )
-        end_date = start_date
-    return months
-
-
-def _previous_month_start(value: date) -> date:
-    if value.month == 1:
-        return date(value.year - 1, 12, 1)
-    return date(value.year, value.month - 1, 1)
-
-
 def _assemble_items(
     rows: list[dict[str, Any]],
     months: list[dict[str, Any]],
@@ -473,14 +468,13 @@ def _assemble_items(
     inventory_ages: dict[tuple[str, str], Decimal] | None = None,
     forecast_rules: PreparedRules | None = None,
     level_rules=None,
-    training_days: Decimal | None = None,
 ) -> list[dict[str, Any]]:
     lead_time_days = lead_time_days or {}
     formula_configs = formula_configs or {}
     first_listing_dates = first_listing_dates or {}
     inventory_ages = inventory_ages or {}
     forecast_rules = forecast_rules or PreparedRules()
-    today = date.today()
+    today = months[0]["end_date"] if months else reference_today()
     result: list[dict[str, Any]] = []
     for row in rows:
         monthly_metrics = []
@@ -507,9 +501,6 @@ def _assemble_items(
                 }
             )
         latest = monthly_metrics[0]
-        sales_days = int(row.get("sales_days") or 0)
-        adi = (Decimal("999") if sales_days == 0 else
-               training_days / Decimal(sales_days) if training_days is not None else None)
         raw_forecast_sales_quantity = _average_metric_decimal(
             monthly_metrics, "sales_qty"
         )
@@ -612,8 +603,7 @@ def _assemble_items(
             {
                 "site": row.get("site") or "其他",
                 "sku": row.get("sku") or "",
-                "sales_days": sales_days,
-                "adi": str(adi.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)) if adi is not None else None,
+                **review_repository.review_values(row),
                 "sales_type": row.get("sales_type"),
                 "product_name": row.get("product_name") or "",
                 "sales_qty_7d": _quantity_text(row.get("sales_qty_7d")),
@@ -765,7 +755,8 @@ def _replenishment_quantities(
     """按全局配置实时计算安全库存和建议补货量。"""
 
     key = (site, sku)
-    if key not in lead_time_days:
+    effective_days = lead_time_days.get(key, repository.default_overseas_transit_days(site))
+    if effective_days is None:
         return None, None
     normalized_level = product_level
     if normalized_level not in {"S", "A", "B", "C"}:
@@ -778,7 +769,7 @@ def _replenishment_quantities(
     if safety_coefficient is None or suggest_coefficient is None:
         return None, None
 
-    total_days = _decimal(lead_time_days[key])
+    total_days = _decimal(effective_days)
     safety_stock = (
         average_monthly_sales
         * total_days

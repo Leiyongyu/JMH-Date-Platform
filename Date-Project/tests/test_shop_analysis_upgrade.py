@@ -131,20 +131,21 @@ def test_second_quantities_use_unrounded_forecast_and_share_coefficients(level_r
               lead_time_days={key:Decimal(10)},
               formula_configs={"S":dict(safety_coefficient=Decimal(".6"),suggest_coefficient=Decimal("1.6"))},
               level_rules=level_rules,forecast_rules=engine.prepare_rules(rules))
-    item=service._assemble_items([row],service._complete_months(),**args)[0]
+    item=service._assemble_items([row],service.rolling_periods(),**args)[0]
     assert item["safety_stock_quantity"] == "2"
     assert item["safety_stock_quantity_2"] == "0"
     assert item["suggested_replenishment_quantity_2"] == "0"
     for r in rules: r["formula_expr"] = "2.499"
     args["forecast_rules"] = engine.prepare_rules(rules)
-    item=service._assemble_items([row],service._complete_months(),**args)[0]
+    item=service._assemble_items([row],service.rolling_periods(),**args)[0]
     assert item["forecast_sales_quantity_2"] == "2.50"
     assert item["safety_stock_quantity_2"] == "0"  # rounded 2.50 would incorrectly give 1
     args["lead_time_days"] = {}
-    item=service._assemble_items([row],service._complete_months(),**args)[0]
-    assert item["safety_stock_quantity_2"] is None
+    item=service._assemble_items([row],service.rolling_periods(),**args)[0]
+    assert item["safety_stock_quantity_2"] == "3"  # 德国未维护人工时效时使用67天
+    assert item["suggested_replenishment_quantity_2"] == "8"
     args["forecast_rules"] = engine.prepare_rules([])
-    item=service._assemble_items([row],service._complete_months(),**args)[0]
+    item=service._assemble_items([row],service.rolling_periods(),**args)[0]
     assert item["suggested_replenishment_quantity_2"] is None
 
 

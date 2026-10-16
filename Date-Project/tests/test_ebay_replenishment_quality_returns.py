@@ -15,7 +15,7 @@ def test_quality_rate_uses_sales_and_aggregate_is_not_average_of_rates():
         "unclassified_return_qty_m1": 1,
         "unclassified_return_qty_m2": 2,
     }
-    item = service._assemble_items([row], service._complete_months(date(2026, 9, 9)))[0]
+    item = service._assemble_items([row], service.rolling_periods(date(2026, 9, 9)))[0]
     assert item["monthly_metrics"][0]["quality_return_rate"] == "0.200000"
     assert item["monthly_metrics"][1]["quality_return_rate"] == "0.033333"
     assert item["monthly_metrics"][2]["quality_return_rate"] is None
@@ -28,7 +28,7 @@ def test_quality_rate_uses_sales_and_aggregate_is_not_average_of_rates():
     # 观察指标不得改变原退货、销量、预测、分级及补货字段。
     baseline = service._assemble_items(
         [{k: v for k, v in row.items() if not k.startswith(("quality_", "unclassified_"))}],
-        service._complete_months(date(2026, 9, 9)),
+        service.rolling_periods(date(2026, 9, 9)),
     )[0]
     for key in baseline.keys() - {"monthly_metrics", "quality_return_summary"}:
         assert item[key] == baseline[key], key
@@ -37,7 +37,7 @@ def test_quality_rate_uses_sales_and_aggregate_is_not_average_of_rates():
 def test_quality_quantity_kept_but_zero_sales_rate_is_unknown():
     item = service._assemble_items(
         [{"site": "英国", "sku": "A", "quality_return_qty_m1": Decimal("2"), "sales_qty_m1": 0}],
-        service._complete_months(date(2026, 9, 9)),
+        service.rolling_periods(date(2026, 9, 9)),
     )[0]
     assert item["monthly_metrics"][0]["quality_return_qty"] == "2"
     assert item["monthly_metrics"][0]["quality_return_rate"] is None
@@ -46,6 +46,9 @@ def test_quality_quantity_kept_but_zero_sales_rate_is_unknown():
 
 def test_actual_monthly_sql_counts_pieces_without_join_duplication(monkeypatch):
     queries = []
+    parameters = []
+    periods = service.rolling_periods(date(2026, 9, 1))
+    monkeypatch.setattr(service, 'rolling_periods', lambda: periods)
 
     class Cursor:
         def __enter__(self): return self
@@ -53,6 +56,7 @@ def test_actual_monthly_sql_counts_pieces_without_join_duplication(monkeypatch):
         def execute(self, sql, params):
             assert sql.count("%s") == len(params)
             queries.append(sql)
+            parameters.append(params)
         def fetchall(self): return []
 
     class Connection:
@@ -72,6 +76,7 @@ def test_actual_monthly_sql_counts_pieces_without_join_duplication(monkeypatch):
     monthly = query.split("        monthly AS (", 1)[1].split("        base AS (", 1)[0].rstrip().removesuffix(",")
     sql = (period + " monthly AS (" + monthly + " SELECT * FROM monthly").replace("%%", "%").replace("%s", "?")
     sql = sql.replace('RIGHT(', 'SKU_RIGHT(').replace('LEFT(', 'SKU_LEFT(')
+    sql = sql.replace('CAST(? AS DATE)', '?')  # SQLite has no MySQL DATE cast.
     with sqlite3.connect(":memory:") as db:
         db.row_factory = sqlite3.Row
         db.create_function("DATE_FORMAT", 2, lambda value, _: value[:7])
@@ -102,11 +107,11 @@ def test_actual_monthly_sql_counts_pieces_without_join_duplication(monkeypatch):
             ("德国", "B", "2026-08-15", 4, 4, "Q"),
             ("英国", "A", "2026-08-15", 1, 1, "Q"),
             ("德国", "A", "2026-07-01", 7, 7, "OLD"),
-            ("德国", "A", "2026-09-01", 100, 100, "Q"),  # 未完整月份排除
+            ("德国", "A", "2026-09-01", 100, 100, "Q"),  # 今天排除
             ("德国", "2PC-A", "2026-08-15", 50, 50, "Q"),
             ("德国", "AMZ-A", "2026-08-15", 60, 60, "Q"),
             ("美国", "A-YXR", "2026-08-15", 8, 2, "Q"),
-            ("德国", "A-RXY", "2026-08-20", 0, 0, "ZERO"),  # 零销量日不算有单天数
+            ("德国", "A-RXY", "2026-08-20", 0, 0, "ZERO"),  # 零销量不改变汇总
         ]
         db.executemany("INSERT INTO dwd_ebay_sku_analysis_order VALUES (?,?,?,?,?,?,?,?,?,?,?)", [
             (i, site, sku, month, qty, 100, 10, refund, 5,
@@ -116,29 +121,27 @@ def test_actual_monthly_sql_counts_pieces_without_join_duplication(monkeypatch):
         db.execute("ALTER TABLE dwd_ebay_sku_analysis_order ADD COLUMN product_name_cn TEXT")
         def result():
             return {(r["site_name"], r["inventory_sku"], r["stat_month"]): dict(r)
-                    for r in db.execute(sql, ("2026-06-01", "2026-09-01"))}
+                    for r in db.execute(sql, parameters[0][:11])}
         data = result()
         assert len(data) == 5
-        assert data[("美国", "A", "2026-08")]["sales_qty"] == 8
-        assert data[("美国", "A", "2026-08")]["return_qty"] == 2
-        august = data[("德国", "A", "2026-08")]
-        assert august["sales_days"] == 2  # 原品和二手品在8/15多行只算一天，8/31算第二天
-        assert data[("美国", "A", "2026-08")]["sales_days"] == 1
-        assert data[("德国", "A", "2026-07")]["sales_days"] == 1
+        assert data[("美国", "A", periods[0]["month"])]["sales_qty"] == 8
+        assert data[("美国", "A", periods[0]["month"])]["return_qty"] == 2
+        august = data[("德国", "A", periods[0]["month"])]
+        assert 'sales_days' not in august
         assert august["sales_qty"] == 100
         assert august["return_qty"] == 14
         assert august["quality_return_qty"] == 11
         assert august["unclassified_return_qty"] == 2
-        assert data[("德国", "B", "2026-08")]["quality_return_qty"] == 4
-        assert data[("英国", "A", "2026-08")]["quality_return_qty"] == 1
-        assert data[("德国", "A", "2026-07")]["quality_return_qty"] == 7
+        assert data[("德国", "B", periods[0]["month"])]["quality_return_qty"] == 4
+        assert data[("英国", "A", periods[0]["month"])]["quality_return_qty"] == 1
+        assert data[("德国", "A", periods[2]["month"])]["quality_return_qty"] == 7
         # 中间分类不变，即使新增或改名的小类也计入，不能硬编码两个小类名称。
         db.execute("UPDATE ebay_sku_analysis_return_classification SET small_category='新的质量小类' WHERE platform_order_no='Q'")
-        assert result()[("德国", "A", "2026-08")]["quality_return_qty"] == 11
+        assert result()[("德国", "A", periods[0]["month"])]["quality_return_qty"] == 11
         # 人工修改中间分类后即时更新，原销量和总退货量不变。
         db.execute("UPDATE ebay_sku_analysis_return_classification SET big_category='客户自身原因' WHERE platform_order_no='Q'")
-        updated = result()[("德国", "A", "2026-08")]
+        updated = result()[("德国", "A", periods[0]["month"])]
         assert updated["quality_return_qty"] == 6
         assert updated["sales_qty"] == 100 and updated["return_qty"] == 14
         db.execute("UPDATE ebay_sku_analysis_return_classification SET big_category='其他' WHERE platform_order_no='UNUSABLE'")
-        assert result()[("德国", "A", "2026-08")]["quality_return_qty"] == 0
+        assert result()[("德国", "A", periods[0]["month"])]["quality_return_qty"] == 0

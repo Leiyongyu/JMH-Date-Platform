@@ -2,6 +2,18 @@ import request, { download } from '@/utils/request'
 
 const base = '/operations/ebay/replenishment-v2'
 
+export function submitEbayReplenishmentV2Purchase(data) {
+  return request({ url: `${base}/purchase`, method: 'post', data })
+}
+
+export function saveEbayReplenishmentReviewNote(data) {
+  return request({ url: `${base}/review/note`, method: 'post', data })
+}
+
+export function confirmEbayReplenishmentReview(data) {
+  return request({ url: `${base}/review/confirm`, method: 'post', data })
+}
+
 export function exportEbayReplenishmentV2(params) {
   const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
   return download(`${base}/export`, params, `eBay补货2.0-${timestamp}.xlsx`, {
@@ -11,14 +23,6 @@ export function exportEbayReplenishmentV2(params) {
 
 export function saveEbayReplenishmentV2SalesType(data) {
   return request({ url: `${base}/sales-type`, method: 'post', data })
-}
-
-export function getEbayReplenishmentV2Parameters() {
-  return request({ url: `${base}/parameters`, method: 'get' })
-}
-
-export function saveEbayReplenishmentV2Parameters(data) {
-  return request({ url: `${base}/parameters`, method: 'put', data })
 }
 
 export function listEbayReplenishmentV2(params) {

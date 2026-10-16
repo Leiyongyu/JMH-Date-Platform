@@ -54,6 +54,7 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestParam(required = false) String productLevel,
             @RequestParam(required = false) String productNature,
             @RequestParam(required = false) String salesType,
+            @RequestParam(required = false) Boolean operationsConfirmed,
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "50") int pageSize,
             @RequestParam(required = false) String sortField,
@@ -62,7 +63,7 @@ public class EbayReplenishmentV2Controller extends BaseController
                     String requestId)
     {
         Map<String, Object> params = queryParameters(
-                site, sku, productLevel, productNature, salesType, sortField, sortOrder);
+                site, sku, productLevel, productNature, salesType, operationsConfirmed, sortField, sortOrder);
         params.put("page", Math.max(pageNum, 1));
         params.put("page_size", Math.min(
                 Math.max(pageSize, 1), MAX_PAGE_SIZE));
@@ -79,19 +80,20 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestParam(required = false) String productLevel,
             @RequestParam(required = false) String productNature,
             @RequestParam(required = false) String salesType,
+            @RequestParam(required = false) Boolean operationsConfirmed,
             @RequestParam(required = false) String sortField,
             @RequestParam(required = false) String sortOrder,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId,
             HttpServletResponse response)
     {
         Map<String, Object> params = queryParameters(
-                site, sku, productLevel, productNature, salesType, sortField, sortOrder);
+                site, sku, productLevel, productNature, salesType, operationsConfirmed, sortField, sortOrder);
         Object result = enrich(data(client.exportData(params, requestId)));
         exportService.export(result, params, response);
     }
 
     private Map<String, Object> queryParameters(String site, String sku, String productLevel,
-            String productNature, String salesType, String sortField, String sortOrder)
+            String productNature, String salesType, Boolean operationsConfirmed, String sortField, String sortOrder)
     {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("site", trimToNull(site));
@@ -99,6 +101,7 @@ public class EbayReplenishmentV2Controller extends BaseController
         params.put("product_level", trimToNull(productLevel));
         params.put("product_nature", trimToNull(productNature));
         params.put("sales_type", trimToNull(salesType));
+        params.put("operations_confirmed", operationsConfirmed);
         params.put("sort_field", trimToNull(sortField));
         params.put("sort_order", normalizeSortOrder(sortOrder));
         return params;
@@ -148,8 +151,9 @@ public class EbayReplenishmentV2Controller extends BaseController
     public AjaxResult saveLeadTime(
             @RequestBody EbayReplenishmentV2LeadTimeSaveRequest request)
     {
-        leadTimeService.save(request, getUsername());
-        return success();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("days", leadTimeService.save(request, getUsername()));
+        return success(result);
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:formula')")
@@ -235,6 +239,28 @@ public class EbayReplenishmentV2Controller extends BaseController
         Map<String, Object> payload = new LinkedHashMap<>(body);
         payload.put("operator", getUsername());
         return success(data(client.saveSalesType(payload, requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list')")
+    @Log(title = "eBay补货2.0运营开发备注", businessType = BusinessType.UPDATE)
+    @PostMapping("/review/note")
+    public AjaxResult saveReviewNote(@RequestBody Map<String, Object> body,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        Map<String, Object> payload = new LinkedHashMap<>(body);
+        payload.put("operator", getUsername());
+        return success(data(client.saveReviewNote(payload, requestId)));
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list')")
+    @Log(title = "eBay补货2.0运营确认", businessType = BusinessType.UPDATE)
+    @PostMapping("/review/confirm")
+    public AjaxResult confirmReview(@RequestBody Map<String, Object> body,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        Map<String, Object> payload = new LinkedHashMap<>(body);
+        payload.put("operator", getUsername());
+        return success(data(client.confirmReview(payload, requestId)));
     }
 
     private Object data(Map<String, Object> response)

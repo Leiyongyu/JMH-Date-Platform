@@ -49,7 +49,7 @@ def test_zero_stock_allows_grading_without_changing_stock_or_replenishment(level
                paid_amount_m1=100, gross_profit_amount_m1=30,
                return_qty_m1=0, overseas_sellable_quantity=0)
     item = service._assemble_items(
-        [row], service._complete_months(), level_rules=level_rules,
+        [row], service.rolling_periods(), level_rules=level_rules,
         lead_time_days={("德国", "ZERO-STOCK"): Decimal("30")},
         formula_configs={"S": dict(safety_coefficient=Decimal("0.6"),
                                   suggest_coefficient=Decimal("1.6"))},

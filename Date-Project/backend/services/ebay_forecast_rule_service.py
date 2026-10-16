@@ -1,7 +1,6 @@
 """Editing and draft preview of the existing v2 forecast rules (no data sync)."""
 from __future__ import annotations
 
-from datetime import date
 from decimal import Decimal, DecimalException
 from typing import Any
 
@@ -111,7 +110,7 @@ def forecast_sku_inputs(site: str, sku: str) -> dict[str, Any]:
     site, sku = row["site"], row["sku"]
     age = repository.overseas_inventory_age_by_sku().get((site, sku))
     nature = replenishment._product_nature(
-        repository.first_listing_date_by_sku().get((sku, site)), date.today())
+        repository.first_listing_date_by_sku().get((sku, site)), row['anchor_date'])
     return {
         "site": site, "sku": sku, "product_nature": nature,
         "sales_7d": format(Decimal(str(row["sales_7d"])), "f"),

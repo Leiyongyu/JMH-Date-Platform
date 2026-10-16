@@ -4,22 +4,22 @@ from decimal import Decimal
 from backend.services import ebay_replenishment_v2_service as service
 
 
-def test_complete_months_crosses_year_boundary():
-    months = service._complete_months(date(2026, 1, 15))
+def test_rolling_periods_crosses_year_boundary():
+    months = service.rolling_periods(date(2026, 1, 15))
 
     assert [month["month"] for month in months] == [
-        "2025-12",
-        "2025-11",
-        "2025-10",
+        "2025-12-16 ~ 2026-01-14",
+        "2025-11-16 ~ 2025-12-15",
+        "2025-10-17 ~ 2025-11-15",
     ]
-    assert months[0]["start_date"] == date(2025, 12, 1)
-    assert months[0]["end_date"] == date(2026, 1, 1)
-    assert months[-1]["start_date"] == date(2025, 10, 1)
-    assert months[-1]["end_date"] == date(2025, 11, 1)
+    assert months[0]["start_date"] == date(2025, 12, 16)
+    assert months[0]["end_date"] == date(2026, 1, 15)
+    assert months[-1]["start_date"] == date(2025, 10, 17)
+    assert months[-1]["end_date"] == date(2025, 11, 16)
 
 
 def test_assemble_items_uses_latest_complete_month_and_fills_missing_month(level_rules):
-    months = service._complete_months(date(2026, 8, 31))
+    months = service.rolling_periods(date(2026, 8, 31))
     rows = [
         {
             "site": "德国",
@@ -56,12 +56,12 @@ def test_assemble_items_uses_latest_complete_month_and_fills_missing_month(level
     assert item["return_rate"] == "0.048780"
     assert item["return_amount"] == "418.00"
     assert [metric["month"] for metric in item["monthly_metrics"]] == [
-        "2026-07",
-        "2026-06",
-        "2026-05",
+        "2026-08-01 ~ 2026-08-30",
+        "2026-07-02 ~ 2026-07-31",
+        "2026-06-02 ~ 2026-07-01",
     ]
     assert item["monthly_metrics"][1] == {
-        "month": "2026-06",
+        "month": "2026-07-02 ~ 2026-07-31",
         "sales_qty": "0",
         "gross_profit_amount": "0.00",
         "return_qty": "0",
@@ -79,7 +79,7 @@ def test_assemble_items_uses_latest_complete_month_and_fills_missing_month(level
 
 
 def test_assemble_items_leaves_three_month_rates_empty_when_denominators_are_zero():
-    months = service._complete_months(date(2026, 8, 31))
+    months = service.rolling_periods(date(2026, 8, 31))
     row = {
         "site": "美国",
         "sku": "ZERO-DENOMINATOR",

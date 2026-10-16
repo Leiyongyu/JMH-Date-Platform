@@ -53,8 +53,8 @@ def test_c_level_is_zero_when_lead_time_exists():
     assert calculate(level="C") == ("0", "0")
 
 
-def test_missing_lead_time_returns_none_instead_of_zero():
-    assert calculate(lead_times={}) == (None, None)
+def test_missing_manual_lead_time_uses_site_default():
+    assert calculate(lead_times={}) == ("121", "302")
 
 
 def test_missing_level_config_returns_none_without_code_default():

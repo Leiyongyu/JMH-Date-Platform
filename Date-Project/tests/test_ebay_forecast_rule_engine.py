@@ -140,7 +140,7 @@ def test_preparation_is_once_per_batch_and_assembly_keeps_other_fields(rule_rows
     prepared = engine.prepare_rules(rule_rows)
     assert calls == 26
     row = {"site": "英国", "sku": "SKU", "sales_qty_m1": Decimal(46), "sales_qty_30d": Decimal(46)}
-    months = service._complete_months(date(2026, 9, 1))
+    months = service.rolling_periods(date(2026, 9, 1))
     baseline = service._assemble_items([row], months, first_listing_dates={("SKU", "英国"): date.today()})
     actual = service._assemble_items([row] * 20, months,
         first_listing_dates={("SKU", "英国"): date.today()}, inventory_ages={("英国", "SKU"): Decimal(96)},

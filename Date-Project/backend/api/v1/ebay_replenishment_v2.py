@@ -12,6 +12,7 @@ from backend.services import ebay_replenishment_v2_service as service
 from backend.services import ebay_forecast_rule_service as rule_service
 from backend.services import ebay_level_rule_service as level_service
 from backend.services import ebay_replenishment_sales_type_service as sales_type_service
+from backend.services import ebay_replenishment_review_service as review_service
 
 
 router = APIRouter(
@@ -162,6 +163,38 @@ def save_sales_type(request: Request, payload: SalesTypeSaveRequest):
         raise HTTPException(status_code=500, detail="销售类型保存失败，请检查服务日志") from exc
 
 
+class ReviewSaveRequest(BaseModel):
+    site: str = Field(min_length=1, max_length=100)
+    sku: str = Field(min_length=1, max_length=255)
+    field: Literal['operations', 'development']
+    text: str = Field(default='', max_length=2000)
+    expected_version: int = Field(ge=0, strict=True)
+    operator: str = Field(min_length=1, max_length=64)
+
+
+class ReviewConfirmRequest(BaseModel):
+    site: str = Field(min_length=1, max_length=100)
+    sku: str = Field(min_length=1, max_length=255)
+    expected_version: int = Field(ge=0, strict=True)
+    operator: str = Field(min_length=1, max_length=64)
+
+
+@router.post('/review/note')
+def save_review_note(request: Request, payload: ReviewSaveRequest):
+    try:
+        return success_response(review_service.save_review(**payload.model_dump()), request_id=request.state.request_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/review/confirm')
+def confirm_review(request: Request, payload: ReviewConfirmRequest):
+    try:
+        return success_response(review_service.save_review(**payload.model_dump(), field='operations', confirm=True), request_id=request.state.request_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/list")
 def list_replenishment(
     request: Request,
@@ -171,6 +204,7 @@ def list_replenishment(
     product_level: str | None = None,
     product_nature: str | None = None,
     sales_type: Literal["NORMAL", "BRUSH"] | None = None,
+    operations_confirmed: bool | None = None,
     page: int = 1,
     page_size: int = 50,
     sort_field: str | None = None,
@@ -184,6 +218,7 @@ def list_replenishment(
             product_level=product_level,
             product_nature=product_nature,
             sales_type=sales_type,
+            operations_confirmed=operations_confirmed,
             page=page,
             page_size=page_size,
             sort_field=sort_field,
@@ -206,6 +241,7 @@ def export_replenishment_data(
     product_level: str | None = None,
     product_nature: str | None = None,
     sales_type: Literal["NORMAL", "BRUSH"] | None = None,
+    operations_confirmed: bool | None = None,
     sort_field: str | None = None,
     sort_order: str | None = None,
 ):
@@ -213,7 +249,7 @@ def export_replenishment_data(
     try:
         data = service.list_replenishment(
             site=site, sku=sku, product_level=product_level,
-            product_nature=product_nature, sales_type=sales_type,
+            product_nature=product_nature, sales_type=sales_type, operations_confirmed=operations_confirmed,
             sort_field=sort_field, sort_order=sort_order, paginate=False,
         )
         return success_response(data, request_id=request.state.request_id)

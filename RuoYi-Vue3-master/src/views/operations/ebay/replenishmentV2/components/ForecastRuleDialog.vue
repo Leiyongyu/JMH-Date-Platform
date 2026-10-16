@@ -276,7 +276,7 @@ async function loadSku() {
       age_days: data.age_days == null ? '' : String(data.age_days), product_nature: data.product_nature || ''
     })
     invalidatePreview()
-    sourceText.value = `已载入 ${data.site} / ${data.sku}，销量截至 ${data.anchor_date}。请点击试算当前草稿。`
+    sourceText.value = `已载入 ${data.site} / ${data.sku}，统计基准日 ${data.anchor_date}（不含当天）。请点击试算当前草稿。`
   } catch (error) {
     if (life === lifecycle && request === skuRequest) errorText.value = message(error)
   } finally {

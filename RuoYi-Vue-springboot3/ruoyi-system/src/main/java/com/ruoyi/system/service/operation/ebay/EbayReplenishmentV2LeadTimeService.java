@@ -23,6 +23,8 @@ public class EbayReplenishmentV2LeadTimeService
             "overseasTransitToListingDays";
 
     private static final int MAX_DAYS = 3650;
+    private static final Map<String, Integer> DEFAULT_OVERSEAS_DAYS =
+            Map.of("德国", 67, "英国", 72, "美国", 60);
     private final EbayReplenishmentV2LeadTimeMapper mapper;
 
     public EbayReplenishmentV2LeadTimeService(
@@ -84,7 +86,8 @@ public class EbayReplenishmentV2LeadTimeService
             item.put("chengdu_qc_outbound_days",
                     config == null ? null : config.getChengduQcOutboundDays());
             item.put("overseas_transit_to_listing_days",
-                    config == null ? null
+                    config == null || config.getOverseasTransitToListingDays() == null
+                            ? (site == null ? null : DEFAULT_OVERSEAS_DAYS.get(site))
                             : config.getOverseasTransitToListingDays());
         }
         return data;
@@ -92,7 +95,7 @@ public class EbayReplenishmentV2LeadTimeService
 
     /** 单字段保存，防止多人同时维护不同字段时互相覆盖。 */
     @Transactional(rollbackFor = Exception.class)
-    public void save(EbayReplenishmentV2LeadTimeSaveRequest request,
+    public Integer save(EbayReplenishmentV2LeadTimeSaveRequest request,
                      String operator)
     {
         if (request == null) throw new ServiceException("人工时效参数不能为空");
@@ -105,6 +108,8 @@ public class EbayReplenishmentV2LeadTimeService
             throw new ServiceException("时效天数必须是0到3650之间的整数");
         }
         mapper.upsertField(site, sku, field, days, safeOperator(operator));
+        return days == null && FIELD_OVERSEAS_LISTING.equals(field)
+                ? DEFAULT_OVERSEAS_DAYS.get(site) : days;
     }
 
     private String normalizeField(String value)

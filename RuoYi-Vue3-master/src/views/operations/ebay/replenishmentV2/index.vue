@@ -58,10 +58,15 @@
           <el-option v-for="item in salesTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
       </el-form-item>
+      <el-form-item label="运营确认" prop="operationsConfirmed">
+        <el-select v-model="queryParams.operationsConfirmed" placeholder="全部状态" clearable :disabled="reviewAvailable !== true" style="width: 160px">
+          <el-option label="已确认" :value="true" />
+          <el-option label="待确认" :value="false" />
+        </el-select>
+      </el-form-item>
       <el-form-item>
         <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
         <el-button icon="Refresh" @click="resetQuery">重置</el-button>
-        <el-button icon="Setting" @click="parameterDialogVisible = true">参数</el-button>
       </el-form-item>
     </el-form>
 
@@ -92,6 +97,8 @@
 
     <el-alert v-if="salesTypeAvailable === false" type="warning" :closable="false" show-icon class="mb8"
       title="销售类型功能尚未部署：请执行09_补货2.0销售类型.sql并更新后端。原有数据计算不受影响。" />
+    <el-alert v-if="reviewAvailable === false" type="warning" :closable="false" show-icon class="mb8"
+      title="运营/开发备注尚未部署，请执行20261015_ebay_replenishment_v2_review.sql。" />
 
     <el-table
       v-if="columnConfigLoaded"
@@ -157,7 +164,20 @@
             </span>
           </template>
           <template #default="scope">
-            <template v-if="col.key === 'salesType'">
+            <div v-if="col.reviewField" class="review-cell">
+              <review-note-cell :site="scope.row.site" :sku="scope.row.sku" :field="col.reviewField"
+                :value="scope.row[col.key]" :version="scope.row[`${col.reviewField}Version`]"
+                :disabled="!reviewAvailable || confirmingRows.has(rowKey(scope.row))"
+                @busy="value => setNoteBusy(scope.row, col.reviewField, value)"
+                @saved="data => applyReview(scope.row, data)" />
+              <template v-if="col.reviewField === 'operations'">
+                <el-tag v-if="scope.row.operationsConfirmed" type="success" size="small"
+                  :title="`${scope.row.operationsConfirmedBy || ''} ${scope.row.operationsConfirmedAt || ''}`">已确认</el-tag>
+                <el-button v-else link type="primary" size="small" :loading="confirmingRows.has(rowKey(scope.row))"
+                  :disabled="!reviewAvailable || isNoteBusy(scope.row)" @click="confirmOperations(scope.row)">确认</el-button>
+              </template>
+            </div>
+            <template v-else-if="col.key === 'salesType'">
               <el-select v-if="canEditSalesType && salesTypeAvailable"
                 :model-value="scope.row.salesType" :disabled="salesTypeSaving.has(rowKey(scope.row))"
                 :loading="salesTypeSaving.has(rowKey(scope.row))" size="small" style="width: 95px"
@@ -196,7 +216,6 @@
               @mouseleave="hideMonthlyPopover"
             >
               <strong>{{ formatCell(scope.row[col.key], col) }}</strong>
-              <span class="monthly-metric-month">{{ formatMonth(latestCompleteMonth, false) }}</span>
             </span>
             <template v-else-if="isFormulaColumn(col)">
               <span :class="{ 'suggested-qty': col.key === 'suggestedReplenishmentQty' && hasValue(scope.row[col.key]) }">
@@ -212,7 +231,7 @@
           <el-button
             link
             type="primary"
-            v-hasPermi="['procurement:pendingPurchase:add']"
+            v-hasPermi="['operations:ebayReplenishmentV2:purchase']"
             @click="openPurchaseDialog(row)"
           >
             采购
@@ -241,7 +260,7 @@
         <div class="monthly-history__title">{{ monthlyPopoverTitle }}</div>
         <template v-if="monthlyPopoverKey === 'returnQty'">
           <table class="quality-return-table">
-            <thead><tr><th>月份</th><th>总退货量</th><th>质量问题退货量</th><th>质量问题退货率</th></tr></thead>
+            <thead><tr><th>日期区间</th><th>总退货量</th><th>质量问题退货量</th><th>质量问题退货率</th></tr></thead>
             <tbody>
               <tr v-for="metric in monthlyPopoverRows" :key="metric.month">
                 <td>{{ formatMonth(metric.month, true) }}</td>
@@ -251,7 +270,7 @@
               </tr>
             </tbody>
             <tfoot><tr>
-              <td>近3个月合计</td>
+              <td>近90天合计</td>
               <td>{{ formatCell(monthlyReturnSummary.returnQty, { format: 'integer' }) }}</td>
               <td>{{ formatQualityReturn(monthlyReturnSummary.qualityReturnQty) }}</td>
               <td>{{ formatQualityReturn(monthlyReturnSummary.qualityReturnRate, true) }}</td>
@@ -259,12 +278,12 @@
           </table>
           <div class="quality-return-note">
             统计退货明细中人工中间分类为“产品质量问题”的全部退货件数，
-            包含“产品质量差”“产品无法使用”等所有下级分类，按付款月份归属。
-            退货率 = 质量问题退货量 ÷ 同期销量；合计按3个月数量合计计算，不平均月退货率。
+            包含“产品质量差”“产品无法使用”等所有下级分类，按付款日期归属。
+            退货率 = 质量问题退货量 ÷ 同期销量；合计按90天数量合计计算，不平均各段退货率。
             无质量问题退货或无法计算时显示--。
           </div>
           <div v-if="monthlyReturnSummary.unclassifiedReturnQty > 0" class="quality-return-warning">
-            近3个月还有 {{ formatNumber(monthlyReturnSummary.unclassifiedReturnQty, 0) }} 件退货未分类，
+            近90天还有 {{ formatNumber(monthlyReturnSummary.unclassifiedReturnQty, 0) }} 件退货未分类，
             暂未计入质量问题退货；完成售后分类后刷新本页更新。
           </div>
         </template>
@@ -345,7 +364,6 @@
       </template>
     </el-dialog>
 
-    <parameter-dialog v-model="parameterDialogVisible" :editable="canEditFormula" @saved="loadRows" />
     <level-rule-dialog v-if="canEditFormula" v-model="levelRuleDialogVisible" @saved="loadRows" />
     <forecast-rule-dialog
       v-if="canEditFormula"
@@ -399,26 +417,26 @@
 
 <script setup name="EbayReplenishmentV2">
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { QuestionFilled } from '@element-plus/icons-vue'
 import {
   exportEbayReplenishmentV2,
+  submitEbayReplenishmentV2Purchase,
+  confirmEbayReplenishmentReview,
   getEbayReplenishmentV2Formula,
   listEbayReplenishmentV2,
   saveEbayReplenishmentV2Formula,
   saveEbayReplenishmentV2LeadTime,
   saveEbayReplenishmentV2SalesType
 } from '@/api/operations/ebay/replenishmentV2'
-import { submitPendingPurchase } from '@/api/procurement/pendingPurchase'
 import { checkPermi } from '@/utils/permission'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import ForecastRuleDialog from './components/ForecastRuleDialog.vue'
 import LevelRuleDialog from './components/LevelRuleDialog.vue'
-import ParameterDialog from './components/ParameterDialog.vue'
+import ReviewNoteCell from './components/ReviewNoteCell.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
 
 const showSearch = ref(true)
-const parameterDialogVisible = ref(false)
 const queryRef = ref(null)
 const tableRef = ref(null)
 const loading = ref(false)
@@ -431,6 +449,9 @@ const productLevelOptions = ['S', 'A', 'B', 'C']
 const productNatureOptions = ['新品', '老品']
 const salesTypeOptions = [{ value: 'NORMAL', label: '正常' }, { value: 'BRUSH', label: '刷单' }]
 const salesTypeAvailable = ref(null)
+const reviewAvailable = ref(null)
+const noteBusy = reactive(new Set())
+const confirmingRows = reactive(new Set())
 const salesTypeSaving = reactive(new Set())
 const canEditSalesType = checkPermi(['operations:ebayReplenishmentV2:editSalesType'])
 const months = ref([])
@@ -445,7 +466,7 @@ const monthlyPopoverColumn = ref(null)
 const monthlyReturnSummary = ref({})
 let monthlyPopoverTimer = null
 const latestCompleteMonth = ref('')
-const canSubmitPurchase = checkPermi(['procurement:pendingPurchase:add'])
+const canSubmitPurchase = checkPermi(['operations:ebayReplenishmentV2:purchase'])
 const canEditLeadTime = checkPermi(['operations:ebayReplenishmentV2:editLeadTime'])
 const canEditFormula = checkPermi(['operations:ebayReplenishmentV2:formula'])
 const leadTimeSavedValues = new Map()
@@ -491,7 +512,7 @@ const columnDefs = [
   { key: 'productName', label: '产品名称', align: 'left', width: 240, sortable: true, tooltip: true },
   {
     key: 'salesQty7d', label: '近7天销量', align: 'right', width: 105, sortable: true, format: 'integer',
-    tip: '截至数据最新日往前7天（含当日）的销量。数据按月上传，最新日通常是上个自然月月末，不随当前日期变化。'
+    tip: '以北京时间当天为基准，统计此前7天销量，不含今天；源订单未更新的日期不会自动补销量。'
   },
   {
     key: 'salesQty15d', label: '近15天销量', align: 'right', width: 110, sortable: true, format: 'integer',
@@ -499,39 +520,39 @@ const columnDefs = [
   },
   {
     key: 'salesQty30d', label: '近30天销量', align: 'right', width: 110, sortable: true, format: 'integer',
-    tip: '口径同近7天，窗口为往前30天。与“销量”列（上一个完整自然月）高度接近，差异来自月初若干天。'
+    tip: '以北京时间当天为基准，统计此前30天销量，不含今天；与“销量”列口径一致。'
   },
   {
     key: 'salesQty', label: '销量', align: 'right', width: 130, sortable: true, format: 'integer', monthlyKey: 'salesQty',
-    tip: '主值为最近一个完整自然月的销量；鼠标悬停可查看最近3个完整自然月。'
+    tip: '主值为近30天的销量；鼠标悬停可查看最近90天（每30天一段）。'
   },
   {
     key: 'grossProfitAmount', label: '毛利', align: 'right', width: 145, sortable: true, format: 'money', monthlyKey: 'grossProfitAmount',
-    tip: '毛利取订单数据中的“订单利润(￥)”；主值为最近完整自然月，鼠标悬停可查看近3个月。'
+    tip: '毛利取订单数据中的“订单利润(￥)”；主值为近30天，鼠标悬停可查看近90天。'
   },
   {
     key: 'profitRate', label: '利润率', align: 'right', width: 110, sortable: true, format: 'percentage',
-    tip: '最近3个完整自然月利润率 = 3个月订单利润(￥)合计 ÷ 3个月已支付金额合计 × 100%；不按单月拆分或平均月度百分比。'
+    tip: '最近90天（每30天一段）利润率 = 90天订单利润(￥)合计 ÷ 90天净支付金额合计 × 100%；不按单月拆分或平均月度百分比。'
   },
   {
     key: 'returnQty', label: '退货量', align: 'right', width: 130, sortable: true, format: 'integer', monthlyKey: 'returnQty',
-    tip: '主值为最近一个完整自然月的退货量；悬停可查看近3个月总退货量、中间分类为产品质量问题（含所有小类）的退货量及其占同期销量的退货率。无质量问题退货显示--。'
+    tip: '主值为近30天的退货量；悬停可查看近90天总退货量、中间分类为产品质量问题（含所有小类）的退货量及其占同期销量的退货率。无质量问题退货显示--。'
   },
   {
     key: 'returnRate', label: '退货率', align: 'right', width: 110, sortable: true, format: 'percentage',
-    tip: '最近3个完整自然月退货率 = 3个月退货量合计 ÷ 3个月销量合计 × 100%；退货量包含发货状态为已退款或已作废的数据。'
+    tip: '最近90天（每30天一段）退货率 = 90天退货量合计 ÷ 90天销量合计 × 100%；使用清洗订单中的退货数量；当前导入已排除已作废订单。'
   },
   {
     key: 'returnAmount', label: '退货金额', align: 'right', width: 150, sortable: true, format: 'money', monthlyKey: 'returnAmount',
-    tip: '退货金额为人民币；主值为最近完整自然月，鼠标悬停可查看近3个月。'
+    tip: '退货金额为人民币；主值为近30天，鼠标悬停可查看近90天。'
   },
   {
     key: 'warehouseRentAmount', label: '仓租费用', align: 'right', width: 135, format: 'money',
-    tip: '取最近一次整表导入的第22列“总金额(不含税)”（包含附加费），按仓库映射站点、商品编码去除JMH-前缀后匹配SKU，再按固定汇率换算为人民币汇总。'
+    tip: '与库存明细共用谷仓近30天仓租快照，按站点及去首段前缀的SKU匹配，使用拉取月份汇率折人民币。'
   },
   {
     key: 'forecastSalesQty', label: '预估销量', align: 'right', width: 115, format: 'quantity2',
-    tip: '预估销量 = 最近3个完整自然月的销量合计 ÷ 3；缺失月份按0计算。'
+    tip: '预估销量 = 最近90天（每30天一段）的销量合计 ÷ 3；缺失区间按0计算。'
   },
   {
     key: 'overseasInventoryAgeDays', label: '海外仓库龄', align: 'right', width: 110, format: 'integer',
@@ -543,18 +564,18 @@ const columnDefs = [
   },
   {
     key: 'forecastGrossProfitAmount', label: '预估毛利', align: 'right', width: 125, format: 'money',
-    tip: '预估毛利 = 最近3个完整自然月的毛利合计 ÷ 3；缺失月份按0计算。'
+    tip: '预估毛利 = 最近90天（每30天一段）的毛利合计 ÷ 3；缺失区间按0计算。'
   },
   {
     key: 'forecastReturnQty', label: '预估退货', align: 'right', width: 115, format: 'quantity2',
-    tip: '预估退货 = 最近3个完整自然月的退货量合计 ÷ 3；缺失月份按0计算。'
+    tip: '预估退货 = 最近90天（每30天一段）的退货量合计 ÷ 3；缺失区间按0计算。'
   },
   {
     key: 'forecastReturnAmount', label: '预估退货金额', align: 'right', width: 140, format: 'money',
-    tip: '预估退货金额 = 最近3个完整自然月的退货金额合计 ÷ 3；缺失月份按0计算。'
+    tip: '预估退货金额 = 最近90天（每30天一段）的退货金额合计 ÷ 3；缺失区间按0计算。'
   },
   { key: 'sellThroughRatio', label: '动销比', align: 'right', width: 105, format: 'percentage', tip: '动销比 = 预估销量 ÷ 海外可售 × 100%；海外可售为0时仅计算分母按1，库存原值不变；产品等级使用此动销比。' },
-  { key: 'productLevel', label: '产品等级', align: 'center', width: 125, tip: '按数据库启用规则顺序取第一条命中。利润率、退货率使用近3个完整自然月汇总口径；数据或配置缺失时显示--。有权限可点击表头编辑全局规则。' },
+  { key: 'productLevel', label: '产品等级', align: 'center', width: 125, tip: '按数据库启用规则顺序取第一条命中。利润率、退货率使用近90天汇总口径；数据或配置缺失时显示--。有权限可点击表头编辑全局规则。' },
   { key: 'productNature', label: '产品性质', align: 'center', width: 105, tip: '按站点和完整MSKU精确匹配最早刊登时间；距今天数>90天为老品，≤90天为新品，查不到刊登记录时显示--。' },
   { key: 'salesType', label: '销售类型', align: 'center', width: 125,
     tip: '人工选择正常或刷单，按站点和完整SKU长期保存；未设置按正常。与新品/老品独立，本次不改变任何计算公式。' },
@@ -564,13 +585,13 @@ const columnDefs = [
   { key: 'overseasSellableQty', label: '海外可售', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取海外仓可售数' },
   { key: 'chengduWarehouseToWarehouseDays', label: '成都仓到仓时间', align: 'right', width: 165, format: 'days', manualLeadTime: true, tip: '人工填写整数天数；按站点和完整SKU长期保存，回车或鼠标离开后自动保存。' },
   { key: 'chengduQcToWarehouseDays', label: '成都质检出仓时间', align: 'right', width: 175, format: 'days', manualLeadTime: true, tip: '人工填写整数天数；按站点和完整SKU长期保存，回车或鼠标离开后自动保存。' },
-  { key: 'overseasTransitToListingDays', label: '海外在途到上架时间', align: 'right', width: 185, format: 'days', manualLeadTime: true, tip: '人工填写整数天数；按站点和完整SKU长期保存，回车或鼠标离开后自动保存。' },
+  { key: 'overseasTransitToListingDays', label: '海外在途到上架时间', align: 'right', width: 185, format: 'days', manualLeadTime: true, tip: '未手动设置时默认德国67天、英国72天、美国60天。可按站点和完整SKU编辑，回车或鼠标离开后自动保存；手动值（包括0）优先，清空恢复站点默认值。' },
   { key: 'safetyStockQty', label: '安全库存', align: 'right', width: 115, format: 'integer', tip: '安全库存 = 月均日销 ×（总提前天数 × 安全系数）；无时效或分级系数配置时显示--。' },
   { key: 'suggestedReplenishmentQty', label: '建议补货量', align: 'right', width: 130, format: 'integer', tip: '建议补货量 = 月均日销 ×（总提前天数 × 补货系数）− 库存合计；负数按0显示。无时效或分级系数配置时显示--。' },
   { key: 'safetyStockQty2', label: '安全库存2', align: 'right', width: 120, format: 'integer', tip: '安全库存2 = 预估销量2 ÷ 30 × 总提前天数 × 安全系数，与安全库存共用S/A/B/C系数；缺依赖显示--。' },
   { key: 'suggestedReplenishmentQty2', label: '建议补货量2', align: 'right', width: 140, format: 'integer', tip: '建议补货量2 = 预估销量2 ÷ 30 × 总提前天数 × 补货系数 − 四项库存合计；负数取0，与建议补货量共用系数。' },
-  { key: 'salesDays', label: '有单天数', align: 'right', width: 115, format: 'integer', tip: '与销量列同月（最近一个完整自然月），按站点＋归并后的产品SKU统计购买数量大于0的付款日期数；同一天多笔订单或原品/二手品只算1天。' },
-  { key: 'adi', label: 'ADI', align: 'right', width: 110, format: 'ratio', tip: '有单天数为0时为999，否则为参数中的n训练期天数÷有单天数；显示2位小数，缺少有效训练期天数时显示--。' }
+  { key: 'operationsNote', label: '运营', align: 'left', width: 180, reviewField: 'operations' },
+  { key: 'developmentNote', label: '开发', align: 'left', width: 125, reviewField: 'development' }
 ]
 
 const {
@@ -582,7 +603,7 @@ const {
   openColumnConfig,
   initColumnConfig,
   applyColumnConfig
-} = useColumnConfig('operations:ebay:replenishment:v2', columnDefs, fixedColumnKeys, fixedColumnKeys, {}, { salesDays: '__append__', adi: '__append__' })
+} = useColumnConfig('operations:ebay:replenishment:v2', columnDefs, fixedColumnKeys, fixedColumnKeys, {}, { operationsNote: '__append__', developmentNote: '__append__' })
 
 const queryParams = reactive({
   pageNum: 1,
@@ -592,6 +613,7 @@ const queryParams = reactive({
     productLevel: undefined,
     productNature: undefined,
     salesType: undefined,
+    operationsConfirmed: undefined,
   sortField: 'salesQty30d',
   sortOrder: 'descending'
 })
@@ -625,12 +647,20 @@ const leadTimeFieldMap = {
 }
 
 
+let rowsRequest = 0
 async function loadRows() {
+  if (noteBusy.size || confirmingRows.size) {
+    ElMessage.warning('请先完成备注保存或运营确认')
+    return
+  }
+  const request = ++rowsRequest
   loading.value = true
   try {
     const response = await listEbayReplenishmentV2(buildRequestParams())
     const data = response.data || {}
+    if (request !== rowsRequest || noteBusy.size || confirmingRows.size) return
     salesTypeAvailable.value = data.sales_type_available === true
+    reviewAvailable.value = data.review_available === true
     months.value = Array.isArray(data.months) ? data.months : []
     latestCompleteMonth.value = data.latest_complete_month || months.value[0] || ''
     siteOptions.value = Array.isArray(data.sites) ? data.sites : []
@@ -638,7 +668,7 @@ async function loadRows() {
     initializeLeadTimeSavedValues(rows.value)
     total.value = Number(data.pagination?.total || 0)
   } finally {
-    loading.value = false
+    if (request === rowsRequest) loading.value = false
   }
 }
 
@@ -750,6 +780,7 @@ function buildRequestParams() {
     productLevel: queryParams.productLevel || undefined,
     productNature: queryParams.productNature || undefined,
     salesType: queryParams.salesType || undefined,
+    operationsConfirmed: typeof queryParams.operationsConfirmed === 'boolean' ? queryParams.operationsConfirmed : undefined,
     sortField: queryParams.sortField || undefined,
     sortOrder: queryParams.sortOrder === 'ascending'
       ? 'asc'
@@ -811,8 +842,13 @@ function normalizeRow(item) {
     safetyStockQty2: numberOrNull(item.safety_stock_quantity_2),
     suggestedReplenishmentQty2: numberOrNull(item.suggested_replenishment_quantity_2),
     suggestedReplenishmentQty: numberOrNull(item.suggested_replenishment_quantity),
-    salesDays: numberOrNull(item.sales_days),
-    adi: numberOrNull(item.adi)
+    operationsNote: item.operations_note || '',
+    developmentNote: item.development_note || '',
+    operationsVersion: Number(item.operations_version || 0),
+    developmentVersion: Number(item.development_version || 0),
+    operationsConfirmed: Boolean(item.operations_confirmed),
+    operationsConfirmedBy: item.operations_confirmed_by || '',
+    operationsConfirmedAt: item.operations_confirmed_at || ''
   }
 }
 
@@ -824,7 +860,7 @@ function showMonthlyPopover(event, row, column) {
     monthlyPopoverRef.value = anchor
     monthlyPopoverRows.value = monthlyRows(row)
     monthlyReturnSummary.value = row.qualityReturnSummary || {}
-    monthlyPopoverTitle.value = `${column.label} · 最近3个完整自然月`
+    monthlyPopoverTitle.value = `${column.label} · 最近90天（每30天一段）`
     monthlyPopoverKey.value = column.monthlyKey
     monthlyPopoverColumn.value = column
     monthlyPopoverVisible.value = true
@@ -875,6 +911,8 @@ function handleSortChange({ prop, order }) {
 }
 
 function openPurchaseDialog(row) {
+  if (!canSubmitPurchase) return
+  if (isNoteBusy(row)) return ElMessage.warning('请先完成备注保存')
   const suggested = Number(row?.suggestedReplenishmentQty)
   Object.assign(purchaseForm, {
     site: String(row?.site || '').trim(),
@@ -886,11 +924,12 @@ function openPurchaseDialog(row) {
 }
 
 async function submitPurchase() {
+  if (!canSubmitPurchase) return
   const valid = await purchaseFormRef.value?.validate().catch(() => false)
   if (!valid) return
   purchaseSubmitting.value = true
   try {
-    await submitPendingPurchase({
+    await submitEbayReplenishmentV2Purchase({
       site: purchaseForm.site,
       sku: purchaseForm.sku,
       purchaseQuantity: Number(purchaseForm.purchaseQuantity)
@@ -959,13 +998,16 @@ function enqueueLeadTimeSave(row, column, key, days, version) {
     if (leadTimeSavedValues.get(key) === days) return
     savingLeadTimeKeys.add(key)
     try {
-      await saveEbayReplenishmentV2LeadTime({
+      const response = await saveEbayReplenishmentV2LeadTime({
         site: String(row.site || '').trim(),
         sku: String(row.sku || '').trim(),
         field: leadTimeFieldMap[column.key],
         days
       })
-      leadTimeSavedValues.set(key, days)
+      const savedDays = response?.data && Object.hasOwn(response.data, 'days')
+        ? numberOrNull(response.data.days) : days
+      leadTimeSavedValues.set(key, savedDays)
+      if (leadTimeEditVersions.get(key) === version) row[column.key] = savedDays
       scheduleRowRecalc(row)
     } catch (error) {
       if (leadTimeEditVersions.get(key) === version) {
@@ -1047,6 +1089,10 @@ function formatSuggestedQuantity(value) {
 }
 
 async function handleColumnApply(keys) {
+  if (noteBusy.size || confirmingRows.size) {
+    ElMessage.warning('请先完成备注保存或运营确认，再调整列')
+    return
+  }
   try {
     await applyColumnConfig(keys)
     ElMessage.success('列配置已保存')
@@ -1057,7 +1103,7 @@ async function handleColumnApply(keys) {
 
 function columnTip(column) {
   if (!column.monthlyKey || !latestCompleteMonth.value) return column.tip
-  return `${column.tip} 当前主值月份：${formatMonth(latestCompleteMonth.value, true)}。`
+  return `${column.tip} 当前主值区间：${formatMonth(latestCompleteMonth.value, true)}。`
 }
 
 function numberOrNull(value) {
@@ -1088,8 +1134,8 @@ function formatMonthlyValue(value, column) {
 
 async function handleExport() {
   if (exporting.value) return
-  if (leadTimeSaveTimers.size || leadTimeSaveChains.size || salesTypeSaving.size) {
-    ElMessage.warning('请等待人工时效或销售类型保存完成后再导出')
+  if (leadTimeSaveTimers.size || leadTimeSaveChains.size || salesTypeSaving.size || noteBusy.size || confirmingRows.size) {
+    ElMessage.warning('请完成备注编辑，并等待时效、销售类型或确认保存后再导出')
     return
   }
   exporting.value = true
@@ -1117,10 +1163,55 @@ function formatNumber(value, digits) {
 }
 
 function formatMonth(value, includeYear) {
+  if (/^\d{4}-\d{2}-\d{2} ~ \d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return value
   const matched = /^(\d{4})-(\d{2})$/.exec(String(value || ''))
   if (!matched) return '--'
   const month = Number(matched[2])
   return includeYear ? `${matched[1]}年${month}月` : `${month}月`
+}
+
+function setNoteBusy(row, field, busy) {
+  const key = `${rowKey(row)}|${field}`
+  if (busy) noteBusy.add(key)
+  else noteBusy.delete(key)
+}
+
+function isNoteBusy(row) {
+  return ['operations', 'development'].some(field => noteBusy.has(`${rowKey(row)}|${field}`))
+}
+
+function applyReview(row, data) {
+  // Concurrent replies from different cells cannot roll back a newer version.
+  for (const field of ['operations', 'development']) {
+    const version = Number(data[`${field}_version`])
+    if (version < row[`${field}Version`]) continue
+    row[`${field}Version`] = version
+    row[`${field}Note`] = data[`${field}_note`] || ''
+    if (field === 'operations') {
+      row.operationsConfirmed = Boolean(data.operations_confirmed)
+      row.operationsConfirmedBy = data.operations_confirmed_by || ''
+      row.operationsConfirmedAt = data.operations_confirmed_at || ''
+    }
+  }
+}
+
+async function confirmOperations(row) {
+  const key = rowKey(row)
+  if (!reviewAvailable.value || isNoteBusy(row) || confirmingRows.has(key) || row.operationsConfirmed) return
+  confirmingRows.add(key)
+  try {
+    await ElMessageBox.confirm(`确认 ${row.site} / ${row.sku} 已完成运营审核？`, '再次确认', {
+      confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning'
+    })
+    const response = await confirmEbayReplenishmentReview({ site: row.site, sku: row.sku,
+      expected_version: row.operationsVersion })
+    applyReview(row, response.data)
+    ElMessage.success('已确认')
+  } catch (error) {
+    // Cancel changes nothing; request errors are displayed by the HTTP client.
+  } finally {
+    confirmingRows.delete(key)
+  }
 }
 
 function levelTagType(level) {
@@ -1146,6 +1237,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.review-cell { display: flex; align-items: center; gap: 8px; }
+.review-cell :deep(.el-input) { width: 85px; }
 .formula-header-button { border: 0; padding: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; }
 .formula-header-button:hover { color: var(--el-color-primary); }
 .ebay-replenishment-v2-page {
@@ -1196,11 +1289,6 @@ onBeforeUnmount(() => {
 .monthly-metric-trigger strong {
   color: #303133;
   font-weight: 600;
-}
-
-.monthly-metric-month {
-  color: #909399;
-  font-size: 11px;
 }
 
 .monthly-history__title {

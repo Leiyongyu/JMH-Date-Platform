@@ -44,7 +44,6 @@ def fake_rows(monkeypatch):
                  "overseas_inventory_age_by_sku", "forecast_rules"):
         monkeypatch.setattr(service.repository, name, lambda: {})
     monkeypatch.setattr(service.repository, "list_level_rules", lambda **_: [])
-    monkeypatch.setattr(service.repository, "training_period_days", lambda: None)
     monkeypatch.setattr(service, "prepare_rules", lambda _: service.PreparedRules())
     monkeypatch.setattr(service.level_service, "prepare_levels", lambda _: None)
     monkeypatch.setattr(service, "_assemble_items", lambda rows, *_, **__: list(rows))

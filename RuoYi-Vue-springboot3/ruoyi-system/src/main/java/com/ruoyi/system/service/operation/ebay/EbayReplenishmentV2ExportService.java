@@ -79,12 +79,13 @@ public class EbayReplenishmentV2ExportService
             new Column("建议补货量", "suggested_replenishment_quantity", Format.INTEGER, 16),
             new Column("安全库存2", "safety_stock_quantity_2", Format.INTEGER, 16),
             new Column("建议补货量2", "suggested_replenishment_quantity_2", Format.INTEGER, 18),
-            new Column("有单天数", "sales_days", Format.INTEGER, 16),
-            new Column("ADI", "adi", Format.DECIMAL, 16));
+            new Column("运营", "operations_note", Format.TEXT, 36),
+            new Column("开发", "development_note", Format.TEXT, 36),
+            new Column("运营确认", "operations_confirmed", Format.TEXT, 16));
 
     private static final List<Column> MONTH_COLUMNS = List.of(
             COLUMNS.get(0), COLUMNS.get(1),
-            new Column("月份", "month", Format.TEXT, 14),
+            new Column("日期区间", "month", Format.TEXT, 30),
             COLUMNS.get(6), COLUMNS.get(7), COLUMNS.get(9),
             new Column("产品质量问题退货量", "quality_return_qty", Format.INTEGER, 26),
             new Column("产品质量问题退货率", "quality_return_rate", Format.PERCENT, 26),
@@ -131,7 +132,7 @@ public class EbayReplenishmentV2ExportService
             Map<Format, CellStyle> styles = styles(workbook);
             CellStyle header = headerStyle(workbook);
             Sheet main = sheet(workbook, "补货2.0", COLUMNS, header);
-            Sheet monthly = sheet(workbook, "三个月明细", MONTH_COLUMNS, header);
+            Sheet monthly = sheet(workbook, "90天分段明细", MONTH_COLUMNS, header);
             int rowIndex = 1;
             int monthIndex = 1;
             for (Map<?, ?> item : items)
@@ -208,6 +209,8 @@ public class EbayReplenishmentV2ExportService
                 String text = String.valueOf(value);
                 if ("sales_type".equals(column.key()))
                     text = "NORMAL".equals(text) ? "正常" : "BRUSH".equals(text) ? "刷单" : text;
+                if ("operations_confirmed".equals(column.key()))
+                    text = Boolean.TRUE.equals(value) || "1".equals(text) ? "已确认" : "待确认";
                 // 显式字符串：SKU保留前导零；以=、+、-、@开头的外部文本也不会变成Excel公式。
                 cell.setCellValue(text);
             }
@@ -271,12 +274,13 @@ public class EbayReplenishmentV2ExportService
         Map<String, Object> entries = new LinkedHashMap<>();
         entries.put("生成时间", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         entries.put("主表记录数", count);
-        entries.put("主表销量等对应月份", payload.get("latest_complete_month"));
-        entries.put("月度明细月份", payload.get("months"));
+        entries.put("主表销量等日期区间", payload.get("latest_complete_month"));
+        entries.put("90天分段区间", payload.get("months"));
+        entries.put("滚动统计基准日", payload.get("reference_date"));
         entries.put("站点筛选", selected(filters.get("site")));
         entries.put("SKU包含筛选", selected(filters.get("sku")));
-        entries.put("ADI训练期天数n", payload.get("training_days"));
-        entries.put("有单天数与ADI", "有单天数为销量列所在完整自然月中购买数量大于0的不同付款日期数，同站点同产品一天仅计一次；无有单天数时ADI=999，否则ADI=n/有单天数");
+        entries.put("滚动统计口径", "北京时间当天之前连续90天，不含今天；分为连续三个30天区间。近7/15/30天同样截至昨天。预估销量=90天销量/3。");
+        entries.put("运营确认筛选", filters.get("operations_confirmed") == null ? "全部" : Boolean.TRUE.equals(filters.get("operations_confirmed")) ? "已确认" : "待确认");
         entries.put("订单产品汇总口径", "按站点+产品SKU汇总；排除AMZ和数字PC开头；末尾-YXR/-RXY归并原SKU，各站点独立");
         entries.put("产品等级筛选", selected(filters.get("product_level")));
         entries.put("产品性质筛选", selected(filters.get("product_nature")));

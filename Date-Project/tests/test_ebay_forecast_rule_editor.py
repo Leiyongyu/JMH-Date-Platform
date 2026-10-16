@@ -208,13 +208,13 @@ def test_save_transaction_is_update_only_with_revision_lock(rules, monkeypatch, 
         assert len(connection.calls) == 1
 
 
-def test_real_sku_inputs_use_exact_keys_and_global_anchor(monkeypatch):
+def test_real_sku_inputs_use_exact_keys_and_shared_reference_date(monkeypatch):
     seen = []
     monkeypatch.setattr(repo, "forecast_sku_sales", lambda site, sku: (
         seen.append((site, sku)) or dict(site="英国", sku="ABC-001-YXR", sales_7d=0,
         sales_15d=9, sales_30d=58, anchor_date=date(2026, 8, 31))))
     monkeypatch.setattr(repo, "first_listing_date_by_sku",
-                        lambda: {("ABC-001-YXR", "英国"): date.today() - timedelta(days=20)})
+                        lambda: {("ABC-001-YXR", "英国"): date(2026, 8, 31) - timedelta(days=20)})
     monkeypatch.setattr(repo, "overseas_inventory_age_by_sku",
                         lambda: {("英国", "ABC-001-YXR"): Decimal(58), ("德国", "ABC-001-YXR"): Decimal(11)})
     data = service.forecast_sku_inputs(" 英国 ", " ABC-001-YXR ")
@@ -227,15 +227,17 @@ def test_real_sku_inputs_use_exact_keys_and_global_anchor(monkeypatch):
 def test_real_sku_query_does_not_use_fuzzy_search(monkeypatch):
     conn = FakeConnection([])
     monkeypatch.setattr(repo, "db_connection", lambda: conn)
+    monkeypatch.setattr(repo, "reference_today", lambda: date(2026, 10, 15))
     assert repo.forecast_sku_sales("英国", "ABC-001-YXR") is None
     sql, params = conn.calls[0]
-    assert params == ("英国", "ABC-001")
+    assert params == (date(2026, 10, 15), "英国", "ABC-001")
     assert "LIKE" not in sql.upper()
     assert "recent.site_name=%s AND recent.inventory_sku=%s" in sql
-    for days in (6, 14, 29):
+    for days in (7, 15, 30):
         assert f"INTERVAL {days} DAY" in sql
-    assert "INTERVAL 1 DAY" in sql
-    assert "WHERE" not in sql.split(")")[0].upper()  # global anchor is not SKU-filtered
+    assert "recent.payment_time < anchor.anchor_date" in sql
+    assert "MAX(payment_time)" not in sql
+    assert "CURDATE()" not in sql
 
 
 @pytest.fixture

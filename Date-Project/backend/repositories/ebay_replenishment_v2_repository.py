@@ -11,45 +11,33 @@ from pymysql.err import ProgrammingError
 from backend.config import settings
 from backend.database import db_connection
 from backend.services.ebay_order_product_key import product_key, product_orders_cte
+from backend.services.ebay_replenishment_periods import reference_today
 
 logger = logging.getLogger(__name__)
 
-def training_period_days() -> Decimal | None:
-    """每次请求读取ERP已保存的n；不使用代码默认值或跨请求缓存。"""
-    database = _source_database()
-    try:
-        with db_connection() as connection, connection.cursor() as cursor:
-            cursor.execute(f"""SELECT numeric_value FROM `{database}`.ebay_replenishment_v2_parameter
-                              WHERE parameter_key='training_days'""")
-            row = cursor.fetchone()
-    except ProgrammingError as exc:
-        if not exc.args or exc.args[0] != 1146:
-            raise
-        logger.warning("ADI参数表未部署，请执行20260928_ebay_replenishment_v2_parameters.sql")
-        return None
-    value = _nullable_decimal(row.get("numeric_value")) if row else None
-    if value is None or not value.is_finite() or value <= 0 or value != value.to_integral_value():
-        logger.warning("ADI缺少有效的n训练期天数，请在参数中保存正整数")
-        return None
-    return value
+def default_overseas_transit_days(site: str) -> Decimal | None:
+    """仅未维护人工值时使用；与Java展示/保存接口保持同一站点口径。"""
+    return {"德国": Decimal(67), "英国": Decimal(72), "美国": Decimal(60)}.get(_text(site))
 
 
 def lead_time_days_by_sku() -> dict[tuple[str, str], Decimal]:
-    """按站点和完整 SKU 一次读取总提前天数；没有配置的 SKU 不返回。"""
+    """批量读取人工配置；海外段为空用站点默认值，已保存的0不覆盖。"""
 
     database = _source_database()
     query = f"""
-        SELECT site,sku,
-               COALESCE(chengdu_warehouse_to_warehouse_days,0)
-             + COALESCE(chengdu_qc_outbound_days,0)
-             + COALESCE(overseas_transit_to_listing_days,0) total_days
+        SELECT site,sku,chengdu_warehouse_to_warehouse_days,
+               chengdu_qc_outbound_days,overseas_transit_to_listing_days
         FROM `{database}`.ebay_replenishment_v2_lead_time
     """
     with db_connection() as connection, connection.cursor() as cursor:
         cursor.execute(query)
         return {
-            (_text(row.get("site")), _text(row.get("sku"))): _decimal(
-                row.get("total_days")
+            (_text(row.get("site")), _text(row.get("sku"))): (
+                _decimal(row.get("chengdu_warehouse_to_warehouse_days"))
+                + _decimal(row.get("chengdu_qc_outbound_days"))
+                + _decimal(row.get("overseas_transit_to_listing_days")
+                           if row.get("overseas_transit_to_listing_days") is not None
+                           else default_overseas_transit_days(row.get("site")))
             )
             for row in cursor.fetchall()
             if _text(row.get("site")) and _text(row.get("sku"))
@@ -285,7 +273,7 @@ def save_forecast_rules(rows: list[dict[str, Any]], operator: str, revision: str
 
 
 def forecast_sku_sales(site: str, sku: str) -> dict[str, Any] | None:
-    """按站点和归并后的产品SKU精确取数，与列表使用相同的全局日期锚点。"""
+    """与列表一致：北京时间近7/15/30天，不含今天。"""
     key = product_key(site, sku)
     if key is None:
         return None
@@ -293,23 +281,22 @@ def forecast_sku_sales(site: str, sku: str) -> dict[str, Any] | None:
     with db_connection() as connection, connection.cursor() as cursor:
         cursor.execute(f"""
             WITH anchor AS (
-                SELECT COALESCE(DATE(MAX(payment_time)),CURDATE()) anchor_date
-                FROM dwd_ebay_sku_analysis_order
+                SELECT CAST(%s AS DATE) anchor_date
             ), {product_orders_cte()}
             SELECT recent.site_name site,recent.inventory_sku sku,anchor.anchor_date,
-                   COALESCE(SUM(CASE WHEN recent.payment_time >= DATE_SUB(anchor.anchor_date,INTERVAL 6 DAY)
-                                     AND recent.payment_time < DATE_ADD(anchor.anchor_date,INTERVAL 1 DAY)
+                   COALESCE(SUM(CASE WHEN recent.payment_time >= DATE_SUB(anchor.anchor_date,INTERVAL 7 DAY)
+                                     AND recent.payment_time < anchor.anchor_date
                                      THEN recent.purchase_quantity ELSE 0 END),0) sales_7d,
-                   COALESCE(SUM(CASE WHEN recent.payment_time >= DATE_SUB(anchor.anchor_date,INTERVAL 14 DAY)
-                                     AND recent.payment_time < DATE_ADD(anchor.anchor_date,INTERVAL 1 DAY)
+                   COALESCE(SUM(CASE WHEN recent.payment_time >= DATE_SUB(anchor.anchor_date,INTERVAL 15 DAY)
+                                     AND recent.payment_time < anchor.anchor_date
                                      THEN recent.purchase_quantity ELSE 0 END),0) sales_15d,
-                   COALESCE(SUM(CASE WHEN recent.payment_time >= DATE_SUB(anchor.anchor_date,INTERVAL 29 DAY)
-                                     AND recent.payment_time < DATE_ADD(anchor.anchor_date,INTERVAL 1 DAY)
+                   COALESCE(SUM(CASE WHEN recent.payment_time >= DATE_SUB(anchor.anchor_date,INTERVAL 30 DAY)
+                                     AND recent.payment_time < anchor.anchor_date
                                      THEN recent.purchase_quantity ELSE 0 END),0) sales_30d
             FROM product_orders recent CROSS JOIN anchor
             WHERE recent.site_name=%s AND recent.inventory_sku=%s
             GROUP BY recent.site_name,recent.inventory_sku,anchor.anchor_date
-        """, (site, sku))
+        """, (reference_today(), site, sku))
         return cursor.fetchone()
 
 

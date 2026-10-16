@@ -38,6 +38,16 @@ public class EbayReplenishmentV2PythonClient extends PythonHttpSupport
         return get(PREFIX + "/formula", Map.of(), requestId);
     }
 
+    public Map<String, Object> saveReviewNote(Map<String, ?> body, String requestId)
+    {
+        return post(PREFIX + "/review/note", body, requestId);
+    }
+
+    public Map<String, Object> confirmReview(Map<String, ?> body, String requestId)
+    {
+        return post(PREFIX + "/review/confirm", body, requestId);
+    }
+
     public Map<String, Object> saveSalesType(Map<String, ?> body, String requestId)
     {
         return post(PREFIX + "/sales-type", body, requestId);
