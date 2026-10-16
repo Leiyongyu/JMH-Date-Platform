@@ -60,12 +60,16 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestParam(defaultValue = "50") int pageSize,
             @RequestParam(required = false) String sortField,
             @RequestParam(required = false) String sortOrder,
+            @RequestParam(defaultValue = "false") boolean refresh,
+            @RequestParam(defaultValue = "false") boolean exactSku,
             @RequestHeader(value = "X-Request-ID", required = false)
                     String requestId)
     {
         Map<String, Object> params = queryParameters(
                 site, sku, productLevel, productNature, salesType, operationsConfirmed, sortField, sortOrder);
         params.put("page", Math.max(pageNum, 1));
+        params.put("refresh", refresh);
+        params.put("exact_sku", exactSku);
         params.put("page_size", Math.min(
                 Math.max(pageSize, 1), MAX_PAGE_SIZE));
         Object result = data(client.list(params, requestId));
@@ -84,6 +88,7 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestParam(required = false) Boolean operationsConfirmed,
             @RequestParam(required = false) String sortField,
             @RequestParam(required = false) String sortOrder,
+            @RequestParam(required = false) String calculationVersion,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId,
             HttpServletResponse response)
     {
@@ -91,6 +96,7 @@ public class EbayReplenishmentV2Controller extends BaseController
         exportService.checkExportPermission(permissions);
         Map<String, Object> params = queryParameters(
                 site, sku, productLevel, productNature, salesType, operationsConfirmed, sortField, sortOrder);
+        params.put("calculation_version", trimToNull(calculationVersion));
         Object result = enrich(data(client.exportData(params, requestId)));
         exportService.export(result, params, permissions, response);
     }
@@ -113,6 +119,9 @@ public class EbayReplenishmentV2Controller extends BaseController
     /** 列表和导出仅在Java端补人工时效；仓租由Python按谷仓明细统一计算。 */
     private Object enrich(Object result)
     {
+        // Versioned Python results already contain the effective lead-time inputs
+        // from the same snapshot as their calculated quantities. Do not mix versions.
+        if (result instanceof Map<?, ?> versioned && versioned.containsKey("calculation_version")) return result;
         if (result instanceof Map<?, ?> dataMap && dataMap.get("items") instanceof List<?> items)
         {
             for (int start = 0; start < items.size(); start += MAX_PAGE_SIZE)

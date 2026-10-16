@@ -209,6 +209,8 @@ def list_replenishment(
     page_size: int = 50,
     sort_field: str | None = None,
     sort_order: str | None = None,
+    refresh: bool = False,
+    exact_sku: bool = False,
 ):
     try:
         data = service.list_replenishment(
@@ -223,6 +225,10 @@ def list_replenishment(
             page_size=page_size,
             sort_field=sort_field,
             sort_order=sort_order,
+            include_level_summary=True,
+            use_read_model=True,
+            refresh=refresh,
+            exact_sku=exact_sku,
         )
         return success_response(data, request_id=request.state.request_id)
     except ValueError as exc:
@@ -244,6 +250,7 @@ def export_replenishment_data(
     operations_confirmed: bool | None = None,
     sort_field: str | None = None,
     sort_order: str | None = None,
+    calculation_version: str | None = None,
 ):
     """仅供内部Java导出：同一查询计算全部行，不接受分页参数。"""
     try:
@@ -251,6 +258,7 @@ def export_replenishment_data(
             site=site, sku=sku, product_level=product_level,
             product_nature=product_nature, sales_type=sales_type, operations_confirmed=operations_confirmed,
             sort_field=sort_field, sort_order=sort_order, paginate=False,
+            use_read_model=True, calculation_version=calculation_version,
         )
         return success_response(data, request_id=request.state.request_id)
     except ValueError as exc:

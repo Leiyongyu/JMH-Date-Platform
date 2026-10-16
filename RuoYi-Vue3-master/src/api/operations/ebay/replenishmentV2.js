@@ -29,7 +29,8 @@ export function listEbayReplenishmentV2(params) {
   return request({
     url: `${base}/list`,
     method: 'get',
-    params
+    params,
+    timeout: 120000
   })
 }
 

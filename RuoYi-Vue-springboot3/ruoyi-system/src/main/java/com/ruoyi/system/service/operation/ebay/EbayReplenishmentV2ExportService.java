@@ -86,7 +86,8 @@ public class EbayReplenishmentV2ExportService
             new Column("建议补货量2", "suggested_replenishment_quantity_2", Format.INTEGER, 18),
             new Column("运营", "operations_note", Format.TEXT, 36),
             new Column("开发", "development_note", Format.TEXT, 36),
-            new Column("运营确认", "operations_confirmed", Format.TEXT, 16));
+            new Column("运营确认", "operations_confirmed", Format.TEXT, 16),
+            new Column("负责人", "principal_name", Format.TEXT, 16));
 
     private static final List<Column> MONTH_COLUMNS = List.of(
             COLUMNS.get(0), COLUMNS.get(1),

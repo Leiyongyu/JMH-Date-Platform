@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from contextlib import contextmanager
 from decimal import Decimal
 from typing import Any
 
@@ -15,36 +16,51 @@ from backend.services.ebay_replenishment_periods import reference_today
 
 logger = logging.getLogger(__name__)
 
+
+@contextmanager
+def _read_cursor(connection=None):
+    if connection is not None:
+        with connection.cursor() as cursor:
+            yield cursor
+    else:
+        with db_connection() as owned, owned.cursor() as cursor:
+            yield cursor
+
 def default_overseas_transit_days(site: str) -> Decimal | None:
     """仅未维护人工值时使用；与Java展示/保存接口保持同一站点口径。"""
     return {"德国": Decimal(67), "英国": Decimal(72), "美国": Decimal(60)}.get(_text(site))
 
 
-def lead_time_days_by_sku() -> dict[tuple[str, str], Decimal]:
+def lead_time_days_by_sku(connection=None) -> dict[tuple[str, str], Decimal]:
     """批量读取人工配置；海外段为空用站点默认值，已保存的0不覆盖。"""
 
+    return {
+        key: (_decimal(row.get('chengdu_warehouse_to_warehouse_days'))
+              + _decimal(row.get('chengdu_qc_outbound_days'))
+              + _decimal(row['overseas_transit_to_listing_days']
+                         if row.get('overseas_transit_to_listing_days') is not None
+                         else default_overseas_transit_days(row['site'])))
+        for key,row in lead_time_rows(connection=connection).items()
+    }
+
+
+def lead_time_rows(connection=None):
     database = _source_database()
     query = f"""
         SELECT site,sku,chengdu_warehouse_to_warehouse_days,
                chengdu_qc_outbound_days,overseas_transit_to_listing_days
         FROM `{database}`.ebay_replenishment_v2_lead_time
     """
-    with db_connection() as connection, connection.cursor() as cursor:
+    with _read_cursor(connection) as cursor:
         cursor.execute(query)
         return {
-            (_text(row.get("site")), _text(row.get("sku"))): (
-                _decimal(row.get("chengdu_warehouse_to_warehouse_days"))
-                + _decimal(row.get("chengdu_qc_outbound_days"))
-                + _decimal(row.get("overseas_transit_to_listing_days")
-                           if row.get("overseas_transit_to_listing_days") is not None
-                           else default_overseas_transit_days(row.get("site")))
-            )
+            (_text(row.get("site")), _text(row.get("sku"))): row
             for row in cursor.fetchall()
             if _text(row.get("site")) and _text(row.get("sku"))
         }
 
 
-def first_listing_date_by_sku() -> dict[tuple[str, str], Any]:
+def first_listing_date_by_sku(connection=None) -> dict[tuple[str, str], Any]:
     """按完整 MSKU 和站点精确读取最早刊登时间；没有记录的 SKU 不返回。"""
 
     database = _source_database()
@@ -56,7 +72,7 @@ def first_listing_date_by_sku() -> dict[tuple[str, str], Any]:
           AND listing_start_time IS NOT NULL
         GROUP BY site_name,msku
     """
-    with db_connection() as connection, connection.cursor() as cursor:
+    with _read_cursor(connection) as cursor:
         cursor.execute(query)
         return {
             (_text(row.get("msku")), _text(row.get("site_name"))): row.get(
@@ -67,7 +83,7 @@ def first_listing_date_by_sku() -> dict[tuple[str, str], Any]:
         }
 
 
-def overseas_inventory_age_by_sku() -> dict[tuple[str, str], Decimal]:
+def overseas_inventory_age_by_sku(connection=None) -> dict[tuple[str, str], Decimal]:
     """按站点和SKU读取最新海外仓快照中最老批次的库龄。
 
     谷仓库存库龄接口按批次返回明细。这里取最老批次而非库存量加权平均：
@@ -91,7 +107,7 @@ def overseas_inventory_age_by_sku() -> dict[tuple[str, str], Decimal]:
         GROUP BY 1,2
         HAVING site IS NOT NULL AND age_days IS NOT NULL
     """
-    with db_connection() as connection, connection.cursor() as cursor:
+    with _read_cursor(connection) as cursor:
         cursor.execute(query)
         return {
             (_text(row.get("site")), _text(row.get("sku"))): _decimal(
@@ -102,7 +118,7 @@ def overseas_inventory_age_by_sku() -> dict[tuple[str, str], Decimal]:
         }
 
 
-def formula_by_level() -> dict[str, dict[str, Decimal]]:
+def formula_by_level(connection=None) -> dict[str, dict[str, Decimal]]:
     """读取启用的 v2 系数；缺失级别不会生成任何代码默认值。"""
 
     return {
@@ -110,11 +126,11 @@ def formula_by_level() -> dict[str, dict[str, Decimal]]:
             "safety_coefficient": row["safety_coefficient"],
             "suggest_coefficient": row["suggest_coefficient"],
         }
-        for row in list_formula_rows(active_only=True)
+        for row in list_formula_rows(active_only=True, connection=connection)
     }
 
 
-def list_formula_rows(active_only: bool = False) -> list[dict[str, Any]]:
+def list_formula_rows(active_only: bool = False, connection=None) -> list[dict[str, Any]]:
     database = _source_database()
     where_sql = "WHERE status=1" if active_only else ""
     query = f"""
@@ -124,7 +140,7 @@ def list_formula_rows(active_only: bool = False) -> list[dict[str, Any]]:
         {where_sql}
         ORDER BY FIELD(product_level,'S','A','B','C'),product_level
     """
-    with db_connection() as connection, connection.cursor() as cursor:
+    with _read_cursor(connection) as cursor:
         cursor.execute(query)
         rows = cursor.fetchall()
     return [
@@ -166,7 +182,7 @@ def save_formula_rows(rows: list[dict[str, Any]], operator: str) -> None:
             raise
 
 
-def forecast_rules() -> list[dict[str, Any]]:
+def forecast_rules(connection=None) -> list[dict[str, Any]]:
     """读取启用规则，不为空表达式提供默认值；错误交由解释器显式处理。
 
     表属于jmh_data_platform（源库），旧forecast_formula表保留但不再读写。
@@ -179,7 +195,7 @@ def forecast_rules() -> list[dict[str, Any]]:
         ORDER BY rule_no
     """
     try:
-        with db_connection() as connection, connection.cursor() as cursor:
+        with _read_cursor(connection) as cursor:
             cursor.execute(query)
             return list(cursor.fetchall())
     except ProgrammingError as exc:
@@ -202,10 +218,10 @@ def list_forecast_rule_rows() -> list[dict[str, Any]]:
         return list(cursor.fetchall())
 
 
-def list_level_rules(allow_missing=False):
+def list_level_rules(allow_missing=False, connection=None):
     database = _source_database()
     try:
-        with db_connection() as connection, connection.cursor() as cursor:
+        with _read_cursor(connection) as cursor:
             cursor.execute(f"SELECT rule_no,condition_expr,result_level,remark,status,update_by,update_time FROM `{database}`.ebay_replenishment_v2_level_rule ORDER BY rule_no")
             return list(cursor.fetchall())
     except ProgrammingError as exc:

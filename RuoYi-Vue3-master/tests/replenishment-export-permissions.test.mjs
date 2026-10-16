@@ -6,6 +6,7 @@ import vm from 'node:vm'
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8')
 const java = read('../../RuoYi-Vue-springboot3/ruoyi-system/src/main/java/com/ruoyi/system/service/operation/ebay/EbayReplenishmentV2ExportService.java')
 const migration = read('../../RuoYi-Vue-springboot3/sql/20261016_ebay_replenishment_v2_export_columns.sql')
+const ownerMigration = read('../../RuoYi-Vue-springboot3/sql/20261016_ebay_replenishment_v2_owner_export.sql')
 const page = read('../src/views/operations/ebay/replenishmentV2/index.vue')
 const grouping = read('../../RuoYi-Vue-springboot3/sql/20261016_ebay_replenishment_v2_export_menu.sql')
 
@@ -13,10 +14,14 @@ test('role menu migration defines every Excel column exactly once, including det
   const definitions = java.slice(java.indexOf('private static final List<Column> COLUMNS'), java.indexOf('public void export('))
   const keys = [...definitions.matchAll(/new Column\("[^"]+", "([^"]+)"/g)].map(match => match[1])
   const entries = [...migration.matchAll(/^\('([^']+)','([^']+)',\d+\)/gm)]
-  assert.equal(keys.length, 41)
+  assert.equal(keys.length, 42)
   assert.equal(entries.length, 41)
   assert.equal(new Set(entries.map(entry => entry[1])).size, 41)
-  assert.deepEqual(entries.map(entry => entry[1]).sort(), keys.sort())
+  assert.deepEqual([...entries.map(entry => entry[1]), 'principal_name'].sort(), keys.sort())
+  assert.match(ownerMigration, /operations:ebayReplenishmentV2:exportColumn:principal_name/)
+  assert.match(ownerMigration, /@owner_export_new=1 AND r.role_key='admin'/)
+  assert.match(ownerMigration, /allowed.menu_id=@owner_export_parent/)
+  assert.doesNotMatch(ownerMigration, /\bALTER TABLE\b|\bDELETE FROM\b|UPDATE sys_role_menu/i)
   for (const [, key, title] of entries) {
     assert.ok(`operations:ebayReplenishmentV2:exportColumn:${key}`.length <= 100)
     assert.ok(`导出字段-${title}`.length <= 50)

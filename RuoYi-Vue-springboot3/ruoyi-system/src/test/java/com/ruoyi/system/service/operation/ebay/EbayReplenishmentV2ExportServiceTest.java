@@ -52,6 +52,7 @@ class EbayReplenishmentV2ExportServiceTest
         item.put("operations_note", "运营的完整备注超过五字");
         item.put("development_note", "开发完整备注");
         item.put("operations_confirmed", true);
+        item.put("principal_name", "任雅婷");
         item.put("monthly_metrics", List.of(Map.of("month", "2026-08",
                 "sales_qty", "10", "quality_return_qty", "0", "quality_return_rate", "0")));
         return new LinkedHashMap<>(Map.of("items", List.of(item), "pagination", Map.of("total", 1),
@@ -59,14 +60,16 @@ class EbayReplenishmentV2ExportServiceTest
     }
 
     @Test
-    void writes37ColumnsWithNumbersBlanksAndSeparateMonthlyDetails() throws Exception
+    void writes38ColumnsWithNumbersBlanksAndSeparateMonthlyDetails() throws Exception
     {
         byte[] bytes = new EbayReplenishmentV2ExportService().buildExcel(payload(), Map.of(), ALL_PERMISSIONS);
         try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes)))
         {
             assertEquals(3, workbook.getNumberOfSheets());
             var sheet = workbook.getSheet("补货2.0");
-            assertEquals(37, sheet.getRow(0).getLastCellNum());
+            assertEquals(38, sheet.getRow(0).getLastCellNum());
+            assertEquals("负责人", sheet.getRow(0).getCell(37).getStringCellValue());
+            assertEquals("任雅婷", sheet.getRow(1).getCell(37).getStringCellValue());
             assertEquals(1, sheet.getLastRowNum());
             assertEquals("建议补货量2", sheet.getRow(0).getCell(33).getStringCellValue());
             assertEquals("运营", sheet.getRow(0).getCell(34).getStringCellValue());
@@ -146,11 +149,25 @@ class EbayReplenishmentV2ExportServiceTest
                 String value = new DataFormatter().formatCellValue(cell);
                 assertFalse(value.contains("DENIED_"));
                 assertFalse(value.contains("开发完整备注"));
+                assertFalse(value.contains("任雅婷"));
             }
         }
         // 导出过滤不能修改列表原数据。
         assertEquals("DENIED_MAIN_PROFIT", item.get("gross_profit_amount"));
         assertEquals("开发完整备注", item.get("development_note"));
+    }
+
+    @Test
+    void exportsOwnerOnlyWhenItsFieldPermissionIsGranted() throws Exception
+    {
+        byte[] bytes = new EbayReplenishmentV2ExportService().buildExcel(payload(), Map.of(), columns("principal_name"));
+        try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes)))
+        {
+            var sheet = workbook.getSheet("补货2.0");
+            assertEquals(List.of("负责人"), headers(sheet));
+            assertEquals("任雅婷", sheet.getRow(1).getCell(0).getStringCellValue());
+            assertNull(workbook.getSheet("90天分段明细"));
+        }
     }
 
     @Test

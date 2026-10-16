@@ -47,6 +47,7 @@ def install_listing_cursor(monkeypatch, error=None):
         yield Connection()
     monkeypatch.setattr(listing, "db_connection", connection)
     monkeypatch.setattr(listing.sku_analysis_service, "_ensure_tables", lambda: None)
+    monkeypatch.setattr(listing, "_enrich_warehouse_rent", lambda _items: None)
     return calls
 
 

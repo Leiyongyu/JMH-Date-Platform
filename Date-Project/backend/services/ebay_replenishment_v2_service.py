@@ -14,6 +14,7 @@ from backend.services import ebay_replenishment_sales_type_service as sales_type
 from backend.repositories import ebay_replenishment_sales_type_repository as sales_type_repository
 from backend.repositories import ebay_replenishment_review_repository as review_repository
 from backend.services.ebay_replenishment_periods import rolling_periods, reference_today
+from backend.services.inventory_report_etl_service import _ebay_assignment, _ebay_rule_map
 from backend.services.ebay_order_product_key import product_orders_cte, product_sku, latest_product_source_ctes
 from backend.services.ebay_forecast_rule_engine import (
     PreparedRules,
@@ -59,6 +60,20 @@ _SORT_COLUMNS = {
     "returnAmount": "return_amount_m1",
 }
 
+# These values only exist after calculation. Sort the full result before pagination.
+_DERIVED_SORT_COLUMNS = {
+    'forecastSalesQuantity2': 'forecast_sales_quantity_2',
+    'forecast_sales_quantity_2': 'forecast_sales_quantity_2',
+    'safetyStockQty': 'safety_stock_quantity',
+    'safety_stock_quantity': 'safety_stock_quantity',
+    'suggestedReplenishmentQty': 'suggested_replenishment_quantity',
+    'suggested_replenishment_quantity': 'suggested_replenishment_quantity',
+    'safetyStockQty2': 'safety_stock_quantity_2',
+    'safety_stock_quantity_2': 'safety_stock_quantity_2',
+    'suggestedReplenishmentQty2': 'suggested_replenishment_quantity_2',
+    'suggested_replenishment_quantity_2': 'suggested_replenishment_quantity_2',
+}
+
 
 from backend.services.ebay_inventory_shared import inventory_ctes
 
@@ -77,18 +92,28 @@ def list_replenishment(
     operations_confirmed: bool | None = None,
     *,
     paginate: bool = True,
+    include_level_summary: bool = False,
+    use_read_model: bool = False,
+    refresh: bool = False,
+    calculation_version: str | None = None,
+    exact_sku: bool = False,
 ) -> dict[str, Any]:
     """按同一北京时间基准读取近90天，拆为三个连续30天区间，不含今天。"""
 
+    if use_read_model:
+        from backend.services.ebay_replenishment_read_model import query
+        return query(site=site,sku=sku,product_name=product_name,product_level=product_level,
+                     product_nature=product_nature,page=page,page_size=page_size,
+                     sort_field=sort_field,sort_order=sort_order,sales_type=sales_type,
+                     operations_confirmed=operations_confirmed,paginate=paginate,
+                     include_level_summary=include_level_summary,refresh=refresh,
+                     calculation_version=calculation_version,exact_sku=exact_sku)
     sales_type_filter = sales_type_service.normalize_filter(sales_type)
     sku_analysis_service._ensure_tables()
     months = rolling_periods()
     page = max(_positive_int(page, 1), 1)
     page_size = min(max(_positive_int(page_size, 50), 1), 200)
-    forecast_sort_requested = (sort_field or "") in {
-        "forecast_sales_quantity_2",
-        "forecastSalesQuantity2",
-    }
+    derived_sort_field = _DERIVED_SORT_COLUMNS.get(sort_field or '')
     sort_column = _SORT_COLUMNS.get(
         sort_field or "sales_qty_30d", "sales_qty_30d"
     )
@@ -106,11 +131,14 @@ def list_replenishment(
         paginate
         and level_filter is None
         and nature_filter is None
-        and not forecast_sort_requested
+        and not derived_sort_field
+        and not include_level_summary
     )
 
     range_start = months[-1]["start_date"]
     range_end = months[0]["end_date"]
+    owner_rule_month = range_end.strftime('%Y-%m')
+    owner_rule_rows = []
     where_sql, filter_params = _filters(site, sku, product_name)
     sales_type_join = sales_type_repository.join_sql()
     sales_type_select = "COALESCE(sales_type.sales_type,'NORMAL') AS sales_type"
@@ -313,6 +341,12 @@ def list_replenishment(
             (range_start, range_end),
         )
         sites = [row["site_name"] for row in cursor.fetchall()]
+        if rows:
+            cursor.execute('''SELECT match_key,principal_name,rule_type
+                FROM dwd_performance_owner_rule
+                WHERE platform='ebay' AND stat_month=%s AND rule_type='EBAY_BRAND'
+                ORDER BY group_code,match_key''', (owner_rule_month,))
+            owner_rule_rows = cursor.fetchall()
 
     lead_time_days = repository.lead_time_days_by_sku() if rows else {}
     formula_configs = repository.formula_by_level() if rows else {}
@@ -330,31 +364,31 @@ def list_replenishment(
         forecast_rules=forecast_rules,
         level_rules=level_rules,
     )
-    if level_filter is not None or nature_filter is not None:
+    if nature_filter is not None:
         items = [
             item
             for item in items
-            if (
-                level_filter is None
-                or str(item.get("product_level") or "").strip().upper()
-                == level_filter
-            )
-            and (
-                nature_filter is None
-                or str(item.get("product_nature") or "").strip()
-                == nature_filter
-            )
+            if str(item.get('product_nature') or '').strip() == nature_filter
         ]
-    if forecast_sort_requested:
-        items = _sort_forecast_sales_2(items, sort_direction)
+    # Grade counts use all other filters, ignoring the current grade and page.
+    level_summary = _level_replenishment_summary(items) if include_level_summary else None
+    if level_filter is not None:
+        items = [item for item in items if _level_key(item) == level_filter]
+    if derived_sort_field:
+        items = _sort_derived_quantity(items, derived_sort_field, sort_direction)
     if not paginate_in_sql:
         total = len(items)
         if paginate:
             offset = (page - 1) * page_size
             items = items[offset:offset + page_size]
+    owner_rules = _ebay_rule_map(owner_rule_rows)
+    for item in items:
+        item['principal_name'], item['owner_match_source'] = _ebay_assignment(item.get('sku'), owner_rules)
     _enrich_warehouse_rent(items)
     return {
         "items": items,
+        "level_summary": level_summary,
+        "owner_rule_month": owner_rule_month,
         "sales_type_available": sales_type_available,
         "review_available": review_available,
         "months": [month["month"] for month in months],
@@ -369,6 +403,27 @@ def list_replenishment(
             "total": total,
         },
     }
+
+
+def _level_key(item):
+    return str(item.get('product_level') or '').strip().upper() or '--'
+
+
+def _level_replenishment_summary(items):
+    """Sum displayed integer quantities; uncomputable values do not contribute."""
+    summary = {level: {'suggested_replenishment_quantity': Decimal(0),
+                       'suggested_replenishment_quantity_2': Decimal(0)}
+               for level in ('ALL', 'S', 'A', 'B', 'C', '--')}
+    for item in items:
+        level = _level_key(item)
+        if level not in summary:
+            level = '--'
+        for field in summary['ALL']:
+            value = _decimal(item.get(field))
+            summary[level][field] += value
+            summary['ALL'][field] += value
+    return {level: {field: format(value, 'f') for field, value in totals.items()}
+            for level, totals in summary.items()}
 
 
 def _enrich_warehouse_rent(items: list[dict[str, Any]]) -> None:
@@ -717,17 +772,21 @@ def _product_nature(first_listing_date: Any, today: date) -> str | None:
 def _sort_forecast_sales_2(
     items: list[dict[str, Any]], direction: str
 ) -> list[dict[str, Any]]:
-    """预估销量2是派生值，需在组装后内存排序；空值始终排在末尾。"""
+    return _sort_derived_quantity(items, 'forecast_sales_quantity_2', direction)
+
+
+def _sort_derived_quantity(items, field, direction):
+    """Derived numeric values sort globally, with deterministic ties and nulls last."""
 
     available = [
         item
         for item in items
-        if item.get("forecast_sales_quantity_2") is not None
+        if item.get(field) is not None
     ]
     missing = [
         item
         for item in items
-        if item.get("forecast_sales_quantity_2") is None
+        if item.get(field) is None
     ]
     available.sort(
         key=lambda item: (
@@ -736,10 +795,10 @@ def _sort_forecast_sales_2(
         )
     )
     available.sort(
-        key=lambda item: _decimal(item.get("forecast_sales_quantity_2")),
+        key=lambda item: _decimal(item.get(field)),
         reverse=direction == "DESC",
     )
-    return available + missing
+    return available + sorted(missing, key=lambda item: (str(item.get('site') or ''), str(item.get('sku') or '')))
 
 
 def _replenishment_quantities(

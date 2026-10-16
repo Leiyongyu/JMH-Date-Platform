@@ -94,7 +94,7 @@ class EbayReplenishmentExportPermissionControllerTest
             var data = Map.of("items", List.of(item));
             when(client.list(anyMap(), any())).thenReturn(Map.of("data", data));
             var controller = context.getBean(EbayReplenishmentV2Controller.class);
-            assertEquals(data, controller.list(null, null, null, null, null, null, 1, 50, null, null, "trace").get("data"));
+            assertEquals(data, controller.list(null, null, null, null, null, null, 1, 50, null, null, false, false, "trace").get("data"));
         }
         finally { SecurityContextHolder.clearContext(); RequestContextHolder.resetRequestAttributes(); }
     }
@@ -110,12 +110,12 @@ class EbayReplenishmentExportPermissionControllerTest
             {
                 login(denied);
                 assertThrows(AccessDeniedException.class, () -> controller.export(null, null, null, null,
-                        null, null, null, null, "trace", new MockHttpServletResponse()));
+                        null, null, null, null, null, "trace", new MockHttpServletResponse()));
             }
             login(Set.of(LIST, EXPORT));
             var response = new MockHttpServletResponse();
             assertThrows(ServiceException.class, () -> controller.export(null, null, null, null,
-                    null, null, null, null, "trace", response));
+                    null, null, null, null, null, "trace", response));
             assertEquals(0, response.getContentAsByteArray().length);
             verifyNoInteractions(context.getBean(EbayReplenishmentV2PythonClient.class));
         }
@@ -134,9 +134,12 @@ class EbayReplenishmentExportPermissionControllerTest
             when(client.exportData(anyMap(), any())).thenReturn(Map.of("data", data));
             var mvc = MockMvcBuilders.standaloneSetup(context.getBean(EbayReplenishmentV2Controller.class)).build();
             var response = mvc.perform(post("/operations/ebay/replenishment-v2/export")
-                    .param("permissions", "*:*:*").param("columns", "gross_profit_amount"))
+                    .param("permissions", "*:*:*").param("columns", "gross_profit_amount")
+                    .param("calculationVersion", "0123456789abcdef0123456789abcdef"))
                     .andReturn().getResponse();
             assertEquals(200, response.getStatus());
+            verify(client).exportData(argThat(params ->
+                    "0123456789abcdef0123456789abcdef".equals(params.get("calculation_version"))), any());
             try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(response.getContentAsByteArray())))
             {
                 var sheet = workbook.getSheet("补货2.0");

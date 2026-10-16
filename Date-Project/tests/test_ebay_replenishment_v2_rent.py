@@ -77,3 +77,17 @@ def test_rent_snapshot_reads_pull_month_rates_in_one_transaction(monkeypatch):
     assert rates == {"2026-09": Decimal("1")}
     assert month == "2026-09" and count == 2
     assert calls[-1] == "commit" and "rollback" not in calls
+
+
+def test_borrowed_rent_connection_does_not_change_callers_transaction(monkeypatch):
+    from unittest.mock import MagicMock
+
+    connection = MagicMock()
+    cursor = connection.cursor.return_value.__enter__.return_value
+    expected = ([], {}, None, 0)
+    monkeypatch.setattr(rent_repository, '_read_rent_snapshot', lambda actual: expected if actual is cursor else None)
+    assert rent_repository.read_rent_snapshot(connection=connection) == expected
+    connection.begin.assert_not_called()
+    connection.commit.assert_not_called()
+    connection.rollback.assert_not_called()
+    connection.close.assert_not_called()

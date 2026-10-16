@@ -582,6 +582,7 @@ def init_database() -> None:
         project_root / "migrations" / "20260919_ebay_token_health.sql",
         project_root / "migrations" / "20260919_listing_cny_price_tier.sql",
         project_root / "migrations" / "20260921_ebay_usd_price_tier.sql",
+        project_root / "migrations" / "20261016_ebay_replenishment_read_model.sql",
     ]
     schema = "\n".join(
         path.read_text(encoding="utf-8")

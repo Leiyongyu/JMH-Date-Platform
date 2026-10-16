@@ -426,27 +426,32 @@ def rent_rows() -> list[dict[str, Any]]:
         return _rent_rows(cursor)
 
 
-def read_rent_snapshot() -> tuple[list[dict[str, Any]], dict[str, Decimal], str | None, int]:
+def _read_rent_snapshot(cursor):
+    cursor.execute("""SELECT COUNT(*) rent_row_count,
+        DATE_FORMAT(MAX(pulled_at),'%Y-%m') rent_pull_month,
+        COUNT(DISTINCT sync_batch_id) rent_batch_count
+        FROM ods_goodcang_wh_inventory_storage_detail""")
+    metadata = cursor.fetchone()
+    if metadata['rent_batch_count'] > 1:
+        raise ValueError('谷仓仓租明细含多个批次，无法确定统一拉取月份，请先完成全量覆盖同步')
+    rows = _rent_rows(cursor) if metadata['rent_row_count'] else []
+    month = metadata['rent_pull_month']
+    return rows, _rates(cursor, month), month, metadata['rent_row_count']
+
+
+def read_rent_snapshot(connection=None) -> tuple[list[dict[str, Any]], dict[str, Decimal], str | None, int]:
     """Read the GoodCang rent rows and their pull-month rates consistently."""
+    if connection is not None:
+        with connection.cursor() as cursor:
+            return _read_rent_snapshot(cursor)
     with db_connection() as connection:
         try:
             with connection.cursor() as cursor:
                 cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
                 connection.begin()
-                cursor.execute("""
-                    SELECT COUNT(*) rent_row_count,
-                           DATE_FORMAT(MAX(pulled_at),'%Y-%m') rent_pull_month,
-                           COUNT(DISTINCT sync_batch_id) rent_batch_count
-                    FROM ods_goodcang_wh_inventory_storage_detail
-                """)
-                metadata = cursor.fetchone()
-                if metadata["rent_batch_count"] > 1:
-                    raise ValueError("谷仓仓租明细含多个批次，无法确定统一拉取月份，请先完成全量覆盖同步")
-                rows = _rent_rows(cursor) if metadata["rent_row_count"] else []
-                month = metadata["rent_pull_month"]
-                rates = _rates(cursor, month)
+                result = _read_rent_snapshot(cursor)
             connection.commit()
-            return rows, rates, month, metadata["rent_row_count"]
+            return result
         except Exception:
             connection.rollback()
             raise

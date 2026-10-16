@@ -23,19 +23,23 @@
         />
       </el-form-item>
       <el-form-item label="产品等级" prop="productLevel">
-        <el-select
-          v-model="queryParams.productLevel"
-          placeholder="全部等级"
-          clearable
-          style="width: 160px"
-        >
-          <el-option
-            v-for="level in productLevelOptions"
-            :key="level"
-            :label="level"
-            :value="level"
-          />
-        </el-select>
+        <el-tooltip content="括号内为建议补货量 / 建议补货量2合计，单位：件；统计其他筛选条件下的全部记录，无法计算的值不计入合计。" placement="top">
+          <el-select
+            v-model="queryParams.productLevel"
+            placeholder="全部等级"
+            clearable
+            :disabled="loading"
+            style="width: 160px"
+            @change="handleQuery"
+          >
+            <el-option
+              v-for="level in productLevelOptions"
+              :key="level"
+              :label="levelOptionLabel(level)"
+              :value="level"
+            />
+          </el-select>
+        </el-tooltip>
       </el-form-item>
       <el-form-item label="产品性质" prop="productNature">
         <el-select
@@ -78,7 +82,7 @@
             plain
             icon="Download"
             :loading="exporting"
-            :disabled="loading || savingLeadTimeKeys.size > 0 || salesTypeSaving.size > 0"
+            :disabled="loading || savingLeadTimeKeys.size > 0 || salesTypeSaving.size > 0 || recalculatingRowKeys.size > 0"
             v-hasPermi="['operations:ebayReplenishmentV2:export']"
             @click="handleExport"
           >导出全部数据</el-button>
@@ -90,7 +94,9 @@
       <right-toolbar
         v-model:showSearch="showSearch"
         :show-column-config="true"
-        @queryTable="loadRows"
+        :refresh-loading="loading"
+        refresh-tooltip="重新读取源数据并计算全部补货指标"
+        @queryTable="refreshRows"
         @columnConfig="openColumnConfig"
       />
     </el-row>
@@ -364,12 +370,12 @@
       </template>
     </el-dialog>
 
-    <level-rule-dialog v-if="canEditFormula" v-model="levelRuleDialogVisible" @saved="loadRows" />
+    <level-rule-dialog v-if="canEditFormula" v-model="levelRuleDialogVisible" @saved="refreshRows" />
     <forecast-rule-dialog
       v-if="canEditFormula"
       v-model="forecastRuleDialogVisible"
       :site-options="siteOptions"
-      @saved="loadRows"
+      @saved="refreshRows"
     />
 
     <el-dialog
@@ -445,7 +451,17 @@ const rows = ref([])
 const total = ref(0)
 const siteOptions = ref([])
 // 与后端 _product_level 的取值保持一致：D 级已并入 C，长尾产品统一按 B 展示
-const productLevelOptions = ['S', 'A', 'B', 'C']
+const productLevelOptions = ['', 'S', 'A', 'B', 'C', '--']
+const levelSummary = ref({})
+const ownerRuleMonth = ref('')
+const calculationVersion = ref('')
+function levelQuantity(level, field) {
+  const value = levelSummary.value[level || 'ALL']?.[field]
+  return value == null ? '--' : formatNumber(value, 0)
+}
+function levelOptionLabel(level) {
+  return `${level || '全部'}（${levelQuantity(level, 'suggested_replenishment_quantity')} / ${levelQuantity(level, 'suggested_replenishment_quantity_2')}）`
+}
 const productNatureOptions = ['新品', '老品']
 const salesTypeOptions = [{ value: 'NORMAL', label: '正常' }, { value: 'BRUSH', label: '刷单' }]
 const salesTypeAvailable = ref(null)
@@ -586,12 +602,14 @@ const columnDefs = [
   { key: 'chengduWarehouseToWarehouseDays', label: '成都仓到仓时间', align: 'right', width: 165, format: 'days', manualLeadTime: true, tip: '人工填写整数天数；按站点和完整SKU长期保存，回车或鼠标离开后自动保存。' },
   { key: 'chengduQcToWarehouseDays', label: '成都质检出仓时间', align: 'right', width: 175, format: 'days', manualLeadTime: true, tip: '人工填写整数天数；按站点和完整SKU长期保存，回车或鼠标离开后自动保存。' },
   { key: 'overseasTransitToListingDays', label: '海外在途到上架时间', align: 'right', width: 185, format: 'days', manualLeadTime: true, tip: '未手动设置时默认德国67天、英国72天、美国60天。可按站点和完整SKU编辑，回车或鼠标离开后自动保存；手动值（包括0）优先，清空恢复站点默认值。' },
-  { key: 'safetyStockQty', label: '安全库存', align: 'right', width: 115, format: 'integer', tip: '安全库存 = 月均日销 ×（总提前天数 × 安全系数）；无时效或分级系数配置时显示--。' },
-  { key: 'suggestedReplenishmentQty', label: '建议补货量', align: 'right', width: 130, format: 'integer', tip: '建议补货量 = 月均日销 ×（总提前天数 × 补货系数）− 库存合计；负数按0显示。无时效或分级系数配置时显示--。' },
-  { key: 'safetyStockQty2', label: '安全库存2', align: 'right', width: 120, format: 'integer', tip: '安全库存2 = 预估销量2 ÷ 30 × 总提前天数 × 安全系数，与安全库存共用S/A/B/C系数；缺依赖显示--。' },
-  { key: 'suggestedReplenishmentQty2', label: '建议补货量2', align: 'right', width: 140, format: 'integer', tip: '建议补货量2 = 预估销量2 ÷ 30 × 总提前天数 × 补货系数 − 四项库存合计；负数取0，与建议补货量共用系数。' },
+  { key: 'safetyStockQty', label: '安全库存', align: 'right', width: 115, sortable: true, format: 'integer', tip: '安全库存 = 月均日销 ×（总提前天数 × 安全系数）；无时效或分级系数配置时显示--。' },
+  { key: 'suggestedReplenishmentQty', label: '建议补货量', align: 'right', width: 130, sortable: true, format: 'integer', tip: '建议补货量 = 月均日销 ×（总提前天数 × 补货系数）− 库存合计；负数按0显示。无时效或分级系数配置时显示--。' },
+  { key: 'safetyStockQty2', label: '安全库存2', align: 'right', width: 120, sortable: true, format: 'integer', tip: '安全库存2 = 预估销量2 ÷ 30 × 总提前天数 × 安全系数，与安全库存共用S/A/B/C系数；缺依赖显示--。' },
+  { key: 'suggestedReplenishmentQty2', label: '建议补货量2', align: 'right', width: 140, sortable: true, format: 'integer', tip: '建议补货量2 = 预估销量2 ÷ 30 × 总提前天数 × 补货系数 − 四项库存合计；负数取0，与建议补货量共用系数。' },
   { key: 'operationsNote', label: '运营', align: 'left', width: 180, reviewField: 'operations' },
-  { key: 'developmentNote', label: '开发', align: 'left', width: 125, reviewField: 'development' }
+  { key: 'developmentNote', label: '开发', align: 'left', width: 125, reviewField: 'development' },
+  { key: 'principalName', label: '负责人', align: 'center', width: 115, tooltip: true,
+    tip: '按北京时间当月的绩效排名eBay品牌负责人规则匹配SKU前缀，跨站点同品牌同负责人；不回退其他月份。FLL/LEJ、CL沿用绩效排名固定归属，缺规则显示未分配。' }
 ]
 
 const {
@@ -603,14 +621,14 @@ const {
   openColumnConfig,
   initColumnConfig,
   applyColumnConfig
-} = useColumnConfig('operations:ebay:replenishment:v2', columnDefs, fixedColumnKeys, fixedColumnKeys, {}, { operationsNote: '__append__', developmentNote: '__append__' })
+} = useColumnConfig('operations:ebay:replenishment:v2', columnDefs, fixedColumnKeys, fixedColumnKeys, {}, { operationsNote: '__append__', developmentNote: '__append__', principalName: '__append__' })
 
 const queryParams = reactive({
   pageNum: 1,
   pageSize: 50,
   site: undefined,
     sku: undefined,
-    productLevel: undefined,
+    productLevel: '',
     productNature: undefined,
     salesType: undefined,
     operationsConfirmed: undefined,
@@ -632,6 +650,10 @@ const sortFieldMap = {
   salesQty15d: 'salesQty15d',
   salesQty30d: 'salesQty30d',
   forecastSalesQuantity2: 'forecastSalesQuantity2',
+  safetyStockQty: 'safetyStockQty',
+  suggestedReplenishmentQty: 'suggestedReplenishmentQty',
+  safetyStockQty2: 'safetyStockQty2',
+  suggestedReplenishmentQty2: 'suggestedReplenishmentQty2',
   grossProfitAmount: 'grossProfitAmount',
   profitRate: 'profitRate',
   returnQty: 'returnQty',
@@ -648,7 +670,7 @@ const leadTimeFieldMap = {
 
 
 let rowsRequest = 0
-async function loadRows() {
+async function loadRows(forceRefresh = false) {
   if (noteBusy.size || confirmingRows.size) {
     ElMessage.warning('请先完成备注保存或运营确认')
     return
@@ -656,7 +678,7 @@ async function loadRows() {
   const request = ++rowsRequest
   loading.value = true
   try {
-    const response = await listEbayReplenishmentV2(buildRequestParams())
+    const response = await listEbayReplenishmentV2({ ...buildRequestParams(), refresh: forceRefresh === true })
     const data = response.data || {}
     if (request !== rowsRequest || noteBusy.size || confirmingRows.size) return
     salesTypeAvailable.value = data.sales_type_available === true
@@ -664,12 +686,19 @@ async function loadRows() {
     months.value = Array.isArray(data.months) ? data.months : []
     latestCompleteMonth.value = data.latest_complete_month || months.value[0] || ''
     siteOptions.value = Array.isArray(data.sites) ? data.sites : []
+    levelSummary.value = data.level_summary || {}
+    ownerRuleMonth.value = data.owner_rule_month || ''
+    calculationVersion.value = data.calculation_version || ''
     rows.value = Array.isArray(data.items) ? data.items.map(normalizeRow) : []
     initializeLeadTimeSavedValues(rows.value)
     total.value = Number(data.pagination?.total || 0)
   } finally {
     if (request === rowsRequest) loading.value = false
   }
+}
+
+function refreshRows() {
+  return loadRows(true)
 }
 
 function isFormulaColumn(column) {
@@ -765,7 +794,7 @@ async function submitFormulaConfig() {
     setFormulaRows(response?.data)
     ElMessage.success('全局公式系数已保存，正在重新计算全部SKU')
     formulaDialogVisible.value = false
-    await loadRows()
+    await refreshRows()
   } finally {
     formulaSaving.value = false
   }
@@ -804,6 +833,7 @@ function normalizeRow(item) {
     site: item.site ?? item.site_name,
     sku: item.sku ?? item.inventory_sku,
     productName: item.product_name ?? item.product_name_cn,
+    principalName: item.principal_name || '未分配',
     salesQty7d: numberOrNull(item.sales_qty_7d),
     salesQty15d: numberOrNull(item.sales_qty_15d),
     salesQty30d: numberOrNull(item.sales_qty_30d),
@@ -1035,6 +1065,7 @@ function isRowRecalculating(row) {
 
 /** 行级防抖：三个时效格子连续填写时合并为一次重算。 */
 function scheduleRowRecalc(row) {
+  calculationVersion.value = ''
   const key = rowKey(row)
   const version = (rowRecalcVersions.get(key) || 0) + 1
   rowRecalcVersions.set(key, version)
@@ -1051,6 +1082,7 @@ function scheduleRowRecalc(row) {
  * 公式在后端，前端不复刻，避免两个真相源。
  */
 async function recalcRow(row, key, version) {
+  const tableVersion = rowsRequest
   // 三个时效格子各有独立保存链，必须全部落库后再查，避免读到半新半旧的值。
   const chains = Object.keys(leadTimeFieldMap)
     .map(columnKey => leadTimeSaveChains.get(leadTimeCellKey(row, columnKey)))
@@ -1066,12 +1098,27 @@ async function recalcRow(row, key, version) {
       pageNum: 1,
       pageSize: 1,
       site: String(row.site || '').trim(),
-      sku: String(row.sku || '').trim()
+      sku: String(row.sku || '').trim(),
+      exactSku: true,
+      refresh: true
     })
     // 慢响应不得覆盖期间产生的新输入。
-    if (rowRecalcVersions.get(key) !== version) return
+    if (rowRecalcVersions.get(key) !== version || tableVersion !== rowsRequest) return
     const fresh = (response?.data?.items || [])[0]
     if (!fresh) return
+    // A row refresh creates a new generation. Reload the full filtered view
+    // before exporting, rather than pinning a mixed old/new page to that version.
+    calculationVersion.value = ''
+    // The server already calculated the new row values. Keep full-filter totals in sync
+    // without substituting this single-SKU response's summary for the whole table.
+    const level = row.productLevel || '--'
+    for (const [column, field] of [['suggestedReplenishmentQty', 'suggested_replenishment_quantity'],
+      ['suggestedReplenishmentQty2', 'suggested_replenishment_quantity_2']]) {
+      const delta = Number(fresh[field] ?? 0) - Number(row[column] ?? 0)
+      for (const bucket of ['ALL', level]) {
+        if (levelSummary.value[bucket]) levelSummary.value[bucket][field] = String(Number(levelSummary.value[bucket][field]) + delta)
+      }
+    }
     // 只回填受时效影响的四个派生字段，避免冲掉用户正在编辑的时效输入。
     row.safetyStockQty = numberOrNull(fresh.safety_stock_quantity)
     row.safetyStockQty2 = numberOrNull(fresh.safety_stock_quantity_2)
@@ -1102,6 +1149,7 @@ async function handleColumnApply(keys) {
 }
 
 function columnTip(column) {
+  if (column.key === 'principalName') return `${column.tip} 当前规则月份：${ownerRuleMonth.value || '--'}。`
   if (!column.monthlyKey || !latestCompleteMonth.value) return column.tip
   return `${column.tip} 当前主值区间：${formatMonth(latestCompleteMonth.value, true)}。`
 }
@@ -1137,14 +1185,24 @@ async function handleExport() {
     ElMessage.warning('没有eBay补货2.0导出权限，请联系管理员授权')
     return
   }
-  if (exporting.value) return
+  if (exporting.value || loading.value) return
+  if (rowRecalcTimers.size || recalculatingRowKeys.size) {
+    ElMessage.warning('请等待补货指标重新计算完成后再导出')
+    return
+  }
   if (leadTimeSaveTimers.size || leadTimeSaveChains.size || salesTypeSaving.size || noteBusy.size || confirmingRows.size) {
     ElMessage.warning('请完成备注编辑，并等待时效、销售类型或确认保存后再导出')
     return
   }
   exporting.value = true
   try {
+    if (!calculationVersion.value) await loadRows(true)
+    if (!calculationVersion.value) {
+      ElMessage.warning('请先刷新数据后再导出')
+      return
+    }
     const { pageNum, pageSize, ...params } = buildRequestParams()
+    params.calculationVersion = calculationVersion.value
     await exportEbayReplenishmentV2(params)
   } finally {
     exporting.value = false
