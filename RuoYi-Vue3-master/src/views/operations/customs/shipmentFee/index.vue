@@ -47,7 +47,7 @@
             </div>
             <el-tag type="danger" effect="light" round>修改领星数据</el-tag>
           </div>
-          <p>读取 Sheet1 的货件单号、渠道、跟踪信息及预估/实际费用，匹配发货单后逐单提交。</p>
+          <p>按 Sheet1 的 A～AB 固定列位置读取，第一行为表头、第二行起为数据。表头名称可修改，请勿移动、插入或删除这28列；匹配发货单后逐单提交。</p>
           <div class="upload-card__tips">
             <span>B列：渠道记录 ID</span>
             <span>C列：provider.id</span>
@@ -547,7 +547,7 @@ async function handleFileChange(event) {
   }
   try {
     await proxy.$modal.confirm(
-      `确认上传“${file.name}”并逐单修改领星发货单物流费用吗？`
+      `确认上传“${file.name}”并逐单修改领星发货单物流费用吗？系统按A～AB固定列位置读取，不校验表头名称，请确认列位置未调整。`
     )
   } catch {
     return

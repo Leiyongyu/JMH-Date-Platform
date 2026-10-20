@@ -59,12 +59,13 @@ public class CustomsShipmentFeeImportService
     private static final DateTimeFormatter BATCH_TIME =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
-    private static final List<String> EXPECTED_HEADERS = List.of(
-            "货件单号", "物流商", "渠道商", "运输类型", "单号类型",
-            "费用明细-预估费用", "单价", "单价币种", "物流费用", "物流费用币种",
+    // 仅用于错误说明，不与上传表头比较；业务含义由 A～AB 的固定列位置决定。
+    private static final List<String> COLUMN_LABELS = List.of(
+            "货件单号", "物流渠道ID", "物流商ID（provider.id）", "运输类型", "单号类型",
+            "预估计费重", "预估单价", "预估单价币种", "预估物流费用", "预估物流费用币种",
             "预估费用备注", "预估费用-其他费id", "其他费金额", "其他费币种",
-            "费用明细-实际费用", "税费币种", "实重（单位：KG）", "体积（单位：m³）",
-            "单价", "单价币种", "物流费用", "物流费用币种", "实际费用备注",
+            "实际税费", "税费币种", "实重（单位：KG）", "体积（单位：m³）",
+            "实际单价", "实际单价币种", "实际物流费用", "实际物流费用币种", "实际费用备注",
             "实际费用-其他费id", "其他费金额", "其他费币种", "物流商单号", "跟踪号");
 
     private static final String[] SOURCE_KEYS = {
@@ -440,7 +441,9 @@ public class CustomsShipmentFeeImportService
                 throw new IllegalArgumentException("模板中缺少 Sheet1 工作表");
             DataFormatter formatter = new DataFormatter(Locale.CHINA);
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
-            validateHeader(sheet, formatter, evaluator);
+            // 第一行固定保留给表头，不读取名称；数据始终从第二行按列位置解析。
+            if (sheet.getRow(0) == null)
+                throw new IllegalArgumentException("Sheet1 请保留第一行表头，数据从第二行开始，按A～AB固定列位置读取");
 
             List<ExcelRow> rows = new ArrayList<>();
             for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++)
@@ -462,37 +465,6 @@ public class CustomsShipmentFeeImportService
             if (rows.isEmpty()) throw new IllegalArgumentException("Sheet1 中没有可导入的数据行");
             return rows;
         }
-    }
-
-    private void validateHeader(
-            Sheet sheet, DataFormatter formatter, FormulaEvaluator evaluator)
-    {
-        Row header = sheet.getRow(0);
-        if (header == null) throw new IllegalArgumentException("Sheet1 第一行表头为空");
-        List<String> actual = new ArrayList<>();
-        for (int col = 0; col < COLUMN_COUNT; col++)
-            actual.add(cellText(header.getCell(col), formatter, evaluator));
-        List<String> errors = new ArrayList<>();
-        for (int col = 0; col < COLUMN_COUNT; col++)
-        {
-            if (!isSupportedHeader(col, actual.get(col)))
-                errors.add(columnName(col) + "列应为“" + EXPECTED_HEADERS.get(col)
-                        + "”，实际为“" + actual.get(col) + "”");
-        }
-        if (!errors.isEmpty())
-            throw new IllegalArgumentException("模板表头不匹配：" + String.join("；", errors));
-    }
-
-    private boolean isSupportedHeader(int col, String actual)
-    {
-        if (EXPECTED_HEADERS.get(col).equals(actual)) return true;
-        if (col == 0 && "发货单号".equals(actual)) return true;
-        // B列“物流商”映射具体渠道 id，C列“渠道商”映射 provider.id；
-        // 兼容此前使用过的带“id”表头，避免历史文件无法重新导入。
-        return (col == 1 && Set.of(
-                "物流商id", "物流渠道商id").contains(actual))
-                || (col == 2 && Set.of(
-                "渠道商id", "物流渠道id", "物流渠道商id").contains(actual));
     }
 
     private Map<String, List<ExcelRow>> groupRows(List<ExcelRow> rows)
@@ -612,7 +584,7 @@ public class CustomsShipmentFeeImportService
                 if (StringUtils.hasText(value)) values.add(value);
             }
             if (values.size() > 1)
-                errors.add("同一货件的“" + EXPECTED_HEADERS.get(col)
+                errors.add("同一货件的" + columnName(col) + "列“" + COLUMN_LABELS.get(col)
                         + "”存在多个不同值：" + values);
         }
     }
