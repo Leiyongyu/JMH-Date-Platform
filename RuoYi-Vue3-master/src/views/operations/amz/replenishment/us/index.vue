@@ -122,7 +122,7 @@
           v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
       </el-col>
       <el-col :span="1.5" class="profit-source-note">
-        毛利润、利润率数据来源领星订单利润数据，筛选近天数，如：今天：9.11，同步筛选30天参数为：8.11-9.10。
+        鼠标停留在列名上可查看字段的数据来源和计算规则。
       </el-col>
       <right-toolbar
         v-model:showSearch="showSearch"
@@ -156,7 +156,7 @@
         <el-table-column
           v-else-if="col.format === 'money'"
           :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
-          sortable="custom"
+          sortable="custom" :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">{{ formatGrossProfit(scope.row[col.key]) }}</template>
         </el-table-column>
@@ -229,7 +229,7 @@
         <el-table-column
           v-else-if="col.key === 'imageUrl'"
           :label="col.label" :align="col.align" :width="col.width"
-          :fixed="col.fixed || false"
+          :fixed="col.fixed || false" :render-header="renderColumnHeader(col)"
         >
           <template #default="scope">
             <img v-if="scope.row.imageUrl" :src="scope.row.imageUrl" style="width:50px;height:50px;object-fit:contain" />
@@ -325,7 +325,9 @@ import { searchUsReplenishment, refreshUsReplenishment } from '@/api/operations/
 import { syncAmzAll } from '@/api/operations/sync'
 import request from '@/utils/request'
 import { parseTime } from '@/utils/ruoyi'
-import { Filter, Delete } from '@element-plus/icons-vue'
+import { Filter, Delete, QuestionFilled } from '@element-plus/icons-vue'
+import { ElTooltip } from 'element-plus'
+import { getAmzReplenishmentFieldHelp } from '../fieldHelp'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
 import { useTaskPoller } from '@/composables/useTaskPoller'
@@ -614,12 +616,24 @@ function buildFilters() {
 function renderColumnHeader(col) {
   return ({ column }) => {
     const label = column.label || col.label
-    if (col.filterType !== 'number') return h('span', label)
+    const help = getAmzReplenishmentFieldHelp(col.key, 'US')
+    const labelNode = h(ElTooltip, { placement: 'top', effect: 'light', showAfter: 250, popperClass: 'amz-field-help-popper' }, {
+      default: () => h('span', { class: 'amz-field-help-trigger', 'aria-label': `${label}的数据来源和计算规则` }, [
+        label, h(QuestionFilled, { class: 'amz-field-help-icon' })
+      ]),
+      content: () => h('div', { class: 'amz-field-help-content' }, [
+        h('strong', label),
+        h('div', [h('b', '数据来源：'), help?.source || '当前代码未登记来源']),
+        h('div', [h('b', '计算逻辑：'), help?.logic || '当前代码未登记规则']),
+        h('small', '页面显示当前补货快照；上游同步与快照计算为两个步骤。')
+      ])
+    })
+    if (col.filterType !== 'number') return labelNode
     const active = hasActiveFilter(col.key)
     const icon = resolveComponent('el-icon'); const filterIcon = resolveComponent('Filter')
     return h('div', { class: 'col-header-cell', style: 'display:inline-flex;align-items:center;justify-content:flex-start;gap:2px;overflow:hidden' }, [
       h(icon, { size: 13, style: `flex-shrink:0;cursor:pointer;color:${active ? '#409EFF' : '#909399'}`, onClick: (e) => { e.stopPropagation(); openFilter(col, (e && e.currentTarget) || null) } }, [h(filterIcon)]),
-      h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, label)
+      labelNode
     ])
   }
 }
@@ -769,9 +783,8 @@ initPage()
   flex: 1;
   min-width: 260px;
   max-width: 100%;
-  color: #f56c6c;
+  color: #606266;
   font-size: 14px;
-  font-weight: 700;
   line-height: 22px;
   overflow-wrap: anywhere;
 }
@@ -799,6 +812,8 @@ initPage()
 :deep(.col-header-cell) { cursor: default; user-select: none; }
 :deep(.col-header-cell .el-icon) { opacity: 0.5; transition: opacity 0.2s; }
 :deep(.col-header-cell:hover .el-icon) { opacity: 1; }
+:deep(.amz-field-help-trigger) { display: inline-flex; align-items: center; gap: 3px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
+:deep(.amz-field-help-icon) { width: 12px; height: 12px; flex-shrink: 0; color: #909399; }
 </style>
 
 <style>
@@ -809,4 +824,9 @@ initPage()
 .number-filter-popover .popover-body { padding: 12px 14px; overflow: visible; }
 .number-filter-popover .popover-footer { padding: 8px 14px 12px; display: flex; justify-content: flex-end; gap: 8px; }
 .number-filter-select-popper { z-index: 3100 !important; }
+.amz-field-help-popper { max-width: 420px; white-space: normal; line-height: 1.6; }
+.amz-field-help-content { overflow-wrap: anywhere; }
+.amz-field-help-content strong { display: block; margin-bottom: 6px; color: #303133; }
+.amz-field-help-content > div { margin-top: 4px; }
+.amz-field-help-content small { display: block; margin-top: 8px; color: #909399; }
 </style>
