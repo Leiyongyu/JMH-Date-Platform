@@ -4,7 +4,7 @@ const reasons = { missing_current: '本期无数据', missing_baseline: '对比�
 export function changeText(comparison) {
   if (!comparison || comparison.value == null) return comparison?.reason === 'zero_baseline' ? '基期为0' : '--'
   const value = Number(comparison.value) * 100
-  return `${value > 0 ? '+' : ''}${value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${comparison.unit === 'pp' ? '个百分点' : '%'}`
+  return `${value > 0 ? '+' : ''}${value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
 }
 export function changeTip(comparison, current, unit, range) {
   if (!comparison) return '暂无对比数据'

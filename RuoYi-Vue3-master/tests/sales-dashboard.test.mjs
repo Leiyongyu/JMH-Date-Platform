@@ -2,6 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
+import * as Vue from 'vue'
+import { compile } from '@vue/compiler-dom'
+import { renderToString } from '@vue/server-renderer'
+import { trendDirection, comparisonDirection, trendColors } from '../src/components/SalesDashboard/trend.js'
 import { salesChartOption, salesMetrics, formatMetric } from '../src/components/SalesDashboard/chart.js'
 import { availableMonths, disabledMonth, fitMonthRange, validMonthRange, availableQuarters, quarterRange, quarterMonths, platformGroups } from '../src/components/SalesDashboard/months.js'
 import { changeText, changeTip } from '../src/components/SalesDashboard/comparison.js'
@@ -182,9 +186,12 @@ test('company filters preserve platform-qualified groups and quarter bounds acro
   assert.deepEqual(quarterMonths(['2026-Q3', '2025-Q4']), [])
 })
 
-test('comparison labels distinguish growth, percentage points, incomplete and zero', () => {
+test('comparison labels use percent suffix for growth and rate differences, preserving incomplete and zero', () => {
   assert.equal(changeText({ value: '0.05', unit: 'ratio' }), '+5.00%')
-  assert.equal(changeText({ value: '0.05', unit: 'pp' }), '+5.00个百分点')
+  assert.equal(changeText({ value: '0.05', unit: 'pp' }), '+5.00%')
+  assert.equal(changeText({ value: '0.0079', unit: 'pp' }), '+0.79%')
+  assert.equal(changeText({ value: '-0.0079', unit: 'pp' }), '-0.79%')
+  assert.equal(changeText({ value: '0', unit: 'pp' }), '0.00%')
   assert.equal(changeText({ value: '-1', unit: 'ratio' }), '-100.00%')
   assert.equal(changeText({ value: null, reason: 'zero_baseline' }), '基期为0')
   assert.equal(changeText({ value: null, reason: 'incomplete' }), '--')
@@ -193,7 +200,59 @@ test('comparison labels distinguish growth, percentage points, incomplete and ze
   assert.match(tip, /本期不完整月份：2026-09/)
 })
 
-for (const name of ['ComparisonValue', 'ComparisonTable', 'DashboardChart', 'ContributionPanel', 'PlatformAnalysis']) {
+test('ratio card and chart tooltips use percent signs without changing rate differences', () => {
+  const comparison = { value: '0.0079', unit: 'pp', difference: '0.0079', baseline: '0.0901', start: '2025-08', end: '2025-08' }
+  const tip = changeTip(comparison, '0.098', 'ratio', ['2026-08', '2026-08'])
+  assert.match(tip, /增减：\+0\.79%/)
+  assert.doesNotMatch(tip, /百分点/)
+  for (const key of ['gross_margin', 'refund_rate']) {
+    const option = salesChartOption({ months: ['2026-08'], metrics: { [key]: {
+      unit: 'ratio', total: ['0.098'], point_comparisons: [{ mom: comparison, yoy: comparison }]
+    } } }, key)
+    const chartTip = option.tooltip.formatter([{ axisValueLabel: '2026-08', seriesName: '筛选合计', value: 0.098, seriesIndex: 0, dataIndex: 0 }])
+    assert.match(chartTip, /环比 \{up\|↑ \+0\.79%\}/)
+    assert.match(chartTip, /同比 \{up\|↑ \+0\.79%\}/)
+    assert.doesNotMatch(chartTip, /百分点/)
+  }
+})
+
+test('trend arrows follow numeric change, not business meaning, and leave unavailable comparisons neutral', () => {
+  assert.equal(trendDirection('0.0079'), 'up')
+  assert.equal(trendDirection('-0.0079'), 'down')
+  for (const value of [0, '0', '-0', null, undefined, '', 'bad', Infinity]) assert.equal(trendDirection(value), '')
+  for (const reason of ['incomplete', 'missing_current', 'missing_baseline', 'zero_baseline']) {
+    assert.equal(comparisonDirection({ value: '1', reason }), '')
+  }
+  assert.equal(comparisonDirection({ value: '-1' }), 'down')
+})
+
+test('TrendValue renders red up and green down arrows while zero and missing values have no arrow', async () => {
+  const source = fs.readFileSync(new URL('../src/components/SalesDashboard/TrendValue.vue', import.meta.url), 'utf8')
+  const template = parse(source).descriptor.template.content
+  const render = new Function('Vue', compile(template, { mode: 'function', prefixIdentifiers: true }).code)(Vue)
+  for (const [value, direction, arrow, color] of [['1', 'up', '↑', '#d93025'], ['-1', 'down', '↓', '#16834a'], ['0', '', '', ''], [null, '', '', '']]) {
+    const app = Vue.createSSRApp({ render, setup: () => ({ direction: trendDirection(value), trendColors }) })
+    const html = await renderToString(app)
+    if (direction) {
+      assert.ok(html.includes(`trend-${direction}`))
+      assert.ok(html.includes(arrow))
+      assert.ok(html.includes(`color:${color}`))
+    } else assert.doesNotMatch(html, /trend-arrow|trend-up|trend-down/)
+  }
+})
+
+test('platform-specific chart comparisons use the same signed arrows and colors', () => {
+  const option = salesChartOption({ months: ['2026-08'], metrics: { commission: {
+    unit: 'CNY', total: ['10'], point_comparisons: [{ mom: { value: '-0.2' }, yoy: { value: '0' } }]
+  } } }, 'commission')
+  const tip = option.tooltip.formatter([{ value: 10, seriesIndex: 0, dataIndex: 0 }])
+  assert.match(tip, /环比 \{down\|↓ -20\.00%\}/)
+  assert.match(tip, /同比 0\.00%/)
+  assert.equal(option.tooltip.textStyle.rich.up.color, '#d93025')
+  assert.equal(option.tooltip.textStyle.rich.down.color, '#16834a')
+})
+
+for (const name of ['TrendValue', 'ComparisonValue', 'ComparisonTable', 'DashboardChart', 'ContributionPanel', 'PlatformAnalysis']) {
   test(`${name} compiles`, () => {
     const filename = new URL(`../src/components/SalesDashboard/${name}.vue`, import.meta.url)
     const { descriptor, errors } = parse(fs.readFileSync(filename, 'utf8'))

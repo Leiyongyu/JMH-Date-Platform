@@ -7,7 +7,7 @@
       <el-table-column v-for="metric in mainMetrics" :key="metric.key" :label="metric.label" align="center">
         <el-table-column :prop="metric.key" label="本期金额" min-width="170" align="right" sortable="custom"><template #default="{ row }">{{ formatMetric(row[metric.key]) }}</template></el-table-column>
         <template v-for="kind in kinds" :key="kind">
-          <el-table-column :prop="`${metric.key}_${kind}_difference`" :label="`${kind === 'mom' ? '环比' : '同比'}增减额`" min-width="165" align="right" sortable="custom"><template #default="{ row }">{{ formatMetric(row[`${metric.key}_${kind}_difference`]) }}</template></el-table-column>
+          <el-table-column :prop="`${metric.key}_${kind}_difference`" :label="`${kind === 'mom' ? '环比' : '同比'}增减额`" min-width="165" align="right" sortable="custom"><template #default="{ row }"><TrendValue :value="row[`${metric.key}_${kind}_difference`]">{{ formatMetric(row[`${metric.key}_${kind}_difference`]) }}</TrendValue></template></el-table-column>
           <el-table-column :prop="`${metric.key}_${kind}`" :label="`${kind === 'mom' ? '环比' : '同比'}变化率`" min-width="165" align="right" sortable="custom"><template #default="{ row }"><ComparisonValue :value="row.metrics[metric.key][kind]" :current="row[metric.key]" unit="CNY" :range="range" /></template></el-table-column>
         </template>
       </el-table-column>
@@ -16,11 +16,11 @@
   </div>
 </template>
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, h, ref, watch } from 'vue'
 import { salesMetrics, formatMetric } from './chart'
 import { sortDetails } from './details'
-import { changeText } from './comparison'
 import ComparisonValue from './ComparisonValue.vue'
+import TrendValue from './TrendValue.vue'
 const props = defineProps({ report: Object, loading: Boolean, scope: String })
 const showExtra = ref(false)
 const extraFields = computed(() => props.report?.platform !== 'all' ? props.report?.specials?.[props.report?.platform]?.fields || [] : [])
@@ -40,7 +40,10 @@ function summary({ columns }) {
     const data = (props.report?.metrics?.[metric.key] || props.report?.specials?.[props.report?.platform]?.metrics?.[metric.key])?.summary
     if (column.property === metric.key) return formatMetric(data?.value)
     const kind = column.property.slice(metric.key.length + 1).startsWith('mom') ? 'mom' : 'yoy'
-    return column.property.endsWith('_difference') ? formatMetric(data?.[kind]?.difference) : changeText(data?.[kind])
+    const comparison = data?.[kind]
+    return column.property.endsWith('_difference')
+      ? h(TrendValue, { value: comparison?.difference }, () => formatMetric(comparison?.difference))
+      : h(ComparisonValue, { value: comparison, current: data?.value, unit: 'CNY', range: range.value })
   })
 }
 function reset() { page.value = 1; sort.value = {}; table.value?.clearSort() }

@@ -15,7 +15,7 @@
       <el-table-column prop="name" :label="tableMode === 'items' ? '项目' : '平台 / 组别'" min-width="160" fixed="left" />
       <el-table-column label="本期金额" min-width="160" align="right"><template #default="{ row }">{{ formatMetric(row.summary.value) }}</template></el-table-column>
       <el-table-column label="对比期金额" min-width="160" align="right"><template #default="{ row }">{{ formatMetric(row.summary[kind].baseline) }}</template></el-table-column>
-      <el-table-column label="增减金额" min-width="160" align="right"><template #default="{ row }">{{ formatMetric(row.summary[kind].difference) }}</template></el-table-column>
+      <el-table-column label="增减金额" min-width="160" align="right"><template #default="{ row }"><TrendValue :value="row.summary[kind].difference">{{ formatMetric(row.summary[kind].difference) }}</TrendValue></template></el-table-column>
       <el-table-column label="环比" min-width="165" align="right"><template #default="{ row }"><ComparisonValue :value="row.summary.mom" :current="row.summary.value" unit="CNY" :range="range" /></template></el-table-column>
       <el-table-column label="同比" min-width="165" align="right"><template #default="{ row }"><ComparisonValue :value="row.summary.yoy" :current="row.summary.value" unit="CNY" :range="range" /></template></el-table-column>
       <el-table-column label="占销售总额比例" min-width="160" align="right"><template #default="{ row }"><el-tooltip content="项目金额合计 ÷ 销售总额合计 × 100%，保留正负号；赔偿不代表费用"><span>{{ formatMetric(row.share?.value, 'ratio') }}</span></el-tooltip></template></el-table-column>
@@ -27,6 +27,7 @@
 import { computed, ref, watch } from 'vue'
 import { formatMetric, salesChartOption } from './chart'
 import ComparisonValue from './ComparisonValue.vue'
+import TrendValue from './TrendValue.vue'
 import DashboardChart from './DashboardChart.vue'
 const props = defineProps({ report: Object, loading: Boolean, scope: String })
 const platform = ref('ebay'), selected = ref('transaction_fee'), trend = ref('total'), showYear = ref(false), tableMode = ref('items'), kind = ref('mom'), page = ref(1)

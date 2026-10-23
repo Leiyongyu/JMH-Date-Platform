@@ -60,7 +60,7 @@
       <div v-show="hasData || loading" ref="chartEl" class="chart" role="img" :aria-label="`${platform}${activeDefinition.label}趋势折线图`" />
       <el-empty v-if="!hasData && !error && !loading" description="所选范围暂无数据，请调整筛选或上传历史数据" />
     </div>
-    <p class="hint">公司合计仅含已接入的 eBay＋AMZ。金额汇总已有数据；不完整周期不显示增长率。金额变化率＝增减额 ÷ |对比期金额|，比率变化用百分点表示。负值保留，箭头仅表示数值增减，不代表经营好坏。</p>
+    <p class="hint">公司合计仅含已接入的 eBay＋AMZ。金额汇总已有数据；不完整周期不显示增长率。金额变化率＝增减额 ÷ |对比期金额|；比率增减＝本期比率－对比期比率，统一以%显示。负值保留，箭头仅表示数值增减，不代表经营好坏。</p>
     </section>
 
     <ContributionPanel :report="report" :loading="loading" :scope="scopeCaption" />

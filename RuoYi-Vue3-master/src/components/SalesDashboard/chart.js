@@ -1,3 +1,5 @@
+import { comparisonDirection, trendColors } from './trend.js'
+
 export const salesMetrics = [
   { key: 'platform_income', label: '平台收入', color: '#23b7a3', icon: 'Coin' },
   { key: 'platform_expense', label: '平台支出', color: '#64748b', icon: 'Wallet' },
@@ -27,7 +29,9 @@ export function salesChartOption(report, metricKey = 'net_sales', dimension = 't
   const comparisonText = value => {
     if (!value || value.value == null) return ({ incomplete: '对比数据不完整', zero_baseline: '基期为0', missing_baseline: '对比期无数据', missing_current: '本期无数据' })[value?.reason] || '--'
     const number = Number(value.value) * 100
-    return `${number > 0 ? '+' : ''}${number.toFixed(2)}${value.unit === 'pp' ? '个百分点' : '%'}`
+    const text = `${number > 0 ? '+' : ''}${number.toFixed(2)}%`
+    const direction = comparisonDirection(value)
+    return direction ? `{${direction}|${direction === 'up' ? '↑' : '↓'} ${text}}` : text
   }
   return {
     color: [definition.color, '#409eff', '#f5ad42', '#8b7ce8', '#23b7a3', '#64748b'],
@@ -36,7 +40,10 @@ export function salesChartOption(report, metricKey = 'net_sales', dimension = 't
     tooltip: {
       trigger: 'axis', renderMode: 'richText', confine: true,
       backgroundColor: '#fff', borderColor: '#e8edf5', padding: [12, 16],
-      textStyle: { color: '#334155', fontSize: 12 },
+      textStyle: { color: '#334155', fontSize: 12, rich: {
+        up: { color: trendColors.up, fontWeight: 'bold' },
+        down: { color: trendColors.down, fontWeight: 'bold' }
+      } },
       axisPointer: { type: 'line', lineStyle: { color: '#b8c5d9', type: 'dashed' } },
       valueFormatter: value => value == null ? '无数据' : formatMetric(value, unit),
       formatter: params => {
