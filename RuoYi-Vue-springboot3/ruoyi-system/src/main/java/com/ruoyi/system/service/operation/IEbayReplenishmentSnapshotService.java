@@ -1,27 +1,10 @@
 package com.ruoyi.system.service.operation;
 
-import java.util.List;
-
-import com.ruoyi.system.domain.operation.EbayReplenishmentSearchRequest;
-import com.ruoyi.system.domain.operation.EbayReplenishmentSnapshot;
-
+/**
+ * 跟价仍使用的历史补货量计算。仅供内部同步任务调用，不再提供补货1.0页面接口。
+ * 与Python补货2.0的计算、规则和刷新相互独立。
+ */
 public interface IEbayReplenishmentSnapshotService
 {
-    /** 基础列表查询（若依兼容） */
-    List<EbayReplenishmentSnapshot> selectEbayReplenishmentSnapshotList(EbayReplenishmentSnapshot snapshot);
-
-    /**
-     * 新版搜索：多字段文本/数值筛选全部下推 SQL，不再内存过滤。
-     * 调用方用 PageHelper.startPage() 分页。
-     */
-    List<EbayReplenishmentSnapshot> search(EbayReplenishmentSearchRequest req);
-
-    /** SQL 级 distinct 候选值（limit 50） */
-    List<String> distinctValues(String field, String keyword);
-
-    /** 全量重算并批量写入快照表 */
     int refreshSnapshot();
-
-    /** 更新产品性质 */
-    void updateProductNature(Long id, Integer productNature);
 }

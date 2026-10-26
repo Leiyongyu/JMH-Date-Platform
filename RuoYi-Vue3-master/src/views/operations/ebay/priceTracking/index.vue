@@ -46,6 +46,9 @@
             <el-dropdown-menu>
               <el-dropdown-item command="lowestPrice">导入最低价</el-dropdown-item>
               <el-dropdown-item command="productPrice">导入商品单价</el-dropdown-item>
+              <el-dropdown-item command="sales" divided>导入销量</el-dropdown-item>
+              <el-dropdown-item command="profitRate">导入利润率</el-dropdown-item>
+              <el-dropdown-item command="returnRate">导入退货率</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -494,8 +497,10 @@ function handleImport(command) {
     const file = e.target.files[0]
     if (!file) return
     const form = new FormData(); form.append('file', file)
-    const urlMap = { lowestPrice: 'import-lowest-price', productPrice: 'import-product-price' }
-    const labelMap = { lowestPrice: '最低价', productPrice: '商品单价' }
+    const urlMap = { lowestPrice: 'import-lowest-price', productPrice: 'import-product-price',
+      sales: 'import-sales', profitRate: 'import-profit-rate', returnRate: 'import-return-rate' }
+    const labelMap = { lowestPrice: '最低价', productPrice: '商品单价',
+      sales: '销量', profitRate: '利润率', returnRate: '退货率' }
     importing.value = true
     try {
       const res = await request({ url: `/operations/ebay/price-tracking/${urlMap[command]}`, method: 'post', data: form, headers: { 'Content-Type': 'multipart/form-data' }, timeout: IMPORT_TIMEOUT })

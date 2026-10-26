@@ -178,6 +178,37 @@ public class EbayPriceTrackingController extends BaseController
         });
     }
 
+    /** 旧补货页面下线后，共用历史数据上传由跟价页面承接。 */
+    @Log(title = "eBay跟价-导入销量", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:import')")
+    @PostMapping("/import-sales")
+    public AjaxResult importSales(@RequestParam("file") MultipartFile file)
+    {
+        return withLock("lock:sync:lingxing:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
+            return AjaxResult.success(importService.importEbaySales(file, SecurityUtils.getUsername()));
+        });
+    }
+
+    @Log(title = "eBay跟价-导入利润率", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:import')")
+    @PostMapping("/import-profit-rate")
+    public AjaxResult importProfitRate(@RequestParam("file") MultipartFile file)
+    {
+        return withLock("lock:sync:lingxing:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
+            return AjaxResult.success(importService.importProfitRate(file, SecurityUtils.getUsername()));
+        });
+    }
+
+    @Log(title = "eBay跟价-导入退货率", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:import')")
+    @PostMapping("/import-return-rate")
+    public AjaxResult importReturnRate(@RequestParam("file") MultipartFile file)
+    {
+        return withLock("lock:sync:lingxing:ebay", 1800, "eBay数据同步、刷新或导入正在执行中，请稍后再试", () -> {
+            return AjaxResult.success(importService.importReturnRate(file, SecurityUtils.getUsername()));
+        });
+    }
+
     // ==================== 锁工具 ====================
     @FunctionalInterface
     private interface LockedAction { AjaxResult run() throws Exception; }

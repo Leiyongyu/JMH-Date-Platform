@@ -17,22 +17,8 @@ import com.ruoyi.system.mapper.operation.*;
 @Service
 public class UnifiedExportService
 {
-    @Autowired private EbayReplenishmentSnapshotMapper ebayReplenishmentMapper;
     @Autowired private EbayPriceTrackingSnapshotMapper ebayPriceTrackingMapper;
     @Autowired private AmzReplenishmentSnapshotMapper amzReplenishmentMapper;
-
-    public void exportEbayReplenishment(ExportRequest req, HttpServletResponse response) throws Exception
-    {
-        List<String> allowed = Arrays.asList("site","sku","productName","skuLevel","profitRate30d","returnRate",
-            "overseasOnway","overseasSellable","overseasTotal","purchasePendingDelivery","localSellable","localOnway",
-            "purchasePlanQty","lockedQty","totalInventory","sales7d","sales15d","sales30d","sales90d","maxMonthlySales",
-            "monthlySalesForecast",
-            "overseasSellableSalesRatio","overseasTotalSalesRatio","totalInventorySalesRatio","lastLocalOutboundTime",
-            "outboundDays","purchaseCycleDays","suggestPurchaseQty","maxMonthlyReplenishQty","returnLevel","ownerName");
-        List<String> keys = resolveKeys(req, allowed);
-        List<Map<String, Object>> data = fetchEbayReplenishmentData(req, keys);
-        writeExcel(response, "eBay补货数据", data, resolveColumns(req, keys, allowed, ebayReplenishmentTitles()));
-    }
 
     public void exportEbayPriceTracking(ExportRequest req, HttpServletResponse response) throws Exception
     {
@@ -65,20 +51,6 @@ public class UnifiedExportService
     }
 
     // ========== 数据查询 ==========
-
-    private List<Map<String, Object>> fetchEbayReplenishmentData(ExportRequest req, List<String> keys)
-    {
-        Map<String, Object> params = buildEbayReplenishmentParams(req, 1, 0);
-        List<EbayReplenishmentSnapshot> list = ebayReplenishmentMapper.search(params);
-        List<Map<String, Object>> all = new ArrayList<>();
-        Set<String> selected = "SELECTED".equals(req.getScope()) && req.getRowKeys() != null
-                ? new HashSet<>(req.getRowKeys()) : null;
-        for (EbayReplenishmentSnapshot s : list) {
-            if (selected != null && !selected.contains(s.getSite() + "|" + s.getSku())) continue;
-            all.add(toMap(s, keys));
-        }
-        return all;
-    }
 
     private List<Map<String, Object>> fetchEbayPriceTrackingData(ExportRequest req, List<String> keys)
     {
@@ -145,17 +117,6 @@ public class UnifiedExportService
 
     // ========== 参数构建 ==========
 
-    private Map<String, Object> buildEbayReplenishmentParams(ExportRequest req, int page, int size)
-    {
-        Map<String, Object> p = buildFilterParams(req);
-        p.put("sortField", req.getSortField());
-        p.put("sortOrder", req.getSortOrder());
-        // rowKeys 过滤：site|sku 格式
-        if ("SELECTED".equals(req.getScope()) && req.getRowKeys() != null)
-            p.put("rowKeys", req.getRowKeys());
-        return p;
-    }
-
     private Map<String, Object> buildEbayPriceTrackingParams(ExportRequest req, int page, int size)
     {
         Map<String, Object> p = buildFilterParams(req);
@@ -213,28 +174,6 @@ public class UnifiedExportService
     }
 
     // ========== 对象转 Map ==========
-
-    private Map<String, Object> toMap(EbayReplenishmentSnapshot s, List<String> keys)
-    {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("site", s.getSite()); m.put("sku", s.getSku()); m.put("productName", s.getProductName());
-        m.put("skuLevel", s.getSkuLevel()); m.put("profitRate30d", s.getProfitRate30d()); m.put("returnRate", s.getReturnRate());
-        m.put("overseasOnway", s.getOverseasOnway()); m.put("overseasSellable", s.getOverseasSellable());
-        m.put("overseasTotal", s.getOverseasTotal()); m.put("purchasePendingDelivery", s.getPurchasePendingDelivery());
-        m.put("localSellable", s.getLocalSellable()); m.put("localOnway", s.getLocalOnway());
-        m.put("purchasePlanQty", s.getPurchasePlanQty()); m.put("lockedQty", s.getLockedQty());
-        m.put("totalInventory", s.getTotalInventory()); m.put("sales7d", s.getSales7d());
-        m.put("sales15d", s.getSales15d()); m.put("sales30d", s.getSales30d()); m.put("sales90d", s.getSales90d());
-        m.put("maxMonthlySales", s.getMaxMonthlySales()); m.put("monthlySalesForecast", s.getMonthlySalesForecast());
-        m.put("overseasSellableSalesRatio", s.getOverseasSellableSalesRatio());
-        m.put("overseasTotalSalesRatio", s.getOverseasTotalSalesRatio());
-        m.put("totalInventorySalesRatio", s.getTotalInventorySalesRatio());
-        m.put("lastLocalOutboundTime", s.getLastLocalOutboundTime()); m.put("outboundDays", s.getOutboundDays());
-        m.put("purchaseCycleDays", s.getPurchaseCycleDays()); m.put("suggestPurchaseQty", s.getSuggestPurchaseQty());
-        m.put("maxMonthlyReplenishQty", s.getMaxMonthlyReplenishQty()); m.put("returnLevel", s.getReturnLevel()); m.put("ownerName", s.getOwnerName());
-        m.put("calcTime", s.getCalcTime());
-        return filterMap(m, keys);
-    }
 
     private Map<String, Object> toMap(EbayPriceTrackingSnapshot s, List<String> keys)
     {
@@ -310,23 +249,6 @@ public class UnifiedExportService
     }
 
     // ========== 中文标题映射 ==========
-
-    private Map<String, String> ebayReplenishmentTitles()
-    {
-        Map<String, String> t = new LinkedHashMap<>();
-        t.put("site","站点"); t.put("sku","SKU"); t.put("productName","产品名称"); t.put("skuLevel","等级");
-        t.put("profitRate30d","近30天利润"); t.put("returnRate","退货率"); t.put("overseasOnway","海外在途");
-        t.put("overseasSellable","海外可售"); t.put("overseasTotal","海外总库存"); t.put("purchasePendingDelivery","采购待交付");
-        t.put("localSellable","成都可售"); t.put("localOnway","成都在途"); t.put("purchasePlanQty","采购计划");
-        t.put("lockedQty","待出库"); t.put("totalInventory","总库存"); t.put("sales7d","近7天销量");
-        t.put("sales30d","近30天销量"); t.put("sales90d","近90天销量"); t.put("maxMonthlySales","历史最大月销");
-        t.put("monthlySalesForecast","月销预测");
-        t.put("overseasSellableSalesRatio","海外在库库销比"); t.put("overseasTotalSalesRatio","海外总库销比");
-        t.put("totalInventorySalesRatio","总库存库销比"); t.put("lastLocalOutboundTime","最近本地出库");
-        t.put("outboundDays","出库天数"); t.put("purchaseCycleDays","采购周期"); t.put("suggestPurchaseQty","采购数量");
-        t.put("maxMonthlyReplenishQty","最大月销补货量"); t.put("returnLevel","退货等级"); t.put("ownerName","负责人");
-        return t;
-    }
 
     private Map<String, String> ebayPriceTrackingTitles()
     {
