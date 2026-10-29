@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -473,6 +475,9 @@ public class MySqlBackupService
     {
         Path normalizedTarget = target.toAbsolutePath().normalize();
         requireDirectChild(allowedParent.toAbsolutePath().normalize(), normalizedTarget);
+        if (Files.isDirectory(normalizedTarget, LinkOption.NOFOLLOW_LINKS)
+                && !Files.isSymbolicLink(normalizedTarget))
+            deleteMisclassifiedLogFile(normalizedTarget.resolve("backup.log"));
         Files.walkFileTree(normalizedTarget, new SimpleFileVisitor<>()
         {
             @Override
@@ -492,6 +497,34 @@ public class MySqlBackupService
                 return FileVisitResult.CONTINUE;
             }
         });
+    }
+
+    /** Some SMB servers advertise backup.log as a directory although its handle is a file. */
+    void deleteMisclassifiedLogFile(Path file) throws IOException
+    {
+        if (!"backup.log".equals(file.getFileName().toString())
+                || !Files.isDirectory(file, LinkOption.NOFOLLOW_LINKS)
+                || Files.isSymbolicLink(file)) return;
+        // Opening and reading a real directory fails. Do not infer a file from
+        // its extension, empty size or the localized error text.
+        try (var probe = FileChannel.open(file, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))
+        {
+            probe.read(ByteBuffer.allocate(1));
+        }
+        catch (IOException notReadableAsFile)
+        {
+            return; // Normal traversal retains the original error/permission reporting.
+        }
+        // Delete through the verified file's handle instead of Files.delete,
+        // which would select RemoveDirectory using the incorrect SMB attribute.
+        try (var channel = FileChannel.open(file, StandardOpenOption.READ,
+                StandardOpenOption.DELETE_ON_CLOSE, LinkOption.NOFOLLOW_LINKS))
+        {
+            channel.read(ByteBuffer.allocate(1));
+        }
+        if (Files.exists(file, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("SMB日志文件关闭后仍存在，未完成清理：" + file);
+        log.info("已按实际文件类型清理SMB属性异常的备份日志：{}", file);
     }
 
     private void requireDirectChild(Path parent, Path child)

@@ -202,4 +202,40 @@ class MySqlBackupServiceTest
         assertThrows(IllegalStateException.class, () -> service.deleteTree(temp, temp));
         assertThrows(IllegalStateException.class, () -> service.deleteTree(temp.resolveSibling("outside"), temp));
     }
+
+    @Test void misleadingSmbDirectoryAttributeDeletesOnlyTheReadableLogFile() throws Exception
+    {
+        var service = service();
+        Path directory = Files.createDirectory(temp.resolve("misclassified"));
+        Path file = Files.writeString(directory.resolve("backup.log"), "synthetic diagnostic log");
+        Path archive = Files.writeString(directory.resolve("data.sql.zip"), "keep archive");
+        try (var files = mockStatic(Files.class, CALLS_REAL_METHODS))
+        {
+            files.when(() -> Files.isDirectory(file, LinkOption.NOFOLLOW_LINKS)).thenReturn(true);
+            service.deleteMisclassifiedLogFile(file);
+            assertFalse(Files.exists(file));
+            assertTrue(Files.exists(archive));
+        }
+    }
+
+    @Test void genuineDirectoryNamedBackupLogRemainsForNormalTraversal() throws Exception
+    {
+        var service = service();
+        Path directory = Files.createDirectory(temp.resolve("backup.log"));
+        Path child = Files.writeString(directory.resolve("child.txt"), "preserve");
+        service.deleteMisclassifiedLogFile(directory);
+        assertTrue(Files.isDirectory(directory));
+        assertTrue(Files.exists(child));
+    }
+
+    @Test void ordinaryFilesAndOtherNamesDoNotUseTheCompatibilityDeletion() throws Exception
+    {
+        var service = service();
+        Path log = Files.writeString(temp.resolve("backup.log"), "ordinary file");
+        Path other = Files.writeString(temp.resolve("data.sql.zip"), "archive");
+        service.deleteMisclassifiedLogFile(log);
+        service.deleteMisclassifiedLogFile(other);
+        assertTrue(Files.exists(log));
+        assertTrue(Files.exists(other));
+    }
 }
