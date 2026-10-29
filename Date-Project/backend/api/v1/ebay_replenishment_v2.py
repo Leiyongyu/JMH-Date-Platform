@@ -6,6 +6,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from backend.services.replenishment_data_scope import request_scope
 from backend.api.deps import require_internal_access
 from backend.schemas.responses import success_response
 from backend.services import ebay_replenishment_v2_service as service
@@ -195,6 +196,85 @@ def confirm_review(request: Request, payload: ReviewConfirmRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get('/mixed-sales/prices')
+def mixed_sales_prices(request: Request, sku: str, site: str | None = None,
+                       stat_month: str | None = None, page: int = 1, page_size: int = 20):
+    from backend.services.mixed_sales_price_service import list_price_ranges
+    try:
+        return success_response(list_price_ranges(sku=sku,site=site,stat_month=stat_month,page=page,page_size=page_size),
+                                request_id=request.state.request_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400,detail=str(exc)) from exc
+    except Exception:
+        level_service.LOG.error('eBay混销售价查询失败，请检查月度售价表是否部署')
+        raise HTTPException(status_code=500,detail='在售售价暂不可用，请检查月度售价表及同步任务') from None
+
+
+@router.get('/mixed-sales')
+@router.get('/mixed-sales/details')
+def mixed_sales(
+    request: Request, site: str | None = None, sku: str | None = None,
+    product_name: str | None = None, page: int = 1, page_size: int = 50,
+    sort_field: str | None = None, sort_order: str | None = None,
+    calculation_version: str | None = None,
+    platform: Literal['amz', 'ebay'] = 'ebay', sid: int | None = None,
+    stat_month: str | None = None,
+    age_bucket: int | None = None, age_operator: str | None = None, age_days: int | None = None,
+):
+    from backend.services.ebay_mixed_sales_service import list_sales
+    try:
+        if request.url.path.endswith('/details'):
+            from backend.services.mixed_sales_site_detail_service import list_site_details
+            return success_response(list_site_details(sku=sku, sid=sid,
+                calculation_version=calculation_version, stat_month=stat_month,
+                platform=platform, site=site,
+                page=page, page_size=page_size, sort_field=sort_field, sort_order=sort_order),
+                request_id=request.state.request_id)
+        data = list_sales(site=site, sku=sku, product_name=product_name,
+            page=page, page_size=page_size, sort_field=sort_field, sort_order=sort_order,
+            calculation_version=calculation_version,
+            platform=platform, sid=sid,
+            age_bucket=age_bucket, age_operator=age_operator, age_days=age_days,
+            details=request.url.path.endswith('/details'))
+        return success_response(data, request_id=request.state.request_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        level_service.LOG.exception('eBay混销查询失败')
+        raise HTTPException(status_code=500, detail='eBay混销查询失败，请检查补货2.0数据及服务日志') from exc
+
+
+@router.get('/hierarchy')
+def replenishment_hierarchy(
+    request: Request,
+    hierarchy_level: Literal['site', 'product', 'sku'] = 'site',
+    site: str | None = None, brand_core: str | None = None,
+    sku: str | None = None, product_level: str | None = None,
+    product_nature: str | None = None, principal_name: str | None = None,
+    sales_type: Literal['NORMAL', 'BRUSH'] | None = None,
+    operations_confirmed: bool | None = None,
+    sort_field: str | None = None, sort_order: str | None = None,
+    calculation_version: str | None = None,
+    page: int = 1, page_size: int = 50, refresh: bool = False,
+    allowed_principals: list[str] | None = Depends(request_scope),
+):
+    from backend.services.ebay_replenishment_read_model import query
+    try:
+        return success_response(query(
+            hierarchy_level=hierarchy_level, site=site, brand_core=brand_core,
+            sku=sku, product_level=product_level, product_nature=product_nature,
+            principal_name=principal_name, allowed_principals=allowed_principals, sales_type=sales_type,
+            operations_confirmed=operations_confirmed, sort_field=sort_field,
+            sort_order=sort_order, calculation_version=calculation_version,
+            page=page, page_size=page_size, refresh=refresh,
+        ), request_id=request.state.request_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        level_service.LOG.exception('补货2.0分层查询失败')
+        raise HTTPException(status_code=500, detail='补货2.0分层查询失败，请检查服务日志') from exc
+
+
 @router.get("/list")
 def list_replenishment(
     request: Request,
@@ -212,6 +292,7 @@ def list_replenishment(
     refresh: bool = False,
     exact_sku: bool = False,
     principal_name: str | None = None,
+    allowed_principals: list[str] | None = Depends(request_scope),
 ):
     try:
         data = service.list_replenishment(
@@ -230,7 +311,7 @@ def list_replenishment(
             use_read_model=True,
             refresh=refresh,
             exact_sku=exact_sku,
-            principal_name=principal_name,
+            principal_name=principal_name, allowed_principals=allowed_principals,
         )
         return success_response(data, request_id=request.state.request_id)
     except ValueError as exc:
@@ -254,6 +335,7 @@ def export_replenishment_data(
     sort_order: str | None = None,
     calculation_version: str | None = None,
     principal_name: str | None = None,
+    allowed_principals: list[str] | None = Depends(request_scope),
 ):
     """仅供内部Java导出：同一查询计算全部行，不接受分页参数。"""
     try:
@@ -262,7 +344,7 @@ def export_replenishment_data(
             product_nature=product_nature, sales_type=sales_type, operations_confirmed=operations_confirmed,
             sort_field=sort_field, sort_order=sort_order, paginate=False,
             use_read_model=True, calculation_version=calculation_version,
-            principal_name=principal_name,
+            principal_name=principal_name, allowed_principals=allowed_principals,
         )
         return success_response(data, request_id=request.state.request_id)
     except ValueError as exc:

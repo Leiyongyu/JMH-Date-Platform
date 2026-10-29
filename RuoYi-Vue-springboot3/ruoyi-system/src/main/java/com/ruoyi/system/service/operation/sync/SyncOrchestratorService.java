@@ -39,6 +39,25 @@ public class SyncOrchestratorService
     private static final int STEP_MAX_ATTEMPTS = 2;
     private static final int STEP_RETRY_DELAY_SECONDS = 10;
 
+    static int stepTimeoutMinutes(String code)
+    {
+        return "amz_restock".equals(code) ? AmzRestockSummarySyncService.TIMEOUT_MINUTES : STEP_TIMEOUT_MINUTES;
+    }
+
+    static int stepLockSeconds(String code)
+    {
+        return "amz_restock".equals(code)
+                ? stepTimeoutMinutes(code) * 60 * STEP_MAX_ATTEMPTS + 300 : STEP_LOCK_TTL;
+    }
+
+    static int chainLockSeconds(Chain chain)
+    {
+        // The AMZ chain can contain two full restock attempts plus other steps.
+        return chain == Chain.AMZ ? chain.steps.stream()
+                .mapToInt(step -> stepTimeoutMinutes(step.code) * 60 * STEP_MAX_ATTEMPTS
+                        + STEP_RETRY_DELAY_SECONDS + 60).sum() + 300 : CHAIN_LOCK_TTL;
+    }
+
     private final ThreadPoolTaskExecutor executor;
 
     public SyncOrchestratorService()
@@ -220,7 +239,7 @@ public class SyncOrchestratorService
         RedisCache redis = SpringUtils.getBean(RedisCache.class);
         String chainLock = "lock:sync:chain:" + chain.code;
 
-        if (!redis.tryLock(chainLock, CHAIN_LOCK_TTL))
+        if (!redis.tryLock(chainLock, chainLockSeconds(chain)))
         {
             LOG.info("[SKIP] 链路 {} 执行中，跳过", chain.name);
             return OperationSyncResult.skipped("chain:" + chain.code, chain.name, "",
@@ -250,7 +269,7 @@ public class SyncOrchestratorService
 
                 try
                 {
-                    if (!redis.tryLock(stepLock, STEP_LOCK_TTL))
+                    if (!redis.tryLock(stepLock, stepLockSeconds(step.code)))
                     { LOG.info("[SKIP] 步骤 {} 执行中", step.name); continue; }
                     stepLocked = true;
 
@@ -366,20 +385,21 @@ public class SyncOrchestratorService
 
     private OperationSyncResult executeStepOnce(Chain chain, StepDef step, long attemptStart)
     {
+        int timeoutMinutes = stepTimeoutMinutes(step.code);
         Future<OperationSyncResult> future = executor.submit(() ->
                 "amz_fba_box".equals(step.code) ? executeFbaBox(step) : step.runner.run());
         try
         {
-            OperationSyncResult r = future.get(STEP_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+            OperationSyncResult r = future.get(timeoutMinutes, TimeUnit.MINUTES);
             r.setElapsedMs(System.currentTimeMillis() - attemptStart);
             return r;
         }
         catch (TimeoutException e)
         {
             future.cancel(true);
-            LOG.error("步骤超时 [{}] {}: >{}min", chain.code, step.name, STEP_TIMEOUT_MINUTES);
+            LOG.error("步骤超时 [{}] {}: >{}min", chain.code, step.name, timeoutMinutes);
             return OperationSyncResult.timeout("chain:" + chain.code + ":" + step.code,
-                    step.name, step.apiPath, "超时(" + STEP_TIMEOUT_MINUTES + "min)",
+                    step.name, step.apiPath, "超时(" + timeoutMinutes + "min)",
                     System.currentTimeMillis() - attemptStart);
         }
         catch (Exception e)
@@ -455,7 +475,7 @@ public class SyncOrchestratorService
             SyncAlertService svc = SpringUtils.getBean(SyncAlertService.class);
             if (svc != null) svc.sendAlert(chainCode, stepCode, stepName, apiPath, status, error, logId);
         }
-        catch (Exception e) { LOG.warn("触发企微告警失败 [{}:{}]: {}", chainCode, stepCode, e.getMessage(), e); }
+        catch (Exception e) { LOG.warn("触发邮件告警失败 [{}:{}]: {}", chainCode, stepCode, e.getMessage(), e); }
     }
 
     private void trySendRecovery(String chainCode, String stepCode, String stepName, Long logId)
@@ -464,6 +484,6 @@ public class SyncOrchestratorService
             SyncAlertService svc = SpringUtils.getBean(SyncAlertService.class);
             if (svc != null) svc.checkAndSendRecovery(chainCode, stepCode, stepName, logId);
         }
-        catch (Exception e) { LOG.warn("触发企微恢复通知失败 [{}:{}]: {}", chainCode, stepCode, e.getMessage(), e); }
+        catch (Exception e) { LOG.warn("触发邮件恢复通知失败 [{}:{}]: {}", chainCode, stepCode, e.getMessage(), e); }
     }
 }

@@ -28,7 +28,7 @@ class EbayStoreListingSyncError(ValueError):
         self.stage, self.metrics = stage, dict(metrics)
 
 
-def sync_ebay_store_listings():
+def sync_ebay_store_listings(*, publisher=None):
     batch_id = str(uuid4())
     pulled_at = datetime.now(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None)
     metrics = {'sync_batch_id': batch_id, 'extract_rows': 0, 'ods_rows': 0, 'shop_count': 0,
@@ -112,7 +112,8 @@ def sync_ebay_store_listings():
                         if page >= pages:
                             if len(seen) != total:
                                 raise EbayApiError('完整拉取条数与接口总数不符')
-                            completed.append({**seller, 'row_count': len(seen)})
+                            completed.append({**seller, 'row_count': len(seen),
+                                              'shop_name': account.get('shop_name') or seller['username']})
                             break
                         page += 1
                 finally:
@@ -123,7 +124,8 @@ def sync_ebay_store_listings():
                 account['published_at'] = published_at
             stage = 'LOAD'
             spool.seek(0)
-            metrics.update(repo.replace_snapshots((json.loads(line) for line in spool), completed,
+            publish = publisher or repo.replace_snapshots
+            metrics.update(publish((json.loads(line) for line in spool), completed,
                            batch_id=batch_id, pulled_at=pulled_at))
         return {**metrics, 'accounts': [{'seller_account': a['username'], 'rows': a['row_count']} for a in completed]}
     except Exception as exc:

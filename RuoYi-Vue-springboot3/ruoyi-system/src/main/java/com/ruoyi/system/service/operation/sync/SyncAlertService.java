@@ -2,13 +2,8 @@ package com.ruoyi.system.service.operation.sync;
 
 import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.common.utils.spring.SpringUtils;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
@@ -21,7 +16,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
- * 企业微信机器人同步告警（去重 + 恢复通知）。
+ * 邮件同步告警（去重 + 恢复通知）。
  */
 @Service
 public class SyncAlertService
@@ -31,8 +26,9 @@ public class SyncAlertService
     @Value("${sync.alert.enabled:true}")
     private boolean enabled;
 
-    @Value("${sync.alert.webhook-url:}")
-    private String webhookUrl;
+    private final SyncAlertMailSender mailSender;
+
+    public SyncAlertService(SyncAlertMailSender mailSender) { this.mailSender = mailSender; }
 
     @Value("${sync.alert.notify-started:false}")
     private boolean notifyStarted;
@@ -48,7 +44,6 @@ public class SyncAlertService
 
     private static final String ALERT_PREFIX = "alert:sent:";
     private static final int DEDUP_MINUTES = 60;
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private final Map<String, RunningJob> runningJobs = new ConcurrentHashMap<>();
 
@@ -67,15 +62,10 @@ public class SyncAlertService
             LOG.warn("同步告警未发送：sync.alert.enabled=false，链路={}，步骤={}", chainCode, stepCode);
             return;
         }
-        if (webhookUrl == null || webhookUrl.isBlank())
-        {
-            LOG.warn("同步告警未发送：sync.alert.webhook-url 为空，请配置环境变量 SYNC_ALERT_WEBHOOK_URL，链路={}，步骤={}，错误={}",
-                    chainCode, stepCode, truncate(error, 200));
-            return;
-        }
+        if (!canSend()) return;
 
         try { markFailed(chainCode, stepCode); }
-        catch (Exception e) { LOG.warn("告警失败状态写入Redis失败，仍继续发送企微消息: {}", e.getMessage()); }
+        catch (Exception e) { LOG.warn("告警失败状态写入Redis失败，仍继续发送邮件: {}", e.getMessage()); }
         String dedupKey = ALERT_PREFIX + chainCode + ":" + stepCode + ":" + hash(error);
         try
         {
@@ -85,8 +75,8 @@ public class SyncAlertService
         }
         catch (Exception e)
         {
-            // Redis故障本身可能就是同步失败原因，去重不得阻断企微告警。
-            LOG.warn("企微告警Redis去重失败，将直接发送: {}", e.getMessage());
+            // Redis故障本身可能就是同步失败原因，去重不得阻断邮件告警。
+            LOG.warn("邮件告警Redis去重失败，将直接发送: {}", e.getMessage());
         }
 
         String content = "## ⚠️ 同步告警\n"
@@ -97,7 +87,7 @@ public class SyncAlertService
                 + "> 错误：" + truncate(error, 400) + "\n"
                 + "> 时间：" + LocalDateTime.now().format(DTF) + "\n"
                 + "> 日志ID：" + (logId != null ? String.valueOf(logId) : "");
-        post(content);
+        if (!post(content)) releaseDedup(dedupKey);
     }
 
     /** Quartz全局任务开始通知。 */
@@ -192,7 +182,7 @@ public class SyncAlertService
 
     public void checkAndSendRecovery(String chainCode, String stepCode, String stepName, Long currentLogId)
     {
-        if (!enabled || webhookUrl == null || webhookUrl.isBlank()) return;
+        if (!canSend()) return;
         // 恢复检测键
         String failKey = ALERT_PREFIX + chainCode + ":" + stepCode + ":last_status";
         if (!notifyRecovery)
@@ -209,8 +199,7 @@ public class SyncAlertService
                     + "> 步骤：" + stepName + " (" + stepCode + ")\n"
                     + "> 日志ID：" + (currentLogId != null ? String.valueOf(currentLogId) : "") + "\n"
                     + "> 时间：" + LocalDateTime.now().format(DTF);
-            post(content);
-            redis.deleteObject(failKey);
+            if (post(content)) redis.deleteObject(failKey);
         }
     }
 
@@ -224,9 +213,9 @@ public class SyncAlertService
     private boolean canSend()
     {
         if (!enabled) return false;
-        if (webhookUrl == null || webhookUrl.isBlank())
+        if (!mailSender.isConfigured())
         {
-            LOG.warn("企微通知未发送：sync.alert.webhook-url为空");
+            LOG.warn("通知邮件未发送：请配置SMTP账号、授权码和收件地址；不会回退到企微群");
             return false;
         }
         return true;
@@ -302,25 +291,13 @@ public class SyncAlertService
             redis = SpringUtils.getBean(RedisCache.class);
             claimed = redis.setCacheObjectIfAbsent(key, "1", 23, TimeUnit.HOURS);
             if (!claimed) return true;
-            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            String body = mapper.writeValueAsString(Map.of("msgtype", "markdown", "markdown", Map.of("content", content)));
-            var request = HttpRequest.newBuilder(URI.create(webhookUrl)).timeout(Duration.ofSeconds(30))
-                    .header("Content-Type", "application/json; charset=utf-8")
-                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
-            var response = HTTP.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (response.statusCode() != 200 || mapper.readTree(response.body()).path("errcode").asInt(-1) != 0)
-                throw new IllegalStateException("notification delivery rejected");
+            if (!post(content)) throw new IllegalStateException("mail delivery failed");
             LOG.info("eBay凭证更新提醒已发送");
             return true;
         }
-        catch (InterruptedException e)
-        {
-            Thread.currentThread().interrupt();
-            LOG.warn("eBay凭证更新提醒被中断");
-        }
         catch (Exception e)
         {
-            LOG.warn("eBay凭证更新提醒失败，异常类型={}，未输出Webhook或响应正文", e.getClass().getSimpleName());
+            LOG.warn("eBay凭证更新提醒失败，异常类型={}，未输出SMTP凭据或响应正文", e.getClass().getSimpleName());
         }
         if (claimed && redis != null)
         {
@@ -330,23 +307,12 @@ public class SyncAlertService
         return false;
     }
 
-    private void post(String markdown)
+    private boolean post(String markdown) { return mailSender.send(markdown); }
+
+    private void releaseDedup(String key)
     {
-        try
-        {
-            String json = "{\"msgtype\":\"markdown\",\"markdown\":{\"content\":\""
-                    + markdown.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"}}";
-            HttpRequest req = HttpRequest.newBuilder(URI.create(webhookUrl))
-                    .timeout(Duration.ofSeconds(30))
-                    .header("Content-Type", "application/json; charset=utf-8")
-                    .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8)).build();
-            HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
-            if (resp.statusCode() != 200) LOG.warn("企微告警发送失败 HTTP{}: {}", resp.statusCode(), resp.body());
-            else if (resp.body() == null || !resp.body().contains("\"errcode\":0"))
-                LOG.warn("企微告警返回异常: {}", resp.body());
-            else LOG.info("企微告警已发送");
-        }
-        catch (Exception e) { LOG.error("企微告警发送异常: {}", e.getMessage()); }
+        try { SpringUtils.getBean(RedisCache.class).deleteObject(key); }
+        catch (Exception ignored) { LOG.warn("通知邮件发送失败后释放去重标记失败"); }
     }
 
     private String hash(String s)

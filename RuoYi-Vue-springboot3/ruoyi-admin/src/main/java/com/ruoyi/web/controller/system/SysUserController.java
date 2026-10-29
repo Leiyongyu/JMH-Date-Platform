@@ -42,6 +42,8 @@ import com.ruoyi.system.service.ISysUserService;
 public class SysUserController extends BaseController
 {
     @Autowired
+    private com.ruoyi.system.mapper.operation.BusinessDataScopeMapper businessScopeMapper;
+    @Autowired
     private ISysUserService userService;
 
     @Autowired
@@ -106,6 +108,7 @@ public class SysUserController extends BaseController
         {
             userService.checkUserDataScope(userId);
             SysUser sysUser = userService.selectUserById(userId);
+            sysUser.setBusinessOwnerNames(businessScopeMapper.bindings(userId));
             ajax.put(AjaxResult.DATA_TAG, sysUser);
             ajax.put("postIds", postService.selectPostListByUserId(userId));
             ajax.put("roleIds", sysUser.getRoles().stream().map(SysRole::getRoleId).collect(Collectors.toList()));

@@ -19,6 +19,7 @@ public class UnifiedExportService
 {
     @Autowired private EbayPriceTrackingSnapshotMapper ebayPriceTrackingMapper;
     @Autowired private AmzReplenishmentSnapshotMapper amzReplenishmentMapper;
+    @Autowired private com.ruoyi.system.service.operation.scope.BusinessDataScopeService dataScope;
 
     public void exportEbayPriceTracking(ExportRequest req, HttpServletResponse response) throws Exception
     {
@@ -69,6 +70,7 @@ public class UnifiedExportService
     private List<Map<String, Object>> fetchAmzReplenishmentData(ExportRequest req, List<String> keys)
     {
         Map<String, Object> params = buildAmzReplenishmentParams(req, 1, 0);
+        params.put("businessScope", dataScope.resolve(com.ruoyi.system.service.operation.scope.BusinessDataScopeService.AMZ));
         List<AmzReplenishmentSnapshot> list = amzReplenishmentMapper.search(params);
         List<Map<String, Object>> all = new ArrayList<>();
         Set<String> selected = "SELECTED".equals(req.getScope()) && req.getRowKeys() != null

@@ -28,6 +28,12 @@ class EbayReplenishmentV2PurchaseControllerTest
     static class Config
     {
         @Bean(name = "ss") Permissions permissions() { return new Permissions(); }
+        @Bean com.ruoyi.system.service.operation.ebay.EbayReplenishmentV2PythonClient client() {
+            return mock(com.ruoyi.system.service.operation.ebay.EbayReplenishmentV2PythonClient.class);
+        }
+        @Bean com.ruoyi.system.service.operation.scope.BusinessDataScopeService dataScope() {
+            return mock(com.ruoyi.system.service.operation.scope.BusinessDataScopeService.class);
+        }
         @Bean PendingPurchaseService service() { return mock(PendingPurchaseService.class); }
         @Bean EbayReplenishmentV2PurchaseController controller(PendingPurchaseService service)
         {

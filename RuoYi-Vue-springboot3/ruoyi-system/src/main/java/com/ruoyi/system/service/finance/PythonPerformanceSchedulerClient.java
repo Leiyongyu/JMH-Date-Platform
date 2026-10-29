@@ -50,6 +50,11 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run("weekly_inventory_bin_export", null, requestId);
     }
 
+    public Map<String, Object> runEbayMixedSalesPrices(String requestId)
+    {
+        return run("ebay_mixed_sales_price_sync", null, requestId);
+    }
+
     public Map<String, Object> runGoodcangStorage(String requestId)
     {
         return run(GOODCANG_STORAGE_TASK, null, requestId);

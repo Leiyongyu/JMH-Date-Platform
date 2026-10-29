@@ -69,6 +69,7 @@ public class LingxingAmzListingSyncService
                     e.setTagName(extractTagName(row));
                     e.setSmallImageUrl(str(row, "small_image_url"));
                     e.setPrice(bdVal(row, "price"));
+                    e.setCurrencyCode(str(row, "currency_code"));
                     e.setListingCreateDate(dateVal(row, "open_date_display"));
                     batchList.add(e);
                 }

@@ -170,6 +170,7 @@
                </el-radio-group>
             </el-form-item>
             <el-form-item label="菜单权限">
+               <el-alert title="补货的业务数据范围在对应菜单下配置，可快速设为仅本人、本部门或全部。多个角色取并集；要限制范围，请同时取消该用户其他角色的全部数据权限。" type="info" :closable="false" style="margin-bottom: 8px" />
                <el-checkbox v-model="menuExpand" @change="handleCheckedTreeExpand($event, 'menu')">展开/折叠</el-checkbox>
                <el-checkbox v-model="menuNodeAll" @change="handleCheckedTreeNodeAll($event, 'menu')">全选/全不选</el-checkbox>
                <el-checkbox v-model="form.menuCheckStrictly" @change="handleCheckedTreeConnect($event, 'menu')">父子联动</el-checkbox>
@@ -186,6 +187,11 @@
                   <template #default="{ node, data }">
                      <span class="permission-tree-node">
                         <span>{{ node.label }}</span>
+                        <span v-if="isBusinessScopeBranch(data)" style="margin-left: 12px" @click.stop @keydown.stop>
+                           <el-button link type="primary" size="small" @click.stop="setBusinessScope(menuRef, data, 'self')">设为仅本人</el-button>
+                           <el-button link type="primary" size="small" @click.stop="setBusinessScope(menuRef, data, 'dept')">设为本部门</el-button>
+                           <el-button link type="primary" size="small" @click.stop="setBusinessScope(menuRef, data, 'all')">设为全部</el-button>
+                        </span>
                         <span v-if="data.perms === EBAY_EXPORT_PERMISSION" class="permission-branch-actions"
                            title="只操作此导出分支，点击角色弹窗的确定后保存" @click.stop @keydown.stop>
                            <el-button link type="primary" size="small" @click.stop="setExportBranchChecked(menuRef, data, true)">全选字段</el-button>
@@ -256,6 +262,7 @@
 <script setup name="Role">
 import { addRole, changeRoleStatus, dataScope, delRole, getRole, listRole, updateRole, deptTreeSelect } from "@/api/system/role"
 import { roleMenuTreeselect, treeselect as menuTreeselect } from "@/api/system/menu"
+import { isBusinessScopeBranch, setBusinessScope } from './businessScopeSelection.mjs'
 import { EBAY_EXPORT_PERMISSION, setExportBranchChecked } from './exportFieldSelection.mjs'
 
 const router = useRouter()

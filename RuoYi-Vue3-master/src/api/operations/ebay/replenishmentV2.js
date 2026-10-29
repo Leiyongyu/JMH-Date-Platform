@@ -2,6 +2,10 @@ import request, { download } from '@/utils/request'
 
 const base = '/operations/ebay/replenishment-v2'
 
+export function listEbayReplenishmentHierarchy(params) {
+  return request({ url: `${base}/hierarchy`, method: 'get', params, timeout: 120000 })
+}
+
 export function submitEbayReplenishmentV2Purchase(data) {
   return request({ url: `${base}/purchase`, method: 'post', data })
 }

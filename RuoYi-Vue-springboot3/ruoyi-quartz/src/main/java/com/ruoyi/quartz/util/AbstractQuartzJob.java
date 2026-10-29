@@ -115,7 +115,7 @@ public abstract class AbstractQuartzJob implements Job
             sysJobLog.setStatus(Constants.SUCCESS);
         }
 
-        // 全局企微通知覆盖所有Quartz任务，不再依赖各业务任务单独接入。
+        // 全局邮件通知覆盖所有Quartz任务，不再依赖各业务任务单独接入。
         String notifyDetail = StringUtils.isNotEmpty(sysJobLog.getExceptionInfo())
                 ? sysJobLog.getExceptionInfo() : sysJobLog.getJobMessage();
         notifyQuartzFinished(sysJob, Constants.SUCCESS.equals(sysJobLog.getStatus()), notifyDetail, runMs);
@@ -155,7 +155,7 @@ public abstract class AbstractQuartzJob implements Job
         catch (Exception alertError)
         {
             // 告警通道不得影响业务任务和Quartz日志落库。
-            log.error("企微Quartz通知调用失败: {}", alertError.getMessage());
+            log.error("邮件Quartz通知调用失败: {}", alertError.getMessage());
         }
     }
 

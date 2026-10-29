@@ -24,6 +24,13 @@ public class SysUser extends BaseEntity
 {
     private static final long serialVersionUID = 1L;
 
+    /** Only user administration persists these bindings; profile edits ignore them. */
+    @Size(max = 20, message = "业务负责人名称最多20个")
+    private List<@NotBlank @Size(max = 100) String> businessOwnerNames;
+
+    public List<String> getBusinessOwnerNames() { return businessOwnerNames; }
+    public void setBusinessOwnerNames(List<String> names) { this.businessOwnerNames = names; }
+
     /** 用户ID */
     @Excel(name = "用户序号", type = Type.EXPORT, cellType = ColumnType.NUMERIC, prompt = "用户编号")
     private Long userId;

@@ -19,6 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class EbayReplenishmentV2PurchaseController extends BaseController
 {
     private final PendingPurchaseService service;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.system.service.operation.ebay.EbayReplenishmentV2PythonClient client;
 
     public EbayReplenishmentV2PurchaseController(PendingPurchaseService service)
     {
@@ -30,6 +32,7 @@ public class EbayReplenishmentV2PurchaseController extends BaseController
     @PostMapping
     public AjaxResult submit(@Valid @RequestBody PendingPurchaseSubmitRequest request)
     {
+        client.requireRow(request.getSite(), request.getSku(), null);
         service.submit(request, getUsername());
         return success("已加入待采购清单");
     }

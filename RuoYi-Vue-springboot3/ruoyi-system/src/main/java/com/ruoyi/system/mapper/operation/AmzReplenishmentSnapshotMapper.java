@@ -13,12 +13,14 @@ public interface AmzReplenishmentSnapshotMapper
 
     List<String> selectDistinctValues(@Param("column") String column,
                                       @Param("keyword") String keyword,
-                                      @Param("regionGroup") String regionGroup);
+                                      @Param("regionGroup") String regionGroup,
+                                      @Param("businessScope") com.ruoyi.system.service.operation.scope.BusinessDataScope businessScope);
 
     /** 按仓库SKU查询各店铺销量明细 */
     List<Map<String, Object>> selectSalesBreakdown(@Param("warehouseSku") String warehouseSku,
                                                     @Param("column") String column,
-                                                    @Param("storeNames") List<String> storeNames);
+                                                    @Param("storeNames") List<String> storeNames,
+                                                    @Param("businessScope") com.ruoyi.system.service.operation.scope.BusinessDataScope businessScope);
 
     /** 按当前筛选条件查询各店铺销量明细 */
     List<Map<String, Object>> selectSalesBreakdownByFilters(Map<String, Object> params);

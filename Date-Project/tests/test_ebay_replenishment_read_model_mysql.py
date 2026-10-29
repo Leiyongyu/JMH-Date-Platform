@@ -4,6 +4,7 @@ All mutations and cleanup target a newly created, uniquely named test database.
 Run RUN_REPLENISHMENT_MYSQL_TESTS=1 with local MySQL access; never a deployment DB.
 """
 import json
+from decimal import Decimal
 import os
 import re
 from contextlib import contextmanager
@@ -20,6 +21,9 @@ from backend.config import settings
 from backend.sql_statements import split_sql_statements
 from backend.services import ebay_replenishment_read_model as model
 from backend.services import ebay_replenishment_v2_service as legacy
+from backend.services import ebay_mixed_sales_service as mixed_sales
+from backend.services import mixed_sales_sql
+from backend.services import mixed_sales_age_service
 from backend.services.ebay_replenishment_periods import rolling_periods
 
 pytestmark=pytest.mark.skipif(os.getenv('RUN_REPLENISHMENT_MYSQL_TESTS')!='1',reason='opt-in isolated local MySQL tests')
@@ -61,14 +65,20 @@ def isolated(monkeypatch):
             try: yield c
             finally: c.close()
         with connection() as c,c.cursor() as cur:
+            for table in ('amz_warehouse_inventory_detail','warehouse','amz_product_listing',
+                          'amz_product_performance_inventory','amz_restock_summary','shop_list',
+                          'ods_goodcang_inventory_age_latest','ods_lingxing_product_procurement_monthly'):
+                cur.execute(f'CREATE TABLE `{name}`.`{table}` LIKE `{source_db}`.`{table}`')
             migration=Path(__file__).resolve().parents[1]/'migrations/20261016_ebay_replenishment_read_model.sql'
             for sql in split_sql_statements(migration.read_text(encoding='utf-8')):
                 if sql.strip(): cur.execute(sql)
             c.commit()
-        for module in (model,legacy,legacy.repository,legacy.inventory_detail_repository,model.reviews,model.sales_types):
+        for module in (model,legacy,legacy.repository,legacy.inventory_detail_repository,model.reviews,model.sales_types,mixed_sales):
             monkeypatch.setattr(module,'db_connection',connection)
         for module in (legacy.repository,model.reviews,model.sales_types):
             monkeypatch.setattr(module,'_source_database',lambda:name)
+        monkeypatch.setattr(mixed_sales_sql,'_source_database',lambda:name)
+        monkeypatch.setattr(mixed_sales_age_service,'_source_database',lambda:name)
         inventory=model.inventory_ctes
         monkeypatch.setattr(model,'inventory_ctes',lambda:inventory().replace('jmh_data_platform',f'`{name}`'))
         monkeypatch.setattr(legacy,'inventory_ctes',model.inventory_ctes)
@@ -262,3 +272,119 @@ def test_owner_filter_options_totals_pagination_and_pinned_export(isolated):
     empty=model.query(principal_name="x' OR 1=1 --")
     assert empty['items']==[] and empty['pagination']['total']==0
     assert empty['principals']==data['principals']
+
+
+def test_hierarchy_supplier_grouping_paging_ratios_and_live_filters(isolated):
+    records = execute(isolated, 'SELECT id FROM dwd_ebay_sku_analysis_order ORDER BY id LIMIT 6')
+    specs = [('FRD-TREE-0076', '英国', 2, 20, 100),
+             ('FRD-TREE-0076-YXR', '英国', 3, 30, 100),
+             ('FRD-TREE-0457', '英国', 10, 40, 800),
+             ('FRD-TREE-0076', '德国', 7, 7, 70),
+             ('BMW-TREE-0001', '英国', 4, 10, 50),
+             ('FRD-TREE-0457-RXY', '英国', 1, 10, 0)]
+    for record, (sku, site, qty, profit, paid) in zip(records, specs):
+        execute(isolated, """UPDATE dwd_ebay_sku_analysis_order SET inventory_sku=%s,
+            site_name=%s,payment_time='2026-10-15',purchase_quantity=%s,
+            order_profit_cny=%s,paid_amount_cny=%s,refund_quantity=1,
+            refund_amount_cny=0,shipping_status='已发货' WHERE id=%s""",
+                (sku, site, qty, profit, paid, record['id']))
+    roots = model.query(hierarchy_level='site', sku='TREE')
+    version = roots['calculation_version']
+    assert roots['matched_sku_count'] == 4  # used suffixes merged
+    uk = next(row for row in roots['items'] if row['site'] == '英国')
+    assert uk['sku_count'] == 3 and uk['sales_qty_30d'] == 20
+    assert Decimal(uk['profit_rate']) == Decimal(110) / 1050
+    common = dict(calculation_version=version, sku='TREE', site='英国')
+    groups = model.query(hierarchy_level='product', **common, page_size=1)
+    assert groups['pagination']['total'] == 2
+    group = groups['items'][0]
+    assert group['node_kind'] == 'product' and group['brand_core'] == 'FRD-TREE'
+    assert group['sku_count'] == 2 and group['sales_qty_30d'] == 16
+    assert Decimal(group['profit_rate']) == Decimal('.1')  # not average of child rates
+    assert Decimal(group['return_rate']) == Decimal('.25')
+    second = model.query(hierarchy_level='product', **common, page_size=1, page=2)['items'][0]
+    assert second['node_kind'] == 'sku' and not second['has_children']
+    assert second['sku'] == 'BMW-TREE-0001'
+    child_query = dict(hierarchy_level='sku', brand_core='FRD-TREE', **common, page_size=1)
+    children = model.query(**child_query)
+    assert children['pagination']['total'] == 2
+    assert children['items'][0]['sku'] == 'FRD-TREE-0457'
+    assert children['items'][0]['sales_qty_30d'] == '11'
+    other = model.query(**child_query, page=2)['items'][0]
+    assert other['sku'] == 'FRD-TREE-0076' and other['sales_qty_30d'] == '5'
+    # Filtering a leaf changes the parent totals and collapses single-SKU groups.
+    execute(isolated, """INSERT INTO ebay_replenishment_v2_review(site,sku,operations_note,operations_confirmed)
+        VALUES('英国','FRD-TREE-0076','审核过',1)""")
+    filtered = model.query(hierarchy_level='product', **common, operations_confirmed=True)
+    assert filtered['pagination']['total'] == 1
+    assert filtered['items'][0]['sku'] == 'FRD-TREE-0076'
+    assert filtered['items'][0]['operations_note'] == '审核过'
+    assert filtered['items'][0]['operations_confirmed'] is True
+    # Every sortable column is accepted by aggregate SQL, including ratios and four stocks.
+    for field in model.SORT_FIELDS:
+        sorted_groups = model.query(hierarchy_level='product', **common, sort_field=field, sort_order='asc')
+        assert sorted_groups['pagination']['total'] == 2
+    empty = model.query(hierarchy_level='sku', **common, brand_core="FRD-TREE' OR 1=1 --")
+    assert empty['items'] == []
+
+
+def test_mixed_sales_sku_totals_site_details_and_replenishment_parity(isolated):
+    records = execute(isolated, 'SELECT id FROM dwd_ebay_sku_analysis_order ORDER BY id LIMIT 5')
+    specs = [('FRD-MIXED-001','德国',5),('FRD-MIXED-001','英国',3),
+             ('FRD-MIXED-001-YXR','英国',2),('FRD-MIXED-002','德国',7),('BMW-MIXED-001','美国',4)]
+    for record, (sku, site, qty) in zip(records, specs):
+        execute(isolated, "UPDATE dwd_ebay_sku_analysis_order SET inventory_sku=%s,site_name=%s,payment_time='2026-10-15',purchase_quantity=%s WHERE id=%s", (sku,site,qty,record['id']))
+    # Seed meaningful quantities in two sites in the isolated inventory source.
+    inventory = execute(isolated, 'SELECT id FROM warehouse_inventory_detail ORDER BY id LIMIT 3')
+    for record, wid, qty in zip(inventory, (18674,18699,18675), (10,20,30)):
+        execute(isolated, "UPDATE warehouse_inventory_detail SET wid=%s,sku='FRD-MIXED-001',product_valid_num=%s,quantity_receive=2,product_onway=3 WHERE id=%s", (wid,qty,record['id']))
+    saved = model.query(sku='MIXED', paginate=False)
+    version = saved['calculation_version']
+    # Mixed sales now requires both platforms: seed real Amazon channel membership.
+    for sku in ('FRD-MIXED-001','FRD-MIXED-002','BMW-MIXED-001'):
+        execute(isolated, 'INSERT INTO amz_warehouse_inventory_detail(wid,sku) VALUES(1,%s)', (sku,))
+        execute(isolated, "INSERT INTO amz_product_listing(sid,seller_sku,local_sku,marketplace) VALUES(1,%s,%s,'德国')", (sku,sku))
+    rows = mixed_sales.list_sales(sku='MIXED', calculation_version=version)
+    assert rows['total'] == 3
+    row = rows['items'][0]
+    assert row['sku'] == 'FRD-MIXED-001' and row['sales30d'] == 10 and row['siteCount'] == 2
+    detail = mixed_sales.list_sales(sku=row['sku'], calculation_version=version, details=True)
+    assert detail['total'] == 2 and {r['site'] for r in detail['items']} == {'UK','DE'}
+    assert row['totalInventory'] > 0
+    for field, payload_field in mixed_sales.STOCK_FIELDS.items():
+        expected = sum(Decimal(r[payload_field]) for r in saved['items'] if r['sku'] == row['sku'])
+        assert row[field] == expected == sum(r[field] for r in detail['items'])
+    assert row['totalInventory'] == sum(row[k] for k in mixed_sales.STOCK_FIELDS)
+    selected = mixed_sales.list_sales(sku='MIXED', site='英国', calculation_version=version)
+    assert selected['total'] == 1 and selected['items'][0]['sales30d'] == 5
+    used = mixed_sales.list_sales(sku='FRD-MIXED-001-YXR', calculation_version=version, details=True)
+    assert used['items'] == detail['items']
+    for field in mixed_sales.SORT_FIELDS:
+        for asc in ('asc','desc'):
+            page = mixed_sales.list_sales(sku='MIXED', sort_field=field, sort_order=asc, page_size=1, page=2, calculation_version=version)
+            assert page['total'] == 3 and len(page['items']) == 1
+    assert mixed_sales.list_sales(sku="x' OR 1=1 --", calculation_version=version)['total'] == 0
+
+
+def test_business_scope_filters_rows_hierarchy_summaries_and_options(isolated):
+    data = model.query(paginate=False)
+    assert len(data['items']) >= 3
+    generation = data['calculation_version']
+    execute(isolated, f"UPDATE {model.PREFIX}result SET payload=JSON_SET(payload,'$.principal_name',CASE WHEN MOD(CRC32(sku),2)=0 THEN '权限甲' ELSE '权限乙' END)")
+    all_rows = model.query(calculation_version=generation, paginate=False)
+    expected = [row for row in all_rows['items'] if row['principal_name'] == '权限甲']
+    assert expected and len(expected) < len(all_rows['items'])
+    scoped = model.query(calculation_version=generation, allowed_principals=['权限甲'], paginate=False)
+    assert scoped['items'] == expected
+    assert scoped['principals'] == ['权限甲']
+    assert scoped['sites'] == sorted({r['site'] for r in expected})
+    assert scoped['pagination']['total'] == len(expected)
+    assert Decimal(scoped['level_summary']['ALL']['suggested_replenishment_quantity']) == sum(Decimal(str(r['suggested_replenishment_quantity'] or 0)) for r in expected)
+    for level in ['site', None]:
+        denied = model.query(calculation_version=generation, allowed_principals=[], hierarchy_level=level)
+        assert denied['items'] == [] and denied['principals'] == [] and denied['sites'] == []
+        assert denied['pagination']['total'] == 0
+    assert model.query(calculation_version=generation, allowed_principals=['权限甲'], principal_name='权限乙')['items'] == []
+    assert model.query(calculation_version=generation, allowed_principals=["x' OR 1=1 --"])['items'] == []
+    nodes = model.query(calculation_version=generation, allowed_principals=['权限甲'], hierarchy_level='site')
+    assert nodes['matched_sku_count'] == len(expected)

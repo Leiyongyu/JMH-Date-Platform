@@ -15,9 +15,12 @@
         </div>
       </div>
 
-      <div class="hero-note">
-        <el-icon><InfoFilled /></el-icon>
-        <span>上传前请确认模板与货件数据，费用上传会直接修改领星数据。</span>
+      <div class="hero-actions">
+        <el-button type="primary" icon="Calendar" v-hasPermi="['customs:shipmentFee:list']" @click="deliveryDateVisible = true">批量修改提交时间</el-button>
+        <div class="hero-note">
+          <el-icon><InfoFilled /></el-icon>
+          <span>上传前请确认模板与货件数据，费用上传会直接修改领星数据。</span>
+        </div>
       </div>
 
       <input
@@ -93,6 +96,8 @@
         </div>
       </article>
     </section>
+
+    <DeliveryDateDialog v-model="deliveryDateVisible" />
 
     <el-card v-if="latestResult.batchNo" shadow="never" class="result-card">
       <div class="result-title">
@@ -458,6 +463,7 @@
 
 <script setup name="CustomsShipmentFee">
 import { computed, getCurrentInstance, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import DeliveryDateDialog from './components/DeliveryDateDialog.vue'
 import {
   importPackingInfo,
   importShipmentFee,
@@ -470,6 +476,7 @@ import {
 
 const { proxy } = getCurrentInstance()
 const activeTab = ref('batch')
+const deliveryDateVisible = ref(false)
 const importing = ref(false)
 const packingImporting = ref(false)
 const fileInputRef = ref()
@@ -904,6 +911,16 @@ onBeforeUnmount(() => {
   .hero-copy {
     position: relative;
     z-index: 1;
+  }
+
+  .hero-actions {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    align-self: flex-start;
+    gap: 14px;
   }
 
   .hero-eyebrow {

@@ -6,7 +6,7 @@ import vm from 'node:vm'
 const page = readFileSync(new URL('../src/views/operations/ebay/replenishmentV2/index.vue', import.meta.url), 'utf8')
 const code = name => page.match(new RegExp(`(?:async )?function ${name}\\([^]*?\\n\\}`))[0]
 
-test('refresh forces a rebuild, pagination and searches reuse calculated results', () => {
+test('refresh forces a rebuild, tree expansion and searches reuse calculated results', () => {
   const calls = []
   const context = vm.createContext({ loadRows: (...args) => calls.push(args), queryParams: { pageNum: 5 } })
   vm.runInContext(code('refreshRows'), context)
@@ -15,7 +15,8 @@ test('refresh forces a rebuild, pagination and searches reuse calculated results
   context.handleQuery()
   assert.deepEqual(calls, [[true], []])
   assert.match(page, /@queryTable="refreshRows"/)
-  assert.match(page, /@pagination="loadRows"/)
+  assert.match(page, /:load="loadChildren"/)
+  assert.match(code('fetchChildren'), /childQuery\(parent, appliedFilters.value, version, page\)/)
   assert.match(page, /refresh: forceRefresh === true/)
   assert.match(page, /@saved="refreshRows"/)
 })

@@ -170,6 +170,7 @@ CREATE TABLE `amz_product_listing`  (
   `tag_name` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT '' COMMENT '标签名称(逗号分隔)',
   `small_image_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '商品缩略图地址',
   `price` decimal(10, 2) NULL DEFAULT NULL COMMENT '价格',
+  `currency_code` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT 'Listing接口原币种，不换汇',
   `listing_create_date` date NULL DEFAULT NULL COMMENT '商品创建日期，来自领星open_date_display前10位',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_sid_sku`(`sid` ASC, `seller_sku` ASC) USING BTREE,

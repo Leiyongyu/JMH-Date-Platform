@@ -64,6 +64,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
     );
     private static final Set<String> ALLOWED_FIELDS = FIELD_TO_COL.keySet();
 
+    @Autowired private com.ruoyi.system.service.operation.scope.BusinessDataScopeService dataScope;
     @Autowired private AmzReplenishmentSnapshotMapper mapper;
     @Autowired private AmzUsReplenishmentRefreshService usRefreshService;
     @Autowired private AmzEuReplenishmentRefreshService euRefreshService;
@@ -71,6 +72,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
     @Override
     public List<AmzReplenishmentSnapshot> selectAmzReplenishmentSnapshotList(AmzReplenishmentSnapshot snap)
     {
+        snap.getParams().put("businessScope", dataScope.resolve(com.ruoyi.system.service.operation.scope.BusinessDataScopeService.AMZ));
         normalizeSort(snap);
         return mapper.selectAmzReplenishmentSnapshotList(snap);
     }
@@ -88,7 +90,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
         if (col == null) return Collections.emptyList();
         if (!"US".equals(regionGroup) && !"EU".equals(regionGroup))
             throw new IllegalArgumentException("区域分组仅支持 US 或 EU");
-        return mapper.selectDistinctValues(col, keyword != null ? keyword.trim() : null, regionGroup);
+        return mapper.selectDistinctValues(col, keyword != null ? keyword.trim() : null, regionGroup, dataScope.resolve(com.ruoyi.system.service.operation.scope.BusinessDataScopeService.AMZ));
     }
 
     @Override
@@ -96,7 +98,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
     {
         String col = FIELD_TO_COL.get(field);
         if (col == null) return Collections.emptyList();
-        return mapper.selectSalesBreakdown(warehouseSku, col, storeNames);
+        return mapper.selectSalesBreakdown(warehouseSku, col, storeNames, dataScope.resolve(com.ruoyi.system.service.operation.scope.BusinessDataScopeService.AMZ));
     }
 
     @Override
@@ -158,6 +160,7 @@ public class AmzReplenishmentSnapshotServiceImpl implements IAmzReplenishmentSna
     private Map<String, Object> buildParams(EbayReplenishmentSearchRequest req)
     {
         Map<String, Object> p = new HashMap<>();
+        p.put("businessScope", dataScope.resolve(com.ruoyi.system.service.operation.scope.BusinessDataScopeService.AMZ));
         if (req.getSortField() != null && SORT_FIELDS.contains(req.getSortField()))
         {
             p.put("sortField", req.getSortField());

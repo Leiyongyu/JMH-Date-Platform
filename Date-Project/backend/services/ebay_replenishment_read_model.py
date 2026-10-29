@@ -26,7 +26,7 @@ from backend.services.ebay_inventory_shared import inventory_ctes
 from backend.services.ebay_replenishment_periods import rolling_periods, reference_today
 from backend.services.ebay_replenishment_sales_type_service import normalize_filter
 
-ENGINE_VERSION = 'rolling-read-model-v2'
+ENGINE_VERSION = 'rolling-read-model-v3'
 PREFIX = 'dws_ebay_replenishment_'
 NUMERIC_FIELDS = ('sales_qty_7d', 'sales_qty_15d', 'sales_qty_30d', 'sales_qty',
                   'gross_profit_amount', 'profit_rate', 'return_qty', 'return_rate',
@@ -171,6 +171,13 @@ def build_items(connection, periods, inputs):
         # Store unformatted numeric sort keys separately from the displayed
         # payload. Rounding prices/rates for display must not change their order.
         item['_sort_values'] = _source_sort_values(source_row)
+        # Preserve exact numerators/denominators for grouped ratios. Rounded
+        # displayed percentages must never be averaged or reverse-engineered.
+        item['_aggregation_source'] = {
+            metric: str(sum((Decimal(source_row.get(f'{metric}_m{i}') or 0)
+                             for i in range(1, 4)), Decimal(0)))
+            for metric in METRICS
+        }
         key = item['site'], item['sku']
         lead = raw_lead_times.get(key, {})
         item['chengdu_warehouse_to_warehouse_days'] = lead.get('chengdu_warehouse_to_warehouse_days')
@@ -288,7 +295,11 @@ def _fresh(state, today):
 def query(*, site=None, sku=None, product_name=None, product_level=None, product_nature=None,
           sales_type=None, operations_confirmed=None, page=1, page_size=50, sort_field=None,
           sort_order=None, paginate=True, include_level_summary=True, refresh=False,
-          calculation_version=None, exact_sku=False, principal_name=None):
+          calculation_version=None, exact_sku=False, principal_name=None,
+          hierarchy_level=None, brand_core=None, allowed_principals=None):
+    if hierarchy_level is not None:
+        from backend.services.ebay_replenishment_hierarchy import validate_parent
+        validate_parent(hierarchy_level, site, brand_core)
     if calculation_version and not re.fullmatch(r'[0-9a-f]{32}', calculation_version):
         raise ValueError('无效计算版本，请刷新页面')
     sales_type = normalize_filter(sales_type)
@@ -298,7 +309,8 @@ def query(*, site=None, sku=None, product_name=None, product_level=None, product
             product_level=product_level,product_nature=product_nature,sales_type=sales_type,
             operations_confirmed=operations_confirmed,page=page,page_size=page_size,
             sort_field=sort_field,sort_order=sort_order,paginate=paginate,
-            include_level_summary=include_level_summary,exact_sku=exact_sku,principal_name=principal_name)
+            include_level_summary=include_level_summary,exact_sku=exact_sku,principal_name=principal_name,
+            hierarchy_level=hierarchy_level,brand_core=brand_core,allowed_principals=allowed_principals)
     except ProgrammingError as exc:
         if exc.args[0] == 1146 and PREFIX in str(exc):
             raise ValueError('补货2.0优化表未部署，请执行20261016_ebay_replenishment_read_model.sql') from exc
@@ -308,6 +320,10 @@ def query(*, site=None, sku=None, product_name=None, product_level=None, product
 def read_generation(generation, **filters):
     page, size = max(int(filters['page']),1), min(max(int(filters['page_size']),1),200)
     clauses, args = ['base.generation=%s'], [generation]
+    from backend.services.replenishment_data_scope import owner_predicate
+    scope_sql, scope_args = owner_predicate(OWNER_SQL, filters.get('allowed_principals'))
+    clauses.append(scope_sql)
+    args.extend(scope_args)
     principal = (filters.get('principal_name') or '').strip()
     if principal:
         clauses.append(f'{OWNER_SQL}=%s')
@@ -342,8 +358,11 @@ def read_generation(generation, **filters):
         # Options cover the complete saved version, not the current page/filter.
         # Read from payload so existing generations need no migration or rebuild.
         cursor.execute(f'''SELECT DISTINCT {OWNER_SQL} principal_name
-            FROM {PREFIX}result base WHERE base.generation=%s ORDER BY principal_name''', (args[0],))
+            FROM {PREFIX}result base WHERE base.generation=%s AND {scope_sql} ORDER BY principal_name''', (args[0], *scope_args))
         result['principals'] = [row['principal_name'] for row in cursor.fetchall()]
+        if filters.get('allowed_principals') is not None:
+            cursor.execute(f'SELECT DISTINCT base.site FROM {PREFIX}result base WHERE base.generation=%s AND {scope_sql} ORDER BY base.site', (args[0], *scope_args))
+            result['sites'] = [row['site'] for row in cursor.fetchall()]
         # The summary and returned page use the same consistent DB snapshot;
         # live confirmation/type filters are applied before the grade filter.
         cursor.execute(f'''SELECT COALESCE(NULLIF(base.product_level,''),'--') grade,COUNT(*) n,
@@ -362,6 +381,15 @@ def read_generation(generation, **filters):
         if level:
             source += " AND COALESCE(NULLIF(base.product_level,''),'--')=%s"
             args.append(level)
+        if filters.get('hierarchy_level'):
+            from backend.services.ebay_replenishment_hierarchy import read_nodes
+            items, node_total = read_nodes(cursor, source, args, filters, result, page, size)
+            result.update(items=items, calculation_version=generation,
+                calculated_at=str(header['created_at']), level_summary=summary,
+                sales_type_available=True, review_available=True,
+                pagination=dict(page=page, page_size=size, total=node_total),
+                matched_sku_count=total)
+            return result
         field = SORT_FIELDS.get(filters.get('sort_field') or '', 'sales_qty_30d')
         direction = 'ASC' if str(filters.get('sort_order') or '').lower() in ('asc','ascending') else 'DESC'
         order = f'base.{field} {direction},base.site,base.sku'

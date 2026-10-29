@@ -24,7 +24,7 @@ class PythonEbayTokenHealthTaskTest
                 "checked_at","2026-09-30 09:00:00","skipped_rows",4,"extract_rows",n);
     }
 
-    @Test void healthyReportAlwaysSentAndSplitByUtf8Bytes()
+    @Test void healthyReportSentAsOneEmail()
     {
         var client = mock(PythonPerformanceSchedulerClient.class);
         var logs = mock(IOperationSyncLogService.class);
@@ -34,8 +34,7 @@ class PythonEbayTokenHealthTaskTest
         when(alerts.sendCredentialReminder(anyString(),anyString())).thenReturn(true);
         new PythonEbayTokenHealthTask(client,logs,alerts).runMonthly();
         List<String> parts = PythonEbayTokenHealthTask.reportMessages(data);
-        assertTrue(parts.size()>1);
-        assertTrue(parts.stream().allMatch(x->x.getBytes(StandardCharsets.UTF_8).length<=3400));
+        assertEquals(1,parts.size());
         verify(alerts,times(parts.size())).sendCredentialReminder(startsWith("health:test-batch:"),anyString());
         assertTrue(String.join("",parts).contains("正常：37"));
         verify(logs).finish(any(),any());

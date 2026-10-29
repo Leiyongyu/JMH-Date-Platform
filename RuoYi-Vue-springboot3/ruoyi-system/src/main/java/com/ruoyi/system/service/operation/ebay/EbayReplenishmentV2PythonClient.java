@@ -13,6 +13,23 @@ import org.springframework.stereotype.Service;
 @Service
 public class EbayReplenishmentV2PythonClient extends PythonHttpSupport
 {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.ruoyi.system.service.operation.scope.BusinessDataScopeService dataScope;
+
+    /** Used by local Java row writes as well as proxied writes. */
+    public void requireRow(String site, String sku, String requestId)
+    {
+        var scope = dataScope.resolve(com.ruoyi.system.service.operation.scope.BusinessDataScopeService.EBAY);
+        if (scope.isAll()) return;
+        if (site == null || site.isBlank() || sku == null || sku.isBlank())
+            throw new org.springframework.security.access.AccessDeniedException("站点和SKU不能为空");
+        Map<String, Object> result = list(Map.of("site", site, "sku", sku,
+                "exact_sku", true, "page_size", 1), requestId);
+        if (!(result.get("data") instanceof Map<?, ?> data)
+                || !(data.get("items") instanceof java.util.List<?> items) || items.isEmpty())
+            throw new org.springframework.security.access.AccessDeniedException("无权查看或操作该补货记录");
+    }
+
     private static final String PREFIX = "/ebay-replenishment-v2";
     private static final String SERVICE_NAME = "Python eBay补货2.0服务";
 
@@ -28,6 +45,21 @@ public class EbayReplenishmentV2PythonClient extends PythonHttpSupport
         return get(PREFIX + "/list", params, requestId);
     }
 
+    public Map<String, Object> hierarchy(Map<String, ?> params, String requestId)
+    {
+        return get(PREFIX + "/hierarchy", params, requestId);
+    }
+
+    public Map<String, Object> mixedSales(Map<String, ?> params, boolean details, String requestId)
+    {
+        return get(PREFIX + "/mixed-sales" + (details ? "/details" : ""), params, requestId);
+    }
+
+    public Map<String, Object> mixedSalesPrices(Map<String, ?> params, String requestId)
+    {
+        return get(PREFIX + "/mixed-sales/prices", params, requestId);
+    }
+
     public Map<String, Object> exportData(Map<String, ?> params, String requestId)
     {
         return get(PREFIX + "/export-data", params, requestId);
@@ -40,16 +72,19 @@ public class EbayReplenishmentV2PythonClient extends PythonHttpSupport
 
     public Map<String, Object> saveReviewNote(Map<String, ?> body, String requestId)
     {
+        requireRow((String) body.get("site"), (String) body.get("sku"), requestId);
         return post(PREFIX + "/review/note", body, requestId);
     }
 
     public Map<String, Object> confirmReview(Map<String, ?> body, String requestId)
     {
+        requireRow((String) body.get("site"), (String) body.get("sku"), requestId);
         return post(PREFIX + "/review/confirm", body, requestId);
     }
 
     public Map<String, Object> saveSalesType(Map<String, ?> body, String requestId)
     {
+        requireRow((String) body.get("site"), (String) body.get("sku"), requestId);
         return post(PREFIX + "/sales-type", body, requestId);
     }
 
@@ -96,6 +131,7 @@ public class EbayReplenishmentV2PythonClient extends PythonHttpSupport
 
     public Map<String, Object> forecastRuleSku(Map<String, ?> params, String requestId)
     {
+        requireRow((String) params.get("site"), (String) params.get("sku"), requestId);
         return get(PREFIX + "/forecast-rule/sku", params, requestId);
     }
 
@@ -125,8 +161,15 @@ public class EbayReplenishmentV2PythonClient extends PythonHttpSupport
     {
         try
         {
+            Map<String, Object> scopedParams = new java.util.LinkedHashMap<>(params);
+            if (java.util.Set.of(PREFIX + "/list", PREFIX + "/hierarchy", PREFIX + "/export-data").contains(path))
+            {
+                var scope = dataScope.resolve(com.ruoyi.system.service.operation.scope.BusinessDataScopeService.EBAY);
+                // Always replace client-supplied scope. JSON null explicitly means all.
+                scopedParams.put("allowed_principals", objectMapper.writeValueAsString(scope.isAll() ? null : scope.getOwners()));
+            }
             HttpRequest request = baseRequest(
-                    path + queryString(params), requestId)
+                    path + queryString(scopedParams), requestId)
                     .GET()
                     .build();
             return send(request);

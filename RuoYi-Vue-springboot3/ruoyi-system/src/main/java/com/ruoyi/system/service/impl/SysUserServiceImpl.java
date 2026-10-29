@@ -42,6 +42,8 @@ import com.ruoyi.system.service.ISysUserService;
 @Service
 public class SysUserServiceImpl implements ISysUserService
 {
+    @Autowired
+    private com.ruoyi.system.service.operation.scope.BusinessOwnerBindingService businessOwnerBindingService;
     private static final Logger log = LoggerFactory.getLogger(SysUserServiceImpl.class);
 
     private static final int MAX_SUPER_ADMIN_USERS = 3;
@@ -271,6 +273,7 @@ public class SysUserServiceImpl implements ISysUserService
         insertUserPost(user);
         // 新增用户与角色管理
         insertUserRole(user);
+        businessOwnerBindingService.save(user.getUserId(), user.getBusinessOwnerNames());
         return rows;
     }
 
@@ -305,6 +308,7 @@ public class SysUserServiceImpl implements ISysUserService
         userPostMapper.deleteUserPostByUserId(userId);
         // 新增用户与岗位管理
         insertUserPost(user);
+        businessOwnerBindingService.save(userId, user.getBusinessOwnerNames());
         return userMapper.updateUser(user);
     }
 

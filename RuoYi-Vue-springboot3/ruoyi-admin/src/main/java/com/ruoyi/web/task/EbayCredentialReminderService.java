@@ -77,7 +77,7 @@ public class EbayCredentialReminderService
         catch (Exception e)
         {
             LOG.warn("eBay凭证提醒检查失败，异常类型={}，未输出敏感正文", e.getClass().getSimpleName());
-            alerts.notifyBackgroundFailure("ebay_credential_expiry", "eBay店铺授权有效期检查", "无法完成检查或提醒发送，请检查Python、Redis及企微告警配置");
+            alerts.notifyBackgroundFailure("ebay_credential_expiry", "eBay店铺授权有效期检查", "无法完成检查或提醒发送，请检查Python、Redis及邮件告警配置");
         }
     }
 }

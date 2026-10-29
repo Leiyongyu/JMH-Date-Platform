@@ -78,6 +78,38 @@ public class EbayReplenishmentV2Controller extends BaseController
         return success(enrich(result));
     }
 
+    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list')")
+    @GetMapping("/hierarchy")
+    public AjaxResult hierarchy(
+            @RequestParam(defaultValue = "site") String hierarchyLevel,
+            @RequestParam(required = false) String site,
+            @RequestParam(required = false) String brandCore,
+            @RequestParam(required = false) String sku,
+            @RequestParam(required = false) String productLevel,
+            @RequestParam(required = false) String productNature,
+            @RequestParam(required = false) String salesType,
+            @RequestParam(required = false) Boolean operationsConfirmed,
+            @RequestParam(required = false) String principalName,
+            @RequestParam(required = false) String sortField,
+            @RequestParam(required = false) String sortOrder,
+            @RequestParam(required = false) String calculationVersion,
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "50") int pageSize,
+            @RequestParam(defaultValue = "false") boolean refresh,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        Map<String, Object> params = queryParameters(site, sku, productLevel, productNature,
+                salesType, operationsConfirmed, sortField, sortOrder);
+        params.put("hierarchy_level", hierarchyLevel);
+        params.put("brand_core", trimToNull(brandCore));
+        params.put("principal_name", trimToNull(principalName));
+        params.put("calculation_version", trimToNull(calculationVersion));
+        params.put("page", Math.max(pageNum, 1));
+        params.put("page_size", Math.min(Math.max(pageSize, 1), MAX_PAGE_SIZE));
+        params.put("refresh", refresh);
+        return success(data(client.hierarchy(params, requestId)));
+    }
+
     @PreAuthorize("@ss.hasPermi('operations:ebayReplenishmentV2:list') and @ss.hasPermi('operations:ebayReplenishmentV2:export')")
     @Log(title = "eBay补货2.0导出", businessType = BusinessType.EXPORT)
     @PostMapping("/export")
@@ -168,6 +200,7 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestBody EbayReplenishmentV2LeadTimeSaveRequest request)
     {
         Map<String, Object> result = new LinkedHashMap<>();
+        client.requireRow(request.getSite(), request.getSku(), null);
         result.put("days", leadTimeService.save(request, getUsername()));
         return success(result);
     }

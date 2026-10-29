@@ -95,7 +95,7 @@
         </el-tooltip>
       </el-col>
       <el-col :span="1.5" class="data-source-note">
-        订单按站点＋产品SKU汇总：排除AMZ及数字PC前缀，末尾-YXR/-RXY并入原SKU
+        站点 → 品牌＋中间码 → SKU；末尾-YXR/-RXY并入原SKU
       </el-col>
       <right-toolbar
         v-model:showSearch="showSearch"
@@ -116,17 +116,31 @@
       v-if="columnConfigLoaded"
       ref="tableRef"
       v-loading="loading"
-      :key="columnTableKey"
+      :key="`${columnTableKey}:${treeRevision}`"
       :data="rows"
       :default-sort="defaultSort"
       border
       stripe
       height="640"
-      :row-key="row => `${row.site}|${row.sku}`"
+      row-key="nodeId"
+      lazy
+      :load="loadChildren"
+      :tree-props="{ children: 'children', hasChildren: 'hasChildren' }"
       empty-text="暂无符合条件的订单数据"
       @sort-change="handleSortChange"
+      @expand-change="rememberExpansion"
     >
-      <template v-for="col in visibleColumns" :key="col.key">
+      <el-table-column label="站点 / 品牌＋中间码 / SKU" width="310" fixed="left" show-overflow-tooltip>
+        <template #default="{ row }">
+          <el-button v-if="row.nodeKind === 'more'" link type="primary"
+            :loading="loadingNodes.has(row.parent.nodeId)" @click="loadMoreChildren(row)">{{ row.nodeLabel }}</el-button>
+          <template v-else>
+            <span :title="row.summaryHint">{{ row.nodeLabel }}</span>
+            <span v-if="!isSkuRow(row)" class="hierarchy-count">（{{ row.skuCount }}个SKU）</span>
+          </template>
+        </template>
+      </el-table-column>
+      <template v-for="col in hierarchyColumns" :key="col.key">
         <el-table-column
           v-if="col.key === 'productLevel'"
           :label="col.label"
@@ -146,7 +160,8 @@
             </span>
           </template>
           <template #default="scope">
-            <el-tag v-if="scope.row.productLevel" :type="levelTagType(scope.row.productLevel)" effect="light">
+            <span v-if="scope.row.nodeKind === 'more'"></span>
+            <el-tag v-else-if="scope.row.productLevel" :type="levelTagType(scope.row.productLevel)" effect="light">
               {{ scope.row.productLevel }}
             </el-tag>
             <span v-else>--</span>
@@ -176,7 +191,9 @@
             </span>
           </template>
           <template #default="scope">
-            <div v-if="col.reviewField" class="review-cell">
+            <span v-if="scope.row.nodeKind === 'more'"></span>
+            <span v-else-if="col.reviewField && !isSkuRow(scope.row)">--</span>
+            <div v-else-if="col.reviewField" class="review-cell">
               <review-note-cell :site="scope.row.site" :sku="scope.row.sku" :field="col.reviewField"
                 :value="scope.row[col.key]" :version="scope.row[`${col.reviewField}Version`]"
                 :disabled="!reviewAvailable || confirmingRows.has(rowKey(scope.row))"
@@ -190,7 +207,7 @@
               </template>
             </div>
             <template v-else-if="col.key === 'salesType'">
-              <el-select v-if="canEditSalesType && salesTypeAvailable"
+              <el-select v-if="isSkuRow(scope.row) && canEditSalesType && salesTypeAvailable"
                 :model-value="scope.row.salesType" :disabled="salesTypeSaving.has(rowKey(scope.row))"
                 :loading="salesTypeSaving.has(rowKey(scope.row))" size="small" style="width: 95px"
                 @change="value => saveSalesType(scope.row, value)">
@@ -203,7 +220,7 @@
             </template>
             <div v-else-if="col.manualLeadTime" class="lead-time-cell">
               <el-input-number
-                v-if="canEditLeadTime"
+                v-if="isSkuRow(scope.row) && canEditLeadTime"
                 v-model="scope.row[col.key]"
                 class="lead-time-input"
                 :min="0"
@@ -219,7 +236,7 @@
               <span v-else>{{ formatCell(scope.row[col.key], col) }}</span>
               <span v-if="isLeadTimeSaving(scope.row, col.key)" class="lead-time-saving">保存中</span>
               <span v-else-if="isRowRecalculating(scope.row)" class="lead-time-saving">计算中</span>
-              <span v-else-if="canEditLeadTime" class="lead-time-unit">天</span>
+              <span v-else-if="isSkuRow(scope.row) && canEditLeadTime" class="lead-time-unit">天</span>
             </div>
             <span
               v-else-if="col.monthlyKey"
@@ -241,6 +258,7 @@
       <el-table-column v-if="canSubmitPurchase" label="操作" width="92" fixed="right" align="center">
         <template #default="{ row }">
           <el-button
+            v-if="isSkuRow(row)"
             link
             type="primary"
             v-hasPermi="['operations:ebayReplenishmentV2:purchase']"
@@ -309,13 +327,7 @@
     </el-popover>
 
 
-    <pagination
-      v-show="total > 0"
-      :total="total"
-      v-model:page="queryParams.pageNum"
-      v-model:limit="queryParams.pageSize"
-      @pagination="loadRows"
-    />
+    <div class="hierarchy-footer">共 {{ total }} 个SKU；展开行内可继续加载。汇总仅包含当前筛选结果，导出为SKU明细。</div>
 
     <column-config-drawer
       v-model="showColumnDrawer"
@@ -428,7 +440,7 @@
 </template>
 
 <script setup name="EbayReplenishmentV2">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { QuestionFilled } from '@element-plus/icons-vue'
 import {
@@ -437,6 +449,7 @@ import {
   confirmEbayReplenishmentReview,
   getEbayReplenishmentV2Formula,
   listEbayReplenishmentV2,
+  listEbayReplenishmentHierarchy,
   saveEbayReplenishmentV2Formula,
   saveEbayReplenishmentV2LeadTime,
   saveEbayReplenishmentV2SalesType
@@ -446,6 +459,7 @@ import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import ForecastRuleDialog from './components/ForecastRuleDialog.vue'
 import LevelRuleDialog from './components/LevelRuleDialog.vue'
 import ReviewNoteCell from './components/ReviewNoteCell.vue'
+import { childQuery, withMoreRow, isSkuRow } from './hierarchy'
 import { useColumnConfig } from '@/composables/useColumnConfig'
 
 const showSearch = ref(true)
@@ -454,6 +468,15 @@ const tableRef = ref(null)
 const loading = ref(false)
 const exporting = ref(false)
 const rows = ref([])
+const treeRevision = ref(0)
+const childrenByNode = new Map()
+const restoredChildren = new Map()
+const expandedNodes = new Set()
+const loadingNodes = reactive(new Set())
+const failedNodes = reactive(new Set())
+const appliedFilters = ref({})
+let treeReloadTimer = null
+let disposed = false
 const total = ref(0)
 const siteOptions = ref([])
 const principalOptions = ref([])
@@ -630,6 +653,8 @@ const {
   applyColumnConfig
 } = useColumnConfig('operations:ebay:replenishment:v2', columnDefs, fixedColumnKeys, fixedColumnKeys, {}, { operationsNote: '__append__', developmentNote: '__append__', principalName: '__append__' })
 
+const hierarchyColumns = computed(() => visibleColumns.value.filter(col => !['site', 'sku'].includes(col.key)))
+
 const queryParams = reactive({
   pageNum: 1,
   pageSize: 50,
@@ -678,15 +703,19 @@ const leadTimeFieldMap = {
 
 
 let rowsRequest = 0
-async function loadRows(forceRefresh = false) {
-  if (noteBusy.size || confirmingRows.size) {
-    ElMessage.warning('请先完成备注保存或运营确认')
+async function loadRows(forceRefresh = false, restoreExpanded = false) {
+  if (noteBusy.size || confirmingRows.size || savingLeadTimeKeys.size ||
+      leadTimeSaveTimers.size || rowRecalcTimers.size || recalculatingRowKeys.size) {
+    ElMessage.warning('请先完成当前编辑保存和计算')
     return
   }
   const request = ++rowsRequest
+  const params = buildRequestParams()
+  const expanded = restoreExpanded ? new Set(expandedNodes) : new Set()
   loading.value = true
   try {
-    const response = await listEbayReplenishmentV2({ ...buildRequestParams(), refresh: forceRefresh === true })
+    const response = await listEbayReplenishmentHierarchy({ ...params,
+      hierarchyLevel: 'site', pageNum: 1, pageSize: 200, refresh: forceRefresh === true })
     const data = response.data || {}
     if (request !== rowsRequest || noteBusy.size || confirmingRows.size) return
     salesTypeAvailable.value = data.sales_type_available === true
@@ -698,9 +727,20 @@ async function loadRows(forceRefresh = false) {
     levelSummary.value = data.level_summary || {}
     ownerRuleMonth.value = data.owner_rule_month || ''
     calculationVersion.value = data.calculation_version || ''
+    appliedFilters.value = params
+    childrenByNode.clear()
+    restoredChildren.clear()
+    expandedNodes.clear()
+    loadingNodes.clear()
+    failedNodes.clear()
+    treeRevision.value += 1
     rows.value = Array.isArray(data.items) ? data.items.map(normalizeRow) : []
     initializeLeadTimeSavedValues(rows.value)
-    total.value = Number(data.pagination?.total || 0)
+    total.value = Number(data.matched_sku_count || 0)
+    if (expanded.size) {
+      await nextTick()
+      await restoreExpansion(rows.value, expanded, request)
+    }
   } finally {
     if (request === rowsRequest) loading.value = false
   }
@@ -708,6 +748,88 @@ async function loadRows(forceRefresh = false) {
 
 function refreshRows() {
   return loadRows(true)
+}
+
+function rememberExpansion(row, expanded) {
+  if (expanded) expandedNodes.add(row.nodeId)
+  else expandedNodes.delete(row.nodeId)
+}
+
+async function restoreExpansion(nodes, expanded, request) {
+  for (const row of nodes) {
+    if (request !== rowsRequest) return
+    if (!expanded.has(row.nodeId) || !row.hasChildren) continue
+    const children = await fetchChildren(row)
+    if (!children || request !== rowsRequest) continue
+    // Element Plus updateKeyChildren only updates already loaded branches.
+    // Feed restored children through its initial lazy-load callback instead.
+    restoredChildren.set(row.nodeId, children)
+    tableRef.value?.toggleRowExpansion(row, true)
+    expandedNodes.add(row.nodeId)
+    await nextTick()
+    await restoreExpansion(children, expanded, request)
+  }
+}
+
+async function fetchChildren(parent, page = 1) {
+  const request = rowsRequest
+  const version = calculationVersion.value
+  if (!version) {
+    failedNodes.add(parent.nodeId)
+    ElMessage.info('数据正在重新计算，请稍后刷新再展开')
+    return null
+  }
+  loadingNodes.add(parent.nodeId)
+  try {
+    const response = await listEbayReplenishmentHierarchy(childQuery(parent, appliedFilters.value, version, page))
+    if (request !== rowsRequest || version !== calculationVersion.value) return null
+    const data = response.data || {}
+    const fresh = (data.items || []).map(normalizeRow)
+    initializeLeadTimeSavedValues(fresh, false)
+    const previous = page === 1 ? [] : childrenByNode.get(parent.nodeId) || []
+    const children = [...previous, ...fresh]
+    childrenByNode.set(parent.nodeId, children)
+    failedNodes.delete(parent.nodeId)
+    return withMoreRow(parent, children, Number(data.pagination?.total || 0), page + 1)
+  } catch (error) {
+    if (request === rowsRequest) failedNodes.add(parent.nodeId)
+    return null
+  } finally {
+    if (request === rowsRequest) loadingNodes.delete(parent.nodeId)
+  }
+}
+
+async function loadChildren(row, _treeNode, resolve) {
+  if (restoredChildren.has(row.nodeId)) {
+    const children = restoredChildren.get(row.nodeId)
+    restoredChildren.delete(row.nodeId)
+    resolve(children)
+    return
+  }
+  const children = await fetchChildren(row)
+  // An empty failure callback marks the branch permanently loaded without a
+  // lazy child map. A retry row keeps updateKeyChildren usable after failure.
+  resolve(children || [{nodeId: `${row.nodeId}:retry`, nodeKind: 'more', parent: row,
+    nodeLabel: '加载失败，点击重试', nextPage: 1, hasChildren: false}])
+}
+
+async function loadMoreChildren(row) {
+  if (loadingNodes.has(row.parent.nodeId)) return
+  const children = await fetchChildren(row.parent, row.nextPage)
+  if (children) tableRef.value?.updateKeyChildren(row.parent.nodeId, children)
+}
+
+function scheduleTreeReload() {
+  if (disposed) return
+  clearTimeout(treeReloadTimer)
+  treeReloadTimer = setTimeout(() => {
+    if (noteBusy.size || confirmingRows.size || savingLeadTimeKeys.size ||
+        recalculatingRowKeys.size || leadTimeSaveTimers.size || rowRecalcTimers.size) {
+      scheduleTreeReload()
+      return
+    }
+    loadRows(false, true).catch(() => {})
+  }, 500)
 }
 
 function isFormulaColumn(column) {
@@ -840,10 +962,18 @@ function normalizeRow(item) {
     }))
   const latestMetric = monthlyMetrics.find(metric => metric.month === latestCompleteMonth.value) || monthlyMetrics[0] || {}
   return {
+    nodeId: item.node_id,
+    nodeKind: item.node_kind || 'sku',
+    nodeLabel: item.node_label || item.sku,
+    brandCore: item.brand_core,
+    hasChildren: item.has_children === true,
+    skuCount: Number(item.sku_count || 1),
+    summaryHint: Object.keys(item.partial_fields || {}).length
+      ? '部分SKU的指标尚未计算；对应汇总仅合计有值的SKU，展开可核对。' : '',
     site: item.site ?? item.site_name,
     sku: item.sku ?? item.inventory_sku,
     productName: item.product_name ?? item.product_name_cn,
-    principalName: item.principal_name || '未分配',
+    principalName: item.principal_name || (item.node_kind && item.node_kind !== 'sku' ? '--' : '未分配'),
     salesQty7d: numberOrNull(item.sales_qty_7d),
     salesQty15d: numberOrNull(item.sales_qty_15d),
     salesQty30d: numberOrNull(item.sales_qty_30d),
@@ -990,11 +1120,13 @@ function leadTimeCellKey(row, columnKey) {
   return JSON.stringify([String(row?.site || '').trim(), String(row?.sku || '').trim(), columnKey])
 }
 
-function initializeLeadTimeSavedValues(sourceRows) {
-  for (const timer of leadTimeSaveTimers.values()) clearTimeout(timer)
-  leadTimeSaveTimers.clear()
-  leadTimeSavedValues.clear()
-  leadTimeEditVersions.clear()
+function initializeLeadTimeSavedValues(sourceRows, reset = true) {
+  if (reset) {
+    for (const timer of leadTimeSaveTimers.values()) clearTimeout(timer)
+    leadTimeSaveTimers.clear()
+    leadTimeSavedValues.clear()
+    leadTimeEditVersions.clear()
+  }
   for (const row of sourceRows) {
     for (const columnKey of Object.keys(leadTimeFieldMap)) {
       leadTimeSavedValues.set(leadTimeCellKey(row, columnKey), row[columnKey] ?? null)
@@ -1134,6 +1266,7 @@ async function recalcRow(row, key, version) {
     row.safetyStockQty2 = numberOrNull(fresh.safety_stock_quantity_2)
     row.suggestedReplenishmentQty2 = numberOrNull(fresh.suggested_replenishment_quantity_2)
     row.suggestedReplenishmentQty = numberOrNull(fresh.suggested_replenishment_quantity)
+    scheduleTreeReload()
   } catch (error) {
     // 时效已经保存成功；展示重算失败时保持原值，用户刷新页面即可恢复。
   } finally {
@@ -1159,9 +1292,10 @@ async function handleColumnApply(keys) {
 }
 
 function columnTip(column) {
+  const summaryTip = ' 汇总行数量和金额合计，比例按汇总分子/分母重算；等级、性质、负责人和时效仅在子项一致时显示，库龄取最大值。'
   if (column.key === 'principalName') return `${column.tip} 当前规则月份：${ownerRuleMonth.value || '--'}。`
-  if (!column.monthlyKey || !latestCompleteMonth.value) return column.tip
-  return `${column.tip} 当前主值区间：${formatMonth(latestCompleteMonth.value, true)}。`
+  if (!column.monthlyKey || !latestCompleteMonth.value) return column.tip + summaryTip
+  return `${column.tip} 当前主值区间：${formatMonth(latestCompleteMonth.value, true)}。${summaryTip}`
 }
 
 function numberOrNull(value) {
@@ -1265,6 +1399,7 @@ function applyReview(row, data) {
       row.operationsConfirmedAt = data.operations_confirmed_at || ''
     }
   }
+  if (typeof queryParams.operationsConfirmed === 'boolean') scheduleTreeReload()
 }
 
 async function confirmOperations(row) {
@@ -1300,6 +1435,9 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  disposed = true
+  rowsRequest += 1
+  clearTimeout(treeReloadTimer)
   clearTimeout(monthlyPopoverTimer)
   for (const timer of leadTimeSaveTimers.values()) clearTimeout(timer)
   leadTimeSaveTimers.clear()
@@ -1309,6 +1447,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.hierarchy-count, .hierarchy-footer { color: var(--el-text-color-secondary); font-size: 12px; }
+.hierarchy-footer { padding: 12px 0; }
 .review-cell { display: flex; align-items: center; gap: 8px; }
 .review-cell :deep(.el-input) { width: 85px; }
 .formula-header-button { border: 0; padding: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; }

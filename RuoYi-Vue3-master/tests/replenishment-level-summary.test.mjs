@@ -42,7 +42,7 @@ test('grade dropdown labels append both quantity totals including zero and ungra
   assert.equal(context.levelOptionLabel('--'), '--（0 / 0）')
   assert.match(context.columnTip({ key: 'principalName', tip: '按当月品牌' }), /2026-10/)
   assert.match(source, /principalName: '__append__'/)
-  assert.match(source, /principalName: item.principal_name \|\| '未分配'/)
+  assert.match(source, /principalName: item.principal_name \|\| \(item.node_kind && item.node_kind !== 'sku' \? '--' : '未分配'\)/)
 })
 
 async function recalc({ stale = false } = {}) {

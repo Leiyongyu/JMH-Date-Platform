@@ -21,6 +21,7 @@ public class AmzProductListing implements Serializable
     private String tagName;
     private String smallImageUrl;
     private BigDecimal price;
+    private String currencyCode;
     private Date listingCreateDate;
 
     public Long getId() { return id; }
@@ -51,6 +52,8 @@ public class AmzProductListing implements Serializable
     public void setSmallImageUrl(String v) { this.smallImageUrl = v; }
     public BigDecimal getPrice() { return price; }
     public void setPrice(BigDecimal price) { this.price = price; }
+    public String getCurrencyCode() { return currencyCode; }
+    public void setCurrencyCode(String currencyCode) { this.currencyCode = currencyCode; }
     public Date getListingCreateDate() { return listingCreateDate; }
     public void setListingCreateDate(Date listingCreateDate) { this.listingCreateDate = listingCreateDate; }
 }

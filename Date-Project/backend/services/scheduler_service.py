@@ -9,6 +9,10 @@ from backend.repositories import performance_repository as repo
 from backend.services.ebay_token_health_service import (
     TASK_CODE as EBAY_HEALTH_TASK_CODE, check_ebay_token_health,
 )
+from backend.services.ebay_mixed_sales_price_sync_service import (
+    TASK_CODE as EBAY_MIXED_PRICE_TASK_CODE, TASK_NAME as EBAY_MIXED_PRICE_TASK_NAME,
+    sync_prices as sync_ebay_mixed_prices,
+)
 from backend.services.ebay_store_listing_sync_service import (
     TASK_CODE as EBAY_STORE_LISTING_TASK_CODE,
     TASK_NAME as EBAY_STORE_LISTING_TASK_NAME,
@@ -122,6 +126,13 @@ class TaskSpec:
 TASK_SPECS: dict[str, TaskSpec] = {
     spec.code: spec
     for spec in (
+        TaskSpec(
+            code=EBAY_MIXED_PRICE_TASK_CODE,
+            name=EBAY_MIXED_PRICE_TASK_NAME,
+            period_args_error='在售售价仅拉取当前状态，不接受历史月份或日期',
+            lock_name=lambda ctx: 'ebay:store-listing:replace',
+            execute=lambda ctx: sync_ebay_mixed_prices(),
+        ),
         TaskSpec(
             code=EBAY_HEALTH_TASK_CODE,
             name="eBay密钥健康检查",

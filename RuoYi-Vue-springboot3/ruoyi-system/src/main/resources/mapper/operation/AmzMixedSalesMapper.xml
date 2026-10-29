@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.AmzMixedSalesMapper">
+    <!-- Warehouse and sales rows are aggregated first. Listing and inventory
+         keep their unique sid/seller_sku index lookups. DISTINCT materializes
+         channels once, preventing a full channel scan per outer warehouse SKU. -->
+    <sql id="sources">
+        WITH warehouse_skus AS (
+            SELECT UPPER(TRIM(d.sku)) sku,
+                   GROUP_CONCAT(DISTINCT COALESCE(NULLIF(w.name,''),CAST(d.wid AS CHAR)) ORDER BY w.name SEPARATOR '、') warehouseNames,
+                   MAX(d.sync_time) warehouseSyncTime
+            FROM amz_warehouse_inventory_detail d
+            LEFT JOIN warehouse w ON w.wid=d.wid
+            WHERE d.sku IS NOT NULL AND TRIM(d.sku)!=''
+            GROUP BY UPPER(TRIM(d.sku))
+        ), sales AS (
+            SELECT sid,msku,MAX(sales_30d) sales30d,
+                   MAX(updated_at) salesSyncTime
+            FROM amz_restock_summary
+            WHERE node_type IN (2,3) AND TRIM(msku)!=''
+            GROUP BY sid,msku
+        ), channel_keys AS (
+            SELECT sid,seller_sku FROM amz_product_listing WHERE seller_sku!=''
+            UNION SELECT sid,seller_sku FROM amz_product_performance_inventory WHERE seller_sku!=''
+        ), shops AS (
+            SELECT sid,MAX(NULLIF(store_name,'')) storeName,
+                   CASE WHEN COUNT(DISTINCT NULLIF(currency,''))=1 THEN MAX(NULLIF(currency,'')) END currency
+            FROM shop_list WHERE platform_code='10001' GROUP BY sid
+        ), channels AS (
+            SELECT DISTINCT ws.sku,k.sid,k.seller_sku sellerSku,
+                   COALESCE(sh.storeName,CONCAT('SID ',k.sid)) storeName,
+                   l.local_name productName,l.small_image_url imageUrl,l.asin,l.marketplace,l.principal_name principalName,
+                   l.price salePrice,COALESCE(NULLIF(l.currency_code,''),sh.currency) currency,
+                   i.fba_stock fbaStock,i.fba_inbound fbaInbound,i.fba_stock+i.fba_inbound fbaTotalInventory,
+                   s.sales30d,i.sync_time inventorySyncTime,s.salesSyncTime,l.sync_time listingSyncTime
+            FROM channel_keys k
+            LEFT JOIN amz_product_listing l ON l.sid=k.sid AND l.seller_sku=k.seller_sku
+            LEFT JOIN amz_product_performance_inventory i ON i.sid=k.sid AND i.seller_sku=k.seller_sku
+            LEFT JOIN sales s ON s.sid=k.sid AND s.msku=k.seller_sku
+            LEFT JOIN shops sh ON sh.sid=k.sid
+            INNER JOIN warehouse_skus ws ON ws.sku=COALESCE(NULLIF(l.local_sku,''),NULLIF(i.local_sku,''))
+            <where><if test="q.sid != null">k.sid=#{q.sid}</if></where>
+        )
+    </sql>
+
+    <sql id="products">
+        SELECT ws.sku,ws.warehouseNames,ws.warehouseSyncTime,
+               MAX(c.productName) productName,MAX(c.imageUrl) imageUrl,
+               COUNT(c.sellerSku) listingCount,COUNT(DISTINCT c.sid) storeCount,
+               COUNT(c.fbaTotalInventory) inventoryMatchedCount,COUNT(c.sales30d) salesMatchedCount,
+               SUM(c.fbaStock) fbaStock,SUM(c.fbaInbound) fbaInbound,
+               SUM(c.fbaTotalInventory) fbaTotalInventory,SUM(c.sales30d) sales30d,
+               MIN(c.inventorySyncTime) inventorySyncTime,MIN(c.salesSyncTime) salesSyncTime
+        FROM warehouse_skus ws LEFT JOIN channels c ON c.sku=ws.sku
+        <where><if test="q.sid != null">c.sid=#{q.sid}</if></where>
+        GROUP BY ws.sku,ws.warehouseNames,ws.warehouseSyncTime
+    </sql>
+
+    <sql id="productFilters">
+        <where>
+            <if test="q.sku != null">sku LIKE CONCAT('%',#{q.sku},'%')</if>
+            <if test="q.productName != null">AND productName LIKE CONCAT('%',#{q.productName},'%')</if>
+        </where>
+    </sql>
+
+    <sql id="order">
+        ORDER BY
+        <choose>
+            <when test="q.sortField == 'sku'">sku</when>
+            <when test="q.sortField == 'fbaStock'">fbaStock IS NULL,fbaStock</when>
+            <when test="q.sortField == 'fbaInbound'">fbaInbound IS NULL,fbaInbound</when>
+            <when test="q.sortField == 'sales30d'">sales30d IS NULL,sales30d</when>
+            <otherwise>fbaTotalInventory IS NULL,fbaTotalInventory</otherwise>
+        </choose>
+        <choose><when test="q.sortOrder == 'asc'">ASC</when><otherwise>DESC</otherwise></choose>,sku
+    </sql>
+
+    <select id="countProducts" resultType="long" timeout="15">
+        <include refid="sources"/>
+        <choose>
+            <when test="q.sid == null and q.productName == null">SELECT COUNT(*) FROM warehouse_skus</when>
+            <otherwise>SELECT COUNT(*) FROM (<include refid="products"/>) products</otherwise>
+        </choose>
+        <include refid="productFilters"/>
+    </select>
+    <select id="selectProducts" resultType="map" timeout="15">
+        <include refid="sources"/>
+        SELECT * FROM (<include refid="products"/>) products
+        <include refid="productFilters"/>
+        <include refid="order"/>
+        LIMIT #{q.pageSize} OFFSET #{q.offset}
+    </select>
+    <select id="countDetails" resultType="long" timeout="15">
+        <include refid="sources"/>
+        SELECT COUNT(*) FROM channels WHERE sku=#{q.sku}
+    </select>
+    <select id="selectDetails" resultType="map" timeout="15">
+        <include refid="sources"/>
+        SELECT * FROM channels WHERE sku=#{q.sku}
+        <include refid="order"/>,sid,sellerSku
+        LIMIT #{q.pageSize} OFFSET #{q.offset}
+    </select>
+    <select id="selectStores" resultType="map">
+        SELECT sid,MAX(NULLIF(store_name,'')) storeName FROM shop_list
+        WHERE platform_code='10001' AND sid IS NOT NULL
+        GROUP BY sid ORDER BY storeName,sid
+    </select>
+</mapper>

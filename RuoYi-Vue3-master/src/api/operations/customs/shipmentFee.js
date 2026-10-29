@@ -2,6 +2,14 @@ import request from '@/utils/request'
 
 const IMPORT_TIMEOUT = 30 * 60 * 1000
 
+export function queryStaDeliveryDates(data) {
+  return request({
+    url: '/operations/customs/shipment-fee/delivery-dates/query',
+    method: 'post', data, timeout: 180000,
+    headers: { repeatSubmit: false }
+  })
+}
+
 export function importShipmentFee(file) {
   const data = new FormData()
   data.append('file', file)

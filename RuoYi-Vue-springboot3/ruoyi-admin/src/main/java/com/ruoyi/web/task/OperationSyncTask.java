@@ -151,6 +151,14 @@ public class OperationSyncTask
     @FunctionalInterface
     private interface SyncRunner { OperationSyncResult run() throws Exception; }
 
+    static int timeoutMinutes(String type) {
+        return "amz_restock_summary".equals(type) ? AmzRestockSummarySyncService.TIMEOUT_MINUTES : TASK_TIMEOUT_MINUTES;
+    }
+
+    static int lockTimeoutSeconds(String type) {
+        return Math.max(LOCK_TIMEOUT_SECONDS, (timeoutMinutes(type) + 15) * 60);
+    }
+
     private void exec(String type, String name, String api, String lockKey, SyncRunner runner) {
         if (lockKey == null) {
             executeWithLog(type, name, api, runner);
@@ -158,7 +166,7 @@ public class OperationSyncTask
         }
 
         RedisCache redis = SpringUtils.getBean(RedisCache.class);
-        if (!redis.tryLock(lockKey, LOCK_TIMEOUT_SECONDS)) {
+        if (!redis.tryLock(lockKey, lockTimeoutSeconds(type))) {
             LOG.info("[SKIP] {} - {} is occupied, skip this schedule", name, lockKey);
             OperationSyncResult skipped = OperationSyncResult.skipped(type, name, api, "分组锁被占用: " + lockKey, 0);
             IOperationSyncLogService logSvc = SpringUtils.getBean(IOperationSyncLogService.class);
@@ -176,6 +184,7 @@ public class OperationSyncTask
     }
 
     private void executeWithLog(String syncType, String syncName, String apiPath, SyncRunner runner) {
+        int timeoutMinutes = timeoutMinutes(syncType);
         long start = System.currentTimeMillis();
         IOperationSyncLogService logService = SpringUtils.getBean(IOperationSyncLogService.class);
         Long logId = null;
@@ -188,13 +197,13 @@ public class OperationSyncTask
                 r.setElapsedMs(System.currentTimeMillis() - start);
                 return r;
             });
-            result = future.get(TASK_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+            result = future.get(timeoutMinutes, TimeUnit.MINUTES);
             logService.finish(logId, result);
         } catch (TimeoutException e) {
             if (future != null) future.cancel(true);
             result = OperationSyncResult.timeout(syncType, syncName, apiPath,
-                    "任务执行超时(" + TASK_TIMEOUT_MINUTES + "分钟)，已请求取消后台任务", System.currentTimeMillis() - start);
-            LOG.error("同步任务超时 [{}] {}: 超过{}分钟，已请求取消后台任务", syncType, syncName, TASK_TIMEOUT_MINUTES);
+                    "任务执行超时(" + timeoutMinutes + "分钟)，已请求取消后台任务", System.currentTimeMillis() - start);
+            LOG.error("同步任务超时 [{}] {}: 超过{}分钟，已请求取消后台任务", syncType, syncName, timeoutMinutes);
             if (logId != null) logService.finish(logId, result);
         } catch (Exception e) {
             LOG.error("同步任务异常 [{}] {}: {}", syncType, syncName, e.getMessage(), e);

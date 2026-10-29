@@ -110,6 +110,11 @@
             </el-form-item>
           </el-col>
         </el-row>
+        <el-form-item label="业务负责人" prop="businessOwnerNames">
+          <el-select v-model="form.businessOwnerNames" multiple filterable allow-create default-first-option
+            placeholder="输入补货数据中的负责人姓名，按回车添加" style="width: 100%" />
+          <div style="font-size: 12px; color: var(--el-text-color-secondary)">用于补货数据权限，须与业务负责人名称完全一致；修改个人昵称不会改变此绑定。</div>
+        </el-form-item>
         <el-row>
           <el-col :span="12">
             <el-form-item label="手机号码" prop="phonenumber">
@@ -388,6 +393,7 @@ function reset() {
     deptId: undefined,
     userName: undefined,
     nickName: undefined,
+    businessOwnerNames: [],
     password: undefined,
     phonenumber: undefined,
     email: undefined,

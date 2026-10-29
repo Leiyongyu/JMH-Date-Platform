@@ -98,6 +98,7 @@ def list_replenishment(
     calculation_version: str | None = None,
     exact_sku: bool = False,
     principal_name: str | None = None,
+    allowed_principals: list[str] | None = None,
 ) -> dict[str, Any]:
     """按同一北京时间基准读取近90天，拆为三个连续30天区间，不含今天。"""
 
@@ -108,7 +109,9 @@ def list_replenishment(
                      sort_field=sort_field,sort_order=sort_order,sales_type=sales_type,
                      operations_confirmed=operations_confirmed,paginate=paginate,
                      include_level_summary=include_level_summary,refresh=refresh,
-                     calculation_version=calculation_version,exact_sku=exact_sku,principal_name=principal_name)
+                     calculation_version=calculation_version,exact_sku=exact_sku,principal_name=principal_name,allowed_principals=allowed_principals)
+    if allowed_principals is not None:
+        raise ValueError('受限数据查询必须使用补货读模型')
     sales_type_filter = sales_type_service.normalize_filter(sales_type)
     sku_analysis_service._ensure_tables()
     months = rolling_periods()

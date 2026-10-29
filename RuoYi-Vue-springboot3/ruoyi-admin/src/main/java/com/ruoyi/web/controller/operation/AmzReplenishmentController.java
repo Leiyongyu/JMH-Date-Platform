@@ -49,6 +49,8 @@ public class AmzReplenishmentController extends BaseController
     private AmzWarehouseInventoryDetailMapper inventoryMapper;
     @Autowired
     private RedisCache redisCache;
+    @Autowired
+    private com.ruoyi.system.service.operation.scope.BusinessDataScopeService dataScope;
 
     // ====== 美国组 / 欧洲组独立查询 ======
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:list')")
@@ -173,6 +175,7 @@ public class AmzReplenishmentController extends BaseController
         String sid = body.get("sid") != null ? String.valueOf(body.get("sid")) : null;
         String sellerSku = (String) body.get("sellerSku");
         if (sid == null || sellerSku == null) return error("sid和sellerSku必填");
+        dataScope.requireAmzRow(sid, sellerSku);
         AmzReplenishmentOverride ov = new AmzReplenishmentOverride();
         ov.setSid(sid);
         ov.setSellerSku(sellerSku);
@@ -203,6 +206,7 @@ public class AmzReplenishmentController extends BaseController
         String warehouseName = (String) body.get("warehouseName");
         if (warehouseSku == null || warehouseSku.isBlank() || warehouseName == null || warehouseName.isBlank())
             return error("仓库SKU和仓库名称必填");
+        dataScope.requireAll(com.ruoyi.system.service.operation.scope.BusinessDataScopeService.AMZ);
         BigDecimal v = body.get("value") != null ? new BigDecimal(String.valueOf(body.get("value"))) : BigDecimal.ZERO;
         int rows = inventoryMapper.updateQuantityReceive(warehouseSku, warehouseName, v);
         if (rows <= 0) return error("未找到对应仓库的SKU库存记录");

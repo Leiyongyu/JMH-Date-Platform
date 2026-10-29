@@ -58,7 +58,8 @@ public class AmzUnifiedSyncService
                                          String operator, String busyMessage)
     {
         RedisCache redis = SpringUtils.getBean(RedisCache.class);
-        if (!redis.tryLock(LOCK_AMZ, LOCK_TIMEOUT_SECONDS))
+        int lockSeconds = LOCK_TIMEOUT_SECONDS + (steps == STEPS ? AmzRestockSummarySyncService.TIMEOUT_MINUTES * 60 : 0);
+        if (!redis.tryLock(LOCK_AMZ, lockSeconds))
         {
             Map<String, Object> busy = new LinkedHashMap<>();
             busy.put("parentStatus", "BUSY");

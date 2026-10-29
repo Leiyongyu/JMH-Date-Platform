@@ -96,7 +96,7 @@ test('Chinese IME candidate confirmation does not submit unfinished notes', asyn
 })
 
 test('out-of-order note responses never roll back newer operations confirmation', () => {
-  const context = vm.createContext({})
+  const context = vm.createContext({queryParams: {}, scheduleTreeReload: () => {}})
   vm.runInContext(page.match(/function applyReview\([^]*?\n\}/)[0], context)
   const row = { operationsVersion: 4, developmentVersion: 1, operationsNote: '新运营备注', operationsConfirmed: true }
   context.applyReview(row, { operations_version: 3, operations_note: '旧运营备注', operations_confirmed: false,

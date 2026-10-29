@@ -51,6 +51,8 @@ user:
 
 # Spring配置
 spring:
+  config:
+    import: optional:file:${SYNC_ALERT_MAIL_CONFIG:${user.home}/.jmh-platform/alert-mail.properties}
   # 资源信息
   messages:
     # 国际化资源文件路径
@@ -159,6 +161,9 @@ xss:
 
 # Lingxing OpenAPI configuration
 lingxing:
+  restock:
+    # 0 combines all active shops; a positive value explicitly enables shop batches.
+    sid-batch-size: ${LINGXING_RESTOCK_SID_BATCH_SIZE:0}
   endpoint: ${LINGXING_ENDPOINT:http://8.137.177.25/lingxing-proxy}
   app-id: ${LINGXING_APP_ID:ak_DBmvLSyHfhc5H}
   app-secret: ${LINGXING_APP_SECRET:8VSwwqXgu/RtUvslYIacHQ==}
@@ -188,17 +193,23 @@ goodcang:
   rate-limit-initial-backoff-ms: ${GOODCANG_RATE_LIMIT_INITIAL_BACKOFF_MS:3000}
   rate-limit-max-backoff-ms: ${GOODCANG_RATE_LIMIT_MAX_BACKOFF_MS:30000}
 
-# 同步告警 - 企业微信机器人 Webhook
+# 同步告警 - SMTP邮件（不再发送企微群）
 sync:
   alert:
-    enabled: true
+    enabled: ${SYNC_ALERT_ENABLED:true}
+    mail:
+      host: ${SYNC_ALERT_SMTP_HOST:smtp.exmail.qq.com}
+      port: ${SYNC_ALERT_SMTP_PORT:465}
+      ssl: ${SYNC_ALERT_SMTP_SSL:true}
+      username: ${SYNC_ALERT_SMTP_USERNAME:}
+      password: ${SYNC_ALERT_SMTP_PASSWORD:}
+      to: ${SYNC_ALERT_MAIL_TO:}
     # 默认只发送失败、异常和卡死告警，正常开始/成功/恢复不推送。
     notify-started: ${SYNC_ALERT_NOTIFY_STARTED:false}
     notify-success: ${SYNC_ALERT_NOTIFY_SUCCESS:false}
     notify-recovery: ${SYNC_ALERT_NOTIFY_RECOVERY:false}
     # 任务超过该时长未结束时发送卡死告警，设为0可关闭。
     max-runtime-minutes: ${SYNC_ALERT_MAX_RUNTIME_MINUTES:90}
-    webhook-url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=da6d9357-6841-4ce7-a5f9-223bff0931de
   connect-timeout: 30000
   read-timeout: 30000
 

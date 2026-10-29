@@ -67,6 +67,10 @@ public class ScheduleUtils
 
         // 表达式调度构建器
         CronScheduleBuilder cronScheduleBuilder = CronScheduleBuilder.cronSchedule(job.getCronExpression());
+        if ("pythonEbayMixedSalesPriceTask.runMonthly()".equals(job.getInvokeTarget()))
+        {
+            cronScheduleBuilder = cronScheduleBuilder.inTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));
+        }
         cronScheduleBuilder = handleCronScheduleMisfirePolicy(job, cronScheduleBuilder);
 
         // 按新的cronExpression表达式构建一个新的trigger

@@ -5,7 +5,6 @@ import com.ruoyi.system.service.operation.IOperationSyncLogService;
 import com.ruoyi.system.service.operation.sync.OperationSyncContext;
 import com.ruoyi.system.service.operation.sync.OperationSyncResult;
 import com.ruoyi.system.service.operation.sync.SyncAlertService;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +42,7 @@ public class PythonEbayTokenHealthTask
             List<String> messages = reportMessages(report);
             for (int i = 0; i < messages.size(); i++)
                 if (!alerts.sendCredentialReminder("health:" + report.get("sync_batch_id") + ":" + i, messages.get(i)))
-                    throw new IllegalStateException("健康报告未全部送达企微，请检查告警配置和发送状态");
+                    throw new IllegalStateException("健康报告未全部送达邮件，请检查告警配置和发送状态");
             int count = ((Number) report.get("extract_rows")).intValue();
             OperationSyncResult result = OperationSyncResult.success(CODE, NAME, PATH,
                     count, count, System.currentTimeMillis() - started);
@@ -57,7 +56,7 @@ public class PythonEbayTokenHealthTask
         {
             // Do not append remote or transport exception text to persistent logs.
             OperationSyncResult result = OperationSyncResult.failed(CODE, NAME, PATH,
-                    "健康检查或企微报告发送失败；请检查Python任务记录和企微配置；requestId=" + requestId,
+                    "健康检查或邮件报告发送失败；请检查Python任务记录和邮件配置；requestId=" + requestId,
                     System.currentTimeMillis() - started);
             logs.finish(logId, result);
             OperationSyncContext.set(result);
@@ -91,12 +90,6 @@ public class PythonEbayTokenHealthTask
                     + "；预计到期=" + clean(row.get("expires_on"), 10)
                     + "；剩余天数=" + clean(row.get("days_remaining"), 10)
                     + "；原因=" + clean(row.get("reason"), 65) + "\n";
-            // WeCom markdown limit is bytes, not Java string length. Leave ample headroom.
-            if ((text.toString() + line).getBytes(StandardCharsets.UTF_8).length > 3400)
-            {
-                messages.add(text.toString());
-                text = new StringBuilder(heading + "（续）\n");
-            }
             text.append(line);
         }
         messages.add(text.toString());
