@@ -99,6 +99,8 @@ def list_replenishment(
     exact_sku: bool = False,
     principal_name: str | None = None,
     allowed_principals: list[str] | None = None,
+    operations_note_filled: bool | None = None,
+    development_note_filled: bool | None = None,
 ) -> dict[str, Any]:
     """按同一北京时间基准读取近90天，拆为三个连续30天区间，不含今天。"""
 
@@ -108,6 +110,7 @@ def list_replenishment(
                      product_nature=product_nature,page=page,page_size=page_size,
                      sort_field=sort_field,sort_order=sort_order,sales_type=sales_type,
                      operations_confirmed=operations_confirmed,paginate=paginate,
+                     operations_note_filled=operations_note_filled, development_note_filled=development_note_filled,
                      include_level_summary=include_level_summary,refresh=refresh,
                      calculation_version=calculation_version,exact_sku=exact_sku,principal_name=principal_name,allowed_principals=allowed_principals)
     if allowed_principals is not None:
@@ -155,6 +158,10 @@ def list_replenishment(
     if operations_confirmed is not None:
         where_sql += (" AND " if where_sql else "WHERE ") + "COALESCE(review.operations_confirmed,0)=%s"
         filter_params.append(int(operations_confirmed))
+    note_clauses, note_args = review_repository.note_presence_filters(operations_note_filled, development_note_filled)
+    if note_clauses:
+        where_sql += (" AND " if where_sql else "WHERE ") + ' AND '.join(note_clauses)
+        filter_params.extend(note_args)
     if sales_type_filter:
         where_sql += (" AND " if where_sql else "WHERE ") + "COALESCE(sales_type.sales_type,'NORMAL')=%s"
         filter_params.append(sales_type_filter)
@@ -317,7 +324,7 @@ def list_replenishment(
                     sales_type_join = ""
                     sales_type_available = False
                 elif review_available and review_repository.missing_table(exc):
-                    if operations_confirmed is not None:
+                    if operations_confirmed is not None or note_clauses:
                         raise ValueError(review_repository.MIGRATION_MESSAGE) from exc
                     query = query.replace(review_join, "").replace(review_select, review_repository.empty_select_sql())
                     review_join = ""

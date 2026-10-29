@@ -30,6 +30,18 @@ def empty_select_sql():
     return ','.join(f'NULL AS {key}' for key in DEFAULTS)
 
 
+def note_presence_filters(operations_filled=None, development_filled=None):
+    clauses, args = [], []
+    for field, value in [('operations', operations_filled), ('development', development_filled)]:
+        if value is None:
+            continue
+        if type(value) is not bool:
+            raise ValueError('备注已填/未填筛选必须为布尔值')
+        clauses.append(f"REGEXP_LIKE(COALESCE(review.{field}_note,''),'[^[:space:]]')=%s")
+        args.append(int(value))
+    return clauses, args
+
+
 def review_values(row):
     result = {key: row.get(key) if row.get(key) is not None else value for key, value in DEFAULTS.items()}
     result['operations_confirmed'] = bool(result['operations_confirmed'])

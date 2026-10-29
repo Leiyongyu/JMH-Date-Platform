@@ -62,6 +62,8 @@ class EbayReplenishmentExportPermissionControllerTest
     @EnableMethodSecurity
     static class Config
     {
+        @Bean com.ruoyi.system.service.operation.scope.BusinessDataScopeService dataScope()
+        { return mock(com.ruoyi.system.service.operation.scope.BusinessDataScopeService.class); }
         @Bean(name = "ss") PermissionService permissions() { return new PermissionService(); }
         @Bean EbayReplenishmentV2PythonClient client() { return mock(EbayReplenishmentV2PythonClient.class); }
         @Bean EbayReplenishmentV2LeadTimeService leadTime() { return mock(EbayReplenishmentV2LeadTimeService.class); }
@@ -94,7 +96,7 @@ class EbayReplenishmentExportPermissionControllerTest
             var data = Map.of("items", List.of(item));
             when(client.list(anyMap(), any())).thenReturn(Map.of("data", data));
             var controller = context.getBean(EbayReplenishmentV2Controller.class);
-            assertEquals(data, controller.list(null, null, null, null, null, null, 1, 50, null, null, false, false, null, "trace").get("data"));
+            assertEquals(data, controller.list(null, null, null, null, null, null, null, null, 1, 50, null, null, false, false, null, "trace").get("data"));
         }
         finally { SecurityContextHolder.clearContext(); RequestContextHolder.resetRequestAttributes(); }
     }
@@ -110,12 +112,12 @@ class EbayReplenishmentExportPermissionControllerTest
             {
                 login(denied);
                 assertThrows(AccessDeniedException.class, () -> controller.export(null, null, null, null,
-                        null, null, null, null, null, null, "trace", new MockHttpServletResponse()));
+                        null, null, null, null, null, null, null, null, "trace", new MockHttpServletResponse()));
             }
             login(Set.of(LIST, EXPORT));
             var response = new MockHttpServletResponse();
             assertThrows(ServiceException.class, () -> controller.export(null, null, null, null,
-                    null, null, null, null, null, null, "trace", response));
+                    null, null, null, null, null, null, null, null, "trace", response));
             assertEquals(0, response.getContentAsByteArray().length);
             verifyNoInteractions(context.getBean(EbayReplenishmentV2PythonClient.class));
         }
@@ -136,11 +138,14 @@ class EbayReplenishmentExportPermissionControllerTest
             var response = mvc.perform(post("/operations/ebay/replenishment-v2/export")
                     .param("permissions", "*:*:*").param("columns", "gross_profit_amount")
                     .param("calculationVersion", "0123456789abcdef0123456789abcdef")
+                    .param("operationsNoteFilled", "true").param("developmentNoteFilled", "false")
                     .param("principalName", " 未分配 "))
                     .andReturn().getResponse();
             assertEquals(200, response.getStatus());
             verify(client).exportData(argThat(params ->
                     "0123456789abcdef0123456789abcdef".equals(params.get("calculation_version"))
+                    && Boolean.TRUE.equals(params.get("operations_note_filled"))
+                    && Boolean.FALSE.equals(params.get("development_note_filled"))
                     && "未分配".equals(params.get("principal_name"))), any());
             try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(response.getContentAsByteArray())))
             {

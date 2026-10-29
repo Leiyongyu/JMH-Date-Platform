@@ -121,3 +121,24 @@ test('refocusing during a slow blur save keeps the input editable', async () => 
   await state.finishEdit()
   assert.equal(state.editing.value, false)
 })
+
+test('column filters preserve false, combine both notes and pass to child requests', async () => {
+  let requests = 0
+  const queryParams = { pageNum: 3 }
+  const context = vm.createContext({ queryParams, loadRows: () => { requests += 1 } })
+  vm.runInContext(page.match(/function handleColumnFilterChange\([^]*?\n\}/)[0], context)
+  vm.runInContext(page.match(/function noteFilterValues\([^]*?\n\}/)[0], context)
+  context.handleColumnFilterChange({ operationsNote: [true], developmentNote: [false] })
+  assert.equal(queryParams.operationsNoteFilled, true)
+  assert.equal(queryParams.developmentNoteFilled, false)
+  assert.equal(queryParams.pageNum, 1)
+  assert.deepEqual(Array.from(context.noteFilterValues({ reviewField: 'development' })), [false])
+  const { childQuery } = await import('../src/views/operations/ebay/replenishmentV2/hierarchy.js')
+  const child = childQuery({ nodeKind: 'site', site: '英国' }, queryParams, 'a'.repeat(32))
+  assert.equal(child.operationsNoteFilled, true)
+  assert.equal(child.developmentNoteFilled, false)
+  context.handleColumnFilterChange({ operationsNote: [] })
+  assert.equal(queryParams.operationsNoteFilled, undefined)
+  assert.equal(queryParams.developmentNoteFilled, false)
+  assert.equal(requests, 2)
+})

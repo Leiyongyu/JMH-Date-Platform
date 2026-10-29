@@ -296,7 +296,9 @@ def query(*, site=None, sku=None, product_name=None, product_level=None, product
           sales_type=None, operations_confirmed=None, page=1, page_size=50, sort_field=None,
           sort_order=None, paginate=True, include_level_summary=True, refresh=False,
           calculation_version=None, exact_sku=False, principal_name=None,
-          hierarchy_level=None, brand_core=None, allowed_principals=None):
+          hierarchy_level=None, brand_core=None, allowed_principals=None,
+          operations_note_filled=None, development_note_filled=None):
+    reviews.note_presence_filters(operations_note_filled, development_note_filled)
     if hierarchy_level is not None:
         from backend.services.ebay_replenishment_hierarchy import validate_parent
         validate_parent(hierarchy_level, site, brand_core)
@@ -308,6 +310,7 @@ def query(*, site=None, sku=None, product_name=None, product_level=None, product
         return read_generation(generation, site=site,sku=sku,product_name=product_name,
             product_level=product_level,product_nature=product_nature,sales_type=sales_type,
             operations_confirmed=operations_confirmed,page=page,page_size=page_size,
+            operations_note_filled=operations_note_filled, development_note_filled=development_note_filled,
             sort_field=sort_field,sort_order=sort_order,paginate=paginate,
             include_level_summary=include_level_summary,exact_sku=exact_sku,principal_name=principal_name,
             hierarchy_level=hierarchy_level,brand_core=brand_core,allowed_principals=allowed_principals)
@@ -344,6 +347,10 @@ def read_generation(generation, **filters):
     if filters.get('operations_confirmed') is not None:
         clauses.append('COALESCE(review.operations_confirmed,0)=%s')
         args.append(int(filters['operations_confirmed']))
+    note_clauses, note_args = reviews.note_presence_filters(
+        filters.get('operations_note_filled'), filters.get('development_note_filled'))
+    clauses.extend(note_clauses)
+    args.extend(note_args)
     joins = sales_types.join_sql()+' '+reviews.join_sql()
     source = f'FROM {PREFIX}result base {joins} WHERE '+ ' AND '.join(clauses)
     with db_connection() as connection, connection.cursor() as cursor:

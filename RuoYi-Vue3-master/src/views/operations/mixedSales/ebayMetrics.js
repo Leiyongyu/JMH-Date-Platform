@@ -10,7 +10,7 @@ export const ebayMetrics = [
 export const ebaySiteMetrics = [
   ...ebayMetrics.map(col => col.key === 'sales30d'
     ? { ...col, key: 'ebaySales30d', label: 'eBay近30天销量' } : col),
-  { key: 'amzSales30d', label: 'Amazon近30天销量' }
+  { key: 'amzSales30d', label: 'Amazon近30天销量', tip: '取领星商品刊登接口 /erp/sc/data/mws/listing 的 thirty_volume，按店铺＋完整MSKU匹配后汇总同一SKU、同一站点；使用最近成功同步的未删除刊登，缺失显示--，真实0保留。' }
 ]
 
 export function ebayDetailQuery(row, applied, version) {

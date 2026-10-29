@@ -22,7 +22,7 @@ class EbayReplenishmentHierarchyControllerTest
         when(client.hierarchy(anyMap(), any())).thenReturn(Map.of("data", Map.of("items", java.util.List.of())));
         var controller = new EbayReplenishmentV2Controller(client, null, null);
         controller.hierarchy("sku", "英国", " FRD-70327 ", "70327", "A", "老品",
-                "NORMAL", true, "任雅婷", "suggestedReplenishmentQty2", "ascending",
+                "NORMAL", true, false, true, "任雅婷", "suggestedReplenishmentQty2", "ascending",
                 "a".repeat(32), -1, 999, false, "hierarchy-request");
         ArgumentCaptor<Map<String, Object>> params = ArgumentCaptor.forClass(Map.class);
         verify(client).hierarchy(params.capture(), eq("hierarchy-request"));
@@ -32,6 +32,8 @@ class EbayReplenishmentHierarchyControllerTest
         assertEquals("英国", sent.get("site"));
         assertEquals("任雅婷", sent.get("principal_name"));
         assertEquals(true, sent.get("operations_confirmed"));
+        assertEquals(false, sent.get("operations_note_filled"));
+        assertEquals(true, sent.get("development_note_filled"));
         assertEquals("a".repeat(32), sent.get("calculation_version"));
         assertEquals("asc", sent.get("sort_order"));
         assertEquals(1, sent.get("page"));

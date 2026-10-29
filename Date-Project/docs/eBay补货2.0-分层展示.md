@@ -17,3 +17,10 @@
 更新Vue、Java和Python。接口为 Java `/operations/ebay/replenishment-v2/hierarchy` → Python `/api/v1/finance/ebay-replenishment-v2/hierarchy`，复用列表权限及内部认证。
 
 无需新建表或修改表结构。计算结果JSON新增精确的90天汇总分子/分母，计算引擎版本升至 `rolling-read-model-v3`，更新后首次访问自动重建派生计算结果。原始订单、人工备注、负责人规则不迁移或改写。
+
+
+## 运营和开发备注筛选
+
+运营、开发两列表头各自提供“已填/未填”单选筛选，清除该列筛选恢复全部。两列可同时筛选，取交集；重置按钮清除两列条件。未建立备注记录、NULL、空字符串、仅含空格/制表/换行等空白字符均属于未填；文本0属于已填。
+
+筛选参数为 `operationsNoteFilled` / `developmentNoteFilled`（Java）和 `operations_note_filled` / `development_note_filled`（Python）。true=已填、false=未填，不传=全部。列表、分层、展开分页、等级汇总及导出在SQL中使用同一条件，在聚合和分页前过滤SKU；保存备注后按当前条件刷新分层数据。备注独立于计算快照，无需重新计算销量。原权限不变，无需SQL迁移。

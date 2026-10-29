@@ -8,6 +8,10 @@
       <inventory-age-column platform="ebay" />
       <el-table-column v-for="col in ebaySiteMetrics" :key="col.key" :prop="col.key" :label="col.label"
         align="right" min-width="145" sortable="custom">
+        <template #header>
+          <el-tooltip v-if="col.tip" :content="col.tip" placement="top"><span>{{ col.label }}</span></el-tooltip>
+          <span v-else>{{ col.label }}</span>
+        </template>
         <template #default="{ row }">{{ quantity(row[col.key]) }}</template>
       </el-table-column>
       <el-table-column prop="currency" label="币种" width="90"><template #default="{ row }">{{ row.currency || '--' }}</template></el-table-column>

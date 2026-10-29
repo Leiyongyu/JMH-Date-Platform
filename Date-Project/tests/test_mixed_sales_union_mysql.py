@@ -49,6 +49,8 @@ def isolated(monkeypatch):
                 'amz_product_listing(sid INT,seller_sku VARCHAR(100),local_sku VARCHAR(100),local_name VARCHAR(100),small_image_url VARCHAR(100),marketplace VARCHAR(30),sync_time DATETIME,price DECIMAL(20,8),currency_code VARCHAR(16),UNIQUE KEY(sid,seller_sku))',
                 'amz_product_performance_inventory(sid INT,seller_sku VARCHAR(100),local_sku VARCHAR(100),fba_stock INT,fba_inbound INT,sync_time DATETIME,UNIQUE KEY(sid,seller_sku))',
                 'amz_restock_summary(sid INT,msku VARCHAR(100),sales_30d INT,node_type INT,updated_at DATETIME)',
+                'ods_lingxing_amz_listing_latest(sid BIGINT,seller_sku LONGTEXT COLLATE utf8mb4_bin,thirty_volume LONGTEXT,is_delete TINYINT DEFAULT 0,status TINYINT DEFAULT 1,sync_batch_id VARCHAR(64),pulled_at DATETIME,KEY idx_sid_seller(sid,seller_sku(191)))',
+                'ods_lingxing_amz_listing_state(id TINYINT PRIMARY KEY,sync_batch_id VARCHAR(64),pulled_at DATETIME)',
                 'shop_list(sid INT,store_name VARCHAR(100),platform_code VARCHAR(30),currency VARCHAR(16),country_code VARCHAR(16))',
                 'dws_ebay_replenishment_generation(generation CHAR(32),metadata JSON,created_at DATETIME)',
                 'dws_ebay_replenishment_result(generation CHAR(32),sku VARCHAR(100),site VARCHAR(30),product_name VARCHAR(100),sales_qty_7d DECIMAL(24,6),sales_qty_15d DECIMAL(24,6),sales_qty_30d DECIMAL(24,6),payload JSON)',
@@ -67,7 +69,13 @@ def isolated(monkeypatch):
             cur.execute("INSERT INTO shop_list VALUES(1,'S1','10001','GBP','UK'),(2,'S2','10001','GBP','GB'),(3,'S3','10001','EUR','DE'),(4,'S4','10001','USD','US')")
             cur.execute("INSERT INTO amz_product_listing VALUES(1,'B1','SKU-BOTH','Both','img','英国',NOW(),20,'GBP'),(2,'B2','SKU-BOTH','Both','img','GB',NOW(),100,'GBP'),(3,'B3','SKU-BOTH','Both','img','德国',NOW(),50,'EUR'),(4,'B4','SKU-BOTH','Both','img','',NOW(),0,'USD'),(1,'A1','SKU-AMZ','Amazon','img','英国',NOW(),40,'GBP'),(1,'Z1','SKU-ZERO','Zero','img','英国',NOW(),0,'GBP'),(1,'UNKNOWN','SKU-BOTH','Both','img','未知站点',NOW(),7,'EUR')")
             cur.execute("INSERT INTO amz_product_performance_inventory VALUES(1,'B1','SKU-BOTH',10,2,NOW()),(2,'B2','SKU-BOTH',7,1,NOW()),(1,'Z1','SKU-ZERO',0,0,NOW())")
-            cur.execute("INSERT INTO amz_restock_summary VALUES(1,'B1',999,1,NOW()),(1,'B1',5,2,NOW()),(1,'B1',3,2,NOW()),(2,'B2',6,3,NOW()),(1,'Z1',0,3,NOW())")
+            # Old restock values deliberately disagree with the new listing source.
+            cur.execute("INSERT INTO amz_restock_summary VALUES(1,'B1',999,1,NOW()),(1,'B1',777,2,NOW()),(2,'B2',888,3,NOW()),(1,'Z1',99,3,NOW())")
+            cur.execute("INSERT INTO ods_lingxing_amz_listing_state VALUES(1,'published','2026-10-29 10:00:00')")
+            cur.execute("""INSERT INTO ods_lingxing_amz_listing_latest VALUES
+                (1,'B1','5',0,1,'published',NOW()),(1,'B1','3',0,1,'published',NOW()),
+                (1,'B1','999',0,1,'old-batch',NOW()),(1,'B1','888',1,1,'published',NOW()),
+                (2,'B2','6',0,0,'published',NOW()),(1,'Z1','0',0,1,'published',NOW())""")
             cur.execute('INSERT INTO dws_ebay_replenishment_generation VALUES(%s,%s,NOW())',('a'*32,json.dumps({'data_generation':'b'*32,'sites':['英国','德国']})))
             payload = json.dumps(dict.fromkeys(service.STOCK_FIELDS.values(),2))
             cur.execute("INSERT INTO dws_ebay_replenishment_result VALUES(%s,'SKU-BOTH','英国','Both',1,2,3,%s),(%s,'SKU-EBAY','德国','eBay',2,3,4,%s)",('b'*32,payload,'b'*32,payload))
@@ -100,6 +108,7 @@ def test_both_lists_contain_intersection_and_keep_own_metrics_and_sql_pagination
             assert list_site_details(platform=platform,sku=absent)['total'] == 0
     amz = service.list_sales(platform='amz',sku='SKU-BOTH')['items'][0]
     assert amz['fbaTotalInventory'] == 20 and amz['sales30d'] == 11
+    assert amz['salesSyncTime'] == datetime(2026,10,29,10)
     zero = service.list_sales(platform='amz',sku='SKU-ZERO')['items'][0]
     assert zero['fbaTotalInventory'] == 0 and zero['sales30d'] == 0
     assert service.list_sales(platform='amz',sid=1)['total'] == 2
@@ -115,7 +124,7 @@ def test_both_lists_contain_intersection_and_keep_own_metrics_and_sql_pagination
     assert {r['site'] for r in selected_detail} == {'UK'}
 
 
-def test_shared_european_parent_is_not_germany_and_all_shop_site_sales_sum_to_71(isolated):
+def test_listing_sales_for_shared_mskus_stay_with_each_sid_and_site(isolated):
     sku='PSA-60008-0128'
     sites={101:('DE',14),102:('FR',18),103:('ES',8),104:('IT',6),105:('BE',4),106:('NL',1),
            201:('DE',7),202:('FR',4),206:('NL',2),107:('UK',7)}
@@ -129,6 +138,8 @@ def test_shared_european_parent_is_not_germany_and_all_shop_site_sales_sum_to_71
                 VALUES(%s,%s,%s,'Product',%s,10,%s)''',(sid,msku,sku,site,currency))
             cur.execute('INSERT INTO amz_restock_summary VALUES(%s,%s,%s,%s,NOW())',
                         (sid,msku,sales,3 if site=='UK' else 2))
+            cur.execute('''INSERT INTO ods_lingxing_amz_listing_latest(sid,seller_sku,thirty_volume,sync_batch_id)
+                VALUES(%s,%s,%s,'published')''',(sid,msku,str(sales)))
         cur.execute("INSERT INTO amz_restock_summary VALUES(101,'PSA-A',51,1,NOW()),(201,'PSA-B',13,1,NOW())")
         cur.execute("INSERT INTO dws_ebay_replenishment_result(generation,sku,site,product_name) VALUES(%s,%s,'英国','Product')",('b'*32,sku))
         conn.commit()
@@ -147,6 +158,38 @@ def test_shared_european_parent_is_not_germany_and_all_shop_site_sales_sum_to_71
         else:
             assert {r['site']:r['amzSales30d'] for r in displayed}==expected
         assert all(r['ebaySales30d'] is None for r in displayed)
+
+
+def test_listing_sales_cast_before_dedup_and_keep_invalid_or_unmatched_values_null(isolated):
+    with isolated() as conn,conn.cursor() as cur:
+        cur.executemany('''INSERT INTO ods_lingxing_amz_listing_latest
+            (sid,seller_sku,thirty_volume,sync_batch_id) VALUES(%s,%s,%s,'published')''', [
+                (1,'B1','9'),(1,'B1',' 12 '),(1,'B1','invalid'),
+                (1,'B1-YXR','999'),(1,'b1','999'),(999,'B1','999'),
+                (3,'B3','bad'),(3,'B3','null'),(3,'B3','1e3'),
+                (3,'B3','999999999999999999999999999999'),
+                (4,'B4',None),(4,'B4','-1'),(1,'UNKNOWN',''),
+            ])
+        conn.commit()
+    summary=service.list_sales(platform='amz',sku='SKU-BOTH')['items'][0]
+    assert summary['sales30d']==18 and summary['salesMatchedCount']==2
+    stores=store_service.list_store_inventory(sku='SKU-BOTH')
+    assert sum(r['sales30d'] or 0 for r in stores)==18
+    assert next(r for r in stores if r['sid']==1 and r['site']=='UK')['sales30d']==12
+    assert all(r['sales30d'] is None for r in stores if r['site'] in ('DE','US',None))
+    sorted_rows=list_site_details(platform='amz',sku='SKU-BOTH',sort_field='amzSales30d')['items']
+    assert sorted_rows[0]['sid']==1 and sorted_rows[0]['amzSales30d']==12
+    assert service.list_sales(platform='amz',sku='SKU-ZERO')['items'][0]['sales30d']==0
+
+
+def test_unpublished_listing_snapshot_does_not_fall_back_to_restock_sales(isolated):
+    with isolated() as conn,conn.cursor() as cur:
+        cur.execute('DELETE FROM ods_lingxing_amz_listing_state')
+        conn.commit()
+    summary=service.list_sales(platform='amz',sku='SKU-BOTH')['items'][0]
+    assert summary['sales30d'] is None and summary['salesMatchedCount']==0
+    assert summary['salesSyncTime'] is None and summary['fbaTotalInventory']==20
+    assert all(r['amzSales30d'] is None for r in list_site_details(sku='SKU-BOTH')['items'])
 
 
 def test_native_price_ranges_exact_site_currency_numeric_values_and_variants(isolated):
@@ -207,6 +250,7 @@ def test_store_groups_multiple_mskus_without_warehouse_multiplication(isolated):
         cur.execute("INSERT INTO amz_product_listing VALUES(1,'B1-SECOND','SKU-BOTH','Both','img','UK',NOW(),30,'GBP')")
         cur.execute("INSERT INTO amz_product_performance_inventory VALUES(1,'B1-SECOND','SKU-BOTH',1,2,NOW())")
         cur.execute("INSERT INTO amz_restock_summary VALUES(1,'B1-SECOND',4,2,NOW())")
+        cur.execute("INSERT INTO ods_lingxing_amz_listing_latest(sid,seller_sku,thirty_volume,sync_batch_id) VALUES(1,'B1-SECOND','4','published')")
         conn.commit()
     rows=list_site_details(sku='SKU-BOTH',site='UK')['items']
     assert len(rows)==2
@@ -352,10 +396,12 @@ def test_exact_sku_queries_preserve_listing_priority_and_inventory_fallback(isol
         cur.execute("INSERT INTO amz_product_listing VALUES(1,'FALLBACK',NULL,'Both','img','UK',NOW(),13,'GBP')")
         cur.execute("INSERT INTO amz_product_performance_inventory VALUES(1,'FALLBACK',' sku-both ',2,3,NOW())")
         cur.execute("INSERT INTO amz_restock_summary VALUES(1,'FALLBACK',7,3,NOW())")
+        cur.execute("INSERT INTO ods_lingxing_amz_listing_latest(sid,seller_sku,thirty_volume,sync_batch_id) VALUES(1,'FALLBACK','7','published')")
         # A conflicting inventory SKU must never override the listing mapping.
         cur.execute("INSERT INTO amz_product_listing VALUES(1,'CONFLICT','SKU-AMZ','Amazon','img','UK',NOW(),999,'GBP')")
         cur.execute("INSERT INTO amz_product_performance_inventory VALUES(1,'CONFLICT','SKU-BOTH',999,999,NOW())")
         cur.execute("INSERT INTO amz_restock_summary VALUES(1,'CONFLICT',999,3,NOW())")
+        cur.execute("INSERT INTO ods_lingxing_amz_listing_latest(sid,seller_sku,thirty_volume,sync_batch_id) VALUES(1,'CONFLICT','999','published')")
         conn.commit()
     summary=service.list_sales(platform='amz',sku='SKU-BOTH')['items'][0]
     sites=service.list_sales(platform='amz',sku=' sku-both ',details=True)['items']

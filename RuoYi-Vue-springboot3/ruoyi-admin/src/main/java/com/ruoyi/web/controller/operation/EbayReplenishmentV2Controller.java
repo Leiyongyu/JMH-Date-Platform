@@ -56,6 +56,8 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestParam(required = false) String productNature,
             @RequestParam(required = false) String salesType,
             @RequestParam(required = false) Boolean operationsConfirmed,
+            @RequestParam(required = false) Boolean operationsNoteFilled,
+            @RequestParam(required = false) Boolean developmentNoteFilled,
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "50") int pageSize,
             @RequestParam(required = false) String sortField,
@@ -67,7 +69,7 @@ public class EbayReplenishmentV2Controller extends BaseController
                     String requestId)
     {
         Map<String, Object> params = queryParameters(
-                site, sku, productLevel, productNature, salesType, operationsConfirmed, sortField, sortOrder);
+                site, sku, productLevel, productNature, salesType, operationsConfirmed, operationsNoteFilled, developmentNoteFilled, sortField, sortOrder);
         params.put("page", Math.max(pageNum, 1));
         params.put("refresh", refresh);
         params.put("exact_sku", exactSku);
@@ -89,6 +91,8 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestParam(required = false) String productNature,
             @RequestParam(required = false) String salesType,
             @RequestParam(required = false) Boolean operationsConfirmed,
+            @RequestParam(required = false) Boolean operationsNoteFilled,
+            @RequestParam(required = false) Boolean developmentNoteFilled,
             @RequestParam(required = false) String principalName,
             @RequestParam(required = false) String sortField,
             @RequestParam(required = false) String sortOrder,
@@ -99,7 +103,7 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
         Map<String, Object> params = queryParameters(site, sku, productLevel, productNature,
-                salesType, operationsConfirmed, sortField, sortOrder);
+                salesType, operationsConfirmed, operationsNoteFilled, developmentNoteFilled, sortField, sortOrder);
         params.put("hierarchy_level", hierarchyLevel);
         params.put("brand_core", trimToNull(brandCore));
         params.put("principal_name", trimToNull(principalName));
@@ -120,6 +124,8 @@ public class EbayReplenishmentV2Controller extends BaseController
             @RequestParam(required = false) String productNature,
             @RequestParam(required = false) String salesType,
             @RequestParam(required = false) Boolean operationsConfirmed,
+            @RequestParam(required = false) Boolean operationsNoteFilled,
+            @RequestParam(required = false) Boolean developmentNoteFilled,
             @RequestParam(required = false) String sortField,
             @RequestParam(required = false) String sortOrder,
             @RequestParam(required = false) String calculationVersion,
@@ -130,7 +136,7 @@ public class EbayReplenishmentV2Controller extends BaseController
         Set<String> permissions = getLoginUser().getPermissions();
         exportService.checkExportPermission(permissions);
         Map<String, Object> params = queryParameters(
-                site, sku, productLevel, productNature, salesType, operationsConfirmed, sortField, sortOrder);
+                site, sku, productLevel, productNature, salesType, operationsConfirmed, operationsNoteFilled, developmentNoteFilled, sortField, sortOrder);
         params.put("calculation_version", trimToNull(calculationVersion));
         params.put("principal_name", trimToNull(principalName));
         Object result = enrich(data(client.exportData(params, requestId)));
@@ -138,7 +144,7 @@ public class EbayReplenishmentV2Controller extends BaseController
     }
 
     private Map<String, Object> queryParameters(String site, String sku, String productLevel,
-            String productNature, String salesType, Boolean operationsConfirmed, String sortField, String sortOrder)
+            String productNature, String salesType, Boolean operationsConfirmed, Boolean operationsNoteFilled, Boolean developmentNoteFilled, String sortField, String sortOrder)
     {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("site", trimToNull(site));
@@ -147,6 +153,8 @@ public class EbayReplenishmentV2Controller extends BaseController
         params.put("product_nature", trimToNull(productNature));
         params.put("sales_type", trimToNull(salesType));
         params.put("operations_confirmed", operationsConfirmed);
+        params.put("operations_note_filled", operationsNoteFilled);
+        params.put("development_note_filled", developmentNoteFilled);
         params.put("sort_field", trimToNull(sortField));
         params.put("sort_order", normalizeSortOrder(sortOrder));
         return params;

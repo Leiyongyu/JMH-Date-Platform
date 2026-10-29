@@ -69,6 +69,8 @@ def isolated(monkeypatch):
                           'amz_product_performance_inventory','amz_restock_summary','shop_list',
                           'ods_goodcang_inventory_age_latest','ods_lingxing_product_procurement_monthly'):
                 cur.execute(f'CREATE TABLE `{name}`.`{table}` LIKE `{source_db}`.`{table}`')
+            for table in ('ods_lingxing_amz_listing_latest','ods_lingxing_amz_listing_state'):
+                cur.execute(f'CREATE TABLE `{name}`.`{table}` LIKE `{settings.mysql_database}`.`{table}`')
             migration=Path(__file__).resolve().parents[1]/'migrations/20261016_ebay_replenishment_read_model.sql'
             for sql in split_sql_statements(migration.read_text(encoding='utf-8')):
                 if sql.strip(): cur.execute(sql)
@@ -388,3 +390,38 @@ def test_business_scope_filters_rows_hierarchy_summaries_and_options(isolated):
     assert model.query(calculation_version=generation, allowed_principals=["x' OR 1=1 --"])['items'] == []
     nodes = model.query(calculation_version=generation, allowed_principals=['权限甲'], hierarchy_level='site')
     assert nodes['matched_sku_count'] == len(expected)
+
+
+def test_note_presence_filters_missing_whitespace_combination_hierarchy_and_live_edits(isolated):
+    initial=model.query(paginate=False)
+    version=initial['calculation_version']
+    items=initial['items']
+    assert len(items)>=6
+    execute(isolated,'DELETE FROM ebay_replenishment_v2_review')
+    cases=[('', ''), (' \t\n\u3000', '\r\n '), ('运营', ''), ('', '开发'), ('运营', '开发'), ('0', '\u3000')]
+    notes={}
+    for row,(ops,dev) in zip(items,cases):
+        execute(isolated,'''INSERT INTO ebay_replenishment_v2_review(site,sku,operations_note,development_note)
+            VALUES(%s,%s,%s,%s)''',(row['site'],row['sku'],ops,dev))
+        notes[(row['site'],row['sku'])]=(bool(ops.strip()),bool(dev.strip()))
+    for op,dev in [(True,None),(False,None),(None,True),(None,False),(True,False),(False,True),(True,True),(False,False)]:
+        filters=dict(calculation_version=version,operations_note_filled=op,development_note_filled=dev)
+        expected={ (r['site'],r['sku']) for r in items
+            if (op is None or notes.get((r['site'],r['sku']),(False,False))[0]==op)
+            and (dev is None or notes.get((r['site'],r['sku']),(False,False))[1]==dev) }
+        result=model.query(paginate=False,**filters)
+        assert {(r['site'],r['sku']) for r in result['items']}==expected
+        assert result['pagination']['total']==len(expected)
+        hierarchy=model.query(hierarchy_level='site',**filters)
+        assert hierarchy['matched_sku_count']==len(expected)
+        assert sum(r['sku_count'] for r in hierarchy['items'])==len(expected)
+        page=model.query(page_size=1,**filters)
+        assert page['pagination']['total']==len(expected)
+        assert len(page['items'])==min(1,len(expected))
+        assert legacy.list_replenishment(use_read_model=True,paginate=False,**filters)['items']==result['items']
+    # Notes are live, independent of the saved calculation generation.
+    row=items[0]
+    execute(isolated,'UPDATE ebay_replenishment_v2_review SET operations_note=%s WHERE site=%s AND sku=%s',('新增备注',row['site'],row['sku']))
+    refreshed=model.query(calculation_version=version,operations_note_filled=True,paginate=False)
+    assert (row['site'],row['sku']) in {(r['site'],r['sku']) for r in refreshed['items']}
+    assert refreshed['calculation_version']==version

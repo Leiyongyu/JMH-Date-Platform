@@ -97,7 +97,7 @@ const metrics = [
   { key: 'fbaStock', label: 'FBA在库', tip: '产品表现库存中的FBA在库：可售＋待调仓＋入库中＋预留。' },
   { key: 'fbaInbound', label: 'FBA在途', tip: '产品表现库存中的已发出FBA在途。' },
   { key: 'fbaTotalInventory', label: 'FBA总库存', matchKey: 'inventoryMatchedCount', tip: 'FBA在库＋FBA在途；按店铺和MSKU匹配后，汇总同一完整仓库SKU。缺少源记录显示--，部分匹配显示已匹配数量。' },
-  { key: 'sales30d', label: '30天销量', matchKey: 'salesMatchedCount', tip: '复用领星补货建议表的sales_30d，按店铺＋MSKU取最大值后汇总到完整仓库SKU；时间窗口由现有上游同步决定。' }
+  { key: 'sales30d', label: '30天销量', matchKey: 'salesMatchedCount', tip: '取领星商品刊登接口 /erp/sc/data/mws/listing 的 thirty_volume，使用最近成功同步的未删除刊登；按店铺＋完整MSKU取最大有效值后汇总到仓库SKU。缺失显示--，真实0保留；销量同步时间为该批刊登的拉取时间。' }
 ]
 let requestId = 0
 async function load(latest = false) {

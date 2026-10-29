@@ -37,12 +37,15 @@ class EbayReplenishmentReviewControllerTest
         var client = mock(EbayReplenishmentV2PythonClient.class);
         when(client.list(anyMap(), any())).thenReturn(Map.of("data", Map.of()));
         var controller = new EbayReplenishmentV2Controller(client, null, null);
-        controller.list(null, null, null, null, null, true, 1, 50, null, null, false, false, null, "trace");
-        controller.list(null, null, null, null, null, false, 1, 50, null, null, false, false, null, "trace");
+        controller.list(null, null, null, null, null, true, false, true, 1, 50, null, null, false, false, null, "trace");
+        controller.list(null, null, null, null, null, false, null, null, 1, 50, null, null, false, false, null, "trace");
         ArgumentCaptor<Map<String, Object>> params = ArgumentCaptor.forClass(Map.class);
         verify(client, times(2)).list(params.capture(), eq("trace"));
         assertEquals(true, params.getAllValues().get(0).get("operations_confirmed"));
         assertEquals(false, params.getAllValues().get(1).get("operations_confirmed"));
+        assertEquals(false, params.getAllValues().get(0).get("operations_note_filled"));
+        assertEquals(true, params.getAllValues().get(0).get("development_note_filled"));
+        assertNull(params.getAllValues().get(1).get("operations_note_filled"));
     }
 
     @Test
@@ -53,7 +56,7 @@ class EbayReplenishmentReviewControllerTest
         var payload = Map.of("calculation_version", "a".repeat(32), "items", java.util.List.of(Map.of("site", "德国", "sku", "BMW-1-2")));
         when(client.list(anyMap(), any())).thenReturn(Map.of("data", payload));
         var controller = new EbayReplenishmentV2Controller(client, leadTime, null);
-        assertEquals(payload, controller.list(null, "BMW-1-2", null, null, null, null, 1, 50,
+        assertEquals(payload, controller.list(null, "BMW-1-2", null, null, null, null, null, null, 1, 50,
                 "suggestedReplenishmentQty2", "desc", true, true, " 任雅婷 ", "trace").get("data"));
         ArgumentCaptor<Map<String, Object>> params = ArgumentCaptor.forClass(Map.class);
         verify(client).list(params.capture(), eq("trace"));

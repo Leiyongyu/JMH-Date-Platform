@@ -45,7 +45,10 @@ def test_http_scope_is_required_and_passed_before_query(monkeypatch, path):
     assert client.get(endpoint).status_code == 403
     assert not seen
     for owners in [None, [], ['甲']]:
-        response = client.get(endpoint, params={'allowed_principals': json.dumps(owners), 'principal_name': '乙'})
+        response = client.get(endpoint, params={'allowed_principals': json.dumps(owners), 'principal_name': '乙',
+            'operations_note_filled': 'false', 'development_note_filled': 'true'})
         assert response.status_code == 200, response.text
         assert seen[-1]['allowed_principals'] == owners
         assert seen[-1]['principal_name'] == '乙'  # filter intersects; does not replace scope
+        assert seen[-1]['operations_note_filled'] is False
+        assert seen[-1]['development_note_filled'] is True

@@ -128,6 +128,7 @@
       :tree-props="{ children: 'children', hasChildren: 'hasChildren' }"
       empty-text="暂无符合条件的订单数据"
       @sort-change="handleSortChange"
+      @filter-change="handleColumnFilterChange"
       @expand-change="rememberExpansion"
     >
       <el-table-column label="站点 / 品牌＋中间码 / SKU" width="310" fixed="left" show-overflow-tooltip>
@@ -176,6 +177,10 @@
           :width="col.width"
           :fixed="col.fixed || false"
           :sortable="col.sortable ? 'custom' : false"
+          :column-key="col.key"
+          :filters="col.reviewField ? notePresenceOptions : undefined"
+          :filter-multiple="false"
+          :filtered-value="noteFilterValues(col)"
           :show-overflow-tooltip="col.tooltip"
         >
           <template #header>
@@ -665,6 +670,8 @@ const queryParams = reactive({
     productNature: undefined,
     salesType: undefined,
     operationsConfirmed: undefined,
+    operationsNoteFilled: undefined,
+    developmentNoteFilled: undefined,
   sortField: 'salesQty30d',
   sortOrder: 'descending'
 })
@@ -673,6 +680,20 @@ const defaultSort = Object.freeze({
   prop: 'salesQty30d',
   order: 'descending'
 })
+
+const notePresenceOptions = [{ text: '已填', value: true }, { text: '未填', value: false }]
+function noteFilterValues(col) {
+  const value = queryParams[`${col.reviewField}NoteFilled`]
+  return col.reviewField && typeof value === 'boolean' ? [value] : []
+}
+function handleColumnFilterChange(filters) {
+  for (const field of ['operations', 'development']) {
+    const values = filters[`${field}Note`]
+    if (values) queryParams[`${field}NoteFilled`] = typeof values[0] === 'boolean' ? values[0] : undefined
+  }
+  queryParams.pageNum = 1
+  loadRows()
+}
 
 const sortFieldMap = {
   site: 'site',
@@ -942,6 +963,8 @@ function buildRequestParams() {
     productNature: queryParams.productNature || undefined,
     salesType: queryParams.salesType || undefined,
     operationsConfirmed: typeof queryParams.operationsConfirmed === 'boolean' ? queryParams.operationsConfirmed : undefined,
+    operationsNoteFilled: typeof queryParams.operationsNoteFilled === 'boolean' ? queryParams.operationsNoteFilled : undefined,
+    developmentNoteFilled: typeof queryParams.developmentNoteFilled === 'boolean' ? queryParams.developmentNoteFilled : undefined,
     sortField: queryParams.sortField || undefined,
     sortOrder: queryParams.sortOrder === 'ascending'
       ? 'asc'
@@ -1063,6 +1086,8 @@ function handleQuery() {
 
 function resetQuery() {
   queryRef.value?.resetFields()
+  queryParams.operationsNoteFilled = undefined
+  queryParams.developmentNoteFilled = undefined
   queryParams.sortField = 'salesQty30d'
   queryParams.sortOrder = 'descending'
   queryParams.pageNum = 1
@@ -1399,7 +1424,8 @@ function applyReview(row, data) {
       row.operationsConfirmedAt = data.operations_confirmed_at || ''
     }
   }
-  if (typeof queryParams.operationsConfirmed === 'boolean') scheduleTreeReload()
+  if ([queryParams.operationsConfirmed, queryParams.operationsNoteFilled, queryParams.developmentNoteFilled]
+    .some(value => typeof value === 'boolean')) scheduleTreeReload()
 }
 
 async function confirmOperations(row) {

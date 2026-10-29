@@ -10,7 +10,7 @@
       <el-table-column v-for="col in metrics" :key="col.key" :prop="col.key" :label="col.label"
         align="right" min-width="145" sortable="custom">
         <template #header>
-          <el-tooltip v-if="col.key === 'ebaySales30d'" content="同一SKU、同一站点的eBay总销量，供各Amazon店铺对比，不应将重复展示值相加。" placement="top">
+          <el-tooltip v-if="col.tip" :content="col.tip" placement="top">
             <span>{{ col.label }}</span>
           </el-tooltip>
           <span v-else>{{ col.label }}</span>
@@ -39,7 +39,8 @@ const props = defineProps({ sku: { type: String, required: true }, sid: Number, 
 const metrics = [
   { key: 'fbaStock', label: 'FBA在库' }, { key: 'fbaInbound', label: 'FBA在途' },
   { key: 'fbaTotalInventory', label: 'FBA总库存' },
-  { key: 'amzSales30d', label: '本店近30天销量' }, { key: 'ebaySales30d', label: 'eBay站点近30天销量' }
+  { key: 'amzSales30d', label: '本店近30天销量', tip: '取领星商品刊登接口 /erp/sc/data/mws/listing 的 thirty_volume，按本店SID＋完整MSKU匹配后汇总；使用最近成功同步的未删除刊登，缺失显示--，真实0保留。' },
+  { key: 'ebaySales30d', label: 'eBay站点近30天销量', tip: '同一SKU、同一站点的eBay总销量，供各Amazon店铺对比，不应将重复展示值相加。' }
 ]
 const priceColumns = [
   { key: 'amzMinPrice', label: '本店最低价' }, { key: 'amzMaxPrice', label: '本店最高价' },
