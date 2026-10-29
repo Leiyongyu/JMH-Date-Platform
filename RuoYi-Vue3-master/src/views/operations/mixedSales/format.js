@@ -14,4 +14,3 @@ export function price(value) {
   const number = Number(value)
   return Number.isFinite(number) ? number.toLocaleString('zh-CN', { maximumFractionDigits: 10 }) : '--'
 }
-
