@@ -92,9 +92,9 @@ test('sales dashboard compiles, upload permission and platform group reset exist
   assert.equal(footnoteFn({ value: false }, () => ({ summary: { ...partial, value: null } }), 'gross_profit'), '所选范围暂无数据')
   assert.doesNotMatch(source, /区间数据不完整时卡片显示|个月数据不完整/)
   const home = fs.readFileSync(new URL('../src/views/index.vue', import.meta.url), 'utf8')
-  assert.match(home, /HomeDashboardNav active="product" :sales-visible="canViewSales"/)
+  assert.doesNotMatch(home, /HomeDashboardNav|sales-dashboard|销售看板/)
   assert.doesNotMatch(home, /import SalesDashboard|<SalesDashboard/)
-  assert.match(home, /finance:salesDashboard:list/)
+  assert.doesNotMatch(home, /finance:salesDashboard:list/)
 })
 
 test('only months uploaded to the selected platform can be selected, including gaps and year boundaries', () => {
@@ -129,12 +129,12 @@ test('sales dashboard has a separate permission-gated page and database route', 
   assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename: filename.pathname,
     id: 'sales-page', compilerOptions: { bindingMetadata: script.bindings } }).errors, [])
   assert.match(source, /SalesDashboard v-if="canView"/)
-  assert.match(source, /HomeDashboardNav active="sales" :sales-visible="canView"/)
+  assert.doesNotMatch(source, /HomeDashboardNav/)
   assert.match(source, /finance:salesDashboard:list/)
-  const sql = fs.readFileSync(new URL('../../RuoYi-Vue-springboot3/sql/20261016_sales_dashboard_permissions.sql', import.meta.url), 'utf8')
+  const sql = fs.readFileSync(new URL('../../RuoYi-Vue-springboot3/sql/20261030_sales_dashboard_finance_menu.sql', import.meta.url), 'utf8')
   assert.match(sql, /component='finance\/salesDashboard\/index'/)
   assert.match(sql, /route_name='SalesDashboard',menu_type='C'/)
-  assert.match(sql, /menu_type='C',visible='1',status='0'/)
+  assert.match(sql, /menu_type='C',visible='0',status='0'/)
 })
 
 test('performance detail table compiles and shares global filters with cards', () => {

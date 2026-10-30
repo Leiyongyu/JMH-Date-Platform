@@ -1,6 +1,6 @@
 <template>
   <div class="app-container home" aria-label="首页">
-    <HomeDashboardNav active="product" :sales-visible="canViewSales" />
+    <h2 class="home-title">商品分析</h2>
     <section v-if="availablePlatforms.length" aria-label="商品分析">
       <div class="owner-dashboards">
         <AmzOwnerSkuChart v-for="platform in availablePlatforms" :key="platform.value" :platform="platform.value" />
@@ -22,10 +22,8 @@ import { checkPermi } from '@/utils/permission'
 import AmzOwnerSkuChart from '@/components/AmzOwnerSkuChart/index.vue'
 import ListingPriceTierChart from '@/components/ListingPriceTierChart/index.vue'
 import ProductNatureChart from '@/components/ProductNatureChart/index.vue'
-import HomeDashboardNav from '@/components/HomeDashboardNav/index.vue'
 
 defineOptions({ name: 'Index' })
-const canViewSales = computed(() => checkPermi(['finance:salesDashboard:list']))
 const availablePlatforms = computed(() => [
   { value: 'amz', label: 'AMZ', permission: 'operations:amzReplenishment:list' },
   { value: 'ebay', label: 'eBay', permission: 'operations:ebayReplenishmentV2:list' }
@@ -36,6 +34,7 @@ const availablePlatforms = computed(() => [
 .home {
   min-height: calc(100vh - 84px);
 }
+.home-title { margin: 0 0 20px; font-size: 20px; font-weight: 600; }
 .owner-dashboards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: start; gap: 14px; width: 100%; }
 .price-dashboards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px; width: 100%; margin-top: 14px; }
 .nature-dashboards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; width: 100%; margin-top: 14px; }

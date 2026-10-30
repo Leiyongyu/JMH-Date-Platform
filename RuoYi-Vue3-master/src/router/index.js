@@ -27,6 +27,11 @@ import Layout from '@/layout'
 // 公共路由
 export const constantRoutes = [
   {
+    path: '/sales-dashboard/index',
+    hidden: true,
+    redirect: to => ({ path: '/finance-center/bi-dashboard', query: to.query, hash: to.hash })
+  },
+  {
     path: '/redirect',
     component: Layout,
     hidden: true,
