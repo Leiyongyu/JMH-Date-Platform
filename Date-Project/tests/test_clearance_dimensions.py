@@ -4,6 +4,7 @@ SQLite supports the CTE/CASE SQL used here; adapt only placeholders and CONCAT.
 No application database or remote APIs are touched.
 """
 import sqlite3
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -22,6 +23,12 @@ def snapshots(monkeypatch):
     db = sqlite3.connect(':memory:')
     db.row_factory = sqlite3.Row
     db.create_function('CONCAT', -1, lambda *args: ''.join(str(x) for x in args))
+    def substring_index(value, separator, count):
+        if value is None: return None
+        parts = str(value).split(separator)
+        return separator.join(parts[:count] if count > 0 else parts[count:])
+    db.create_function('SUBSTRING_INDEX', 3, substring_index)
+    db.create_function('REGEXP', 2, lambda pattern, value: bool(re.search(pattern, str(value or ''))))
     db.execute(f'CREATE TABLE {AMZ} (pull_month TEXT, group_code TEXT, sid TEXT, '
                'store_name TEXT, warehouse_name TEXT, seller_group_name TEXT, sku TEXT, seller_sku TEXT, pulled_at TEXT, '
                + ','.join(f'{f} NUMERIC DEFAULT 0' for f in FIELDS) + ')')
@@ -81,7 +88,7 @@ def test_five_boundaries_distinct_sku_and_unchanged_ebay_cost(snapshots):
     assert sites['summary']['total_inventory_sku_count'] == 1
 
 
-def test_amz_store_owner_and_company_counts_deduplicate_full_sku(snapshots,monkeypatch):
+def test_amz_store_owner_and_company_counts_deduplicate_middle_codes(snapshots,monkeypatch):
     for sid,store,qty,cost in [('1','US1-店铺甲-US',3,30),('2','US1-店铺甲-CA',2,20),('3','US1-店铺乙-US',1,10)]:
         snapshots(AMZ,pull_month='2026-10',group_code='US1',sid=sid,store_name=store,sku='FRD-100-001',
                   inventory_181_270_qty=qty,inventory_181_270_cost=cost)
@@ -97,9 +104,9 @@ def test_amz_store_owner_and_company_counts_deduplicate_full_sku(snapshots,monke
     for result in (stores,owners):
         assert sum(r['inventory_181_270_sku_count'] for r in result['items']) == 2
         assert result['summary']['inventory_181_270_sku_count'] == 1
-        assert result['summary']['total_inventory_sku_count'] == 2
+        assert result['summary']['total_inventory_sku_count'] == 1
         assert result['summary']['total_inventory_cost'] == 100
-    assert repo.list_groups('2026-10')['summary']['total_inventory_sku_count'] == 2
+    assert repo.list_groups('2026-10')['summary']['total_inventory_sku_count'] == 1
 
 
 def test_ctu_shared_us3_total_is_counted_once_and_costs_sum_details(snapshots):
@@ -113,6 +120,49 @@ def test_ctu_shared_us3_total_is_counted_once_and_costs_sum_details(snapshots):
     assert result['summary']['ctu_over_30_cost'] == 15
     assert result['summary']['ctu_over_30_sku_count'] == 1
     assert repo.ctu_over_30_costs('2026-10') == {'US3': 15}
+
+
+def test_core_dedup_across_suppliers_brands_platforms_sites_and_owners(snapshots, monkeypatch):
+    for sku, site, age in [('FRD-70327-0076', 'DE', 90), ('HME-70327-0457', 'UK', 181),
+                           ('2PC-FRD-70327-0010-YXR', 'DE', 365)]:
+        snapshots(EBAY, pull_month='2026-10', warehouse_code=site, sku=sku,
+                  warehouse_age_days=age, inventory_quantity=2, inventory_age_cost=7)
+    for sku in ('BMW-70327-9999', 'FRD-70328-0001'):
+        snapshots(AMZ, pull_month='2026-10', group_code='EU', sid='1', sku=sku,
+                  inventory_0_90_qty=3, inventory_0_90_cost=9)
+    monkeypatch.setattr(service.owners, 'owner_rules', lambda *args: [
+        dict(rule_type='EBAY_BRAND', match_key='FRD', principal_name='甲'),
+        dict(rule_type='EBAY_BRAND', match_key='HME', principal_name='乙')])
+    monkeypatch.setattr(service.owners, 'ebay_product_sku_map', lambda *_: {})
+    groups = repo.list_groups('2026-10')
+    assert sum(row['total_inventory_sku_count'] for row in groups['items']) == 3
+    assert groups['summary']['total_inventory_sku_count'] == 2
+    assert groups['summary']['total_inventory_qty'] == 12
+    assert groups['summary']['total_inventory_cost'] == 39
+    for dimension in (None, 'OWNER'):
+        result = service.list_dimensions('2026-10', 'EBAY-1', dimension=dimension)
+        assert sum(row['total_inventory_sku_count'] for row in result['items']) == 2
+        assert result['summary']['total_inventory_sku_count'] == 1
+        assert result['summary']['total_inventory_qty'] == 6
+        assert result['summary']['total_inventory_cost'] == 21
+
+
+@pytest.mark.parametrize('sku,core', [
+    ('FRD-70327-0076', '70327'), ('BMW-70327-0457-RXY', '70327'),
+    ('2PC-HME-70327-0001', '70327'), (' frd - 001A - 0001 ', '001A'),
+    ('FRD-00123-0001', '00123'), ('FRD-123-0001', '123'),
+    ('FRD--0076', ''), ('--70327', ''), ('70327', ''), ('SHARED-SKU', ''),
+])
+def test_core_parsing_matches_sql_and_python(snapshots, sku, core):
+    from backend.services.clearance_metrics import sku_key, total_metrics
+    assert sku_key({'sku': sku}) == core
+    snapshots(EBAY, pull_month='2026-10', warehouse_code='DE', sku=sku,
+              warehouse_age_days=90, inventory_quantity=1, inventory_age_cost=5)
+    expected = total_metrics(repo.metric_source_rows('2026-10'), '2026-10')
+    actual = repo.list_groups('2026-10')['summary']
+    assert actual['total_inventory_sku_count'] == expected['total_inventory_sku_count'] == int(bool(core))
+    assert actual['missing_sku_rows'] == expected['missing_sku_rows'] == int(not core)
+    assert actual['total_inventory_cost'] == 5
 
 
 def test_unknown_age_and_missing_sku_are_preserved_without_guessed_counts(snapshots):

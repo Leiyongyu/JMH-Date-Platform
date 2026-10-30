@@ -24,7 +24,7 @@ def test_four_sheets_share_selected_month_and_page_data(monkeypatch, tmp_path):
               for code in ("EBAY-1", "EU", "US1", "US2", "US2-MJ", "US1-ZXY")]
 
     source_rows = [dict(group_code=g['group_code'], platform_code='EBAY' if g['group_code'] == 'EBAY-1' else 'AMZ',
-                        pull_month='2026-09', sku='SHARED-SKU', total_inventory_qty=3,
+                        pull_month='2026-09', sku=f'BRAND-70327-{g["group_code"]}', total_inventory_qty=3,
                         total_inventory_cost=Decimal('12.34')) for g in groups]
     def group_data(month):
         assert month == "2026-09"
@@ -51,7 +51,7 @@ def test_four_sheets_share_selected_month_and_page_data(monkeypatch, tmp_path):
             assert not any("品牌" in header for header in headers)
             rows = [dict(zip(headers, row)) for row in sheet.iter_rows(min_row=2, values_only=True)]
             assert all(row["快照月份"] == "2026-09" for row in rows)
-            assert rows[-1]['海外仓/FBA合计去重SKU数'] == 1
+            assert rows[-1]['海外仓/FBA合计去重SKU数（中间码）'] == 1
             assert all(row["海外仓/FBA合计库龄成本"] == 12.34 for row in rows[:-1])
             assert all(row["91–180天库龄成本"] == 0 for row in rows)
             assert all(row["91–180天上月库龄成本"] is None for row in rows)

@@ -2,6 +2,8 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
 from decimal import Decimal
+import re
+from backend.services.ebay_inventory_core_code import normalize_core_code
 
 BUCKETS = ('0_90', '91_180', '181_270', '271_365', '365_plus')
 AGE_LABELS = ('0–90天（健康）', '91–180天（关注）', '181–270天（预警）',
@@ -18,14 +20,19 @@ def previous_month(month):
 
 
 def sku_key(row):
-    return str(row.get('sku') or row.get('source_product_sku') or '').strip().upper()
+    """Product identity is core only; brand, supplier and condition do not split it."""
+    parts = str(row.get('sku') or row.get('source_product_sku') or '').strip().upper().split('-')
+    parts = [part.strip() for part in parts]
+    if parts and re.fullmatch(r'[0-9]+PC', parts[0]):
+        parts = parts[1:]
+    return (normalize_core_code(parts[1]) or '') if len(parts) >= 2 and parts[0] else ''
 
 
 def aggregate(rows):
-    """Deduplicate full SKUs after summing their stock in each bucket/scope.
+    """Deduplicate middle codes after summing their stock in each bucket/scope.
 
     SKU counts cannot be summed across stores/sites/owners or age buckets.
-    Blank SKUs contribute quantity and cost but are not invented SKU identities.
+    Unrecognizable middle codes retain quantity/cost but do not invent products.
     """
     result = {field: ZERO for field in FIELDS}
     quantities = {prefix: defaultdict(lambda: ZERO) for prefix in PREFIXES}

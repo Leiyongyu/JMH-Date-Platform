@@ -19,13 +19,13 @@ from backend.services.clearance_metrics import BUCKETS, AGE_LABELS, total_metric
 
 
 SUMMARY_METRICS = [column for bucket, label in zip(BUCKETS, AGE_LABELS) for column in [
-    (label.split('（')[0] + '去重SKU数', f'inventory_{bucket}_sku_count', 'qty'),
+    (label.split('（')[0] + '去重SKU数（中间码）', f'inventory_{bucket}_sku_count', 'qty'),
     (label.split('（')[0] + '库存数量', f'inventory_{bucket}_qty', 'qty'),
     (label.split('（')[0] + '库龄成本', f'inventory_{bucket}_cost', 'money'),
     (label.split('（')[0] + '上月库龄成本', f'previous_month_{bucket}_cost', 'money'),
     (label.split('（')[0] + '差值（上月－本月）', f'inventory_{bucket}_variance', 'money'),
 ]] + [
-    ("海外仓/FBA合计去重SKU数", "total_inventory_sku_count", "qty"),
+    ("海外仓/FBA合计去重SKU数（中间码）", "total_inventory_sku_count", "qty"),
     ("海外仓/FBA合计库存数量", "total_inventory_qty", "qty"),
     ("海外仓/FBA合计库龄成本", "total_inventory_cost", "money"),
 ]

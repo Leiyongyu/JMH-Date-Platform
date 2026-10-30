@@ -51,7 +51,7 @@
       </article>
       <article v-for="bucket in drilldownBuckets" :key="bucket.key" class="summary-item" :class="bucket.tone">
         <span>{{ bucket.label }}</span>
-        <strong>{{ number(summary[`${bucket.key}_sku_count`]) }} 个 SKU</strong>
+        <strong>{{ number(summary[`${bucket.key}_sku_count`]) }} 个产品</strong>
         <small>{{ number(summary[`${bucket.key}_qty`]) }} 件 · {{ money(summary[`${bucket.key}_cost`]) }}</small>
       </article>
     </section>
@@ -61,14 +61,14 @@
         <div class="table-header">
           <div>
             <div class="table-title">eBay / FBA 库龄组别汇总</div>
-            <div class="table-hint">每段按有库存的完整SKU去重；合计再次去重，不能直接相加SKU数。成本沿用原口径；差值＝上月－本月。</div>
+            <div class="table-hint">每段按有库存的中间码去重，同一中间码的不同品牌、供应商合并计一个产品；合计跨组、店铺、站点和个人再次去重，不相加各行产品数。成本沿用原口径；差值＝上月－本月。</div>
           </div>
           <el-tag effect="light">{{ summary.pull_month || '最新月份' }}</el-tag>
         </div>
       </template>
 
       <el-alert v-if="summary.unbucketed_rows" :title="`有 ${summary.unbucketed_rows} 条明细缺少可分段库龄，已保留在合计中，未推测分配到五个区间。`" type="warning" :closable="false" show-icon />
-      <el-alert v-if="summary.missing_sku_rows" :title="`有 ${summary.missing_sku_rows} 条有库存的明细缺少 SKU，保留数量与成本，不计入去重 SKU 数。`" type="warning" :closable="false" show-icon />
+      <el-alert v-if="summary.missing_sku_rows" :title="`有 ${summary.missing_sku_rows} 条有库存的明细无法识别中间码，保留数量与成本，不计入去重产品数。`" type="warning" :closable="false" show-icon />
       <el-table
         v-loading="loading"
         :data="rows"
@@ -106,7 +106,7 @@
           </el-table-column>
         </el-table-column>
         <el-table-column v-for="bucket in drilldownBuckets" :key="bucket.key" :label="bucket.label" align="center">
-          <el-table-column :prop="`${bucket.key}_sku_count`" label="去重SKU数" min-width="115" align="right">
+          <el-table-column :prop="`${bucket.key}_sku_count`" label="去重SKU数（中间码）" min-width="165" align="right">
             <template #default="{ row }">{{ number(row[`${bucket.key}_sku_count`]) }}</template>
           </el-table-column>
           <el-table-column :prop="`${bucket.key}_qty`" label="库存数量" min-width="120" align="right">
@@ -123,7 +123,7 @@
           </el-table-column>
         </el-table-column>
         <el-table-column label="合计" align="center">
-          <el-table-column prop="total_inventory_sku_count" label="去重SKU数" min-width="115" align="right"><template #default="{ row }">{{ number(row.total_inventory_sku_count) }}</template></el-table-column>
+          <el-table-column prop="total_inventory_sku_count" label="去重SKU数（中间码）" min-width="165" align="right"><template #default="{ row }">{{ number(row.total_inventory_sku_count) }}</template></el-table-column>
           <el-table-column prop="total_inventory_qty" label="库存数量" min-width="120" align="right"><template #default="{ row }">{{ number(row.total_inventory_qty) }}</template></el-table-column>
           <el-table-column prop="total_inventory_cost" label="库龄成本" min-width="140" align="right"><template #default="{ row }">{{ money(row.total_inventory_cost) }}</template></el-table-column>
         </el-table-column>
@@ -146,13 +146,13 @@
       </p>
       <el-alert v-for="warning in drilldown.warnings" :key="warning" :title="warning" type="warning" :closable="false" show-icon />
       <el-alert v-if="drilldown.summary.unbucketed_rows" :title="`有 ${drilldown.summary.unbucketed_rows} 条明细缺少可分段库龄，仅保留在合计中。`" type="warning" :closable="false" show-icon />
-      <el-alert v-if="drilldown.summary.missing_sku_rows" :title="`有 ${drilldown.summary.missing_sku_rows} 条有库存的明细缺少 SKU，不计入去重 SKU 数。`" type="warning" :closable="false" show-icon />
+      <el-alert v-if="drilldown.summary.missing_sku_rows" :title="`有 ${drilldown.summary.missing_sku_rows} 条有库存的明细无法识别中间码，不计入去重产品数。`" type="warning" :closable="false" show-icon />
       <el-alert v-if="drilldown.error" :title="drilldown.error" type="error" :closable="false" show-icon />
       <el-table v-loading="drilldown.loading" :data="drilldown.rows" border stripe show-summary :summary-method="drilldownSummary" max-height="65vh" class="age-table">
         <el-table-column prop="dimension_name" :label="drilldown.dimension === 'OWNER' ? '负责人' : drilldown.isEbay ? '站点' : '中文店铺名称'" min-width="240" fixed show-overflow-tooltip />
         <el-table-column prop="source_row_count" label="本月明细行数" width="120" align="right" />
         <el-table-column v-for="bucket in drilldownBuckets" :key="bucket.key" :label="bucket.label" align="center">
-          <el-table-column :prop="`${bucket.key}_sku_count`" label="去重SKU数" min-width="115" align="right">
+          <el-table-column :prop="`${bucket.key}_sku_count`" label="去重SKU数（中间码）" min-width="165" align="right">
             <template #default="{ row }">{{ number(row[`${bucket.key}_sku_count`]) }}</template>
           </el-table-column>
           <el-table-column :prop="`${bucket.key}_qty`" label="库存数量" min-width="120" align="right">
@@ -171,7 +171,7 @@
           </el-table-column>
         </el-table-column>
         <el-table-column label="合计" align="center">
-          <el-table-column prop="total_inventory_sku_count" label="去重SKU数" min-width="115" align="right"><template #default="{ row }">{{ number(row.total_inventory_sku_count) }}</template></el-table-column>
+          <el-table-column prop="total_inventory_sku_count" label="去重SKU数（中间码）" min-width="165" align="right"><template #default="{ row }">{{ number(row.total_inventory_sku_count) }}</template></el-table-column>
           <el-table-column prop="total_inventory_qty" label="库存数量" min-width="120" align="right">
             <template #default="{ row }">{{ number(row.total_inventory_qty) }}</template>
           </el-table-column>

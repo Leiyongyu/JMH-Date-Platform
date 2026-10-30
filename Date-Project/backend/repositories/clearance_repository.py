@@ -568,13 +568,14 @@ def metric_source_rows(month: str, group_code: str | None = None, *, include_pre
 
 
 def _group_metric_rows(month: str) -> list[dict]:
-    """Return only month/group totals; deduplicate net-positive SKUs in SQL.
+    """Return month/group totals; deduplicate net-positive middle codes in SQL.
 
-    The company scope regroups raw SKUs across all groups, never sums group
+    The company scope regroups product middle codes across all groups, never sums group
     counts. Costs and negative stock adjustments are summed without repricing.
     """
     source, params = _metric_source_query(month)
-    sku = "UPPER(TRIM(COALESCE(sku,'')))"
+    sku = 'product_key'
+    core = "UPPER(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(core_sku,'-',2),'-',-1)))"
     sums = ','.join(f'SUM({field}) AS {field}' for field in FIELDS)
     counts = ','.join(f"SUM(CASE WHEN sku<>'' AND {prefix}_qty>0 THEN 1 ELSE 0 END) AS {prefix}_sku_count"
                       for prefix in PREFIXES)
@@ -585,7 +586,19 @@ def _group_metric_rows(month: str) -> list[dict]:
                   SUM(CASE WHEN {mismatch} THEN 1 ELSE 0 END) AS unbucketed_rows,
                   MAX(pulled_at) AS pulled_at"""
     sql = f"""
-        WITH source AS ({source}),
+        WITH raw_source AS ({source}),
+        product_parts AS (
+            SELECT raw_source.*,
+                   CASE WHEN UPPER(TRIM(SUBSTRING_INDEX(sku,'-',1))) REGEXP '^[0-9]+PC$'
+                        THEN SUBSTRING(sku,INSTR(sku,'-')+1) ELSE sku END AS core_sku
+            FROM raw_source
+        ), source AS (
+            SELECT product_parts.*,
+                   CASE WHEN INSTR(core_sku,'-')>0 AND TRIM(SUBSTRING_INDEX(core_sku,'-',1))<>''
+                         AND {core} REGEXP '^[A-Z0-9]{{1,64}}$' AND {core} REGEXP '[0-9]'
+                        THEN {core} ELSE '' END AS product_key
+            FROM product_parts
+        ),
         sku_totals AS (
             SELECT pull_month,group_code,{sku} AS sku,{sums},{quality}
             FROM source GROUP BY pull_month,group_code,{sku}
