@@ -112,11 +112,12 @@ public class SlowMovingClearanceController extends BaseController
     public AjaxResult owners(
             @RequestParam String pullMonth,
             @RequestParam(required = false) String siteCode,
+            @RequestParam(defaultValue = "EBAY-1") String groupCode,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
         try
         {
-            return success(data(pythonClient.clearanceOwners(pullMonth, siteCode, requestId)));
+            return success(data(pythonClient.clearanceOwners(pullMonth, siteCode, groupCode, requestId)));
         }
         catch (Exception e)
         {
@@ -185,6 +186,7 @@ public class SlowMovingClearanceController extends BaseController
                 .put("rows", items instanceof List<?> ? items : List.of())
                 .put("total", data.getOrDefault("total", 0))
                 .put("pullMonth", data.get("pull_month"))
+                .put("summary", data.getOrDefault("summary", Map.of()))
                 .put("requestId", response.get("request_id"));
     }
 }

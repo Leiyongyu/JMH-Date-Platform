@@ -83,7 +83,7 @@ test('personal entry opens shared dialog for selected month and all sites withou
   })
   state.query.pullMonth = '2026-09'
   await state.openDrilldown({ group_code: 'EBAY-1', group_name: 'eBay', pull_month: '2026-08' }, 'OWNER')
-  assert.deepEqual(calls, [['2026-09']])
+  assert.deepEqual(calls, [['2026-09', undefined, 'EBAY-1']])
   assert.equal(state.drilldown.visible, true)
   assert.equal(state.drilldown.dimension, 'OWNER')
   assert.equal(state.drilldown.rows[0].dimension_name, '按品牌负责人')
@@ -98,7 +98,7 @@ test('month changes close dialog and do not allow earlier group responses to ove
   const pending = []
   const state = setup(() => {}, undefined, {
     listSlowMovingClearance: query => new Promise(resolve => pending.push({ month: query.pullMonth, resolve })),
-    getSlowMovingClearanceSummary: async month => ({ data: { pull_month: month } })
+    getSlowMovingClearanceSummary: () => { throw new Error('must not issue duplicate summary request') }
   })
   state.query.pullMonth = '2026-09'
   const first = state.loadData()
@@ -115,6 +115,39 @@ test('month changes close dialog and do not allow earlier group responses to ove
   await first
   assert.equal(state.rows.value[0].group_name, '当前月')
   assert.equal(state.query.pullMonth, '2026-10')
+})
+
+test('Amazon personal dialog forwards group and uses backend deduplicated SKU total', async () => {
+  const calls = []
+  const state = setup(() => { throw new Error('must use owners API') }, async (...args) => {
+    calls.push(args)
+    return { data: { items: [{ total_inventory_sku_count: 2 }, { total_inventory_sku_count: 2 }],
+      summary: { total_inventory_sku_count: 3 } } }
+  })
+  state.query.pullMonth = '2026-10'
+  await state.openDrilldown({ group_code: 'EU', group_name: 'EU' }, 'OWNER')
+  assert.deepEqual(calls, [['2026-10', undefined, 'EU']])
+  assert.match(state.drilldown.title, /全部店铺/)
+  const totals = state.drilldownSummary({ columns: [{ property: 'dimension_name' }, { property: 'total_inventory_sku_count' }], data: state.drilldown.rows })
+  assert.equal(totals[1], '3')
+})
+
+test('refresh fetches list and summary once and preserves cross-group distinct total', async () => {
+  let calls = 0
+  const state = setup(() => {}, undefined, {
+    listSlowMovingClearance: async () => {
+      calls++
+      return { pullMonth: '2026-09', rows: [{ total_inventory_sku_count: 2 }, { total_inventory_sku_count: 2 }],
+        summary: { pull_month: '2026-09', total_inventory_sku_count: 3 } }
+    },
+    getSlowMovingClearanceSummary: () => { throw new Error('duplicate query') }
+  })
+  await state.loadData()
+  assert.equal(calls, 1)
+  assert.equal(state.summary.total_inventory_sku_count, 3)
+  assert.equal(state.rows.value.length, 2)
+  assert.equal(state.query.pullMonth, '2026-09')
+  assert.equal(state.loading.value, false)
 })
 
 test('both export commands use shared selected month, and JSON failures are not saved as XLSX', async () => {

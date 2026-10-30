@@ -216,9 +216,16 @@ public class PerformancePythonClient extends PythonHttpSupport
     public Map<String, Object> clearanceOwners(
             String pullMonth, String siteCode, String requestId)
     {
+        return clearanceOwners(pullMonth, siteCode, "EBAY-1", requestId);
+    }
+
+    public Map<String, Object> clearanceOwners(
+            String pullMonth, String siteCode, String groupCode, String requestId)
+    {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("pull_month", pullMonth);
         params.put("site_code", siteCode);
+        params.put("group_code", groupCode);
         return get("/slow-moving-clearance/owners", params, requestId);
     }
 

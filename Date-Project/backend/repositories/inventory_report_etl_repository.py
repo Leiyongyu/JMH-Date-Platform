@@ -663,88 +663,27 @@ def fill_next_month_opening_inventory(stat_month: str) -> dict[str, int]:
 
 
 def inventory_age_group_costs(pull_month: str) -> dict[str, dict[str, Any]]:
-    with db_connection() as connection, connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT group_code,inventory_91_180_cost,inventory_181_plus_cost
-            FROM dws_amz_fba_inventory_age_group
-            WHERE pull_month=%s
-            UNION ALL
-            SELECT 'EBAY-1' AS group_code,
-                   COALESCE(SUM(CASE WHEN inventory_age_bucket='91_180'
-                                    THEN inventory_age_cost ELSE 0 END),0)
-                       AS inventory_91_180_cost,
-                   COALESCE(SUM(CASE WHEN inventory_age_bucket='181_PLUS'
-                                    THEN inventory_age_cost ELSE 0 END),0)
-                       AS inventory_181_plus_cost
-            FROM dwd_ebay_inventory_age_cost_snapshot
-            WHERE pull_month=%s
-            HAVING COUNT(*)>0
-            """,
-            (pull_month, pull_month),
-        )
-        return {
-            str(row["group_code"]): row
-            for row in cursor.fetchall()
-        }
+    # Same original detail and five-band sums as clearance, not the old DWS row.
+    from backend.repositories import clearance_repository
+    from backend.services.clearance_metrics import aggregate
+    rows = clearance_repository.metric_source_rows(pull_month, include_previous=False)
+    return {code: aggregate([r for r in rows if r['group_code'] == code])
+            for code in {r['group_code'] for r in rows}}
 
 
 def inventory_age_cost_rows(pull_month: str) -> list[dict[str, Any]]:
-    """读取非零分档成本，按SKU精确归属负责人；不丢弃负数调整或空SKU。
-
-    与组别汇总直接累加同一成本字段，不额外乘库存数量或过滤匹配状态。
-    快照是否存在由既有健康度全量读取判断，不能用本查询空结果判断。
-    """
-    with db_connection() as connection, connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT 'AMZ' AS platform_code,group_code,store_name,
-                   COALESCE(NULLIF(sku,''),seller_sku) AS sku,
-                   COALESCE(inventory_91_180_cost,0) AS cost_91_180,
-                   COALESCE(inventory_181_plus_cost,0) AS cost_181_plus
-            FROM dwd_amz_fba_inventory_monthly_snapshot
-            WHERE pull_month=%s
-              AND (inventory_91_180_cost<>0 OR inventory_181_plus_cost<>0)
-            UNION ALL
-            SELECT 'EBAY' AS platform_code,'EBAY-1' AS group_code,
-                   NULL AS store_name,COALESCE(NULLIF(sku,''),sku_middle) AS sku,
-                   CASE WHEN inventory_age_bucket='91_180'
-                        THEN inventory_age_cost ELSE 0 END AS cost_91_180,
-                   CASE WHEN inventory_age_bucket='181_PLUS'
-                        THEN inventory_age_cost ELSE 0 END AS cost_181_plus
-            FROM dwd_ebay_inventory_age_cost_snapshot
-            WHERE pull_month=%s
-              AND inventory_age_bucket IN ('91_180','181_PLUS')
-              AND inventory_age_cost<>0
-            """,
-            (pull_month, pull_month),
-        )
-        return list(cursor.fetchall())
+    """Monthly owners use the same stored costs as clearance (180+ = last 3 bands)."""
+    from backend.repositories import clearance_repository
+    return [{**row, 'cost_91_180': row['inventory_91_180_cost'],
+             'cost_181_plus': row['inventory_181_plus_cost']}
+            for row in clearance_repository.metric_source_rows(pull_month, include_previous=False)
+            if row['inventory_91_180_cost'] or row['inventory_181_plus_cost']]
 
 
 def inventory_age_health_rows(pull_month: str) -> list[dict[str, Any]]:
-    """读取Amazon FBA与eBay海外仓SKU库龄明细，用于统计181天以上SKU数。"""
-    with db_connection() as connection, connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT 'AMZ' AS platform_code,group_code,store_name,
-                   COALESCE(NULLIF(sku,''),seller_sku) AS sku,
-                   CASE WHEN inventory_181_plus_qty>0 THEN 1 ELSE 0 END
-                       AS is_aged_sku
-            FROM dwd_amz_fba_inventory_monthly_snapshot
-            WHERE pull_month=%s
-            UNION ALL
-            SELECT 'EBAY' AS platform_code,'EBAY-1' AS group_code,
-                   NULL AS store_name,COALESCE(NULLIF(sku,''),sku_middle) AS sku,
-                   CASE WHEN inventory_age_bucket='181_PLUS'
-                              AND inventory_quantity>0
-                        THEN 1 ELSE 0 END AS is_aged_sku
-            FROM dwd_ebay_inventory_age_cost_snapshot
-            WHERE pull_month=%s
-            """,
-            (pull_month, pull_month),
-        )
-        return list(cursor.fetchall())
+    from backend.repositories import clearance_repository
+    return [{**row, 'is_aged_sku': int(row['inventory_181_plus_qty'] > 0)}
+            for row in clearance_repository.metric_source_rows(pull_month, include_previous=False)]
 
 
 def order_profit_rows(stat_month: str) -> list[dict[str, Any]]:

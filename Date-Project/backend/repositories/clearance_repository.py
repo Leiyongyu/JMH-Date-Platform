@@ -6,6 +6,7 @@ from typing import Any
 
 from backend.config import settings
 from backend.database import db_connection
+from backend.services.clearance_metrics import BUCKETS, FIELDS, PREFIXES, GROUP_CODES, aggregate, attach_comparison, compare, previous_month, total_metrics
 
 
 GROUP_ORDER_SQL = (
@@ -459,22 +460,8 @@ def replace_ctu_inventory_month(
 
 
 def ctu_over_30_costs(pull_month: str) -> dict[str, Decimal]:
-    """Read CTU 31-day-and-over inventory cost by snapshot group."""
-    if not pull_month:
-        return {}
-    with db_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT group_code,over_30_cost
-            FROM dws_ctu_inventory_age_group
-            WHERE pull_month=%s
-            """,
-            (pull_month,),
-        )
-        return {
-            str(row["group_code"]): row["over_30_cost"]
-            for row in cur.fetchall()
-        }
+    return {code: row['ctu_over_30_cost'] for code, row in ctu_group_metrics(pull_month).items() if code != '_TOTAL'}
+
 
 def ctu_ebay_owner_cost_rows(pull_month: str) -> list[dict[str, Any]]:
     """仅eBay成都仓成本明细；空快照返回[]，有快照但无成本返回NULL占位行。"""
@@ -519,190 +506,196 @@ def ctu_inventory_age_details(month: str | None) -> dict[str, Any]:
 
 
 def ctu_inventory_age_summary(month: str | None) -> dict[str, Any]:
-    if not month:
-        return {"ctu_over_30_qty": None, "ctu_over_30_cost": None}
-    with db_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT COUNT(*) group_count,
-                   COALESCE(SUM(over_30_qty),0) ctu_over_30_qty,
-                   COALESCE(SUM(over_30_cost),0) ctu_over_30_cost
-            FROM dws_ctu_inventory_age_group
-            WHERE pull_month=%s
-            """,
-            (month,),
-        )
-        row = cur.fetchone()
-    if not row or int(row.get("group_count") or 0) == 0:
-        return {"ctu_over_30_qty": None, "ctu_over_30_cost": None}
-    return {
-        "ctu_over_30_qty": row["ctu_over_30_qty"],
-        "ctu_over_30_cost": row["ctu_over_30_cost"],
-    }
-
-def list_groups(month: str | None) -> dict:
-    with db_connection() as conn, conn.cursor() as cur:
-        if not month:
-            cur.execute(
-                f"SELECT MAX(pull_month) m FROM ({GROUP_SOURCE_SQL}) groups_all"
-            )
-            month = cur.fetchone()["m"]
-        if not month:
-            return {"pull_month": None, "items": [], "total": 0}
-        month_start = datetime.strptime(month, "%Y-%m")
-        previous_month = (month_start - timedelta(days=1)).strftime("%Y-%m")
-        cur.execute(
-            f"""
-            SELECT g.*,
-                   c.over_30_qty AS ctu_over_30_qty,
-                   c.over_30_cost AS ctu_over_30_cost,
-                   p.pull_month AS previous_cost_month,
-                   p.inventory_91_180_cost AS previous_month_91_180_cost,
-                   CASE WHEN p.group_code IS NULL THEN NULL
-                        ELSE p.inventory_91_180_cost - g.inventory_91_180_cost END
-                       AS inventory_91_180_variance,
-                   p.inventory_181_plus_cost AS previous_month_181_plus_cost,
-                   CASE WHEN p.group_code IS NULL THEN NULL
-                        ELSE p.inventory_181_plus_cost - g.inventory_181_plus_cost END
-                       AS inventory_181_plus_variance
-            FROM ({GROUP_SOURCE_SQL}) g
-            LEFT JOIN dws_ctu_inventory_age_group c
-              ON c.pull_month=g.pull_month
-             AND c.group_code=(CASE
-                    WHEN g.group_code IN ('US2-MJ','US1-ZXY') THEN 'US3'
-                    ELSE g.group_code
-                 END)
-            LEFT JOIN ({GROUP_SOURCE_SQL}) p
-              ON p.pull_month=%s
-             AND p.group_code=g.group_code
-            WHERE g.pull_month=%s
-            ORDER BY {GROUP_ORDER_SQL}
-            """,
-            (previous_month, month),
-        )
-        items = list(cur.fetchall())
-        return {"pull_month": month, "items": items, "total": len(items)}
+    return ctu_group_metrics(month).get('_TOTAL', dict(ctu_over_30_qty=None,ctu_over_30_cost=None,ctu_over_30_sku_count=None))
 
 
-def summary(month: str | None) -> dict:
-    data = list_groups(month)
-    fields = [
-        "inventory_0_90_qty", "inventory_0_90_cost",
-        "inventory_91_180_qty", "inventory_91_180_cost",
-        "inventory_181_plus_qty", "inventory_181_plus_cost",
-        "total_inventory_qty", "total_inventory_cost",
-    ]
-    result = {"pull_month": data["pull_month"], "group_count": data["total"]}
-    for field in fields:
-        result[field] = sum((row[field] for row in data["items"]), 0)
-    # Query the five CTU groups directly so the US3 amount displayed on two
-    # merged business rows is counted only once in the top summary card.
-    result.update(ctu_inventory_age_summary(data["pull_month"]))
-    result["pulled_at"] = max(
-        (row["pulled_at"] for row in data["items"]), default=None
-    )
-    return result
+def _metric_source_query(month: str, group_code: str | None = None, *, include_previous=True):
+    """Use existing five-band AMZ details and exact eBay age days, without writes.
 
-
-def list_site_dimensions(month: str) -> dict[str, Any]:
-    """Read stored age costs only; never reprice or redistribute shared stock.
-
-    Include dimensions present only last month so previous costs and variances
-    still reconcile to the group. CTU stock has no reliable store allocation.
+    Keep SKU and attribution identities until the final aggregation. Stored eBay
+    costs intentionally remain unchanged (no multiplication by inventory qty).
     """
-    previous_month = (datetime.strptime(month, "%Y-%m") - timedelta(days=1)).strftime("%Y-%m")
-    fields = [
-        "inventory_0_90_qty", "inventory_0_90_cost",
-        "inventory_91_180_qty", "inventory_91_180_cost",
-        "inventory_181_plus_qty", "inventory_181_plus_cost",
-        "total_inventory_qty", "total_inventory_cost",
-    ]
-    site = """CASE
-            WHEN UPPER(TRIM(warehouse_code)) IN ('USEA','USWE','US') THEN 'US'
-            WHEN UPPER(TRIM(warehouse_code)) IN ('UK','GB') THEN 'UK'
-            WHEN UPPER(TRIM(warehouse_code)) IN ('DE','CZ') THEN 'DE'
-            ELSE CONCAT('未识别仓库：',COALESCE(NULLIF(TRIM(warehouse_code),''),'未知'))
-        END"""
-    metrics = []
-    for bucket, prefix in [("0_90", "inventory_0_90"), ("91_180", "inventory_91_180"), ("181_PLUS", "inventory_181_plus")]:
-        for suffix, source in [("qty", "inventory_quantity"), ("cost", "inventory_age_cost")]:
-            metrics.append(f"CASE WHEN inventory_age_bucket='{bucket}' THEN {source} ELSE 0 END AS {prefix}_{suffix}")
-    source_sql = f"""
-            SELECT pull_month,{site} AS dimension_key,{site} AS dimension_name,
-                   {','.join(metrics)},inventory_quantity AS total_inventory_qty,
-                   inventory_age_cost AS total_inventory_cost
-            FROM dwd_ebay_inventory_age_cost_snapshot
-            WHERE pull_month IN (%s,%s)
-        """
-    params = (month, previous_month)
-    sums = ','.join(f'COALESCE(SUM({field}),0) AS {field}' for field in fields)
-    current_fields = ','.join(f'COALESCE(c.{field},0) AS {field}' for field in fields)
-    with db_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            f"""
-            WITH source_rows AS ({source_sql}), aggregated AS (
-                SELECT pull_month,dimension_key,MAX(dimension_name) AS dimension_name,
-                       COUNT(*) AS source_row_count,{sums}
-                FROM source_rows GROUP BY pull_month,dimension_key
-            ), dimension_keys AS (
-                SELECT DISTINCT dimension_key FROM aggregated
-            ), previous_available AS (
-                SELECT MAX(pull_month) AS previous_cost_month FROM aggregated WHERE pull_month=%s
-            )
-            SELECT k.dimension_key,COALESCE(c.dimension_name,p.dimension_name) AS dimension_name,
-                   COALESCE(c.source_row_count,0) AS source_row_count,{current_fields},
-                   a.previous_cost_month,
-                   CASE WHEN a.previous_cost_month IS NOT NULL THEN COALESCE(p.inventory_91_180_cost,0) END AS previous_month_91_180_cost,
-                   CASE WHEN a.previous_cost_month IS NOT NULL THEN COALESCE(p.inventory_91_180_cost,0)-COALESCE(c.inventory_91_180_cost,0) END AS inventory_91_180_variance,
-                   CASE WHEN a.previous_cost_month IS NOT NULL THEN COALESCE(p.inventory_181_plus_cost,0) END AS previous_month_181_plus_cost,
-                   CASE WHEN a.previous_cost_month IS NOT NULL THEN COALESCE(p.inventory_181_plus_cost,0)-COALESCE(c.inventory_181_plus_cost,0) END AS inventory_181_plus_variance
-            FROM dimension_keys k
-            CROSS JOIN previous_available a
-            LEFT JOIN aggregated c ON c.dimension_key=k.dimension_key AND c.pull_month=%s
-            LEFT JOIN aggregated p ON p.dimension_key=k.dimension_key AND p.pull_month=%s
-            ORDER BY k.dimension_key
-            """,
-            (*params, previous_month, month, previous_month),
-        )
-        items = list(cur.fetchall())
-    return {"pull_month": month, "group_code": "EBAY-1",
-            "dimension": "SITE",
-            "items": items, "total": len(items)}
-
-
-def drilldown_source_rows(month: str, group_code: str) -> list[dict[str, Any]]:
-    """Aggregate stored amounts before name normalization/owner assignment.
-
-    Keep the two months separate so changing shop IDs, names or owners cannot
-    move last month's costs onto the current month's identity prematurely.
-    """
-    previous = (datetime.strptime(month, "%Y-%m") - timedelta(days=1)).strftime("%Y-%m")
-    if group_code == "EBAY-1":
-        sql = """
-            SELECT pull_month,warehouse_code,sku,source_product_sku,inventory_age_bucket,
-                   COUNT(*) AS source_row_count,
-                   COALESCE(SUM(inventory_quantity),0) AS inventory_quantity,
-                   COALESCE(SUM(inventory_age_cost),0) AS inventory_age_cost
-            FROM dwd_ebay_inventory_age_cost_snapshot
-            WHERE pull_month IN (%s,%s)
-            GROUP BY pull_month,warehouse_code,sku,source_product_sku,inventory_age_bucket
-        """
-        params = (month, previous)
-    else:
-        fields = [f'{prefix}_{suffix}' for prefix in (
-            'inventory_0_90', 'inventory_91_180', 'inventory_181_plus', 'total_inventory'
-        ) for suffix in ('qty', 'cost')]
-        sql = f"""
-            SELECT pull_month,sid,store_name,warehouse_name,COUNT(*) AS source_row_count,
-                   {','.join(f'COALESCE(SUM({field}),0) AS {field}' for field in fields)}
+    selected = (month, previous_month(month)) if include_previous else (month, month)
+    queries, params = [], []
+    if group_code != 'EBAY-1':
+        named = [f'COALESCE(inventory_{b}_{suffix},0) AS inventory_{b}_{suffix}' for b in BUCKETS for suffix in ('qty','cost')]
+        for suffix in ('qty', 'cost'):
+            named += ['(' + '+'.join(f'COALESCE(inventory_{b}_{suffix},0)' for b in BUCKETS[2:]) + f') AS inventory_181_plus_{suffix}',
+                      '(' + '+'.join(f'COALESCE(inventory_{b}_{suffix},0)' for b in BUCKETS) + f') AS total_inventory_{suffix}']
+        queries.append(f"""
+            SELECT pull_month,'AMZ' AS platform_code,group_code,sid,store_name,warehouse_name,
+                   COALESCE(NULLIF(TRIM(sku),''),seller_sku) AS sku,
+                   NULL AS source_product_sku,NULL AS warehouse_code,1 AS source_row_count,pulled_at,
+                   {','.join(named)}
             FROM dwd_amz_fba_inventory_monthly_snapshot
-            WHERE pull_month IN (%s,%s) AND group_code=%s
-            GROUP BY pull_month,sid,store_name,warehouse_name
-        """
-        params = (month, previous, group_code)
+            WHERE pull_month IN (%s,%s)
+            """ + (' AND group_code=%s' if group_code else ''))
+        params.extend(selected)
+        if group_code: params.append(group_code)
+    if group_code in (None, 'EBAY-1'):
+        conditions = {
+            '0_90': "(warehouse_age_days BETWEEN 0 AND 90 OR (warehouse_age_days IS NULL AND inventory_age_bucket='0_90'))",
+            '91_180': "(warehouse_age_days BETWEEN 91 AND 180 OR (warehouse_age_days IS NULL AND inventory_age_bucket='91_180'))",
+            '181_270': 'warehouse_age_days BETWEEN 181 AND 270',
+            '271_365': 'warehouse_age_days BETWEEN 271 AND 365',
+            '365_plus': 'warehouse_age_days>365',
+            '181_plus': "(warehouse_age_days>180 OR (warehouse_age_days IS NULL AND inventory_age_bucket='181_PLUS'))",
+        }
+        named = [f'CASE WHEN {conditions[b]} THEN COALESCE({source},0) ELSE 0 END AS inventory_{b}_{suffix}'
+                 for b in (*BUCKETS, '181_plus') for suffix, source in [('qty','inventory_quantity'),('cost','inventory_age_cost')]]
+        # Match the column order of the AMZ projection (legacy qty/cost then totals).
+        amz_order = [f'inventory_{b}_{suffix}' for b in BUCKETS for suffix in ('qty','cost')] + [
+            'inventory_181_plus_qty','total_inventory_qty','inventory_181_plus_cost','total_inventory_cost']
+        expressions = {expr.rsplit(' AS ',1)[1]: expr for expr in named}
+        expressions.update(total_inventory_qty='COALESCE(inventory_quantity,0) AS total_inventory_qty',
+                           total_inventory_cost='COALESCE(inventory_age_cost,0) AS total_inventory_cost')
+        queries.append(f"""
+            SELECT pull_month,'EBAY' AS platform_code,'EBAY-1' AS group_code,NULL AS sid,NULL AS store_name,warehouse_name,
+                   COALESCE(NULLIF(TRIM(sku),''),source_product_sku) AS sku,
+                   source_product_sku,warehouse_code,1 AS source_row_count,pulled_at,
+                   {','.join(expressions[field] for field in amz_order)}
+            FROM dwd_ebay_inventory_age_cost_snapshot WHERE pull_month IN (%s,%s)
+            """)
+        params.extend(selected)
+    return ' UNION ALL '.join(queries), tuple(params)
+
+
+def metric_source_rows(month: str, group_code: str | None = None, *, include_previous=True) -> list[dict]:
+    sql, params = _metric_source_query(month, group_code, include_previous=include_previous)
     with db_connection() as conn, conn.cursor() as cur:
         cur.execute(sql, params)
         return list(cur.fetchall())
+
+
+def _group_metric_rows(month: str) -> list[dict]:
+    """Return only month/group totals; deduplicate net-positive SKUs in SQL.
+
+    The company scope regroups raw SKUs across all groups, never sums group
+    counts. Costs and negative stock adjustments are summed without repricing.
+    """
+    source, params = _metric_source_query(month)
+    sku = "UPPER(TRIM(COALESCE(sku,'')))"
+    sums = ','.join(f'SUM({field}) AS {field}' for field in FIELDS)
+    counts = ','.join(f"SUM(CASE WHEN sku<>'' AND {prefix}_qty>0 THEN 1 ELSE 0 END) AS {prefix}_sku_count"
+                      for prefix in PREFIXES)
+    mismatch = ' OR '.join('(' + '+'.join(f'inventory_{b}_{suffix}' for b in BUCKETS)
+                          + f')<>total_inventory_{suffix}' for suffix in ('qty', 'cost'))
+    quality = f"""SUM(source_row_count) AS source_row_count,
+                  SUM(CASE WHEN {sku}='' AND total_inventory_qty>0 THEN 1 ELSE 0 END) AS missing_sku_rows,
+                  SUM(CASE WHEN {mismatch} THEN 1 ELSE 0 END) AS unbucketed_rows,
+                  MAX(pulled_at) AS pulled_at"""
+    sql = f"""
+        WITH source AS ({source}),
+        sku_totals AS (
+            SELECT pull_month,group_code,{sku} AS sku,{sums},{quality}
+            FROM source GROUP BY pull_month,group_code,{sku}
+            UNION ALL
+            SELECT pull_month,'_TOTAL' AS group_code,{sku} AS sku,{sums},{quality}
+            FROM source GROUP BY pull_month,{sku}
+        ), metrics AS (
+            SELECT pull_month,group_code,{sums},{counts},
+                   SUM(source_row_count) AS source_row_count,
+                   SUM(missing_sku_rows) AS missing_sku_rows,
+                   SUM(unbucketed_rows) AS unbucketed_rows,MAX(pulled_at) AS pulled_at
+            FROM sku_totals GROUP BY pull_month,group_code
+        ), shops AS (
+            SELECT pull_month,group_code,
+                   COUNT(DISTINCT CASE WHEN platform_code='EBAY' THEN COALESCE(warehouse_code,'__UNKNOWN__')
+                         WHEN COALESCE(sid,'0')<>'0' THEN sid END) AS shop_count
+            FROM source GROUP BY pull_month,group_code
+        )
+        SELECT m.*,COALESCE(s.shop_count,0) AS shop_count FROM metrics m LEFT JOIN shops s
+          ON s.pull_month=m.pull_month AND s.group_code=m.group_code
+    """
+    with db_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        return list(cur.fetchall())
+
+
+def ctu_group_metrics(month: str) -> dict[str, dict]:
+    """Sum original CTU detail once per group, keeping zero-stock snapshot groups."""
+    if not month:
+        return {}
+    with db_connection() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT g.group_code,d.sku,d.over_30_qty,d.over_30_cost
+            FROM dws_ctu_inventory_age_group g LEFT JOIN ods_lingxing_ctu_inventory_detail d
+              ON d.pull_month=g.pull_month AND d.group_code=g.group_code
+            WHERE g.pull_month=%s
+            """, (month,))
+        rows = list(cur.fetchall())
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row['group_code'], []).append(row)
+    result = {}
+    for code, items in grouped.items():
+        values = aggregate([{'sku': r['sku'], 'total_inventory_qty': r['over_30_qty'],
+                             'total_inventory_cost': r['over_30_cost']} for r in items])
+        result[code] = {'ctu_over_30_qty': values['total_inventory_qty'],
+                        'ctu_over_30_cost': values['total_inventory_cost'],
+                        'ctu_over_30_sku_count': values['total_inventory_sku_count']}
+    values = aggregate([{'sku': r['sku'], 'total_inventory_qty': r['over_30_qty'],
+                         'total_inventory_cost': r['over_30_cost']} for r in rows])
+    if rows:
+        result['_TOTAL'] = {'ctu_over_30_qty': values['total_inventory_qty'],
+                            'ctu_over_30_cost': values['total_inventory_cost'],
+                            'ctu_over_30_sku_count': values['total_inventory_sku_count']}
+    return result
+
+
+def list_groups(month: str | None) -> dict:
+    if not month:
+        latest = months(1)
+        month = latest[0]['pull_month'] if latest else None
+    if not month:
+        return {'pull_month': None, 'items': [], 'total': 0, 'summary': {}}
+    source = _group_metric_rows(month)
+    ctu = ctu_group_metrics(month)
+    current = {r['group_code']: r for r in source if r['pull_month'] == month}
+    previous = {r['group_code']: r for r in source if r['pull_month'] == previous_month(month)}
+    has_previous = bool(previous)
+    def metrics(code):
+        row = dict(current.get(code) or aggregate([]))
+        attach_comparison(row, previous.get(code) or aggregate([]), has_previous)
+        return row
+    items = []
+    for code in (current.keys() | previous.keys()) - {'_TOTAL'}:
+        row = metrics(code)
+        region = 'EBAY' if code == 'EBAY-1' else 'EU' if code == 'EU' else 'US'
+        row.update(pull_month=month, group_code=code, group_name=code, region_code=region,
+                   region_name={'EBAY':'eBay组','EU':'欧洲组','US':'美国组'}[region],
+                   shop_count=row.get('shop_count', 0), pulled_at=row.get('pulled_at'),
+                   previous_cost_month=previous_month(month) if has_previous else None,
+                   brands=[], previous_brands=[])
+        row.update(ctu.get('US3' if code in ('US2-MJ','US1-ZXY') else code,
+                           dict(ctu_over_30_qty=None,ctu_over_30_cost=None,ctu_over_30_sku_count=None)))
+        items.append(row)
+    items.sort(key=lambda row: GROUP_CODES.index(row['group_code']) if row['group_code'] in GROUP_CODES else 99)
+    totals = metrics('_TOTAL')
+    totals.pop('group_code', None)
+    totals.update(ctu.get('_TOTAL', dict(ctu_over_30_qty=None,ctu_over_30_cost=None,ctu_over_30_sku_count=None)))
+    totals.update(pull_month=month,group_count=len(items),shop_count=sum(row['shop_count'] for row in items),
+                  pulled_at=max((row['pulled_at'] for row in items if row['pulled_at']),default=None))
+    return {'pull_month': month, 'items': items, 'total': len(items), 'summary': totals}
+
+
+def summary(month: str | None) -> dict:
+    return list_groups(month)['summary']
+
+
+def list_site_dimensions(month: str) -> dict[str, Any]:
+    source = metric_source_rows(month, 'EBAY-1')
+    def identity(row):
+        code = str(row.get('warehouse_code') or '').strip().upper()
+        site = {'USEA':'US','USWE':'US','US':'US','UK':'UK','GB':'UK','DE':'DE','CZ':'DE'}.get(code, '未识别仓库：'+(code or '未知'))
+        return site, site
+    items = compare(source, month, identity)
+    return {'pull_month':month,'group_code':'EBAY-1','dimension':'SITE','items':items,
+            'total':len(items),'summary':total_metrics(source,month)}
+
+
+def drilldown_source_rows(month: str, group_code: str) -> list[dict[str, Any]]:
+    return metric_source_rows(month, group_code)
 
 
 def months(limit: int = 24) -> list[dict]:

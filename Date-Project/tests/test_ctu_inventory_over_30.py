@@ -190,6 +190,7 @@ def test_clearance_summary_uses_direct_ctu_total_without_us3_duplication(
             "pull_month": "2026-09",
             "items": [{**base, "group_code": "US2-MJ"}, {**base, "group_code": "US1-ZXY"}],
             "total": 2,
+            "summary": {"ctu_over_30_qty": Decimal("7"), "ctu_over_30_cost": Decimal("70")},
         },
     )
     monkeypatch.setattr(

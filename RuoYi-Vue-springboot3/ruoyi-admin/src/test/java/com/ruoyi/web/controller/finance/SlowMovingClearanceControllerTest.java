@@ -11,6 +11,22 @@ import static org.mockito.Mockito.*;
 class SlowMovingClearanceControllerTest
 {
     @Test
+    void listReturnsSummaryFromSameQuery()
+    {
+        var client = mock(PerformancePythonClient.class);
+        var summary = Map.of("total_inventory_sku_count", 3);
+        var rows = List.of(Map.of("group_code", "EU"));
+        when(client.clearanceGroups("2026-09", "trace")).thenReturn(Map.of("data",
+                Map.of("items", rows, "total", 1, "pull_month", "2026-09", "summary", summary)));
+        var response = new SlowMovingClearanceController(client).list("2026-09", "trace");
+        assertEquals(rows, response.get("rows"));
+        assertEquals(summary, response.get("summary"));
+        assertEquals("2026-09", response.get("pullMonth"));
+        verify(client).clearanceGroups("2026-09", "trace");
+        verifyNoMoreInteractions(client);
+    }
+
+    @Test
     void dimensionsForwardSelectedMonthAndGroup() throws Exception
     {
         var client = mock(PerformancePythonClient.class);
@@ -54,15 +70,18 @@ class SlowMovingClearanceControllerTest
     void ownerDialogDefaultsToAllSitesAndRequiresListPermission() throws Exception
     {
         var client = mock(PerformancePythonClient.class);
-        when(client.clearanceOwners("2026-10", null, "trace"))
+        when(client.clearanceOwners("2026-10", null, "EBAY-1", "trace"))
                 .thenReturn(Map.of("data", Map.of("dimension", "OWNER")));
         var controller = new SlowMovingClearanceController(client);
-        assertEquals(200, controller.owners("2026-10", null, "trace").get("code"));
-        verify(client).clearanceOwners("2026-10", null, "trace");
-        when(client.clearanceOwners("2026-10", "UK", null)).thenReturn(Map.of("data", Map.of()));
-        assertEquals(200, controller.owners("2026-10", "UK", null).get("code"));
-        verify(client).clearanceOwners("2026-10", "UK", null);
-        var permission = SlowMovingClearanceController.class.getMethod("owners", String.class, String.class, String.class)
+        assertEquals(200, controller.owners("2026-10", null, "EBAY-1", "trace").get("code"));
+        verify(client).clearanceOwners("2026-10", null, "EBAY-1", "trace");
+        when(client.clearanceOwners("2026-10", "UK", "EBAY-1", null)).thenReturn(Map.of("data", Map.of()));
+        assertEquals(200, controller.owners("2026-10", "UK", "EBAY-1", null).get("code"));
+        verify(client).clearanceOwners("2026-10", "UK", "EBAY-1", null);
+        when(client.clearanceOwners("2026-10", null, "EU", "trace")).thenReturn(Map.of("data", Map.of()));
+        assertEquals(200, controller.owners("2026-10", null, "EU", "trace").get("code"));
+        verify(client).clearanceOwners("2026-10", null, "EU", "trace");
+        var permission = SlowMovingClearanceController.class.getMethod("owners", String.class, String.class, String.class, String.class)
                 .getAnnotation(PreAuthorize.class);
         assertEquals("@ss.hasPermi('finance:slowMovingClearance:list')", permission.value());
     }

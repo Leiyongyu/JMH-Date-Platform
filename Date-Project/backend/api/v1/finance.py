@@ -356,9 +356,12 @@ def get_slow_moving_clearance_owners(
     request: Request,
     pull_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
     site_code: str | None = Query(None, min_length=1, max_length=120),
+    group_code: str = Query('EBAY-1', pattern=r"^(EBAY-1|EU|US1|US2|US2-MJ|US1-ZXY)$"),
 ):
+    if site_code is not None and group_code != 'EBAY-1':
+        raise HTTPException(status_code=400, detail='仅 eBay 支持站点筛选')
     return success_response(
-        clearance_dimensions(pull_month, 'EBAY-1', site_code, dimension='OWNER'),
+        clearance_dimensions(pull_month, group_code, site_code, dimension='OWNER'),
         request_id=request.state.request_id,
     )
 

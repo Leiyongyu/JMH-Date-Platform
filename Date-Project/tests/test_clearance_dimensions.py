@@ -12,12 +12,7 @@ from backend.repositories import clearance_repository as repo
 from backend.services import clearance_drilldown_service as service
 
 
-FIELDS = [
-    'inventory_0_90_qty', 'inventory_0_90_cost',
-    'inventory_91_180_qty', 'inventory_91_180_cost',
-    'inventory_181_plus_qty', 'inventory_181_plus_cost',
-    'total_inventory_qty', 'total_inventory_cost',
-]
+from backend.services.clearance_metrics import FIELDS
 AMZ = 'dwd_amz_fba_inventory_monthly_snapshot'
 EBAY = 'dwd_ebay_inventory_age_cost_snapshot'
 
@@ -28,10 +23,12 @@ def snapshots(monkeypatch):
     db.row_factory = sqlite3.Row
     db.create_function('CONCAT', -1, lambda *args: ''.join(str(x) for x in args))
     db.execute(f'CREATE TABLE {AMZ} (pull_month TEXT, group_code TEXT, sid TEXT, '
-               'store_name TEXT, warehouse_name TEXT, seller_group_name TEXT, '
+               'store_name TEXT, warehouse_name TEXT, seller_group_name TEXT, sku TEXT, seller_sku TEXT, pulled_at TEXT, '
                + ','.join(f'{f} NUMERIC DEFAULT 0' for f in FIELDS) + ')')
     db.execute(f'CREATE TABLE {EBAY} (pull_month TEXT, warehouse_code TEXT, sku TEXT, source_product_sku TEXT, '
-               'inventory_age_bucket TEXT, inventory_quantity NUMERIC, inventory_age_cost NUMERIC)')
+               'warehouse_name TEXT, warehouse_age_days INTEGER, pulled_at TEXT, inventory_age_bucket TEXT, inventory_quantity NUMERIC, inventory_age_cost NUMERIC)')
+    db.execute('CREATE TABLE dws_ctu_inventory_age_group (pull_month TEXT, group_code TEXT)')
+    db.execute('CREATE TABLE ods_lingxing_ctu_inventory_detail (pull_month TEXT, group_code TEXT, sku TEXT, over_30_qty NUMERIC, over_30_cost NUMERIC)')
 
     class Connection:
         def __enter__(self):
@@ -53,10 +50,107 @@ def snapshots(monkeypatch):
     monkeypatch.setattr(repo, 'db_connection', Connection)
 
     def add(table, **values):
+        if table == EBAY and 'warehouse_age_days' not in values:
+            values['warehouse_age_days'] = {'0_90': 90, '91_180': 180, '181_PLUS': 181}.get(values.get('inventory_age_bucket'))
+        if table == AMZ:
+            for suffix in ('qty','cost'):
+                if 'inventory_181_plus_'+suffix in values:
+                    values.setdefault('inventory_181_270_'+suffix, values['inventory_181_plus_'+suffix])
         db.execute(f'INSERT INTO {table} ({",".join(values)}) VALUES ({",".join("?" for _ in values)})', tuple(values.values()))
 
     yield add
     db.close()
+
+
+def test_five_boundaries_distinct_sku_and_unchanged_ebay_cost(snapshots):
+    from backend.services.clearance_metrics import BUCKETS
+    for age in (0,90,91,180,181,270,271,365,366):
+        snapshots(EBAY,pull_month='2026-10',warehouse_code='DE',sku='FRD-100-001',
+                  warehouse_age_days=age,inventory_age_bucket='181_PLUS',inventory_quantity=10,inventory_age_cost=7)
+    snapshots(EBAY,pull_month='2026-10',warehouse_code='UK',sku='FRD-100-001',
+              warehouse_age_days=181,inventory_quantity=20,inventory_age_cost=9)
+    data=repo.list_groups('2026-10')
+    row=data['items'][0]
+    assert [row[f'inventory_{b}_qty'] for b in BUCKETS] == [20,20,40,20,10]
+    assert [row[f'inventory_{b}_sku_count'] for b in BUCKETS] == [1,1,1,1,1]
+    assert row['total_inventory_sku_count'] == 1
+    assert row['total_inventory_cost'] == 72  # Costs are NOT multiplied by 110 units.
+    assert row['inventory_181_plus_cost'] == sum(row[f'inventory_{b}_cost'] for b in BUCKETS[2:])
+    sites=service.list_dimensions('2026-10','EBAY-1')
+    assert sum(r['total_inventory_sku_count'] for r in sites['items']) == 2
+    assert sites['summary']['total_inventory_sku_count'] == 1
+
+
+def test_amz_store_owner_and_company_counts_deduplicate_full_sku(snapshots,monkeypatch):
+    for sid,store,qty,cost in [('1','US1-店铺甲-US',3,30),('2','US1-店铺甲-CA',2,20),('3','US1-店铺乙-US',1,10)]:
+        snapshots(AMZ,pull_month='2026-10',group_code='US1',sid=sid,store_name=store,sku='FRD-100-001',
+                  inventory_181_270_qty=qty,inventory_181_270_cost=cost)
+    snapshots(AMZ,pull_month='2026-10',group_code='US1',sid='1',store_name='US1-店铺甲-US',sku='FRD-100-002',
+              inventory_271_365_qty=4,inventory_271_365_cost=40)
+    monkeypatch.setattr(service.owners,'owner_rules',lambda *args:[
+        dict(group_code='US1',rule_type='STORE',match_key='店铺甲',principal_name='甲'),
+        dict(group_code='US1',rule_type='STORE',match_key='店铺乙',principal_name='乙')])
+    stores=service.list_dimensions('2026-10','US1')
+    owners=service.list_dimensions('2026-10','US1',dimension='OWNER')
+    assert len(stores['items']) == len(owners['items']) == 2
+    assert {r['dimension_name'] for r in owners['items']} == {'甲','乙'}
+    for result in (stores,owners):
+        assert sum(r['inventory_181_270_sku_count'] for r in result['items']) == 2
+        assert result['summary']['inventory_181_270_sku_count'] == 1
+        assert result['summary']['total_inventory_sku_count'] == 2
+        assert result['summary']['total_inventory_cost'] == 100
+    assert repo.list_groups('2026-10')['summary']['total_inventory_sku_count'] == 2
+
+
+def test_ctu_shared_us3_total_is_counted_once_and_costs_sum_details(snapshots):
+    snapshots('dws_ctu_inventory_age_group',pull_month='2026-10',group_code='US3')
+    for cost in (7,8):
+        snapshots('ods_lingxing_ctu_inventory_detail',pull_month='2026-10',group_code='US3',sku='ABC-1',over_30_qty=1,over_30_cost=cost)
+    for group in ('US2-MJ','US1-ZXY'):
+        snapshots(AMZ,pull_month='2026-10',group_code=group,sid='1',sku='ABC-1',inventory_0_90_qty=1)
+    result=repo.list_groups('2026-10')
+    assert [r['ctu_over_30_cost'] for r in result['items']] == [15,15]
+    assert result['summary']['ctu_over_30_cost'] == 15
+    assert result['summary']['ctu_over_30_sku_count'] == 1
+    assert repo.ctu_over_30_costs('2026-10') == {'US3': 15}
+
+
+def test_unknown_age_and_missing_sku_are_preserved_without_guessed_counts(snapshots):
+    snapshots(EBAY, pull_month='2026-10', warehouse_code='UK', sku=None,
+              warehouse_age_days=None, inventory_age_bucket='181_PLUS',
+              inventory_quantity=3, inventory_age_cost=7)
+    totals = repo.list_groups('2026-10')['summary']
+    assert totals['total_inventory_qty'] == 3
+    assert totals['total_inventory_cost'] == totals['inventory_181_plus_cost'] == 7
+    assert totals['inventory_181_270_qty'] == totals['total_inventory_sku_count'] == 0
+    assert totals['unbucketed_rows'] == totals['missing_sku_rows'] == 1
+
+
+def test_sql_group_summary_matches_detail_aggregation_with_negative_and_cross_group_skus(snapshots):
+    from backend.services.clearance_metrics import COUNT_FIELDS, compare, total_metrics
+    for month, group, sku, qty, cost in [
+        ('2026-09', 'EU', 'FRD-1', 3, 10), ('2026-10', 'EU', ' frd-1 ', 2, 8),
+        ('2026-10', 'EU', 'FRD-1', -2, -7), ('2026-10', 'US1', 'FRD-1', 5, 20),
+        ('2026-10', 'EU', None, 4, 9), ('2026-09', 'US2', 'OLD-1', 2, 3),
+    ]:
+        snapshots(AMZ, pull_month=month, group_code=group, sid='1', sku=sku,
+                  inventory_91_180_qty=qty, inventory_91_180_cost=cost)
+    snapshots(EBAY, pull_month='2026-10', warehouse_code='DE', sku='FRD-1',
+              warehouse_age_days=365, inventory_quantity=2, inventory_age_cost=6)
+    source = repo.metric_source_rows('2026-10')
+    expected = compare(source, '2026-10', lambda row: (row['group_code'], row['group_code']))
+    result = repo.list_groups('2026-10')
+    actual = {row['group_code']: row for row in result['items']}
+    keys = (*FIELDS, *COUNT_FIELDS, 'source_row_count', 'missing_sku_rows', 'unbucketed_rows',
+            'previous_month_91_180_cost', 'inventory_91_180_variance')
+    for row in expected:
+        for key in keys:
+            assert actual[row['dimension_key']][key] == row[key], (row['dimension_key'], key)
+    expected_total = total_metrics(source, '2026-10')
+    for key in keys:
+        assert result['summary'][key] == expected_total[key], key
+    assert actual['EU']['total_inventory_sku_count'] == 0
+    assert result['summary']['total_inventory_sku_count'] == 1
 
 
 def test_ebay_sites_merge_warehouses_and_keep_unknown_and_unpriced(snapshots):
@@ -181,7 +275,7 @@ def test_ebay_owners_use_each_month_rules_and_reconcile_to_selected_site(snapsho
     assert rows['未分配']['total_inventory_cost'] == 5
     assert rows['方黎力']['total_inventory_cost'] == 3
     site = next(r for r in service.list_dimensions('2026-10', 'EBAY-1')['items'] if r['dimension_key'] == 'US')
-    for field in FIELDS + ['previous_month_181_plus_cost', 'inventory_181_plus_variance']:
+    for field in (*FIELDS, 'previous_month_181_plus_cost', 'inventory_181_plus_variance'):
         assert sum(r[field] for r in rows.values()) == site[field]
 
 

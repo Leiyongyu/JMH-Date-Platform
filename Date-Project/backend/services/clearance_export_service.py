@@ -15,19 +15,17 @@ from openpyxl.utils import get_column_letter
 from backend.config import settings
 from backend.repositories import clearance_repository as repo
 from backend.services.clearance_drilldown_service import list_dimensions
+from backend.services.clearance_metrics import BUCKETS, AGE_LABELS, total_metrics
 
 
-SUMMARY_METRICS = [
-    ("0–90天库存数量", "inventory_0_90_qty", "qty"),
-    ("0–90天库龄成本", "inventory_0_90_cost", "money"),
-    ("91–180天库存数量", "inventory_91_180_qty", "qty"),
-    ("91–180天库龄成本", "inventory_91_180_cost", "money"),
-    ("91–180天上月库龄成本", "previous_month_91_180_cost", "money"),
-    ("91–180天差值（上月－本月）", "inventory_91_180_variance", "money"),
-    ("181天以上库存数量", "inventory_181_plus_qty", "qty"),
-    ("181天以上库龄成本", "inventory_181_plus_cost", "money"),
-    ("181天以上上月库龄成本", "previous_month_181_plus_cost", "money"),
-    ("181天以上差值（上月－本月）", "inventory_181_plus_variance", "money"),
+SUMMARY_METRICS = [column for bucket, label in zip(BUCKETS, AGE_LABELS) for column in [
+    (label.split('（')[0] + '去重SKU数', f'inventory_{bucket}_sku_count', 'qty'),
+    (label.split('（')[0] + '库存数量', f'inventory_{bucket}_qty', 'qty'),
+    (label.split('（')[0] + '库龄成本', f'inventory_{bucket}_cost', 'money'),
+    (label.split('（')[0] + '上月库龄成本', f'previous_month_{bucket}_cost', 'money'),
+    (label.split('（')[0] + '差值（上月－本月）', f'inventory_{bucket}_variance', 'money'),
+]] + [
+    ("海外仓/FBA合计去重SKU数", "total_inventory_sku_count", "qty"),
     ("海外仓/FBA合计库存数量", "total_inventory_qty", "qty"),
     ("海外仓/FBA合计库龄成本", "total_inventory_cost", "money"),
 ]
@@ -41,9 +39,11 @@ def export_monthly_summary(pull_month: str) -> tuple[str, str]:
     """
     if not re.fullmatch(r"20\d{2}-(0[1-9]|1[0-2])", pull_month or ""):
         raise ValueError("请选择有效的快照月份（YYYY-MM）")
-    groups = [dict(row) for row in repo.list_groups(pull_month)["items"]]
+    group_data = repo.list_groups(pull_month)
+    groups = [dict(row) for row in group_data['items']]
     if not groups:
         raise ValueError(f"{pull_month} 没有可导出的滞销清货数据")
+    source = repo.metric_source_rows(pull_month)
     stores, people, sites = [], [], []
     seen_ctu_us3 = False
     for row in groups:
@@ -59,11 +59,12 @@ def export_monthly_summary(pull_month: str) -> tuple[str, str]:
                 row["note"] = "成都仓为US2-MJ与US1-ZXY共享US3，仅在本行计一次"
                 seen_ctu_us3 = True
         if code == "EBAY-1":
-            people = list_dimensions(pull_month, code, dimension="OWNER")["items"]
             sites = list_dimensions(pull_month, code)["items"]
         else:
             stores.extend({**item, "group_code": code} for item in
                           list_dimensions(pull_month, code)["items"])
+        people.extend({**item, 'group_code': code} for item in
+                      list_dimensions(pull_month, code, dimension='OWNER')['items'])
 
     month_header = [("快照月份", "pull_month", "text")]
     group_headers = month_header + [
@@ -73,16 +74,22 @@ def export_monthly_summary(pull_month: str) -> tuple[str, str]:
         ("成都仓30天以上库龄成本", "ctu_over_30_cost", "money"),
     ] + SUMMARY_METRICS + [("备注", "note", "text")]
     workbook = Workbook(write_only=True)
-    _append_sheet(workbook, f"组别-{pull_month}", group_headers, groups,
+    group_total = {**group_data['summary'], 'pull_month':pull_month, 'group_code':'合计', 'is_total':1}
+    _append_sheet(workbook, f"组别-{pull_month}", group_headers, groups + [group_total],
                   [24] * (len(group_headers) - 1) + [62], "2563EB")
     for label, identity, items in [("店铺", "中文店铺名称", stores),
-                                    ("个人", "eBay负责人", people),
+                                    ("个人", "负责人", people),
                                     ("站点", "eBay站点", sites)]:
         headers = month_header + [("组别", "group_code", "text"),
                                   (identity, "dimension_name", "text"),
                                   ("本月明细行数", "source_row_count", "qty")] + SUMMARY_METRICS
         output = [{**item, "pull_month": pull_month,
                    "group_code": item.get("group_code", "EBAY-1")} for item in items]
+        selected = [row for row in source if label == '个人' or
+                    row['platform_code'] == ('AMZ' if label == '店铺' else 'EBAY')]
+        if items:
+            output.append({**total_metrics(selected, pull_month), 'pull_month':pull_month,
+                           'dimension_name':'合计', 'is_total':1})
         _append_sheet(workbook, f"{label}-{pull_month}", headers, output,
                       [24] * len(headers), "2563EB")
     export_dir = Path(settings.export_output_dir)
@@ -233,10 +240,13 @@ def _append_sheet(
                 cell.number_format = "#,##0.00"
             elif value_type == "datetime":
                 cell.number_format = "yyyy-mm-dd hh:mm:ss"
+            if row.get('is_total'):
+                cell.font = Font(bold=True, color='172033')
+                cell.fill = PatternFill('solid', fgColor='EAF2FF')
             cells.append(cell)
         sheet.append(cells)
     sheet.auto_filter.ref = (
-        f"A1:{get_column_letter(len(headers))}{len(rows) + 1}"
+        f"A1:{get_column_letter(len(headers))}{len(rows) + 1 - int(bool(rows and rows[-1].get('is_total')))}"
     )
 
 

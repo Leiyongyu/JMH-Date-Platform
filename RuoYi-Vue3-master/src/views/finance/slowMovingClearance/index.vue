@@ -49,20 +49,10 @@
         <strong>{{ numberOrDash(summary.ctu_over_30_qty) }}</strong>
         <small>{{ moneyOrDash(summary.ctu_over_30_cost) }}</small>
       </article>
-      <article class="summary-item">
-        <span>0–90天数量 / 成本</span>
-        <strong>{{ number(summary.inventory_0_90_qty) }}</strong>
-        <small>{{ money(summary.inventory_0_90_cost) }}</small>
-      </article>
-      <article class="summary-item warning">
-        <span>91–180天数量 / 成本</span>
-        <strong>{{ number(summary.inventory_91_180_qty) }}</strong>
-        <small>{{ money(summary.inventory_91_180_cost) }}</small>
-      </article>
-      <article class="summary-item danger">
-        <span>181天以上数量 / 成本</span>
-        <strong>{{ number(summary.inventory_181_plus_qty) }}</strong>
-        <small>{{ money(summary.inventory_181_plus_cost) }}</small>
+      <article v-for="bucket in drilldownBuckets" :key="bucket.key" class="summary-item" :class="bucket.tone">
+        <span>{{ bucket.label }}</span>
+        <strong>{{ number(summary[`${bucket.key}_sku_count`]) }} 个 SKU</strong>
+        <small>{{ number(summary[`${bucket.key}_qty`]) }} 件 · {{ money(summary[`${bucket.key}_cost`]) }}</small>
       </article>
     </section>
 
@@ -71,12 +61,14 @@
         <div class="table-header">
           <div>
             <div class="table-title">eBay / FBA 库龄组别汇总</div>
-            <div class="table-hint">eBay组：EBAY-1；欧洲组：EU；美国组：US1、US2、US2-MJ、US1-ZXY</div>
+            <div class="table-hint">每段按有库存的完整SKU去重；合计再次去重，不能直接相加SKU数。成本沿用原口径；差值＝上月－本月。</div>
           </div>
           <el-tag effect="light">{{ summary.pull_month || '最新月份' }}</el-tag>
         </div>
       </template>
 
+      <el-alert v-if="summary.unbucketed_rows" :title="`有 ${summary.unbucketed_rows} 条明细缺少可分段库龄，已保留在合计中，未推测分配到五个区间。`" type="warning" :closable="false" show-icon />
+      <el-alert v-if="summary.missing_sku_rows" :title="`有 ${summary.missing_sku_rows} 条有库存的明细缺少 SKU，保留数量与成本，不计入去重 SKU 数。`" type="warning" :closable="false" show-icon />
       <el-table
         v-loading="loading"
         :data="rows"
@@ -84,6 +76,7 @@
         stripe
         :fit="true"
         :span-method="spanCtuUs3"
+        show-summary :summary-method="groupSummary"
         class="age-table"
       >
         <el-table-column prop="region_name" label="区域" width="100" fixed>
@@ -112,56 +105,34 @@
             <template #default="{ row }">{{ moneyOrDash(row.ctu_over_30_cost) }}</template>
           </el-table-column>
         </el-table-column>
-        <el-table-column label="0–90天" align="center">
-          <el-table-column prop="inventory_0_90_qty" label="库存数量" min-width="120" align="right">
-            <template #default="{ row }">{{ number(row.inventory_0_90_qty) }}</template>
+        <el-table-column v-for="bucket in drilldownBuckets" :key="bucket.key" :label="bucket.label" align="center">
+          <el-table-column :prop="`${bucket.key}_sku_count`" label="去重SKU数" min-width="115" align="right">
+            <template #default="{ row }">{{ number(row[`${bucket.key}_sku_count`]) }}</template>
           </el-table-column>
-          <el-table-column prop="inventory_0_90_cost" label="库龄成本" min-width="130" align="right">
-            <template #default="{ row }">{{ money(row.inventory_0_90_cost) }}</template>
+          <el-table-column :prop="`${bucket.key}_qty`" label="库存数量" min-width="120" align="right">
+            <template #default="{ row }">{{ number(row[`${bucket.key}_qty`]) }}</template>
           </el-table-column>
-        </el-table-column>
-        <el-table-column label="91–180天" align="center">
-          <el-table-column prop="inventory_91_180_qty" label="库存数量" min-width="120" align="right">
-            <template #default="{ row }">{{ number(row.inventory_91_180_qty) }}</template>
+          <el-table-column :prop="`${bucket.key}_cost`" label="库龄成本" min-width="130" align="right">
+            <template #default="{ row }">{{ money(row[`${bucket.key}_cost`]) }}</template>
           </el-table-column>
-          <el-table-column prop="inventory_91_180_cost" label="库龄成本" min-width="130" align="right">
-            <template #default="{ row }">{{ money(row.inventory_91_180_cost) }}</template>
+          <el-table-column :prop="bucket.previous" label="上月库龄成本" min-width="145" align="right">
+            <template #default="{ row }">{{ moneyOrDash(row[bucket.previous]) }}</template>
           </el-table-column>
-          <el-table-column prop="previous_month_91_180_cost" label="上月库龄成本" min-width="145" align="right">
-            <template #default="{ row }">{{ moneyOrDash(row.previous_month_91_180_cost) }}</template>
-          </el-table-column>
-          <el-table-column prop="inventory_91_180_variance" label="差值" min-width="135" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'negative-value': isNegative(row.inventory_91_180_variance) }">
-                {{ moneyOrDash(row.inventory_91_180_variance) }}
-              </span>
-            </template>
+          <el-table-column :prop="`${bucket.key}_variance`" label="差值" min-width="135" align="right">
+            <template #default="{ row }"><span :class="{ 'negative-value': isNegative(row[`${bucket.key}_variance`]) }">{{ moneyOrDash(row[`${bucket.key}_variance`]) }}</span></template>
           </el-table-column>
         </el-table-column>
-        <el-table-column label="181天以上" align="center">
-          <el-table-column prop="inventory_181_plus_qty" label="库存数量" min-width="120" align="right">
-            <template #default="{ row }">{{ number(row.inventory_181_plus_qty) }}</template>
-          </el-table-column>
-          <el-table-column prop="inventory_181_plus_cost" label="库龄成本" min-width="130" align="right">
-            <template #default="{ row }">{{ money(row.inventory_181_plus_cost) }}</template>
-          </el-table-column>
-          <el-table-column prop="previous_month_181_plus_cost" label="上月库龄成本" min-width="145" align="right">
-            <template #default="{ row }">{{ moneyOrDash(row.previous_month_181_plus_cost) }}</template>
-          </el-table-column>
-          <el-table-column prop="inventory_181_plus_variance" label="差值" min-width="135" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'negative-value': isNegative(row.inventory_181_plus_variance) }">
-                {{ moneyOrDash(row.inventory_181_plus_variance) }}
-              </span>
-            </template>
-          </el-table-column>
+        <el-table-column label="合计" align="center">
+          <el-table-column prop="total_inventory_sku_count" label="去重SKU数" min-width="115" align="right"><template #default="{ row }">{{ number(row.total_inventory_sku_count) }}</template></el-table-column>
+          <el-table-column prop="total_inventory_qty" label="库存数量" min-width="120" align="right"><template #default="{ row }">{{ number(row.total_inventory_qty) }}</template></el-table-column>
+          <el-table-column prop="total_inventory_cost" label="库龄成本" min-width="140" align="right"><template #default="{ row }">{{ money(row.total_inventory_cost) }}</template></el-table-column>
         </el-table-column>
         <el-table-column label="下钻" width="200" fixed="right" align="center">
           <template #default="{ row }">
             <el-button link type="primary" :disabled="loading" @click="openDrilldown(row)">
               {{ row.group_code === 'EBAY-1' ? '按站点查看' : '按店铺查看' }}
             </el-button>
-            <el-button v-if="row.group_code === 'EBAY-1'" link type="primary" :disabled="loading" @click="openDrilldown(row, 'OWNER')">按个人查看</el-button>
+            <el-button link type="primary" :disabled="loading" @click="openDrilldown(row, 'OWNER')">按个人查看</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -171,14 +142,19 @@
       <p class="drilldown-hint">
         快照月份：{{ drilldown.month }}。仅拆分海外仓/FBA库龄；成都仓仍按组别展示。
         {{ drilldown.isEbay ? '美国东西仓合并 US，捷克仓归 DE；个人按各自快照月份的负责人规则匹配，未匹配计入未分配。' : '按中文店铺主体合并各国家站点，不按 SID 拆分；可识别同名店铺的共享仓一并汇总，不重复分摊。' }}
-        仅上月存在的站点/店铺/负责人仍保留用于核对，当前数量及成本为 0；差值＝上月成本－本月成本。
+        个人按快照当月规则归属；仅上月存在的站点/店铺/负责人仍保留用于核对，当前数量及成本为 0；差值＝上月成本－本月成本。
       </p>
       <el-alert v-for="warning in drilldown.warnings" :key="warning" :title="warning" type="warning" :closable="false" show-icon />
+      <el-alert v-if="drilldown.summary.unbucketed_rows" :title="`有 ${drilldown.summary.unbucketed_rows} 条明细缺少可分段库龄，仅保留在合计中。`" type="warning" :closable="false" show-icon />
+      <el-alert v-if="drilldown.summary.missing_sku_rows" :title="`有 ${drilldown.summary.missing_sku_rows} 条有库存的明细缺少 SKU，不计入去重 SKU 数。`" type="warning" :closable="false" show-icon />
       <el-alert v-if="drilldown.error" :title="drilldown.error" type="error" :closable="false" show-icon />
       <el-table v-loading="drilldown.loading" :data="drilldown.rows" border stripe show-summary :summary-method="drilldownSummary" max-height="65vh" class="age-table">
         <el-table-column prop="dimension_name" :label="drilldown.dimension === 'OWNER' ? '负责人' : drilldown.isEbay ? '站点' : '中文店铺名称'" min-width="240" fixed show-overflow-tooltip />
         <el-table-column prop="source_row_count" label="本月明细行数" width="120" align="right" />
         <el-table-column v-for="bucket in drilldownBuckets" :key="bucket.key" :label="bucket.label" align="center">
+          <el-table-column :prop="`${bucket.key}_sku_count`" label="去重SKU数" min-width="115" align="right">
+            <template #default="{ row }">{{ number(row[`${bucket.key}_sku_count`]) }}</template>
+          </el-table-column>
           <el-table-column :prop="`${bucket.key}_qty`" label="库存数量" min-width="120" align="right">
             <template #default="{ row }">{{ number(row[`${bucket.key}_qty`]) }}</template>
           </el-table-column>
@@ -195,6 +171,7 @@
           </el-table-column>
         </el-table-column>
         <el-table-column label="合计" align="center">
+          <el-table-column prop="total_inventory_sku_count" label="去重SKU数" min-width="115" align="right"><template #default="{ row }">{{ number(row.total_inventory_sku_count) }}</template></el-table-column>
           <el-table-column prop="total_inventory_qty" label="库存数量" min-width="120" align="right">
             <template #default="{ row }">{{ number(row.total_inventory_qty) }}</template>
           </el-table-column>
@@ -215,7 +192,6 @@ import {
   exportClearanceMonthlySummary,
   getSlowMovingClearanceOwners,
   getSlowMovingClearanceDimensions,
-  getSlowMovingClearanceSummary,
   listSlowMovingClearance,
   listSlowMovingClearanceMonths
 } from '@/api/finance/slowMovingClearance'
@@ -232,49 +208,57 @@ const query = reactive({
   pageSize: 20,
   pullMonth: undefined
 })
-const drilldown = reactive({ visible: false, loading: false, title: '', month: '', isEbay: false, rows: [], error: '', dimension: '', warnings: [] })
+const drilldown = reactive({ visible: false, loading: false, title: '', month: '', isEbay: false, rows: [], error: '', dimension: '', warnings: [], summary: {} })
 let drilldownRequest = 0
 const drilldownBuckets = [
-  { key: 'inventory_0_90', label: '0–90天' },
-  { key: 'inventory_91_180', label: '91–180天', previous: 'previous_month_91_180_cost' },
-  { key: 'inventory_181_plus', label: '181天以上', previous: 'previous_month_181_plus_cost' }
-]
+  ['0_90', '0–90天（健康）', ''], ['91_180', '91–180天（关注）', 'warning'],
+  ['181_270', '181–270天（预警）', 'warning'], ['271_365', '271–365天（紧急）', 'danger'],
+  ['365_plus', '365天以上（严重）', 'danger']
+].map(([key, label, tone]) => ({ key: `inventory_${key}`, label, tone, previous: `previous_month_${key}_cost` }))
 
 function closeDrilldown() {
   drilldownRequest++
   drilldown.rows = []
+  drilldown.summary = {}
   drilldown.warnings = []
   drilldown.loading = false
 }
 
-function drilldownSummary({ columns, data }) {
+function totalsRow({ columns, data }, totals) {
   return columns.map((column, index) => {
     if (index === 0) return '合计'
-    const values = data.map(row => row[column.property]).filter(value => value !== null && value !== undefined)
+    const key = column.property
+    if (!key || /region|group_name|dimension_name/.test(key)) return ''
+    if (Object.prototype.hasOwnProperty.call(totals, key)) return /cost|variance/.test(key) ? moneyOrDash(totals[key]) : numberOrDash(totals[key])
+    if (key.endsWith('_sku_count')) return '--'
+    const values = data.map(row => row[key]).filter(value => value !== null && value !== undefined)
     if (!values.length) return '--'
     const total = values.reduce((sum, value) => sum + Number(value), 0)
-    return /cost|variance/.test(column.property) ? money(total) : number(total)
+    return /cost|variance/.test(key) ? money(total) : number(total)
   })
 }
+function drilldownSummary(input) { return totalsRow(input, drilldown.summary) }
+function groupSummary(input) { return totalsRow(input, summary) }
 
 async function openDrilldown(row, dimension) {
   if (loading.value) return
   const month = query.pullMonth || summary.pull_month
   if (!month) return
-  const isOwner = dimension === 'OWNER' && row.group_code === 'EBAY-1'
+  const isOwner = dimension === 'OWNER'
   const request = ++drilldownRequest
   Object.assign(drilldown, {
-    visible: true, loading: true, rows: [], error: '', month, warnings: [],
+    visible: true, loading: true, rows: [], error: '', month, warnings: [], summary: {},
     dimension: isOwner ? 'OWNER' : row.group_code === 'EBAY-1' ? 'SITE' : 'STORE',
     isEbay: row.group_code === 'EBAY-1',
-    title: `${row.group_name} · ${month} · ${isOwner ? '个人库龄明细（全部站点）' : row.group_code === 'EBAY-1' ? '站点库龄明细' : '店铺库龄明细'}`
+    title: `${row.group_name} · ${month} · ${isOwner ? (row.group_code === 'EBAY-1' ? '个人库龄明细（全部站点）' : '个人库龄明细（全部店铺）') : row.group_code === 'EBAY-1' ? '站点库龄明细' : '店铺库龄明细'}`
   })
   try {
     const response = isOwner
-      ? await getSlowMovingClearanceOwners(month)
+      ? await getSlowMovingClearanceOwners(month, undefined, row.group_code)
       : await getSlowMovingClearanceDimensions(month, row.group_code)
     if (request === drilldownRequest) {
       drilldown.rows = response.data?.items || []
+      drilldown.summary = response.data?.summary || {}
       drilldown.warnings = response.data?.warnings || []
     }
   } catch (error) {
@@ -313,8 +297,12 @@ function spanCtuUs3({ row, column }) {
   if (!['ctu_over_30_qty', 'ctu_over_30_cost'].includes(column.property)) {
     return [1, 1]
   }
-  if (row.group_code === 'US2-MJ') return [2, 1]
-  if (row.group_code === 'US1-ZXY') return [0, 0]
+  const first = rows.value.findIndex(item => item.group_code === 'US2-MJ')
+  const second = rows.value.findIndex(item => item.group_code === 'US1-ZXY')
+  if (first >= 0 && second === first + 1) {
+    if (row.group_code === 'US2-MJ') return [2, 1]
+    if (row.group_code === 'US1-ZXY') return [0, 0]
+  }
   return [1, 1]
 }
 
@@ -323,14 +311,11 @@ async function loadData() {
   const request = ++listRequest
   loading.value = true
   try {
-    const [listResponse, summaryResponse] = await Promise.all([
-      listSlowMovingClearance({ ...query }),
-      getSlowMovingClearanceSummary(query.pullMonth)
-    ])
+    const listResponse = await listSlowMovingClearance({ ...query })
     if (request !== listRequest) return
     rows.value = listResponse.rows || []
     Object.keys(summary).forEach(key => delete summary[key])
-    Object.assign(summary, summaryResponse.data || {})
+    Object.assign(summary, listResponse.summary || {})
     query.pullMonth = summary.pull_month || listResponse.pullMonth || query.pullMonth
   } catch (error) {
     if (request === listRequest) {
@@ -419,7 +404,7 @@ onMounted(() => Promise.all([loadMonths(), loadData()]))
 .eyebrow { color: #2563eb; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(180px, 1fr));
+  grid-template-columns: repeat(7, minmax(180px, 1fr));
   gap: 10px;
   margin-bottom: 16px;
   overflow-x: auto;

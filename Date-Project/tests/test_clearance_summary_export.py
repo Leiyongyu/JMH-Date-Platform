@@ -6,6 +6,14 @@ import pytest
 from openpyxl import load_workbook
 
 from backend.services import clearance_export_service as service
+from backend.services.clearance_metrics import total_metrics
+
+
+@pytest.fixture(autouse=True)
+def no_live_database(monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError('Export unit tests must not access the database')
+    monkeypatch.setattr(service.repo, 'db_connection', forbidden)
 
 
 def test_four_sheets_share_selected_month_and_page_data(monkeypatch, tmp_path):
@@ -15,9 +23,12 @@ def test_four_sheets_share_selected_month_and_page_data(monkeypatch, tmp_path):
                "inventory_91_180_cost": 0, "previous_month_91_180_cost": None}
               for code in ("EBAY-1", "EU", "US1", "US2", "US2-MJ", "US1-ZXY")]
 
+    source_rows = [dict(group_code=g['group_code'], platform_code='EBAY' if g['group_code'] == 'EBAY-1' else 'AMZ',
+                        pull_month='2026-09', sku='SHARED-SKU', total_inventory_qty=3,
+                        total_inventory_cost=Decimal('12.34')) for g in groups]
     def group_data(month):
         assert month == "2026-09"
-        return {"items": groups}
+        return {"items": groups, "summary": {**total_metrics(source_rows, month), 'ctu_over_30_cost':250}}
 
     def dimensions(month, group, *, dimension=None):
         calls.append((month, group, dimension))
@@ -27,6 +38,7 @@ def test_four_sheets_share_selected_month_and_page_data(monkeypatch, tmp_path):
                            "inventory_91_180_cost": 0, "previous_month_91_180_cost": None}]}
 
     monkeypatch.setattr(service.repo, "list_groups", group_data)
+    monkeypatch.setattr(service.repo, 'metric_source_rows', lambda month: source_rows)
     monkeypatch.setattr(service, "list_dimensions", dimensions)
     monkeypatch.setattr(service, "settings", SimpleNamespace(export_output_dir=str(tmp_path)))
     path, name = service.export_monthly_summary("2026-09")
@@ -39,20 +51,23 @@ def test_four_sheets_share_selected_month_and_page_data(monkeypatch, tmp_path):
             assert not any("品牌" in header for header in headers)
             rows = [dict(zip(headers, row)) for row in sheet.iter_rows(min_row=2, values_only=True)]
             assert all(row["快照月份"] == "2026-09" for row in rows)
-            assert all(row["海外仓/FBA合计库龄成本"] == 12.34 for row in rows)
+            assert rows[-1]['海外仓/FBA合计去重SKU数'] == 1
+            assert all(row["海外仓/FBA合计库龄成本"] == 12.34 for row in rows[:-1])
             assert all(row["91–180天库龄成本"] == 0 for row in rows)
             assert all(row["91–180天上月库龄成本"] is None for row in rows)
             assert not any(cell.data_type == "f" for row in sheet for cell in row)
         group_sheet = wb.worksheets[0]
-        assert sum(row[5] or 0 for row in group_sheet.iter_rows(min_row=2, values_only=True)) == 250
+        assert sum(row[5] or 0 for row in group_sheet.iter_rows(min_row=2, max_row=7, values_only=True)) == 250
+        assert group_sheet['F8'].value == 250
         assert group_sheet["F7"].value is None  # US3 shared value appears once.
-        assert wb.worksheets[1].max_row == 6  # All five Amazon groups.
-        assert wb.worksheets[2].max_row == 2
+        assert wb.worksheets[1].max_row == 7  # Five Amazon groups plus total.
+        assert wb.worksheets[2].max_row == 8  # Owners in all six groups plus total.
         wb.close()
     assert groups[-1]["ctu_over_30_cost"] == 50  # No mutation of source data.
-    assert len(calls) == 7
+    assert len(calls) == 12
     assert all(call[0] == "2026-09" for call in calls)
     assert ("2026-09", "EBAY-1", "OWNER") in calls
+    assert ("2026-09", "EU", "OWNER") in calls
 
 
 def test_no_data_and_invalid_month_do_not_export(monkeypatch, tmp_path):
@@ -67,7 +82,8 @@ def test_no_data_and_invalid_month_do_not_export(monkeypatch, tmp_path):
 
 def test_empty_dimensions_still_have_headers_and_single_us3_keeps_ctu(monkeypatch, tmp_path):
     monkeypatch.setattr(service.repo, "list_groups", lambda month: {"items": [
-        {"group_code": "US1-ZXY", "ctu_over_30_cost": 7}]})
+        {"group_code": "US1-ZXY", "ctu_over_30_cost": 7}], 'summary': {'ctu_over_30_cost':7}})
+    monkeypatch.setattr(service.repo, 'metric_source_rows', lambda month: [])
     monkeypatch.setattr(service, "list_dimensions", lambda *args, **kwargs: {"items": []})
     monkeypatch.setattr(service, "settings", SimpleNamespace(export_output_dir=str(tmp_path)))
     path, _ = service.export_monthly_summary("2026-09")

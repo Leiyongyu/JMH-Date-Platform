@@ -320,25 +320,20 @@ def test_other_dimensions_do_not_read_costs_or_add_columns(env, monkeypatch, dim
         assert not any("costs" == call[0] for call in env["calls"])
 
 
-def test_cost_sql_is_narrow_parameterized_and_keeps_negative_values(monkeypatch):
+def test_cost_rows_share_clearance_source_and_keep_negative_values(monkeypatch):
+    from backend.repositories import clearance_repository
     calls = []
-    class Fake:
-        def __enter__(self): return self
-        def __exit__(self, *args): pass
-        def cursor(self): return self
-        def execute(self, sql, params): calls.append((sql, params))
-        def fetchall(self): return [{"cost_91_180": D("-1")}]
-    monkeypatch.setattr(service.repo, "db_connection", Fake)
+    def source(month, *, include_previous):
+        calls.append((month, include_previous))
+        return [dict(sku=None, inventory_91_180_cost=D('-1'), inventory_181_plus_cost=D('2')),
+                dict(sku='ZERO', inventory_91_180_cost=0, inventory_181_plus_cost=0)]
+    monkeypatch.setattr(clearance_repository, 'metric_source_rows', source)
     result = service.repo.inventory_age_cost_rows("2026-09")
-    sql, params = calls[0]
+    assert calls == [('2026-09', False)]
+    assert len(result) == 1
+    assert result[0]['sku'] is None
     assert result[0]["cost_91_180"] == D("-1")
-    assert params == ("2026-09", "2026-09")
-    assert sql.count("pull_month=%s") == 2
-    assert "inventory_91_180_cost<>0 OR inventory_181_plus_cost<>0" in sql
-    assert "inventory_age_cost<>0" in sql
-    assert "match_status" not in sql
-    assert "inventory_quantity" not in sql
-    assert "UNION ALL" in sql
+    assert result[0]['cost_181_plus'] == D('2')
 
 
 def test_owner_export_has_same_two_values_and_store_is_unchanged(env, monkeypatch):

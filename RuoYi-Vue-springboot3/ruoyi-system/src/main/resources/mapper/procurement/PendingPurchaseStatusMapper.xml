@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.procurement.PendingPurchaseStatusMapper">
+    <select id="selectSkus" resultType="string">
+        SELECT DISTINCT UPPER(TRIM(sku)) FROM procurement_pending_purchase
+    </select>
+    <select id="selectWarehouses" resultType="map">
+        SELECT wid, name FROM warehouse
+    </select>
+    <select id="selectState" resultType="map">
+        SELECT state, last_success AS lastSuccess, range_start AS rangeStart, range_end AS rangeEnd,
+               row_count AS rowCount, updated_at AS updatedAt,
+               (state='RUNNING' AND updated_at &gt; DATE_SUB(NOW(), INTERVAL 35 MINUTE)) AS running
+        FROM procurement_pending_po_sync WHERE id=1
+    </select>
+    <update id="start">
+        UPDATE procurement_pending_po_sync SET state='RUNNING', updated_at=NOW() WHERE id=1
+    </update>
+    <update id="fail">
+        UPDATE procurement_pending_po_sync SET state='FAILED', updated_at=NOW() WHERE id=1
+    </update>
+    <update id="publish">
+        UPDATE procurement_pending_po_sync
+        SET state='SUCCESS', last_success=NOW(), range_start=#{from}, range_end=#{to}, row_count=#{count}, updated_at=NOW()
+        WHERE id=1
+    </update>
+    <delete id="clearSnapshot">DELETE FROM procurement_pending_po_item</delete>
+    <insert id="insertRows">
+        INSERT INTO procurement_pending_po_item
+        (order_sn,item_id,sku,site,wid,warehouse_name,supplier_name,order_status,arrival_status,pay_status,
+         quantity_real,quantity_entry,quantity_receive,source_created,source_updated,raw_json,synced_at)
+        VALUES
+        <foreach collection="rows" item="r" separator=",">
+            (#{r.orderSn},#{r.itemId},#{r.sku},#{r.site},#{r.wid},#{r.warehouseName},#{r.supplierName},
+             #{r.orderStatus},#{r.arrivalStatus},#{r.payStatus},#{r.quantityReal},#{r.quantityEntry},#{r.quantityReceive},
+             #{r.sourceCreated},#{r.sourceUpdated},#{r.rawJson},NOW())
+        </foreach>
+    </insert>
+    <sql id="pendingSite">
+        CASE UPPER(TRIM(p.site)) WHEN '德国' THEN 'DE' WHEN '英国' THEN 'UK' WHEN 'GB' THEN 'UK'
+             WHEN '美国' THEN 'US' ELSE UPPER(TRIM(p.site)) END
+    </sql>
+    <select id="selectSummary" resultType="map">
+        SELECT p.id,
+               COUNT(DISTINCT CASE WHEN s.site!='UNKNOWN' THEN s.order_sn END) AS orderCount,
+               COUNT(DISTINCT CASE WHEN s.site='UNKNOWN' THEN s.order_sn END) AS unclassifiedCount,
+               GROUP_CONCAT(DISTINCT CASE WHEN s.site!='UNKNOWN' THEN s.order_status END ORDER BY s.order_status SEPARATOR '、') AS orderStatus,
+               GROUP_CONCAT(DISTINCT CASE WHEN s.site!='UNKNOWN' THEN s.arrival_status END ORDER BY s.arrival_status SEPARATOR '、') AS arrivalStatus,
+               GROUP_CONCAT(DISTINCT CASE WHEN s.site!='UNKNOWN' THEN s.pay_status END ORDER BY s.pay_status SEPARATOR '、') AS payStatus
+        FROM procurement_pending_purchase p
+        LEFT JOIN procurement_pending_po_item s ON s.sku=UPPER(TRIM(p.sku))
+            AND (s.site=(<include refid="pendingSite"/>) OR s.site='UNKNOWN')
+            AND s.source_created &gt;= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+        WHERE p.id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        GROUP BY p.id
+    </select>
+    <select id="selectDetails" resultType="map">
+        SELECT s.order_sn AS orderSn,s.sku,s.site,s.warehouse_name AS warehouseName,s.supplier_name AS supplierName,
+               s.item_id AS itemId,s.order_status AS orderStatus,s.arrival_status AS arrivalStatus,s.pay_status AS payStatus,
+               s.quantity_real AS quantityReal,s.quantity_entry AS quantityEntry,s.quantity_receive AS quantityReceive,
+               s.source_created AS sourceCreated,s.source_updated AS sourceUpdated,s.synced_at AS syncedAt
+        FROM procurement_pending_purchase p
+        JOIN procurement_pending_po_item s ON s.sku=UPPER(TRIM(p.sku))
+            AND (s.site=(<include refid="pendingSite"/>) OR s.site='UNKNOWN')
+        WHERE p.id=#{id} AND s.source_created &gt;= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+        ORDER BY s.site='UNKNOWN', s.source_created DESC, s.order_sn, s.item_id
+    </select>
+</mapper>

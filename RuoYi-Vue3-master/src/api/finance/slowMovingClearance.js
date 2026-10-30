@@ -24,11 +24,11 @@ export function getSlowMovingClearanceSummary(pullMonth) {
   })
 }
 
-export function getSlowMovingClearanceOwners(pullMonth, siteCode) {
+export function getSlowMovingClearanceOwners(pullMonth, siteCode, groupCode = 'EBAY-1') {
   return request({
     url: '/finance/slow-moving-clearance/owners',
     method: 'get',
-    params: { pullMonth, siteCode: siteCode || undefined }
+    params: { pullMonth, siteCode: siteCode || undefined, groupCode }
   })
 }
 
