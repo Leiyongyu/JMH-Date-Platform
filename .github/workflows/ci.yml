@@ -1,0 +1,85 @@
+name: CI
+
+# 三个子项目各自独立的测试门禁。main 合入前必须全部通过。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python 数据服务
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Date-Project
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: Date-Project/backend/requirements.txt
+      - name: 安装依赖
+        run: python -m pip install -r backend/requirements.txt pytest
+      - name: 语法检查
+        run: python -m compileall -q backend
+      - name: 单元测试
+        # conftest 会拒绝任何真实 MySQL 连接，CI 不需要数据库。
+        run: python -m pytest tests -q -W ignore::DeprecationWarning
+
+  java:
+    name: Java 核心服务
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: RuoYi-Vue-springboot3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: 编译并运行测试
+        run: mvn -B -ntp clean test
+
+  erp-frontend:
+    name: ERP 前端
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: RuoYi-Vue3-master
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: 安装依赖
+        run: npm install --no-audit --no-fund
+      - name: 单元测试
+        run: node --test tests/*.mjs
+      - name: 生产构建
+        run: npm run build:prod
+
+  script-workbench:
+    name: Python 脚本工作台
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Date-Project/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: Date-Project/frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: 生产构建
+        run: npm run build
