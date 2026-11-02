@@ -38,6 +38,8 @@ TASK_THRESHOLDS: dict[str, dict[str, float]] = {
     "feishu_bad_transaction_sync": {"min_volume_ratio": 0.1, "max_volume_ratio": 10.0},
     # Token 健康检查不产生业务数据。
     "ebay_token_health_check": {"skip": 1},
+    # 销售快照补偿只读已入库数据，不从接口抽取。
+    "monthly_inventory_report_sales_snapshot_refresh": {"skip": 1},
 }
 
 

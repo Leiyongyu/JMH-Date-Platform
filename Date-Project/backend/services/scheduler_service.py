@@ -47,14 +47,17 @@ from backend.services.clearance_service import (
 )
 from backend.services.currency_sync_service import (
     TASK_CODE as CURRENCY_TASK_CODE,
-    sync_currency_month,
+    sync_currency_month_and_refresh_report,
 )
 from backend.services.inventory_report_source_sync_service import (
+    SALES_SNAPSHOT_REFRESH_TASK_CODE,
+    SALES_SNAPSHOT_REFRESH_TASK_NAME,
     SALES_VOLUME_TASK_CODE,
     SALES_VOLUME_TASK_NAME,
     TASK_CODE as INVENTORY_REPORT_TASK_CODE,
     TASK_NAME as INVENTORY_REPORT_TASK_NAME,
     InventoryReportSourceSyncError,
+    refresh_previous_month_sales_snapshot,
     sync_monthly_inventory_sales_volume,
     sync_monthly_inventory_report_sources,
 )
@@ -226,6 +229,14 @@ TASK_SPECS: dict[str, TaskSpec] = {
             execute=lambda ctx: sync_monthly_inventory_sales_volume(ctx.month),
         ),
         TaskSpec(
+            code=SALES_SNAPSHOT_REFRESH_TASK_CODE,
+            name=SALES_SNAPSHOT_REFRESH_TASK_NAME,
+            default_previous_month=True,
+            # 自管锁：回填持有被回填快照所属库存月的报表锁，与手动计算互斥。
+            lock_name=None,
+            execute=lambda ctx: refresh_previous_month_sales_snapshot(ctx.month),
+        ),
+        TaskSpec(
             code=OPENING_INVENTORY_TASK_CODE,
             name=OPENING_INVENTORY_TASK_NAME,
             default_previous_month=True,
@@ -236,7 +247,7 @@ TASK_SPECS: dict[str, TaskSpec] = {
             code=CURRENCY_TASK_CODE,
             name="领星月度汇率同步",
             lock_name=lambda ctx: f"currency:lingxing-month:{ctx.month}",
-            execute=lambda ctx: sync_currency_month(ctx.month),
+            execute=lambda ctx: sync_currency_month_and_refresh_report(ctx.month),
         ),
     )
 }

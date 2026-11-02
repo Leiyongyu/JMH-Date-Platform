@@ -12,6 +12,9 @@ from backend.parsers.performance_owner_rule_parser import (
     parse_unified_owner_rule_excel,
 )
 from backend.repositories import performance_repository as repo
+from backend.services.inventory_report_etl_service import (
+    refresh_monthly_inventory_sales_snapshot_safely,
+)
 
 
 UNASSIGNED = "未分配"
@@ -252,12 +255,18 @@ def import_ebay_profit(
         )
         connection.commit()
     refresh = refresh_performance(parsed["stat_month"], "ebay", trigger_source="ebay_profit_import", request_id=request_id) if rebuild else None
+    # Monthly inventory OWNER rows read eBay sales from the refreshed ranking.
+    # Without a rebuild the daily compensation picks the month up later.
+    report_refresh = refresh_monthly_inventory_sales_snapshot_safely(
+        parsed["stat_month"], trigger="ebay_profit_import",
+    ) if rebuild else None
     return {
         "batch_id": batch_id,
         "stat_month": parsed["stat_month"],
         "inserted_rows": len(parsed["rows"]),
         "totals": parsed["totals"],
         "refresh": refresh,
+        "report_refresh": report_refresh,
     }
 
 

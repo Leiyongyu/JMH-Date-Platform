@@ -37,6 +37,13 @@ public class PythonMonthlyInventoryReportTask
     private static final String OPENING_INVENTORY_API_PATH =
             "/api/v1/internal/scheduler/tasks/"
             + "monthly_inventory_report_opening_inventory_fill/run";
+    private static final String SALES_SNAPSHOT_SYNC_TYPE =
+            "python_monthly_inventory_report_sales_snapshot";
+    private static final String SALES_SNAPSHOT_SYNC_NAME =
+            "月度库存上月销售回填补偿";
+    private static final String SALES_SNAPSHOT_API_PATH =
+            "/api/v1/internal/scheduler/tasks/"
+            + "monthly_inventory_report_sales_snapshot_refresh/run";
     private static final String CURRENCY_SYNC_TYPE =
             "python_lingxing_currency_month";
     private static final String CURRENCY_SYNC_NAME =
@@ -94,6 +101,18 @@ public class PythonMonthlyInventoryReportTask
     public void fillPreviousMonthOpeningInventory()
     {
         execute(null, false, true);
+    }
+
+    /** 每天13:00用已入库数据回填上月报表快照的销售及关联指标。 */
+    public void refreshPreviousMonthSalesSnapshot()
+    {
+        executeSalesSnapshotRefresh(null);
+    }
+
+    /** 供任务页面按展示月份补跑，例如 refreshSalesSnapshotMonth('2026-10')。 */
+    public void refreshSalesSnapshotMonth(String reportMonth)
+    {
+        executeSalesSnapshotRefresh(reportMonth);
     }
 
     /** 独立同步当前自然月的领星全部币种汇率；Quartz任务默认暂停。 */
@@ -181,7 +200,9 @@ public class PythonMonthlyInventoryReportTask
                         + "；Amazon实际达成及销量 " + orderProfitRows + "条"
                         + "；按月覆盖ODS " + integer(resultData.get("ods_rows"))
                         + "条；销量DWD " + dwdRows
-                        + "条；requestId=" + requestId);
+                        + "条；报表回填"
+                        + map(resultData.get("report_refresh")).get("status")
+                        + "；requestId=" + requestId);
             else
                 result.setBusinessSummary(
                         "月份" + resultData.get("stat_month")
@@ -287,6 +308,62 @@ public class PythonMonthlyInventoryReportTask
             OperationSyncContext.set(failed);
             throw new IllegalStateException(
                     "Python领星月度汇率同步失败，requestId="
+                    + requestId + "：" + e.getMessage(), e);
+        }
+    }
+
+    private void executeSalesSnapshotRefresh(String reportMonth)
+    {
+        long started = System.currentTimeMillis();
+        String requestId = requestId();
+        Long logId = logService.start(
+                SALES_SNAPSHOT_SYNC_TYPE, SALES_SNAPSHOT_SYNC_NAME,
+                SALES_SNAPSHOT_API_PATH, "JOB", "SYSTEM", null, null);
+        String requestParams = currencyRequestParams(reportMonth, requestId);
+        try
+        {
+            Map<String, Object> response =
+                    client.runInventoryReportSalesSnapshotRefresh(
+                            reportMonth, requestId);
+            Map<String, Object> data = map(response.get("data"));
+            Map<String, Object> resultData = map(data.get("result"));
+            Map<String, Object> refresh = map(resultData.get("report_refresh"));
+            int changedRows = integer(refresh.get("changed_rows"));
+
+            OperationSyncResult result = OperationSyncResult.success(
+                    SALES_SNAPSHOT_SYNC_TYPE, SALES_SNAPSHOT_SYNC_NAME,
+                    SALES_SNAPSHOT_API_PATH, changedRows, changedRows,
+                    System.currentTimeMillis() - started);
+            result.setRequestParams(requestParams);
+            result.setDetails(response);
+            Object reason = refresh.get("reason");
+            result.setBusinessSummary(
+                    "展示月份" + refresh.get("report_month")
+                    + "；快照月份" + refresh.get("stat_month")
+                    + "；回填结果" + refresh.get("status")
+                    + "；变更" + changedRows + "行"
+                    + (reason == null ? "" : "；" + reason)
+                    + "；requestId=" + requestId);
+            logService.finish(logId, result);
+            OperationSyncContext.set(result);
+        }
+        catch (Exception e)
+        {
+            OperationSyncResult failed = OperationSyncResult.failed(
+                    SALES_SNAPSHOT_SYNC_TYPE, SALES_SNAPSHOT_SYNC_NAME,
+                    SALES_SNAPSHOT_API_PATH,
+                    "requestId=" + requestId + "；" + e.getMessage(),
+                    System.currentTimeMillis() - started);
+            failed.setRequestParams(requestParams);
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("request_id", requestId);
+            details.put("stat_month", reportMonth);
+            details.put("error", e.getMessage());
+            failed.setDetails(details);
+            logService.finish(logId, failed);
+            OperationSyncContext.set(failed);
+            throw new IllegalStateException(
+                    "Python月度库存上月销售回填补偿失败，requestId="
                     + requestId + "：" + e.getMessage(), e);
         }
     }

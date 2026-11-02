@@ -16,9 +16,13 @@ from backend.parsers.performance_common import (
 from backend.parsers.inventory_report_purchase_order_parser import (
     parse_inventory_report_purchase_order_excel,
 )
-from backend.services.inventory_report_group_rows import with_group_display_rows
+from backend.services.inventory_report_group_rows import (
+    US3 as US3_DISPLAY_CODE,
+    with_group_display_rows,
+)
 from backend.repositories import clearance_repository as clearance_repo
 from backend.repositories import inventory_report_etl_repository as repo
+from backend.repositories import performance_repository as performance_repo
 
 
 logger = logging.getLogger(__name__)
@@ -108,6 +112,27 @@ SOURCE_NAMES = {
     "overseas": "海外仓",
     "local": "本地仓",
 }
+SNAPSHOT_DIMENSIONS = ("GROUP", "STORE", "OWNER")
+# 定向回填只允许改这些行字段；库存、在途、库龄、目标和归属沿用原快照。
+SALES_REFRESH_ROW_FIELDS = (
+    "monthly_sales_qty",
+    "actual_achievement_amount",
+    "actual_achievement_amount_usd",
+    "target_achievement_rate",
+    "turnover_days_by_value",
+    "turnover_days_by_sku",
+    "opening_inventory_sales_ratio",
+    "usd_rate",
+    "rate_month",
+    "sales_volume_month",
+    "actual_achievement_month",
+)
+# 这些来源字段由有值变为空，说明来源正在重导，回填放弃本次覆盖。
+SALES_SOURCE_FIELDS = (
+    "monthly_sales_qty",
+    "actual_achievement_amount",
+    "usd_rate",
+)
 
 
 def rebuild_monthly_inventory_report(
@@ -292,6 +317,377 @@ def backfill_missing_monthly_inventory_snapshots() -> int:
     return len(months)
 
 
+def refresh_monthly_inventory_sales_snapshot(
+    report_month: str,
+    *,
+    trigger: str = "manual",
+    dry_run: bool = False,
+    lock_held_by_caller: bool = False,
+) -> dict[str, Any]:
+    """按页面展示月份定向回填已冻结快照里的销售字段。
+
+    展示月份即销售和汇率月份，快照分区是上一个库存月：传入2026-10，
+    读取10月销量、实际达成和USD汇率，更新stat_month=2026-09的
+    GROUP/STORE/OWNER。库存、在途、库龄、销售目标和归属只读不写。
+    """
+    sales_month = _month(report_month)
+    stat_month = _previous_month(sales_month)
+    base = {
+        "report_month": sales_month,
+        "sales_month": sales_month,
+        "stat_month": stat_month,
+        "trigger": trigger,
+        "dry_run": dry_run,
+    }
+    if dry_run:
+        snapshots = {
+            dimension: snapshot
+            for dimension in SNAPSHOT_DIMENSIONS
+            if (snapshot := repo.view_snapshot(stat_month, dimension)) is not None
+        }
+        return {**base, **_refresh_sales_snapshots(
+            stat_month, sales_month, snapshots, trigger, write=False,
+        )}
+    if lock_held_by_caller:
+        return {**base, **_refresh_sales_snapshots_in_transaction(
+            stat_month, sales_month, trigger,
+        )}
+    # Same lock as manual “计算”, source sync and purchase-order imports.
+    with performance_repo.named_lock(
+        f"inventory:monthly-report-source:{stat_month}"
+    ) as acquired:
+        if not acquired:
+            return {
+                **base,
+                "status": "locked",
+                "reason": f"{stat_month} 正在同步、计算或导入，本次未回填",
+            }
+        return {**base, **_refresh_sales_snapshots_in_transaction(
+            stat_month, sales_month, trigger,
+        )}
+
+
+def refresh_monthly_inventory_sales_snapshot_safely(
+    report_month: str, *, trigger: str, lock_held_by_caller: bool = False,
+) -> dict[str, Any]:
+    """数据源提交后调用；回填失败只记录结果，不否定已成功的数据同步。"""
+    try:
+        result = refresh_monthly_inventory_sales_snapshot(
+            report_month, trigger=trigger,
+            lock_held_by_caller=lock_held_by_caller,
+        )
+    except Exception as exc:
+        logger.exception(
+            "月度库存销售快照回填失败 report_month=%s trigger=%s",
+            report_month, trigger,
+        )
+        return {
+            "report_month": report_month,
+            "trigger": trigger,
+            "status": "failed",
+            "reason": str(exc),
+        }
+    if result["status"] not in {"refreshed", "unchanged"}:
+        logger.warning(
+            "月度库存销售快照未回填 report_month=%s trigger=%s status=%s reason=%s",
+            report_month, trigger, result["status"], result.get("reason"),
+        )
+    return result
+
+
+def _refresh_sales_snapshots_in_transaction(
+    stat_month: str, sales_month: str, trigger: str,
+) -> dict[str, Any]:
+    # Three dimensions are locked, compared and written in one transaction;
+    # any failure rolls back and leaves the previous snapshot untouched.
+    with repo.report_transaction():
+        snapshots = repo.view_snapshots_for_update(stat_month)
+        return _refresh_sales_snapshots(
+            stat_month, sales_month, snapshots, trigger, write=True,
+        )
+
+
+def _refresh_sales_snapshots(
+    stat_month: str,
+    sales_month: str,
+    snapshots: dict[str, dict[str, Any]],
+    trigger: str,
+    *,
+    write: bool,
+) -> dict[str, Any]:
+    group = snapshots.get("GROUP")
+    if group is None:
+        # Never rebuild a historical view from today's live inventory.
+        return {
+            "status": "no_snapshot",
+            "reason": f"{stat_month} 没有已保存的组别快照，未回填",
+        }
+    if group.get("historical_import"):
+        return {
+            "status": "skipped",
+            "reason": "历史Excel导入报表不自动回填",
+        }
+    for dimension, snapshot in snapshots.items():
+        if snapshot.get("report_month") not in (None, sales_month):
+            raise ValueError(
+                f"{dimension}快照展示月份{snapshot.get('report_month')}"
+                f"与回填月份{sales_month}不一致"
+            )
+    group_context = _group_sales_context(sales_month)
+    refreshed = {"GROUP": _refreshed_group_snapshot(
+        group, sales_month, group_context,
+    )}
+    for dimension in ("STORE", "OWNER"):
+        if dimension in snapshots:
+            refreshed[dimension] = _refreshed_dimension_snapshot(
+                snapshots[dimension], dimension, sales_month,
+                _dimension_sales_context(dimension, sales_month),
+            )
+    changes = [
+        change
+        for dimension, payload in refreshed.items()
+        for change in _sales_snapshot_changes(
+            dimension, snapshots[dimension], payload,
+        )
+    ]
+    pending_reasons = _sales_pending_reasons(group_context)
+    result: dict[str, Any] = {
+        "dimensions": sorted(refreshed),
+        "changed_fields": len(changes),
+        "changed_rows": len({
+            (change["dimension"], change["row"]) for change in changes
+        }),
+        "pending_reasons": pending_reasons,
+    }
+    if not write:
+        result["changes"] = changes
+    regressions = [
+        change for change in changes
+        if change["field"] in SALES_SOURCE_FIELDS
+        and change["before"] is not None and change["after"] is None
+    ]
+    if regressions:
+        # A platform that was ready before but is missing now is usually being
+        # re-imported. Keep the frozen values instead of turning them into blanks.
+        return {
+            **result,
+            "status": "source_incomplete",
+            "reason": "原快照已有销售数据但当前来源缺失，未覆盖",
+            "regressions": regressions[:20],
+        }
+    if not changes:
+        return {**result, "status": "unchanged"}
+    if not write:
+        return {**result, "status": "preview"}
+    metadata = {
+        "sales_month": sales_month,
+        "refreshed_at": datetime.now().isoformat(sep=" ", timespec="seconds"),
+        "trigger": trigger,
+        "pending_reasons": pending_reasons,
+    }
+    for payload in refreshed.values():
+        payload["sales_refresh"] = metadata
+    repo.save_view_snapshots(
+        stat_month, refreshed, touch_calculated_at=False,
+    )
+    return {
+        **result,
+        "status": "refreshed",
+        "refreshed_at": metadata["refreshed_at"],
+    }
+
+
+def _refreshed_group_snapshot(
+    snapshot: dict[str, Any], sales_month: str, context: dict[str, Any],
+) -> dict[str, Any]:
+    # US3 is a display row added after calculation; rebuild it from its two
+    # split groups instead of feeding it into totals a second time.
+    items = [
+        dict(item) for item in snapshot.get("items") or []
+        if item.get("department_code") != US3_DISPLAY_CODE
+    ]
+    _apply_group_sales_fields(items, sales_month, context)
+    computed = {"items": [_report_json_ready(item) for item in items]}
+    if any(
+        item.get("department_code") == US3_DISPLAY_CODE
+        for item in snapshot.get("items") or []
+    ):
+        computed = with_group_display_rows(computed)
+    return _merge_sales_snapshot(
+        snapshot, computed, "GROUP", sales_month, context["usd_rate"],
+    )
+
+
+def _refreshed_dimension_snapshot(
+    snapshot: dict[str, Any],
+    dimension: str,
+    sales_month: str,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    items = [dict(item) for item in snapshot.get("items") or []]
+    # Age/CTU-only OWNER rows never carried sales and are not in sales totals.
+    sales_items = [
+        item for item in items if not int(item.get("is_age_cost_only") or 0)
+    ]
+    for item in sales_items:
+        _apply_dimension_sales_fields(item, dimension, sales_month, context)
+    old_total = snapshot.get("total")
+    total = (
+        _dimension_total_item(
+            sales_items, dimension, sales_month, sales_month,
+            context["usd_rate"],
+        )
+        if old_total is not None
+        and not int(old_total.get("is_age_cost_only") or 0)
+        and sales_items
+        else old_total
+    )
+    computed = {
+        "items": [_report_json_ready(item) for item in items],
+        "total": _report_json_ready(total) if total is not None else None,
+    }
+    return _merge_sales_snapshot(
+        snapshot, computed, dimension, sales_month, context["usd_rate"],
+    )
+
+
+def _merge_sales_snapshot(
+    snapshot: dict[str, Any],
+    computed: dict[str, Any],
+    dimension: str,
+    sales_month: str,
+    usd_rate: Decimal | None,
+) -> dict[str, Any]:
+    """原快照逐行保留，只覆盖允许回填的销售字段。"""
+    computed_rows = _snapshot_rows(dimension, computed)
+    merged = dict(snapshot)
+    merged["rate_month"] = sales_month
+    merged["usd_rate"] = str(usd_rate) if usd_rate is not None else None
+    merged["items"] = [
+        _merge_sales_row(dimension, item, computed_rows)
+        for item in snapshot.get("items") or []
+    ]
+    if snapshot.get("total") is not None:
+        merged["total"] = _merge_sales_row(
+            dimension, snapshot["total"], computed_rows,
+        )
+    return merged
+
+
+def _merge_sales_row(
+    dimension: str,
+    row: dict[str, Any],
+    computed_rows: dict[tuple[Any, ...], dict[str, Any]],
+) -> dict[str, Any]:
+    key = _snapshot_row_key(dimension, row)
+    computed = computed_rows.get(key)
+    if computed is None:
+        raise ValueError(f"{dimension}快照行{key}无法重新计算，已停止回填")
+    for field, value in computed.items():
+        if (
+            field not in SALES_REFRESH_ROW_FIELDS
+            and field in row
+            and not _same_report_value(row[field], value)
+        ):
+            # Inputs come from the frozen row, so any other difference means the
+            # snapshot no longer reproduces under the current formulas.
+            raise ValueError(
+                f"{dimension}快照行{key}字段{field}重算结果"
+                f"{value}与原快照{row[field]}不一致，已停止回填"
+            )
+    merged = dict(row)
+    for field in SALES_REFRESH_ROW_FIELDS:
+        if field in computed or field in row:
+            merged[field] = computed.get(field)
+    return merged
+
+
+def _snapshot_rows(
+    dimension: str, payload: dict[str, Any],
+) -> dict[tuple[Any, ...], dict[str, Any]]:
+    rows = list(payload.get("items") or [])
+    if payload.get("total") is not None:
+        rows.append(payload["total"])
+    result: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for row in rows:
+        key = _snapshot_row_key(dimension, row)
+        if key in result:
+            raise ValueError(f"{dimension}快照存在重复行{key}，已停止回填")
+        result[key] = row
+    return result
+
+
+def _snapshot_row_key(dimension: str, row: dict[str, Any]) -> tuple[Any, ...]:
+    if dimension == "GROUP":
+        return (
+            normalize_text(row.get("department_code")).upper(),
+            int(row.get("is_total") or 0),
+        )
+    return (
+        normalize_text(row.get("platform_code")).upper(),
+        normalize_text(row.get("department_code")).upper(),
+        normalize_text(row.get("dimension_value")),
+        int(row.get("is_dimension_total") or 0),
+        int(row.get("is_age_cost_only") or 0),
+    )
+
+
+def _sales_snapshot_changes(
+    dimension: str, before: dict[str, Any], after: dict[str, Any],
+) -> list[dict[str, Any]]:
+    changes = [
+        {
+            "dimension": dimension,
+            "row": "-",
+            "field": field,
+            "before": before.get(field),
+            "after": after.get(field),
+        }
+        for field in ("rate_month", "usd_rate")
+        if not _same_report_value(before.get(field), after.get(field))
+    ]
+    after_rows = _snapshot_rows(dimension, after)
+    for key, old_row in _snapshot_rows(dimension, before).items():
+        new_row = after_rows[key]
+        for field in SALES_REFRESH_ROW_FIELDS:
+            if not _same_report_value(old_row.get(field), new_row.get(field)):
+                changes.append({
+                    "dimension": dimension,
+                    "row": "/".join(str(part) for part in key),
+                    "field": field,
+                    "before": old_row.get(field),
+                    "after": new_row.get(field),
+                })
+    return changes
+
+
+def _same_report_value(left: Any, right: Any) -> bool:
+    if left == right:
+        return True
+    if left is None or right is None:
+        return False
+    try:
+        return Decimal(str(left)) == Decimal(str(right))
+    except (InvalidOperation, ValueError):
+        return False
+
+
+def _sales_pending_reasons(context: dict[str, Any]) -> list[str]:
+    reasons = []
+    if (
+        context["amz_volume_by_department"] is None
+        or context["amz_actual_by_department"] is None
+    ):
+        reasons.append("Amazon销量及实际达成尚未同步")
+    if context["ebay_actual"] is None:
+        reasons.append("eBay月度利润尚未导入")
+    elif context["ebay_volume"] is None:
+        reasons.append("eBay销量来源缺失")
+    if context["usd_rate"] is None:
+        reasons.append("USD月度汇率缺失")
+    return reasons
+
+
 def _selected_view_month(stat_month: str | None, use_snapshot: bool) -> str | None:
     if stat_month or not use_snapshot:
         return stat_month
@@ -313,7 +709,8 @@ def get_department_summary(
     age_cost_month = _next_month(month) if month else None
     sales_volume_month = report_month
     rate_month = sales_volume_month
-    usd_rate = repo.usd_rate(rate_month) if rate_month else None
+    sales_context = _group_sales_context(sales_volume_month)
+    usd_rate = sales_context["usd_rate"]
     age_costs = (
         repo.inventory_age_group_costs(age_cost_month)
         if age_cost_month
@@ -334,25 +731,6 @@ def get_department_summary(
         for code in VALID_DEPARTMENTS
     }
     complete_age_costs = expected_groups.issubset(age_costs)
-    amz_volume_by_department: dict[str, Decimal] | None = None
-    amz_actual_by_department: dict[str, Decimal] | None = None
-    ebay_volume: Decimal | None = None
-    ebay_actual: Decimal | None = None
-    if sales_volume_month:
-        stored_amz_volumes = repo.amz_sales_volume_by_department(
-            sales_volume_month
-        )
-        if stored_amz_volumes is not None:
-            amz_volume_by_department = {
-                code: _num(stored_amz_volumes.get(code))
-                for code in VALID_DEPARTMENTS
-                if code.startswith("AMZ-")
-            }
-        ebay_volume = repo.ebay_sales_volume(sales_volume_month)
-        amz_actual_by_department = repo.amz_sales_amount_by_department(
-            sales_volume_month
-        )
-        ebay_actual = repo.ebay_sales_amount(sales_volume_month)
     items = []
     for source in data["items"]:
         item = dict(source)
@@ -440,6 +818,58 @@ def get_department_summary(
             else None
         )
         item["inventory_health_month"] = age_cost_month
+        items.append(item)
+    _apply_group_sales_fields(items, sales_volume_month, sales_context)
+    return with_group_display_rows({
+        "stat_month": month,
+        "source_stat_month": month,
+        "report_month": report_month,
+        "rate_month": rate_month,
+        "usd_rate": str(usd_rate) if usd_rate is not None else None,
+        "items": [_report_json_ready(item) for item in items],
+    })
+
+
+def _group_sales_context(sales_month: str | None) -> dict[str, Any]:
+    """GROUP销量、实际达成和汇率来源；平台值为None表示该月数据未就绪。"""
+    context: dict[str, Any] = {
+        "usd_rate": repo.usd_rate(sales_month) if sales_month else None,
+        "amz_volume_by_department": None,
+        "amz_actual_by_department": None,
+        "ebay_volume": None,
+        "ebay_actual": None,
+    }
+    if not sales_month:
+        return context
+    stored_amz_volumes = repo.amz_sales_volume_by_department(sales_month)
+    if stored_amz_volumes is not None:
+        context["amz_volume_by_department"] = {
+            code: _num(stored_amz_volumes.get(code))
+            for code in VALID_DEPARTMENTS
+            if code.startswith("AMZ-")
+        }
+    context["ebay_volume"] = repo.ebay_sales_volume(sales_month)
+    context["amz_actual_by_department"] = repo.amz_sales_amount_by_department(
+        sales_month
+    )
+    context["ebay_actual"] = repo.ebay_sales_amount(sales_month)
+    return context
+
+
+def _apply_group_sales_fields(
+    items: list[dict[str, Any]],
+    sales_volume_month: str | None,
+    context: dict[str, Any],
+) -> None:
+    """只写销售及其派生字段；库存、在途等销售目标来源字段保持只读。"""
+    rate_month = sales_volume_month
+    usd_rate = context["usd_rate"]
+    amz_volume_by_department = context["amz_volume_by_department"]
+    amz_actual_by_department = context["amz_actual_by_department"]
+    ebay_volume = context["ebay_volume"]
+    ebay_actual = context["ebay_actual"]
+    for item in items:
+        department = normalize_text(item.get("department_code")).upper()
         if int(item.get("is_total") or 0) == 1:
             department_volumes = (
                 [ebay_volume, *amz_volume_by_department.values()]
@@ -491,7 +921,6 @@ def get_department_summary(
                 and sales_target_usd != ZERO
                 else None
             )
-        items.append(item)
     detail_items = [item for item in items if int(item.get("is_total") or 0) != 1]
     total_item = next(
         (item for item in items if int(item.get("is_total") or 0) == 1),
@@ -531,14 +960,6 @@ def get_department_summary(
         total_item["rate_month"] = rate_month
         total_item["usd_rate"] = usd_rate
     _apply_report_derived_fields(items)
-    return with_group_display_rows({
-        "stat_month": month,
-        "source_stat_month": month,
-        "report_month": report_month,
-        "rate_month": rate_month,
-        "usd_rate": str(usd_rate) if usd_rate is not None else None,
-        "items": [_report_json_ready(item) for item in items],
-    })
 
 
 def get_dimension_summary(
@@ -571,6 +992,131 @@ def get_dimension_summary(
     report_month = (
         _next_month(data["stat_month"]) if data["stat_month"] else None
     )
+    rate_month = report_month
+    sales_context = _dimension_sales_context(dimension, report_month)
+    usd_rate = sales_context["usd_rate"]
+
+    age_cost_departments: set[str] = set()
+    owner_90_180, owner_180_plus = {}, {}
+    ctu_owner_costs, ctu_available = {}, False
+    if dimension == "OWNER" and report_month:
+        # Historical rows without a saved rule month keep their original
+        # source-month attribution until that report month is recalculated.
+        owner_rule_month = next(
+            (normalize_text(row.get("owner_rule_month"))
+             for row in data["items"] if row.get("owner_rule_month")),
+            data["stat_month"],
+        )
+        owner_context = _inventory_owner_context(
+            report_month, rule_month=owner_rule_month,
+        )
+        health_groups, health_stores, health_owners, health_platforms = (
+            _inventory_health_maps(
+                report_month, owner_context=owner_context,
+                snapshot_departments=age_cost_departments,
+            )
+        )
+        owner_90_180, owner_180_plus = _inventory_age_cost_by_owner(
+            report_month, owner_context=owner_context,
+        )
+        ctu_owner_costs, ctu_available = _ctu_ebay_cost_by_owner(
+            report_month, owner_context=owner_context,
+        )
+    else:
+        health_groups, health_stores, health_owners, health_platforms = (
+            _inventory_health_maps(report_month)
+            if report_month
+            else ({}, {}, {}, set())
+        )
+    items: list[dict[str, Any]] = []
+    for source in data["items"]:
+        item = dict(source)
+        item["fba_transit_inventory_amount"] = (
+            _warehouse_inventory_amount(item) + _warehouse_transit_amount(item)
+        )
+        item["next_month_opening_inventory_qty"] = (
+            _warehouse_inventory_qty(item)
+        )
+        _apply_dimension_sales_fields(
+            item, dimension, report_month, sales_context
+        )
+        department = normalize_text(item.get("department_code")).upper()
+        platform = normalize_text(item.get("platform_code")).upper()
+        dimension_value = normalize_text(item.get("dimension_value"))
+        if dimension == "STORE":
+            aged_sku_count = _num(
+                health_stores.get((department, dimension_value))
+            )
+        else:
+            aged_sku_count = _num(
+                health_owners.get((platform, department, dimension_value))
+            )
+        health_inventory_qty = _warehouse_inventory_qty(item)
+        health_available = platform in health_platforms
+        item["inventory_181_plus_sku_count"] = (
+            aged_sku_count if health_available else None
+        )
+        item["inventory_health_rate"] = (
+            aged_sku_count / health_inventory_qty
+            if health_available and health_inventory_qty != ZERO
+            else None
+        )
+        item["inventory_health_month"] = report_month
+        items.append(item)
+    total = (
+        _dimension_total_item(
+            items, dimension, report_month, rate_month, usd_rate
+        )
+        if items
+        else None
+    )
+    if dimension == "OWNER":
+        total = _attach_owner_age_costs(
+            items, total, data["stat_month"], report_month,
+            owner_90_180, owner_180_plus, age_cost_departments,
+        )
+        total = _attach_owner_ctu_costs(
+            items, total, data["stat_month"], report_month,
+            ctu_owner_costs, ctu_available,
+        )
+        # GROUP uses the same _sales_target formula on department_summary rows.
+        # Read only that source here; re-running the full GROUP service would
+        # duplicate owner-rule and warehouse-age queries in this request.
+        group_data = repo.department_summary(data["stat_month"])
+        if group_data["stat_month"] != data["stat_month"]:
+            raise ValueError("个人与组别月度库存统计月份不一致")
+        group_targets = {
+            normalize_text(row.get("department_code")).upper(): _sales_target(row)
+            for row in group_data["items"]
+            if int(row.get("is_total") or 0) != 1
+        }
+        group_values = list(group_targets.values())
+        group_total = (
+            sum(group_values, ZERO)
+            if group_values and all(value is not None for value in group_values)
+            else None
+        )
+        for item in items:
+            department = normalize_text(item.get("department_code")).upper()
+            item["group_sales_target_usd"] = group_targets.get(department)
+        if total is not None:
+            total["group_sales_target_usd"] = group_total
+    return {
+        "stat_month": data["stat_month"],
+        "source_stat_month": data["stat_month"],
+        "report_month": report_month,
+        "rate_month": rate_month,
+        "usd_rate": str(usd_rate) if usd_rate is not None else None,
+        "dimension_type": dimension,
+        "total": _report_json_ready(total) if total is not None else None,
+        "items": [_report_json_ready(item) for item in items],
+    }
+
+
+def _dimension_sales_context(
+    dimension: str, report_month: str | None,
+) -> dict[str, Any]:
+    """STORE/OWNER销售来源；平台不在*_platforms中表示该月数据未就绪。"""
     rate_month = report_month
     usd_rate = repo.usd_rate(rate_month) if rate_month else None
     actual_platforms: set[str] = set()
@@ -647,161 +1193,68 @@ def get_dimension_summary(
                 volume_by_owner[("EBAY", "EBAY-1", principal)] += _num(
                     volume_row.get("sales_volume")
                 )
+    return {
+        "usd_rate": usd_rate,
+        "actual_platforms": actual_platforms,
+        "sales_by_owner": sales_by_owner,
+        "sales_by_store": sales_by_store,
+        "volume_platforms": volume_platforms,
+        "volume_by_store": volume_by_store,
+        "volume_by_owner": volume_by_owner,
+    }
 
-    age_cost_departments: set[str] = set()
-    owner_90_180, owner_180_plus = {}, {}
-    ctu_owner_costs, ctu_available = {}, False
-    if dimension == "OWNER" and report_month:
-        # Historical rows without a saved rule month keep their original
-        # source-month attribution until that report month is recalculated.
-        owner_rule_month = next(
-            (normalize_text(row.get("owner_rule_month"))
-             for row in data["items"] if row.get("owner_rule_month")),
-            data["stat_month"],
-        )
-        owner_context = _inventory_owner_context(
-            report_month, rule_month=owner_rule_month,
-        )
-        health_groups, health_stores, health_owners, health_platforms = (
-            _inventory_health_maps(
-                report_month, owner_context=owner_context,
-                snapshot_departments=age_cost_departments,
-            )
-        )
-        owner_90_180, owner_180_plus = _inventory_age_cost_by_owner(
-            report_month, owner_context=owner_context,
-        )
-        ctu_owner_costs, ctu_available = _ctu_ebay_cost_by_owner(
-            report_month, owner_context=owner_context,
+
+def _apply_dimension_sales_fields(
+    item: dict[str, Any],
+    dimension: str,
+    report_month: str | None,
+    context: dict[str, Any],
+) -> None:
+    """写入单行销售字段及派生指标；库存与在途字段只读。"""
+    usd_rate = context["usd_rate"]
+    sales_target_usd = _sales_target(item)
+    department = normalize_text(item.get("department_code")).upper()
+    platform = normalize_text(item.get("platform_code")).upper()
+    dimension_value = normalize_text(item.get("dimension_value"))
+    if dimension == "STORE":
+        sales_key = (department, dimension_value)
+        actual = _num(context["sales_by_store"].get(sales_key))
+        monthly_sales_qty = (
+            _num(context["volume_by_store"].get(sales_key))
+            if platform in context["volume_platforms"]
+            else None
         )
     else:
-        health_groups, health_stores, health_owners, health_platforms = (
-            _inventory_health_maps(report_month)
-            if report_month
-            else ({}, {}, {}, set())
-        )
-    items: list[dict[str, Any]] = []
-    for source in data["items"]:
-        item = dict(source)
-        inventory_amount = _warehouse_inventory_amount(item)
-        transit_amount = _warehouse_transit_amount(item)
-        sales_target_usd = _sales_target(item)
-        department = normalize_text(item.get("department_code")).upper()
-        platform = normalize_text(item.get("platform_code")).upper()
-        dimension_value = normalize_text(item.get("dimension_value"))
-        if dimension == "STORE":
-            sales_key = (department, dimension_value)
-            actual = _num(sales_by_store.get(sales_key))
-            monthly_sales_qty = (
-                _num(volume_by_store.get(sales_key))
-                if platform in volume_platforms
-                else None
-            )
-        else:
-            sales_key = (platform, department, dimension_value)
-            actual = _num(sales_by_owner.get(sales_key))
-            monthly_sales_qty = (
-                _num(volume_by_owner.get(sales_key))
-                if platform in volume_platforms
-                else None
-            )
-        item["fba_transit_inventory_amount"] = (
-            inventory_amount + transit_amount
-        )
-        item["sales_target_amount"] = sales_target_usd
-        item["sales_target_usd"] = sales_target_usd
-        actual_available = platform in actual_platforms
-        item["actual_achievement_amount"] = (
-            actual if actual_available else None
-        )
-        actual_amount_usd = (
-            _usd_amount(actual, usd_rate) if actual_available else None
-        )
-        item["actual_achievement_amount_usd"] = actual_amount_usd
-        item["rate_month"] = rate_month
-        item["usd_rate"] = usd_rate
-        item["target_achievement_rate"] = (
-            actual_amount_usd / sales_target_usd
-            if actual_amount_usd is not None
-            and sales_target_usd is not None
-            and sales_target_usd != ZERO
+        sales_key = (platform, department, dimension_value)
+        actual = _num(context["sales_by_owner"].get(sales_key))
+        monthly_sales_qty = (
+            _num(context["volume_by_owner"].get(sales_key))
+            if platform in context["volume_platforms"]
             else None
         )
-        item["actual_achievement_month"] = report_month
-        item["sales_volume_month"] = report_month
-        item["next_month_opening_inventory_qty"] = (
-            _warehouse_inventory_qty(item)
-        )
-        item["monthly_sales_qty"] = monthly_sales_qty
-        if dimension == "STORE":
-            aged_sku_count = _num(
-                health_stores.get((department, dimension_value))
-            )
-        else:
-            aged_sku_count = _num(
-                health_owners.get((platform, department, dimension_value))
-            )
-        health_inventory_qty = _warehouse_inventory_qty(item)
-        health_available = platform in health_platforms
-        item["inventory_181_plus_sku_count"] = (
-            aged_sku_count if health_available else None
-        )
-        item["inventory_health_rate"] = (
-            aged_sku_count / health_inventory_qty
-            if health_available and health_inventory_qty != ZERO
-            else None
-        )
-        item["inventory_health_month"] = report_month
-        _apply_detail_report_derived_fields(item)
-        items.append(item)
-    total = (
-        _dimension_total_item(
-            items, dimension, report_month, rate_month, usd_rate
-        )
-        if items
+    item["sales_target_amount"] = sales_target_usd
+    item["sales_target_usd"] = sales_target_usd
+    actual_available = platform in context["actual_platforms"]
+    item["actual_achievement_amount"] = actual if actual_available else None
+    actual_amount_usd = (
+        _usd_amount(actual, usd_rate) if actual_available else None
+    )
+    item["actual_achievement_amount_usd"] = actual_amount_usd
+    item["rate_month"] = report_month
+    item["usd_rate"] = usd_rate
+    item["target_achievement_rate"] = (
+        actual_amount_usd / sales_target_usd
+        if actual_amount_usd is not None
+        and sales_target_usd is not None
+        and sales_target_usd != ZERO
         else None
     )
-    if dimension == "OWNER":
-        total = _attach_owner_age_costs(
-            items, total, data["stat_month"], report_month,
-            owner_90_180, owner_180_plus, age_cost_departments,
-        )
-        total = _attach_owner_ctu_costs(
-            items, total, data["stat_month"], report_month,
-            ctu_owner_costs, ctu_available,
-        )
-        # GROUP uses the same _sales_target formula on department_summary rows.
-        # Read only that source here; re-running the full GROUP service would
-        # duplicate owner-rule and warehouse-age queries in this request.
-        group_data = repo.department_summary(data["stat_month"])
-        if group_data["stat_month"] != data["stat_month"]:
-            raise ValueError("个人与组别月度库存统计月份不一致")
-        group_targets = {
-            normalize_text(row.get("department_code")).upper(): _sales_target(row)
-            for row in group_data["items"]
-            if int(row.get("is_total") or 0) != 1
-        }
-        group_values = list(group_targets.values())
-        group_total = (
-            sum(group_values, ZERO)
-            if group_values and all(value is not None for value in group_values)
-            else None
-        )
-        for item in items:
-            department = normalize_text(item.get("department_code")).upper()
-            item["group_sales_target_usd"] = group_targets.get(department)
-        if total is not None:
-            total["group_sales_target_usd"] = group_total
-    return {
-        "stat_month": data["stat_month"],
-        "source_stat_month": data["stat_month"],
-        "report_month": report_month,
-        "rate_month": rate_month,
-        "usd_rate": str(usd_rate) if usd_rate is not None else None,
-        "dimension_type": dimension,
-        "total": _report_json_ready(total) if total is not None else None,
-        "items": [_report_json_ready(item) for item in items],
-    }
+    item["actual_achievement_month"] = report_month
+    item["sales_volume_month"] = report_month
+    item["monthly_sales_qty"] = monthly_sales_qty
+    _apply_detail_report_derived_fields(item)
+
+
 def list_details(
     source_type: str,
     stat_month: str | None = None,

@@ -27,8 +27,15 @@ def db_connection():
 @contextmanager
 def purchase_order_transaction():
     """Publish API cache, monthly rows and rendered views in one transaction."""
+    with report_transaction("采购在途事务不能嵌套") as connection:
+        yield connection
+
+
+@contextmanager
+def report_transaction(nested_error: str = "月度库存报表事务不能嵌套"):
+    """Share one connection so every repository write commits together."""
     if _report_transaction.get() is not None:
-        raise RuntimeError("采购在途事务不能嵌套")
+        raise RuntimeError(nested_error)
     with db_connection() as connection:
         connection.begin()
         token = _report_transaction.set(connection)
@@ -452,16 +459,35 @@ def view_snapshot(stat_month: str, dimension_type: str) -> dict[str, Any] | None
         return json.loads(row["payload_json"]) if row else None
 
 
+def view_snapshots_for_update(stat_month: str) -> dict[str, dict[str, Any]]:
+    """Lock one month's three views; call inside report_transaction()."""
+    if _report_transaction.get() is None:
+        raise RuntimeError("锁定月度库存快照必须在报表事务内执行")
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT dimension_type,payload_json "
+            "FROM monthly_inventory_report_view_snapshot "
+            "WHERE stat_month=%s FOR UPDATE",
+            (stat_month,),
+        )
+        return {
+            str(row["dimension_type"]): json.loads(row["payload_json"])
+            for row in cursor.fetchall()
+        }
+
+
 def save_view_snapshots(
     stat_month: str,
     payloads: dict[str, dict[str, Any]],
     *,
     only_missing: bool = False,
+    touch_calculated_at: bool = True,
 ) -> None:
+    """touch_calculated_at=False keeps the original calculation time."""
     operation = "INSERT IGNORE" if only_missing else "INSERT"
     update = "" if only_missing else (
-        " ON DUPLICATE KEY UPDATE payload_json=VALUES(payload_json), "
-        "calculated_at=CURRENT_TIMESTAMP"
+        " ON DUPLICATE KEY UPDATE payload_json=VALUES(payload_json)"
+        + (", calculated_at=CURRENT_TIMESTAMP" if touch_calculated_at else "")
     )
     with db_connection() as connection:
         try:

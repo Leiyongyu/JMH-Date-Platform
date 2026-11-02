@@ -13,6 +13,9 @@ from backend.services.import_service import (
     import_foreign_exchange_receipts,
     import_purchase_invoice_summary,
 )
+from backend.services.inventory_report_etl_service import (
+    refresh_monthly_inventory_sales_snapshot,
+)
 from backend.services.lingxing_service import probe, refresh_token, token_status
 
 
@@ -49,6 +52,33 @@ def _run_migration_command(args) -> None:
                 print(f"  {version}")
 
 
+def _run_inventory_sales_refresh(args) -> None:
+    result = refresh_monthly_inventory_sales_snapshot(
+        args.report_month, trigger="cli", dry_run=args.dry_run,
+    )
+    changes = result.get("changes", [])
+    if args.output:
+        Path(args.output).write_text(
+            json.dumps(result, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+    print(
+        f"展示月份 {result['report_month']} -> 快照 {result['stat_month']}："
+        f"{result['status']}，变更 {result.get('changed_rows', 0)} 行 / "
+        f"{result.get('changed_fields', 0)} 个字段"
+    )
+    for text in (result.get("reason"), *result.get("pending_reasons", [])):
+        if text:
+            print(f"  提示：{text}")
+    # 组别页面全部列出；店铺和个人行数多，完整差异看 --output 文件。
+    for change in changes:
+        if change["dimension"] == "GROUP":
+            print(
+                f"  GROUP {change['row']:<22} {change['field']:<32} "
+                f"{change['before']} -> {change['after']}"
+            )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="退税Excel数据库工具")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -69,6 +99,17 @@ def main() -> None:
             )
         if command == "db-migrate":
             command_parser.add_argument("--dry-run", action="store_true", help="只列出将执行的迁移")
+    refresh_parser = subparsers.add_parser(
+        "inventory-sales-refresh",
+        help="按页面展示月份回填月度库存快照的销售及关联指标",
+    )
+    refresh_parser.add_argument(
+        "--report-month", required=True, help="页面展示月份，如 2026-10",
+    )
+    refresh_parser.add_argument(
+        "--dry-run", action="store_true", help="只生成回填前后差异，不写库",
+    )
+    refresh_parser.add_argument("--output", help="把完整差异写入该JSON文件")
     subparsers.add_parser("export-final", help="执行保留的最终模板生成逻辑")
     token_parser = subparsers.add_parser("lingxing-token", help="查看或刷新领星Token")
     token_parser.add_argument("--show", action="store_true", help="查看Token状态")
@@ -91,6 +132,9 @@ def main() -> None:
         return
     if args.command in {"db-status", "db-baseline", "db-migrate"}:
         _run_migration_command(args)
+        return
+    if args.command == "inventory-sales-refresh":
+        _run_inventory_sales_refresh(args)
         return
     if args.command == "export-final":
         result = generate_final_package()

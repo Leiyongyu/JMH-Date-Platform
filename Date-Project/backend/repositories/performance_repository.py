@@ -784,6 +784,23 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
             INSERT INTO scheduler_task (
                 task_code, task_name, cron_expression, enabled, description
             ) VALUES (
+                'monthly_inventory_report_sales_snapshot_refresh',
+                '月度库存上月销售回填补偿',
+                '0 0 13 * * ?',
+                1,
+                '每天13:00用已入库的上月Amazon/eBay销量、实际达成和USD汇率回填上月报表快照，只改销售及关联指标，不调用领星接口'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
                 'monthly_inventory_report_opening_inventory_fill',
                 '月度库存次月月初库存填充',
                 '0 0 23 2 * ?',

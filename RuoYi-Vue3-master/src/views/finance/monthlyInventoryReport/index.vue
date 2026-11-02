@@ -139,6 +139,16 @@
         show-icon
       />
 
+      <el-alert
+        v-if="salesRefresh"
+        class="purchase-order-sync-status"
+        :type="salesRefreshPending.length ? 'warning' : 'info'"
+        :closable="false"
+        :title="`销售数据更新时间：${salesRefresh.refreshed_at || '-'}`"
+        :description="salesRefreshPending.length ? `待补齐：${salesRefreshPending.join('；')}` : ''"
+        show-icon
+      />
+
       <div class="dimension-switch">
         <el-radio-group v-model="activeDimension" @change="loadSummary">
           <el-radio-button v-if="canViewGroup" value="group">组别</el-radio-button>
@@ -502,6 +512,9 @@ const allowedDimensions = computed(() => [
 const summaryRows = ref([])
 const dimensionRows = ref([])
 const dimensionTotalRow = ref(null)
+// 后台定向回填快照销售字段后记录的更新时间和待补齐原因。
+const salesRefresh = ref(null)
+const salesRefreshPending = computed(() => salesRefresh.value?.pending_reasons || [])
 const periodsLoading = ref(false)
 const summaryLoading = ref(false)
 const calculating = ref(false)
@@ -877,10 +890,12 @@ async function loadSummary() {
     return
   }
   summaryLoading.value = true
+  salesRefresh.value = null
   try {
     if (activeDimension.value === 'group') {
       const response = await getMonthlyInventorySummary(sourceStatMonth.value)
       summaryRows.value = response.data?.items || []
+      salesRefresh.value = response.data?.sales_refresh || null
       dimensionRows.value = []
       dimensionTotalRow.value = null
     } else {
@@ -891,6 +906,7 @@ async function loadSummary() {
       )
       dimensionRows.value = response.data?.items || []
       dimensionTotalRow.value = response.data?.total || null
+      salesRefresh.value = response.data?.sales_refresh || null
       summaryRows.value = []
     }
   } finally {

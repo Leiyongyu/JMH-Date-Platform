@@ -276,6 +276,12 @@ def test_day_2_sales_volume_defaults_to_previous_month_and_only_rebuilds_amz_dwd
         "rebuild_monthly_inventory_report",
         lambda _month: pytest.fail("11日销量任务不应重建完整库存报表"),
     )
+    refreshed = []
+    monkeypatch.setattr(
+        service,
+        "refresh_monthly_inventory_sales_snapshot_safely",
+        lambda month, **_kwargs: refreshed.append(month) or {"status": "refreshed"},
+    )
 
     result = sync_monthly_inventory_sales_volume()
 
@@ -286,3 +292,5 @@ def test_day_2_sales_volume_defaults_to_previous_month_and_only_rebuilds_amz_dwd
     assert result["dwd_rows"] == 1
     assert result["inserted_rows"] == 2
     assert result["deleted_rows"] == 4
+    assert refreshed == ["2026-08"]
+    assert result["report_refresh"] == {"status": "refreshed"}

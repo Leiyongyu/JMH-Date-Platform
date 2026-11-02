@@ -30,6 +30,8 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
             "monthly_inventory_report_sales_volume_sync";
     private static final String INVENTORY_REPORT_OPENING_INVENTORY_TASK =
             "monthly_inventory_report_opening_inventory_fill";
+    private static final String INVENTORY_REPORT_SALES_SNAPSHOT_REFRESH_TASK =
+            "monthly_inventory_report_sales_snapshot_refresh";
     private static final String CURRENCY_MONTH_TASK =
             "currency_month_sync";
     private static final String GOODCANG_STORAGE_TASK =
@@ -148,6 +150,15 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
     {
         return run(
                 INVENTORY_REPORT_OPENING_INVENTORY_TASK,
+                statMonth,
+                requestId);
+    }
+
+    public Map<String, Object> runInventoryReportSalesSnapshotRefresh(
+            String statMonth, String requestId)
+    {
+        return run(
+                INVENTORY_REPORT_SALES_SNAPSHOT_REFRESH_TASK,
                 statMonth,
                 requestId);
     }

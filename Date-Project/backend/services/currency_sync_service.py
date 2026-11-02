@@ -9,6 +9,9 @@ from uuid import uuid4
 
 from backend.integrations.lingxing.domains.currency import LingXingCurrencyDomain
 from backend.repositories import currency_repository as repo
+from backend.services.inventory_report_etl_service import (
+    refresh_monthly_inventory_sales_snapshot_safely,
+)
 
 
 RATE_LIMIT_INTERVAL_SECONDS = 1.1
@@ -63,6 +66,15 @@ def sync_currency_month(
         "skipped_rows": len(rows) - len(payload),
         "synced_at": synced_at,
     }
+
+
+def sync_currency_month_and_refresh_report(rate_month: str) -> dict:
+    """独立汇率任务：汇率写入后刷新以该月为销售月的月度库存快照金额。"""
+    result = sync_currency_month(rate_month)
+    result["report_refresh"] = refresh_monthly_inventory_sales_snapshot_safely(
+        result["rate_month"], trigger="currency_sync",
+    )
+    return result
 
 
 def sync_inventory_currency_rates(

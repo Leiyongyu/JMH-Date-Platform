@@ -17,6 +17,8 @@ from backend.services.currency_sync_service import sync_inventory_currency_rates
 from backend.services.inventory_report_etl_service import (
     rebuild_monthly_inventory_amz_sales,
     rebuild_monthly_inventory_report,
+    refresh_monthly_inventory_sales_snapshot,
+    refresh_monthly_inventory_sales_snapshot_safely,
 )
 from backend.schemas.inventory_report_source_fields import (
     FBA_SOURCE_FIELDS,
@@ -31,6 +33,8 @@ TASK_CODE = "monthly_inventory_report_source_sync"
 TASK_NAME = "月度库存统计表数据拉取"
 SALES_VOLUME_TASK_CODE = "monthly_inventory_report_sales_volume_sync"
 SALES_VOLUME_TASK_NAME = "月度库存实际达成及销量填充"
+SALES_SNAPSHOT_REFRESH_TASK_CODE = "monthly_inventory_report_sales_snapshot_refresh"
+SALES_SNAPSHOT_REFRESH_TASK_NAME = "月度库存上月销售回填补偿"
 
 FBA_PATH = "cost/center/openApi/fba/detail/query"
 OVERSEAS_PATH = "inventory/center/openapi/storageReport/overseas/detail/page"
@@ -192,6 +196,16 @@ def sync_monthly_inventory_report_sources(stat_month: str | None = None) -> dict
         ) from exc
 
     metrics["etl"] = etl_result
+    # The rates were committed before the rebuild. The scheduler already holds
+    # this month's report lock, so that view is refreshed under the same lock.
+    metrics["report_refresh"] = [
+        refresh_monthly_inventory_sales_snapshot_safely(
+            rate_month,
+            trigger="inventory_source_sync",
+            lock_held_by_caller=rate_month == _next_month(month),
+        )
+        for rate_month in (metrics["currency_rates"] or {}).get("rate_months", [])
+    ]
     metrics["dwd_rows"] = (
         etl_result["fba_detail_rows"]
         + etl_result["overseas_detail_rows"]
@@ -286,6 +300,9 @@ def sync_monthly_inventory_order_profit(
                 metrics,
             ) from exc
     metrics["etl"] = etl_result
+    metrics["report_refresh"] = refresh_monthly_inventory_sales_snapshot_safely(
+        month, trigger="order_profit_sync",
+    )
     metrics["dwd_rows"] = etl_result["dwd_rows"]
     metrics["inserted_rows"] = (
         replace_stats["inserted_rows"] + etl_result["dwd_rows"]
@@ -374,8 +391,45 @@ def sync_monthly_inventory_sales_volume(
         replace_stats["deleted_rows"] + dwd_result["deleted_rows"]
     )
     metrics["skipped_rows"] = skipped
-    # 报表按“库存月份+1”展示；2日仅更新上个完整自然月的实际达成和销量DWD。
+    # 报表按“库存月份+1”展示：DWD已提交后，把本销售月回填进上一库存月的
+    # 已保存快照。回填结果单独记录，失败由每日补偿任务重试，不否定销量同步。
+    metrics["report_refresh"] = refresh_monthly_inventory_sales_snapshot_safely(
+        month, trigger="sales_volume_sync",
+    )
     return {**metrics, "status": "completed"}
+
+
+def refresh_previous_month_sales_snapshot(
+    stat_month: str | None = None,
+) -> dict[str, Any]:
+    """每日补偿：只用已入库的销量、利润和汇率回填上月报表，不调用领星。"""
+    month = stat_month or _month_scope(None)[0]
+    metrics: dict[str, Any] = {
+        "stat_month": month,
+        "sync_batch_id": None,
+        "extract_rows": 0,
+        "ods_rows": 0,
+    }
+    try:
+        result = refresh_monthly_inventory_sales_snapshot(
+            month, trigger="daily_compensation",
+        )
+    except Exception as exc:
+        raise InventoryReportSourceSyncError(
+            "SALES_SNAPSHOT_REFRESH",
+            f"{month} 月度库存销售快照回填失败，原快照保持不变: {exc}",
+            metrics,
+        ) from exc
+    if result["status"] == "locked":
+        raise InventoryReportSourceSyncError(
+            "LOCK", result["reason"], metrics,
+        )
+    return {
+        **metrics,
+        "report_refresh": result,
+        "updated_rows": result.get("changed_rows", 0),
+        "status": "completed",
+    }
 
 
 def _require_non_empty_extract(
@@ -686,6 +740,11 @@ def _ensure_success(response: Any, name: str) -> None:
             f"message={response.get('message') or response.get('msg')}, "
             f"error_details={response.get('error_details')}"
         )
+
+
+def _next_month(stat_month: str) -> str:
+    year, month = (int(part) for part in stat_month.split("-", 1))
+    return f"{year + 1:04d}-01" if month == 12 else f"{year:04d}-{month + 1:02d}"
 
 
 def _month_scope(
