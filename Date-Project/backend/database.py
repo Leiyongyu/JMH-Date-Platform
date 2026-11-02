@@ -370,12 +370,15 @@ def _ensure_performance_request_id_columns(cursor) -> None:
         )
 
 
-def _connect(database: str | None = None) -> Connection:
+def _connect(database: str | None = None, *, migrator: bool = False) -> Connection:
+    user, password = settings.mysql_user, settings.mysql_password
+    if migrator and settings.mysql_migrator_user:
+        user, password = settings.mysql_migrator_user, settings.mysql_migrator_password
     return pymysql.connect(
         host=settings.mysql_host,
         port=settings.mysql_port,
-        user=settings.mysql_user,
-        password=settings.mysql_password,
+        user=user,
+        password=password,
         database=database,
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
@@ -547,8 +550,22 @@ def _ensure_image_sop_owner_columns(cursor) -> None:
 
 
 def init_database() -> None:
+    """运行期入口：默认不执行 DDL，结构变更统一走 ``cli db-migrate``。
+
+    仅当 ``DATABASE_AUTO_MIGRATE=true``（本地开发/测试库）时才重放历史建表脚本。
+    """
+    if settings.database_auto_migrate:
+        bootstrap_legacy_schema()
+
+
+def bootstrap_legacy_schema() -> None:
+    """重放迁移版本管理上线前、启动时一直自动执行的建表脚本与补列逻辑。
+
+    全部语句幂等；供 ``cli init-db`` 初始化全新环境和 ``cli db-baseline`` 冻结存量环境使用。
+    此列表已冻结，新的结构变更请新增 ``migrations/YYYYMMDD_*.sql`` 并执行 db-migrate。
+    """
     database_name = settings.mysql_database.replace("`", "``")
-    connection = _connect()
+    connection = _connect(migrator=True)
     try:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -590,7 +607,7 @@ def init_database() -> None:
         for path in schema_files
         if path.exists()
     )
-    connection = _connect(settings.mysql_database)
+    connection = _connect(settings.mysql_database, migrator=True)
     try:
         with connection.cursor() as cursor:
             for statement in split_sql_statements(schema):

@@ -367,6 +367,25 @@ public class PerformancePythonClient extends PythonHttpSupport
                 params, file, requestId, idempotencyKey);
     }
 
+    public Map<String, Object> syncMonthlyInventoryPurchaseOrder(String requestId)
+    {
+        try
+        {
+            return sendJson(baseRequest("/monthly-inventory-report/purchase-order-syncs", requestId)
+                    .POST(HttpRequest.BodyPublishers.noBody()).build(), false);
+        }
+        catch (Exception e) { throw asRuntime(e); }
+    }
+
+    public Map<String, Object> monthlyInventoryPurchaseOrderStatus(
+            String statMonth, String syncRequestId, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("stat_month", statMonth);
+        params.put("sync_request_id", syncRequestId);
+        return get("/monthly-inventory-report/purchase-order-sync-status", params, requestId);
+    }
+
     public Map<String, Object> amzSopAfterSalesSummary(
             Map<String, ?> params, String requestId)
     {

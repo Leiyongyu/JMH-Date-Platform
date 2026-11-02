@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from shutil import copy2
 
 import pytest
 from fastapi import HTTPException
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font
 
 from backend.ebay_tool import app as tool
 
@@ -122,14 +122,47 @@ def test_unmatched_input_does_not_fall_back_to_raw_oe(mapping):
         ))
 
 
-def test_real_mapping_workbook_is_four_column_source():
-    source = Path(tool.SKU_OE_FILE)
-    assert source.exists()
-    tool.load_sku_oe_map()
+# 测试用固定映射表，不依赖业务人员会持续编辑的真实 SKU主OE对照表.xlsx。
+SAMPLE_ROWS = [
+    ("10144US", "7L6616403B"),
+    ("10144UK", "7L6616403B-UK"),
+    ("10141US", "8K0616039"),
+    ("10141UK", "8K0616039-UK"),
+    ("50244US", None),
+    ("30532US", "SAME-OE"),
+]
+
+
+def _write_sample_workbook(path: Path) -> Path:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["中间码+站点", "中间码", "站点", "OE号"])
+    for index, (key, oe) in enumerate(SAMPLE_ROWS, start=2):
+        sheet.append([key, f"=LEFT(A{index},LEN(A{index})-2)", f"=RIGHT(A{index},2)", oe])
+        sheet.cell(index, 1).font = Font(name="Arial", bold=True)
+    workbook.save(path)
+    return path
+
+
+def _isolate_mapping_state(monkeypatch):
+    for name in ("_site_key_oe_map", "_sku_oe_map", "_middle_code_oe_map", "_custom_middle_codes", "_mapping_schema"):
+        monkeypatch.setattr(tool, name, getattr(tool, name))
+
+
+@pytest.fixture
+def sample_workbook(tmp_path, monkeypatch):
+    path = _write_sample_workbook(tmp_path / "SKU主OE对照表.xlsx")
+    monkeypatch.setattr(tool, "SKU_OE_FILE", str(path))
+    _isolate_mapping_state(monkeypatch)
+    assert tool.load_sku_oe_map()
+    return path
+
+
+def test_mapping_workbook_is_four_column_source(sample_workbook):
     assert tool._mapping_schema == "site_key"
     assert tool._site_key_oe_map["10144US"] == ("10144", "us", "7L6616403B")
     assert tool._site_key_oe_map["50244US"][2] == ""
-    assert len(tool._site_key_oe_map) >= 1000
+    assert len(tool._site_key_oe_map) == len(SAMPLE_ROWS)
     listing = run_immediate(tool.api_sku_list())
     assert listing["readOnly"] is False
     assert listing["siteKeyMode"] is True
@@ -140,15 +173,8 @@ def test_real_mapping_workbook_is_four_column_source():
 
 
 @pytest.fixture
-def editable_copy(tmp_path, monkeypatch):
-    source = Path(tool.SKU_OE_FILE)
-    copy_path = tmp_path / source.name
-    copy2(source, copy_path)
-    monkeypatch.setattr(tool, "SKU_OE_FILE", str(copy_path))
-    for name in ("_site_key_oe_map", "_sku_oe_map", "_middle_code_oe_map", "_custom_middle_codes", "_mapping_schema"):
-        monkeypatch.setattr(tool, name, getattr(tool, name))
-    assert tool.load_sku_oe_map()
-    return copy_path
+def editable_copy(sample_workbook):
+    return sample_workbook
 
 
 def test_add_and_edit_preserve_four_columns_formulas_and_styles(editable_copy):
@@ -218,22 +244,22 @@ def test_add_update_api_and_specific_query_errors(editable_copy):
     with pytest.raises(HTTPException, match="OE 号为空"):
         run_immediate(tool.api_scrape(nkw="50244US", input_type="site_key", **options()))
 
-def test_excel_query_reads_first_column_as_site_keys():
-    content = Path(tool.SKU_OE_FILE).read_bytes()
+def test_excel_query_reads_first_column_as_site_keys(sample_workbook):
+    content = sample_workbook.read_bytes()
     keys, kind, total, _, _ = tool._parse_excel_keywords_from_bytes(
         content, "SKU主OE对照表.xlsx", site_key_mode=True
     )
     assert kind == "site_key"
-    assert total >= 1000
+    assert total == len(SAMPLE_ROWS)
     assert "10141US" in keys and "10141UK" in keys
 
 
-def test_excel_endpoint_uses_site_mapping_without_manual_site(monkeypatch):
+def test_excel_endpoint_uses_site_mapping_without_manual_site(sample_workbook, monkeypatch):
     class Upload:
         filename = "query.xlsx"
 
         async def read(self):
-            return Path(tool.SKU_OE_FILE).read_bytes()
+            return sample_workbook.read_bytes()
 
     received = []
     monkeypatch.setattr(tool, "_start_search_task", lambda *a, **kw: (received.append((a, kw)) or {"ok": True}))

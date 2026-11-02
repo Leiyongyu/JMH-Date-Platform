@@ -15,5 +15,5 @@ test('calculate rebuilds only the selected report month from its source month', 
   assert.match(handler, /const calculationMonth = sourceStatMonth\.value/)
   assert.match(handler, /rebuildMonthlyInventoryReport\(calculationMonth\)/)
   assert.doesNotMatch(handler, /currentNaturalMonth\(\)|previousNaturalMonth\(/)
-  assert.match(view, /:disabled="!sourceStatMonth"/)
+  assert.match(view, /:disabled="!sourceStatMonth[ "]/)
 })

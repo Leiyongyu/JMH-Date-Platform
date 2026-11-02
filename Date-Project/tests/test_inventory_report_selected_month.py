@@ -53,6 +53,8 @@ def test_manual_rebuild_preserves_sales_detail_used_by_previous_report(monkeypat
 
 def test_calculate_endpoint_requests_sales_preservation(monkeypatch):
     calls = []
+    monkeypatch.setattr(finance.purchase_order_jobs, "report_write",
+                        lambda month, action, *args, **kwargs: action(*args, **kwargs))
     monkeypatch.setattr(
         finance, "rebuild_monthly_inventory_report",
         lambda month, *, preserve_sales_detail: (

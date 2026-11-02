@@ -121,6 +121,11 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run(INVENTORY_REPORT_SOURCE_TASK, statMonth, requestId);
     }
 
+    public Map<String, Object> runInventoryPurchaseOrders(String requestId)
+    {
+        return run("monthly_inventory_purchase_order_sync", null, requestId);
+    }
+
     public Map<String, Object> runInventoryReportSalesVolume(
             String statMonth, String requestId)
     {

@@ -836,6 +836,11 @@ def import_inventory_report_purchase_order(
         _month(stat_month),
         operator,
     )
+    return publish_inventory_report_purchase_order(parsed)
+
+
+def publish_inventory_report_purchase_order(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Shared Excel/API assignment and report calculation rules."""
     month = parsed["stat_month"]
     report_month = _next_month(month)
     owner_rows = _dimension_summaries(

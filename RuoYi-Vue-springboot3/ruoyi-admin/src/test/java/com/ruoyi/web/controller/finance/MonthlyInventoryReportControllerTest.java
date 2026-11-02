@@ -18,6 +18,25 @@ import static org.mockito.Mockito.*;
 
 class MonthlyInventoryReportControllerTest
 {
+    @Test
+    void purchaseOrderSyncReturnsBackgroundJobAndStatus() throws Exception
+    {
+        var client = mock(PerformancePythonClient.class);
+        var controller = new MonthlyInventoryReportController(client, mock(PermissionService.class));
+        when(client.syncMonthlyInventoryPurchaseOrder("request-1"))
+                .thenReturn(Map.of("data", Map.of("request_id", "job-1", "status", "queued")));
+        assertEquals(Map.of("request_id", "job-1", "status", "queued"),
+                controller.syncPurchaseOrder("request-1").get("data"));
+        when(client.monthlyInventoryPurchaseOrderStatus("2026-10", "job-1", "request-2"))
+                .thenReturn(Map.of("data", Map.of("running", true)));
+        assertEquals(Map.of("running", true),
+                controller.purchaseOrderSyncStatus("2026-10", "job-1", "request-2").get("data"));
+        for (var method : List.of(
+                MonthlyInventoryReportController.class.getMethod("syncPurchaseOrder", String.class),
+                MonthlyInventoryReportController.class.getMethod("purchaseOrderSyncStatus", String.class, String.class, String.class)))
+            assertTrue(method.getAnnotation(PreAuthorize.class).value().contains("monthlyInventoryReport:edit"));
+    }
+
     @AfterEach
     void clearSecurityContext()
     {

@@ -267,6 +267,27 @@ public class MonthlyInventoryReportController extends BaseController
         }
     }
 
+    @Log(title = "月度库存采购在途接口同步", businessType = BusinessType.UPDATE)
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:edit')")
+    @PostMapping("/purchase-order-sync")
+    public AjaxResult syncPurchaseOrder(
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        try { return success(data(pythonClient.syncMonthlyInventoryPurchaseOrder(requestId))); }
+        catch (Exception e) { return error(e.getMessage()); }
+    }
+
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:edit')")
+    @GetMapping("/purchase-order-sync-status")
+    public AjaxResult purchaseOrderSyncStatus(
+            @RequestParam(required = false) String statMonth,
+            @RequestParam(required = false) String syncRequestId,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        try { return success(data(pythonClient.monthlyInventoryPurchaseOrderStatus(statMonth, syncRequestId, requestId))); }
+        catch (Exception e) { return error(e.getMessage()); }
+    }
+
     @Log(title = "月度库存采购单在途导入", businessType = BusinessType.IMPORT)
     @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:edit')")
     @PostMapping("/purchase-order-import")

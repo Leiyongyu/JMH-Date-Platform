@@ -43,6 +43,14 @@ class Settings:
     mysql_user: str = os.getenv("MYSQL_USER", "root")
     mysql_password: str = os.getenv("MYSQL_PASSWORD", "")
     mysql_database: str = os.getenv("MYSQL_DATABASE", "Date-Project")
+    # 迁移专用账号：持有 DDL 权限，只在执行 db-migrate 时使用；未配置时沿用应用账号。
+    mysql_migrator_user: str = os.getenv("MYSQL_MIGRATOR_USER", "")
+    mysql_migrator_password: str = os.getenv("MYSQL_MIGRATOR_PASSWORD", "")
+    # 启动时是否自动执行历史建表脚本。生产保持 false，结构变更统一走 db-migrate。
+    database_auto_migrate: bool = _env_bool("DATABASE_AUTO_MIGRATE", False)
+    erp_sql_dir: str = os.getenv("ERP_SQL_DIR") or str(
+        PROJECT_ROOT.parent / "RuoYi-Vue-springboot3" / "sql"
+    )
     template_dir: str = os.getenv(
         "TEMPLATE_DIR",
         r"D:\JMH\出口业务收汇情况表\外汇退税\数据源\模版",

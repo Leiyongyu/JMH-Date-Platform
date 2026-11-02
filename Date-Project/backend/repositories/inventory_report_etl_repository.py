@@ -1,12 +1,45 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 from collections.abc import Iterable
 from decimal import Decimal
 from typing import Any
 
 from backend.config import settings
-from backend.database import db_connection
+from backend.database import db_connection as _database_connection
+
+
+_report_transaction = ContextVar("inventory_report_transaction", default=None)
+
+
+@contextmanager
+def db_connection():
+    connection = _report_transaction.get()
+    if connection is not None:
+        yield connection
+    else:
+        with _database_connection() as connection:
+            yield connection
+
+
+@contextmanager
+def purchase_order_transaction():
+    """Publish API cache, monthly rows and rendered views in one transaction."""
+    if _report_transaction.get() is not None:
+        raise RuntimeError("采购在途事务不能嵌套")
+    with db_connection() as connection:
+        connection.begin()
+        token = _report_transaction.set(connection)
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            _report_transaction.reset(token)
 
 
 ZERO = Decimal("0")
@@ -223,7 +256,8 @@ def replace_purchase_order_transit(
                 updated_rows = _apply_purchase_order_transit_to_summary(
                     cursor, stat_month
                 )
-            connection.commit()
+            if _report_transaction.get() is None:
+                connection.commit()
         except Exception:
             connection.rollback()
             raise
@@ -443,7 +477,8 @@ def save_view_snapshots(
                             json.dumps(payloads[dimension], ensure_ascii=False, default=str),
                         ),
                     )
-            connection.commit()
+            if _report_transaction.get() is None:
+                connection.commit()
         except Exception:
             connection.rollback()
             raise

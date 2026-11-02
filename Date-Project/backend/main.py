@@ -13,6 +13,7 @@ from backend.api.router import api_router
 from backend.customs_declaration.app import app as customs_declaration_wsgi_app
 from backend.customs_declaration.asgi_middleware import EnsureContentLengthMiddleware
 from backend.database import init_database
+from backend.infrastructure import migrations
 from backend.infrastructure.exception_handlers import register_exception_handlers
 from backend.infrastructure.logging import configure_logging
 from backend.infrastructure.request_context import RequestIdMiddleware
@@ -160,6 +161,7 @@ async def redirect_script_tools() -> RedirectResponse:
 @app.on_event("startup")
 async def startup() -> None:
     init_database()
+    await asyncio.to_thread(migrations.warn_pending_on_startup)
     await asyncio.to_thread(backfill_missing_monthly_inventory_snapshots)
     await asyncio.to_thread(cleanup_keep_recent)
     app.state.image_sop_cleanup_task = asyncio.create_task(

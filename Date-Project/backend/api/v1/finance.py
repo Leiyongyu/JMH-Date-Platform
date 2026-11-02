@@ -47,6 +47,7 @@ from backend.services.inventory_report_history_import_service import (
     history_preview,
     import_history,
 )
+from backend.services import inventory_purchase_order_job_service as purchase_order_jobs
 from backend.services.inventory_report_source_sync_service import (
     InventoryReportSourceSyncError,
     sync_monthly_inventory_order_profit,
@@ -466,7 +467,8 @@ def post_monthly_inventory_report_rebuild(
         # Manual recalculation owns the selected inventory report month only.
         # Its source month's order-profit detail belongs to the previous
         # displayed report month, so it must remain untouched.
-        data = rebuild_monthly_inventory_report(
+        data = purchase_order_jobs.report_write(
+            payload.stat_month, rebuild_monthly_inventory_report,
             payload.stat_month, preserve_sales_detail=True,
         )
     except ValueError as exc:
@@ -520,6 +522,8 @@ async def post_monthly_inventory_report_purchase_order_import(
     content, file_name = await read_excel_upload(file)
     try:
         data = await run_in_threadpool(
+            purchase_order_jobs.report_write,
+            stat_month,
             import_inventory_report_purchase_order,
             content,
             file_name,
@@ -538,6 +542,28 @@ async def post_monthly_inventory_report_purchase_order_import(
         request_id=request.state.request_id,
         message="monthly inventory purchase order transit imported",
     )
+
+
+@router.get("/monthly-inventory-report/purchase-order-sync-status")
+def get_purchase_order_sync_status(
+    request: Request,
+    stat_month: str | None = Query(None, pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+    sync_request_id: str | None = Query(None, max_length=128),
+):
+    try:
+        return success_response(purchase_order_jobs.get_status(stat_month, sync_request_id),
+                                request_id=request.state.request_id)
+    except Exception:
+        raise HTTPException(503, "采购在途同步状态不可用，请检查数据库迁移和连接") from None
+
+
+@router.post("/monthly-inventory-report/purchase-order-syncs", status_code=202)
+def post_purchase_order_sync(request: Request):
+    try:
+        return success_response(purchase_order_jobs.submit(), request_id=request.state.request_id,
+                                message="已提交采购在途后台同步")
+    except Exception:
+        raise HTTPException(503, "无法启动采购在途同步，请检查数据库迁移和连接") from None
 
 
 @router.post("/monthly-inventory-report/history-preview")

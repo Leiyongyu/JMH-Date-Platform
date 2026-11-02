@@ -63,6 +63,10 @@ from backend.services.inventory_report_source_sync_service import (
 from backend.services.inventory_report_etl_service import (
     fill_next_month_opening_inventory,
 )
+from backend.services.inventory_purchase_order_sync_service import (
+    TASK_CODE as PURCHASE_ORDER_TASK_CODE, TASK_NAME as PURCHASE_ORDER_TASK_NAME,
+    PurchaseOrderSyncError, sync_purchase_orders, current_source_month,
+)
 
 
 from backend.services.weekly_inventory_sync_service import (
@@ -126,6 +130,14 @@ class TaskSpec:
 TASK_SPECS: dict[str, TaskSpec] = {
     spec.code: spec
     for spec in (
+        TaskSpec(
+            code=PURCHASE_ORDER_TASK_CODE,
+            name=PURCHASE_ORDER_TASK_NAME,
+            period_args_error="采购在途仅同步当前报表，不接受历史月份或日期",
+            resolve_month=lambda value: current_source_month(),
+            lock_name=lambda ctx: "inventory:purchase-order-api",
+            execute=lambda ctx: sync_purchase_orders(),
+        ),
         TaskSpec(
             code=EBAY_MIXED_PRICE_TASK_CODE,
             name=EBAY_MIXED_PRICE_TASK_NAME,
@@ -245,6 +257,7 @@ TASK_CODES = frozenset(TASK_SPECS)
 
 # 这些异常自带 stage/metrics，失败运行记录据此还原阶段和已处理行数。
 _STAGED_ERRORS = (
+    PurchaseOrderSyncError,
     EbayStoreListingSyncError,
     FeishuBadTransactionSyncError,
     AmzListingRawSyncError,

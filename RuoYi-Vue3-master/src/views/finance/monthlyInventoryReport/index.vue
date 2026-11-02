@@ -34,6 +34,15 @@
           </el-select>
         </el-form-item>
         <el-form-item>
+          <el-tooltip content="读取当前待到货采购单，更新当期报表；历史月份保留。首次同步耗时较长，可离开页面后回来查看。">
+            <el-button
+              v-hasPermi="['finance:monthlyInventoryReport:edit']"
+              type="success"
+              :loading="purchaseOrderSyncing"
+              :disabled="!canSyncPurchaseOrder || purchaseOrderUploading || calculating"
+              @click="handlePurchaseOrderSync"
+            >同步采购在途</el-button>
+          </el-tooltip>
           <span
             v-hasPermi="['finance:monthlyInventoryReport:edit']"
             class="monthly-inventory-upload"
@@ -45,6 +54,7 @@
               <el-button
                 type="warning"
                 :loading="purchaseOrderUploading"
+                :disabled="purchaseOrderSyncing || calculating"
               >
                 上传数据 ▾
               </el-button>
@@ -102,7 +112,7 @@
           <el-button
             type="primary"
             :loading="calculating"
-            :disabled="!sourceStatMonth || isImportedHistoryMonth"
+            :disabled="!sourceStatMonth || isImportedHistoryMonth || purchaseOrderSyncing"
             v-hasPermi="['finance:monthlyInventoryReport:edit']"
             @click="handleCalculate"
           >
@@ -118,6 +128,16 @@
           </el-button>
         </el-form-item>
       </el-form>
+
+      <el-alert
+        v-if="checkPermi(['finance:monthlyInventoryReport:edit'])"
+        class="purchase-order-sync-status"
+        :type="purchaseOrderStatusError ? 'warning' : 'info'"
+        :closable="false"
+        :title="purchaseOrderStatusText"
+        :description="purchaseOrderStatusDetail"
+        show-icon
+      />
 
       <div class="dimension-switch">
         <el-radio-group v-model="activeDimension" @change="loadSummary">
@@ -442,7 +462,7 @@
 </template>
 
 <script setup>
-import { computed, getCurrentInstance, onMounted, ref } from 'vue'
+import { computed, getCurrentInstance, onMounted, onBeforeUnmount, ref } from 'vue'
 import { checkPermi, checkRole } from '@/utils/permission'
 import useUserStore from '@/store/modules/user'
 import purchaseOrderFormatGuide from '@/assets/images/monthly-inventory/purchase-order-pending-arrival-export-fields.png'
@@ -451,6 +471,8 @@ import {
   getMonthlyInventoryDimensionSummary,
   getMonthlyInventorySummary,
   importMonthlyInventoryPurchaseOrder,
+  syncMonthlyInventoryPurchaseOrder,
+  getMonthlyInventoryPurchaseOrderStatus,
   previewMonthlyInventoryHistory,
   importMonthlyInventoryHistory,
   listMonthlyInventoryMonths,
@@ -485,6 +507,34 @@ const summaryLoading = ref(false)
 const calculating = ref(false)
 const exporting = ref(false)
 const purchaseOrderUploading = ref(false)
+const purchaseOrderSyncing = ref(false)
+const purchaseOrderStatus = ref({})
+const purchaseOrderStatusError = ref('')
+let purchaseOrderRequestId = null
+let purchaseOrderPollTimer = null
+let purchaseOrderDisposed = false
+let purchaseOrderSubmittedAt = 0
+let purchaseOrderStatusRequest = 0
+const canSyncPurchaseOrder = computed(() =>
+  (!statMonth.value || statMonth.value === currentNaturalMonth()) && !isImportedHistoryMonth.value
+)
+const purchaseOrderStatusText = computed(() => {
+  if (purchaseOrderSyncing.value) return '正在后台同步采购在途，可离开页面后回来查看'
+  if (purchaseOrderStatusError.value) return purchaseOrderStatusError.value
+  const snapshot = purchaseOrderStatus.value.snapshot
+  if (purchaseOrderStatus.value.source === 'EXCEL') return '当前采购在途来自手动上传文件'
+  if (snapshot) return `采购在途采集时间：${snapshot.pulled_at}（北京时间）`
+  return '采购在途可通过领星接口同步，也可手动上传文件'
+})
+const purchaseOrderStatusDetail = computed(() => {
+  const result = purchaseOrderStatus.value.snapshot?.result
+  const base = '接口读取采集时点的状态，仅更新当前报表；历史月份保留，不代表历史月底快照。'
+  if (!result || purchaseOrderStatus.value.source !== 'API') return base
+  const excluded = Object.entries(result.excluded_warehouses || {})
+    .map(([name, count]) => `${name} ${count}条`).join('、')
+  return `${base} 待到货 ${qty(result.total_pending_arrival_qty)} 件，未税成本 ¥${money(result.total_pending_cost)}。` +
+    (excluded ? ` 未映射仓库未计入：${excluded}。` : '')
+})
 const purchaseOrderFileInput = ref(null)
 const historyFileInput = ref(null)
 const historyUploading = ref(false)
@@ -511,8 +561,10 @@ function previousNaturalMonth(value) {
 }
 
 function currentNaturalMonth() {
-  const current = new Date()
-  return `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit'
+  }).formatToParts(new Date())
+  return `${parts.find(part => part.type === 'year').value}-${parts.find(part => part.type === 'month').value}`
 }
 
 function periodReportMonth(item) {
@@ -843,6 +895,7 @@ async function loadSummary() {
     }
   } finally {
     summaryLoading.value = false
+    await loadPurchaseOrderStatus()
   }
 }
 
@@ -945,6 +998,55 @@ async function handlePurchaseOrderUpload(options) {
   }
 }
 
+async function loadPurchaseOrderStatus() {
+  if (purchaseOrderDisposed || !checkPermi(['finance:monthlyInventoryReport:edit'])) return
+  clearTimeout(purchaseOrderPollTimer)
+  const requestVersion = ++purchaseOrderStatusRequest
+  const wasSyncing = purchaseOrderSyncing.value
+  try {
+    const response = await getMonthlyInventoryPurchaseOrderStatus(sourceStatMonth.value || undefined, purchaseOrderRequestId)
+    if (purchaseOrderDisposed || requestVersion !== purchaseOrderStatusRequest) return
+    purchaseOrderStatus.value = response.data || {}
+    const run = purchaseOrderStatus.value.run
+    const waitingForStart = purchaseOrderRequestId && !run && Date.now() - purchaseOrderSubmittedAt < 60000
+    purchaseOrderSyncing.value = Boolean(purchaseOrderStatus.value.running || waitingForStart)
+    purchaseOrderStatusError.value = ['failed', 'interrupted'].includes(run?.status)
+      ? (run.error_message || '同步失败，上次成功数据保留') : ''
+    if (purchaseOrderSyncing.value) {
+      purchaseOrderPollTimer = setTimeout(loadPurchaseOrderStatus, 5000)
+    } else if (purchaseOrderRequestId || wasSyncing) {
+      purchaseOrderRequestId = null
+      if (run?.status === 'completed') {
+        proxy.$modal.msgSuccess('采购在途同步完成，已更新组别及个人数据')
+        await loadPeriods()
+        await loadSummary()
+      } else if (!run) {
+        purchaseOrderStatusError.value = '尚未找到任务记录，请刷新状态或查看定时任务日志'
+      }
+    }
+  } catch {
+    if (purchaseOrderDisposed || requestVersion !== purchaseOrderStatusRequest) return
+    purchaseOrderStatusError.value = '采购在途同步状态暂不可用，请检查服务和数据库迁移'
+    purchaseOrderSyncing.value = false
+    // Continue observing an accepted task after a temporary network failure.
+    if (purchaseOrderRequestId) purchaseOrderPollTimer = setTimeout(loadPurchaseOrderStatus, 10000)
+  }
+}
+
+async function handlePurchaseOrderSync() {
+  if (!canSyncPurchaseOrder.value) return
+  purchaseOrderSyncing.value = true
+  try {
+    const response = await syncMonthlyInventoryPurchaseOrder()
+    purchaseOrderRequestId = response.data?.request_id || null
+    purchaseOrderSubmittedAt = Date.now()
+    proxy.$modal.msgSuccess('已提交后台同步，完成后自动刷新数据')
+    await loadPurchaseOrderStatus()
+  } catch {
+    purchaseOrderSyncing.value = false
+  }
+}
+
 async function handleExport() {
   if (!sourceStatMonth.value) {
     proxy.$modal.msgError('请选择需要导出的月份')
@@ -986,10 +1088,18 @@ async function handleExport() {
 onMounted(async () => {
   await loadPeriods(true)
   await loadSummary()
+  if (!sourceStatMonth.value) await loadPurchaseOrderStatus()
+})
+onBeforeUnmount(() => {
+  purchaseOrderDisposed = true
+  clearTimeout(purchaseOrderPollTimer)
 })
 </script>
 
 <style scoped>
+.purchase-order-sync-status {
+  margin-bottom: 12px;
+}
 .report-filter {
   margin-bottom: 2px;
 }

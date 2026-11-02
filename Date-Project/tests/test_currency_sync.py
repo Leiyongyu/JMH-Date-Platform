@@ -55,8 +55,9 @@ def test_currency_sync_keeps_only_usd_my_rate_and_upserts(monkeypatch):
 
     result = service.sync_currency_month("2026-08", _Domain())
 
-    assert result["my_rate"] == Decimal("7.1234")
-    assert result["rate_org"] == Decimal("7.1000")
+    assert result["currency_count"] == 1
+    assert stored[0]["my_rate"] == Decimal("7.1234")
+    assert stored[0]["rate_org"] == Decimal("7.1000")
     assert stored[0]["currency_code"] == "USD"
     assert stored[0]["rate_month"] == "2026-08"
 
