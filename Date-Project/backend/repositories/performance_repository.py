@@ -989,3 +989,17 @@ def insert_quality_check(run_id: str, task_code: str, status: str, issues_json: 
                 (run_id, task_code, status, issues_json),
             )
         connection.commit()
+
+
+def get_scheduler_run(run_id: str) -> dict[str, Any] | None:
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT run_id, task_code, status, stat_month, sync_batch_id, extract_rows,
+                   ods_rows, inserted_rows, updated_rows, deleted_rows, skipped_rows,
+                   error_message
+            FROM scheduler_task_run WHERE run_id = %s
+            """,
+            (run_id,),
+        )
+        return cursor.fetchone()

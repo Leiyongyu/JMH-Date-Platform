@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
+import threading
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable
 from uuid import uuid4
 
@@ -294,7 +296,20 @@ def run_scheduler_task(
     request_id: str = "",
     trigger_type: str = "manual",
     weekly_snapshot_only: bool = False,
+    run_id: str | None = None,
 ) -> dict:
+    spec, context = _prepare_run(
+        task_code, stat_month, start_date, end_date,
+        request_id, trigger_type, weekly_snapshot_only,
+    )
+    return _execute_run(spec, context, run_id or str(uuid4()))
+
+
+def _prepare_run(
+    task_code, stat_month, start_date, end_date,
+    request_id, trigger_type, weekly_snapshot_only,
+) -> tuple["TaskSpec", TaskContext]:
+    """只做参数校验与月份解析，不产生任何运行记录；非法参数在这里直接抛 ValueError。"""
     spec = TASK_SPECS.get(task_code)
     if spec is None:
         raise ValueError("未知任务编码")
@@ -321,7 +336,15 @@ def run_scheduler_task(
         trigger_type=trigger_type,
         weekly_snapshot_only=weekly_snapshot_only,
     )
-    run_id = str(uuid4())
+    return spec, context
+
+
+def _execute_run(spec: "TaskSpec", context: TaskContext, run_id: str) -> dict:
+    task_code = context.task_code
+    month = context.month
+    trigger_type = context.trigger_type
+    request_id = context.request_id
+    weekly_snapshot_only = context.weekly_snapshot_only
     started_at = datetime.now()
     with repo.performance_connection() as connection:
         repo.insert_scheduler_run(
@@ -502,3 +525,84 @@ def _run_payload(run_id, task_code, status, stat_month, trigger_type, request_id
         "started_at": started_at,
         "completed_at": None,
     }
+
+
+# ---------------------------------------------------------------------------
+# 异步执行：Java 提交后立即拿到 run_id，再轮询结果，不再用一条 HTTP 连接挂几个小时。
+# ---------------------------------------------------------------------------
+
+logger = logging.getLogger(__name__)
+_ASYNC_RUNS: dict[str, dict] = {}
+_ASYNC_LOCK = threading.Lock()
+_ASYNC_RETENTION = timedelta(hours=24)
+
+
+def start_scheduler_task_async(
+    task_code: str,
+    stat_month: str | None = None,
+    start_date=None,
+    end_date=None,
+    request_id: str = "",
+    trigger_type: str = "manual",
+) -> dict:
+    """校验参数后在后台线程执行任务；参数非法时同步抛 ValueError。"""
+    spec, context = _prepare_run(
+        task_code, stat_month, start_date, end_date, request_id, trigger_type, False,
+    )
+    run_id = str(uuid4())
+    with _ASYNC_LOCK:
+        _prune_async_runs()
+        _ASYNC_RUNS[run_id] = {
+            "state": "running", "task_code": task_code, "started_at": datetime.now(),
+        }
+    threading.Thread(
+        target=_run_async, args=(spec, context, run_id),
+        name=f"scheduler-{task_code}", daemon=True,
+    ).start()
+    return {"run_id": run_id, "task_code": task_code, "status": "running"}
+
+
+def _run_async(spec: "TaskSpec", context: TaskContext, run_id: str) -> None:
+    try:
+        outcome = {"state": "completed", "response": _execute_run(spec, context, run_id)}
+    except SchedulerTaskAlreadyRunning as exc:
+        outcome = {"state": "failed", "http_status": 409, "error": str(exc)}
+    except ValueError as exc:
+        outcome = {"state": "failed", "http_status": 400, "error": str(exc)}
+    except Exception as exc:
+        # 失败详情已由 _execute_run 写入 scheduler_task_run，这里只保留给轮询方的摘要。
+        logger.exception("后台任务执行失败 task=%s run=%s", context.task_code, run_id)
+        outcome = {"state": "failed", "http_status": 502, "error": f"内部任务执行失败: {exc}"}
+    with _ASYNC_LOCK:
+        _ASYNC_RUNS.setdefault(run_id, {}).update(outcome, finished_at=datetime.now())
+
+
+def get_async_run(run_id: str) -> dict:
+    with _ASYNC_LOCK:
+        entry = dict(_ASYNC_RUNS.get(run_id) or {})
+    if entry:
+        return entry
+    # 进程重启后内存记录丢失，用运行记录表兜底，避免轮询方一直等下去。
+    row = repo.get_scheduler_run(run_id)
+    if row is None:
+        return {"state": "missing"}
+    if row["status"] == "running":
+        return {"state": "failed", "http_status": 502,
+                "error": "Python 服务已重启，任务执行被中断，请重新触发"}
+    if row["status"] == "failed":
+        return {"state": "failed", "http_status": 502,
+                "error": f"内部任务执行失败: {row.get('error_message') or ''}"}
+    return {"state": "completed", "response": {
+        "run_id": run_id, "task_code": row["task_code"], "status": "completed",
+        "result": {key: row.get(key) for key in (
+            "stat_month", "sync_batch_id", "extract_rows", "ods_rows",
+            "inserted_rows", "updated_rows", "deleted_rows", "skipped_rows",
+        )},
+    }}
+
+
+def _prune_async_runs() -> None:
+    cutoff = datetime.now() - _ASYNC_RETENTION
+    for run_id in [key for key, value in _ASYNC_RUNS.items()
+                   if value.get("finished_at") and value["finished_at"] < cutoff]:
+        del _ASYNC_RUNS[run_id]

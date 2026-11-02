@@ -2,11 +2,15 @@ package com.ruoyi.system.service.finance;
 
 import com.ruoyi.system.service.python.PythonHttpSupport;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -33,12 +37,20 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
     private static final String GOODCANG_STORAGE_TASK =
             "goodcang_wh_inventory_storage_sync";
     private static final String SERVICE_NAME = "Python绩效ETL";
+    private static final String RUN_PREFIX = "/api/v1/internal/scheduler/runs/";
+    /** 轮询连续失败（如 Python 正在重启）达到该次数才判定失败。 */
+    private static final int MAX_CONSECUTIVE_POLL_FAILURES = 6;
+    private static final Logger LOG =
+            LoggerFactory.getLogger(PythonPerformanceSchedulerClient.class);
+
+    private final PythonPerformanceTaskProperties taskProperties;
 
     public PythonPerformanceSchedulerClient(
             PythonPerformanceTaskProperties properties,
             ObjectMapper objectMapper)
     {
         super(properties, objectMapper);
+        this.taskProperties = properties;
     }
 
     public Map<String, Object> runPreviousMonth(String requestId)
@@ -183,23 +195,26 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
             else
                 payload.put("stat_month", statMonth);
             String body = objectMapper.writeValueAsString(payload);
-            HttpRequest request = baseRequest(TASK_PREFIX
-                    + taskCode + "/run", requestId)
-                    .header("Content-Type", "application/json;charset=utf-8")
-                    .header("X-Trigger-Type",
-                            StringUtils.hasText(triggerType)
-                                    ? triggerType : "JOB")
-                    .POST(HttpRequest.BodyPublishers.ofString(
-                            body, StandardCharsets.UTF_8))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofString(
-                            StandardCharsets.UTF_8));
-            Map<String, Object> json = parseJson(response.body());
-            validate(response.statusCode(), json, taskCode);
-            return json;
+            String effectiveRequestId = effectiveRequestId(requestId);
+            // 先异步提交拿到 run_id 再轮询，不再用一条 HTTP 连接等待数小时的 ETL。
+            HttpResponse<String> accepted = httpClient.send(
+                    taskRequest(taskCode + "/runs", body, triggerType,
+                            effectiveRequestId, taskProperties.getPollRequestTimeout()),
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (accepted.statusCode() == 404 || accepted.statusCode() == 405)
+            {
+                // 兼容尚未部署异步接口的旧版 Python：退回同步调用。
+                LOG.warn("Python未提供异步任务接口，按同步方式执行 task={}", taskCode);
+                return runSynchronously(taskCode, body, triggerType, effectiveRequestId);
+            }
+            Map<String, Object> acceptedJson = parseJson(accepted.body());
+            if (accepted.statusCode() != 202 || integer(acceptedJson.get("code"), -1) != 0)
+                throw new IllegalStateException(errorMessage(accepted.statusCode(), acceptedJson));
+            Object data = acceptedJson.get("data");
+            Object runId = data instanceof Map<?, ?> map ? map.get("run_id") : null;
+            if (runId == null || !StringUtils.hasText(String.valueOf(runId)))
+                throw new IllegalStateException(SERVICE_NAME + "未返回运行ID");
+            return poll(String.valueOf(runId), taskCode, effectiveRequestId);
         }
         catch (InterruptedException e)
         {
@@ -215,11 +230,76 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         }
     }
 
+    private HttpRequest taskRequest(String path, String body, String triggerType,
+            String requestId, Duration timeout)
+    {
+        return baseRequest(TASK_PREFIX + path, requestId)
+                .timeout(timeout)
+                .header("Content-Type", "application/json;charset=utf-8")
+                .header("X-Trigger-Type",
+                        StringUtils.hasText(triggerType) ? triggerType : "JOB")
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .build();
+    }
+
+    private Map<String, Object> runSynchronously(String taskCode, String body,
+            String triggerType, String requestId) throws Exception
+    {
+        HttpResponse<String> response = httpClient.send(
+                taskRequest(taskCode + "/run", body, triggerType, requestId,
+                        Duration.ofMillis(taskProperties.getReadTimeoutMillis())),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        Map<String, Object> json = parseJson(response.body());
+        validate(response.statusCode(), json, taskCode);
+        return json;
+    }
+
+    private Map<String, Object> poll(String runId, String taskCode, String requestId)
+            throws Exception
+    {
+        long deadline = System.nanoTime()
+                + Duration.ofMillis(taskProperties.getReadTimeoutMillis()).toNanos();
+        long intervalMillis = Math.max(1, taskProperties.getPollInterval().toMillis());
+        int consecutiveFailures = 0;
+        while (System.nanoTime() < deadline)
+        {
+            Thread.sleep(intervalMillis);
+            HttpRequest request = baseRequest(RUN_PREFIX + url(runId), requestId)
+                    .timeout(taskProperties.getPollRequestTimeout())
+                    .GET()
+                    .build();
+            HttpResponse<String> response;
+            try
+            {
+                response = httpClient.send(request,
+                        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            }
+            catch (IOException e)
+            {
+                if (++consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES)
+                    throw new IllegalStateException(
+                            SERVICE_NAME + "运行状态查询连续失败: " + e.getMessage(), e);
+                LOG.warn("查询Python任务状态失败，稍后重试 task={} run={}: {}",
+                        taskCode, runId, e.getMessage());
+                continue;
+            }
+            consecutiveFailures = 0;
+            if (response.statusCode() == 202)
+                continue;
+            Map<String, Object> json = parseJson(response.body());
+            validate(response.statusCode(), json, taskCode);
+            return json;
+        }
+        throw new IllegalStateException(SERVICE_NAME + "执行超时 task=" + taskCode
+                + " run=" + runId + "，任务可能仍在Python中运行，请到任务运行记录中确认");
+    }
+
     @SuppressWarnings("unchecked")
     private void validate(
             int status, Map<String, Object> json, String taskCode)
     {
-        if (status != 201)
+        // 同步接口完成时返回 201，异步轮询完成时返回 200，结果体相同。
+        if (status != 201 && status != 200)
             throw new IllegalStateException(errorMessage(status, json));
         if (integer(json.get("code"), -1) != 0)
             throw new IllegalStateException(errorMessage(status, json));
