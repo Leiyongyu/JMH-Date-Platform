@@ -25,7 +25,13 @@ export const TOOL_TITLES = {
   ebay_replenishment: '查询eBay补货',
   metric_definitions: '查询指标口径',
   search_docs: '检索项目文档',
-  calculate: '精确计算'
+  calculate: '精确计算',
+  ebay_orders_summary: '查询eBay实时订单',
+  ebay_finance_summary: '查询eBay财务',
+  ebay_after_sales: '查询eBay退货纠纷',
+  ebay_seller_standards: '查询eBay卖家等级',
+  ebay_traffic: '查询eBay流量',
+  ebay_campaigns: '查询eBay广告活动'
 }
 
 const FINISHED = new Set(['completed', 'failed'])

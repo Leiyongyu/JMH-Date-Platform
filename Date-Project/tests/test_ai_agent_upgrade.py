@@ -326,8 +326,9 @@ def test_scheduled_brief_skips_when_already_claimed(monkeypatch):
 def test_eval_cases_reference_existing_tools_and_check_rules():
     from backend.agent import evaluate
     from backend.agent.tools.business import BUSINESS_TOOLS
+    from backend.agent.tools.ebay_live_tools import EBAY_LIVE_TOOLS
     from backend.agent.tools.knowledge import KNOWLEDGE_TOOLS
-    names = {t.name for t in [*BUSINESS_TOOLS, *KNOWLEDGE_TOOLS]} | {"calculate"}
+    names = {t.name for t in [*BUSINESS_TOOLS, *KNOWLEDGE_TOOLS, *EBAY_LIVE_TOOLS]} | {"calculate"}
     cases = evaluate.load_cases(evaluate.CASES_FILE, None)
     assert len({c["id"] for c in cases}) == len(cases) >= 10
     for case in cases:

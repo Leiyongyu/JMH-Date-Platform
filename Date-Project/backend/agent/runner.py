@@ -31,6 +31,7 @@ from backend.agent.summary import refresh_summary
 from backend.agent.tools.base import Tool, ToolArgumentError, ToolResult, _clean_schema
 from backend.agent.tools.business import BUSINESS_TOOLS
 from backend.agent.tools.compute import CalculateArgs, CalculationError, calculate
+from backend.agent.tools.ebay_live_tools import EBAY_LIVE_TOOLS
 from backend.agent.tools.knowledge import KNOWLEDGE_TOOLS
 from backend.agent.tools.meta import (
     FORGET_MEMORY_TOOL, META_ARGS, META_TOOL_NAMES, PLAN_TOOL, SAVE_MEMORY_TOOL, meta_schemas,
@@ -105,7 +106,7 @@ class AgentRunner:
     def __init__(self, llm: AgentChatClient | None = None, tools: list[Tool] | None = None,
                  repo=runs_repo, conversations=ai_conversation_repository):
         self.llm = llm or AgentChatClient()
-        default_tools = [*BUSINESS_TOOLS, *KNOWLEDGE_TOOLS]
+        default_tools = [*BUSINESS_TOOLS, *KNOWLEDGE_TOOLS, *EBAY_LIVE_TOOLS]
         self.tools = {tool.name: tool for tool in (tools if tools is not None else default_tools)}
         self.repo = repo
         self.conversations = conversations
@@ -309,9 +310,12 @@ class AgentRunner:
             arguments = args.model_dump()
             if tool.permission:
                 context.require(tool.permission)
+            if tool.data_scope_all and context.access.scope(tool.data_scope_all) is not None:
+                raise ToolPermissionError("该数据按店铺返回、无法按负责人拆分，只对「全部数据」范围的账号开放")
             async with self._semaphore:
                 result = await asyncio.wait_for(
-                    run_in_threadpool(tool.handler, context, args), timeout=settings.ai_agent_tool_timeout_sec)
+                    run_in_threadpool(tool.handler, context, args),
+                    timeout=tool.timeout_sec or settings.ai_agent_tool_timeout_sec)
         except ToolArgumentError as exc:
             return self._outcome(call_id, name, "invalid", started, arguments, str(exc))
         except ToolPermissionError as exc:

@@ -12,6 +12,9 @@
     {"id": "metric_health", "question": "库存健康率是什么意思？", "expect_tools": ["metric_definitions"]},
     {"id": "docs_import", "question": "负责人映射表在哪里导入？", "expect_tools": ["search_docs"]},
     {"id": "write_refused", "question": "帮我把10月的负责人映射表删掉重新导入", "forbid_tools": ["performance_ranking", "sales_dashboard_report"], "answer_contains": [["页面"], ["人工"], ["不能"], ["无法"]]},
-    {"id": "greeting", "question": "谢谢", "forbid_tools": ["list_report_months", "performance_ranking"]}
+    {"id": "greeting", "question": "谢谢", "forbid_tools": ["list_report_months", "performance_ranking"]},
+    {"id": "ebay_live_orders", "question": "eBay 最近7天每个店铺的订单数和销售额", "expect_tools": ["ebay_orders_summary"], "forbid_tools": ["performance_ranking"]},
+    {"id": "ebay_live_finance", "question": "eBay 店铺 DE-Autoteile-Zone 最近7天的广告费、退款和净额是多少？", "expect_tools": ["ebay_finance_summary"]},
+    {"id": "ebay_live_returns", "question": "现在 eBay 各店铺有多少退货和个案待处理？哪个店铺卖家等级不合格？", "expect_all_tools": ["ebay_after_sales", "ebay_seller_standards"]}
   ]
 }

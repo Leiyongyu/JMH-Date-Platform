@@ -94,6 +94,10 @@ class Tool:
     title: str = ""
     # 元工具（计划、记忆）在主线程顺序执行；业务查询工具可并行。
     parallel: bool = True
+    # 只对该业务模块数据范围为「全部数据」的账号开放（数据无法按负责人拆分时使用，如 eBay 店铺级实时数据）
+    data_scope_all: str | None = None
+    # 单次调用超时（秒）；为空用 AI_AGENT_TOOL_TIMEOUT_SEC。实时调用外部接口的工具需要更长时间
+    timeout_sec: int | None = None
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -124,7 +128,9 @@ class Tool:
             raise ToolArgumentError(problems) from exc
 
     def available_to(self, context: AgentContext) -> bool:
-        return self.permission is None or context.access.has(self.permission)
+        if self.permission is not None and not context.access.has(self.permission):
+            return False
+        return self.data_scope_all is None or context.access.scope(self.data_scope_all) is None
 
 
 class ToolArgumentError(ValueError):
