@@ -16,7 +16,7 @@
       v-model="visible"
       class="ai-assistant-drawer"
       direction="rtl"
-      size="520px"
+      size="640px"
       append-to-body
       :with-header="false"
       :close-on-click-modal="false"
@@ -37,6 +37,20 @@
             <span><i :class="['status-dot', statusClass]" />{{ statusText }}</span>
           </div>
           <div class="header-actions">
+            <el-popover placement="bottom-end" :width="320" trigger="click" @show="loadMemories">
+              <template #reference>
+                <button class="new-chat-button" type="button">记忆</button>
+              </template>
+              <div class="memory-panel">
+                <div class="memory-title">助手记住的偏好（只影响回答习惯，不影响数据权限）</div>
+                <div v-if="memoriesLoading" class="memory-empty">加载中...</div>
+                <div v-else-if="memories.length === 0" class="memory-empty">暂无记忆。可以对助手说「以后默认看德国站」。</div>
+                <div v-for="memory in memories" :key="memory.id" class="memory-item">
+                  <span>{{ memory.content }}</span>
+                  <button type="button" @click="removeMemory(memory)">删除</button>
+                </div>
+              </div>
+            </el-popover>
             <button
               class="new-chat-button"
               type="button"
@@ -87,12 +101,12 @@
         <div ref="messageContainer" class="message-container">
           <div v-if="messages.length === 0" class="welcome-panel">
             <div class="welcome-avatar">AI</div>
-            <h3>你好，我是JMH AI助手</h3>
-            <p>可以帮助你解答问题、整理思路和分析文本。当前版本不会直接读取或修改ERP业务数据。</p>
+            <h3>你好，我是JMH数据助手</h3>
+            <p>可以按你的账号权限查询绩效排名、销售看板、月度库存、eBay补货等数据，先规划再查询，结果附来源与统计区间。只读，不会修改任何数据。</p>
             <div class="suggestion-list">
-              <button type="button" @click="useSuggestion('帮我整理一份今日工作计划')">整理今日工作计划</button>
-              <button type="button" @click="useSuggestion('帮我分析一个业务问题，需要我提供哪些信息？')">分析业务问题</button>
-              <button type="button" @click="useSuggestion('帮我把下面的内容整理成清晰的要点：')">整理文本要点</button>
+              <button type="button" @click="useSuggestion('最新月份综合绩效排名前5名是谁？未分配有多少？')">最新绩效排名与未分配</button>
+              <button type="button" @click="useSuggestion('对比Amazon最近两个月各组别的净销售额和毛利率')">Amazon 各组别销售对比</button>
+              <button type="button" @click="useSuggestion('德国站建议补货量最大的10个SKU')">德国站补货建议</button>
             </div>
           </div>
 
@@ -104,7 +118,48 @@
             <div class="message-avatar">{{ message.role === 'user' ? userInitial : 'AI' }}</div>
             <div class="message-body">
               <div class="message-name">{{ message.role === 'user' ? userDisplayName : 'JMH AI助手' }}</div>
-              <div :class="['message-bubble', { error: message.error }]">{{ message.content }}</div>
+              <div v-if="message.role === 'user' || message.error" :class="['message-bubble', { error: message.error }]">{{ message.content }}</div>
+              <div v-else class="message-bubble answer-bubble">
+                <template v-for="(block, index) in parseAnswerBlocks(message.content)" :key="index">
+                  <div v-if="block.type === 'text'" class="answer-text">{{ block.content }}</div>
+                  <div v-else class="answer-table-wrap">
+                    <table class="answer-table">
+                      <thead><tr><th v-for="header in block.headers" :key="header">{{ header }}</th></tr></thead>
+                      <tbody><tr v-for="(row, rowIndex) in block.rows" :key="rowIndex"><td v-for="(cell, cellIndex) in row" :key="cellIndex">{{ cell }}</td></tr></tbody>
+                    </table>
+                  </div>
+                </template>
+              </div>
+              <div v-if="message.run" class="run-detail">
+                <el-collapse>
+                  <el-collapse-item v-if="message.run.plan?.length" :title="`执行计划 · ${planProgress(message.run.plan)}`" name="plan">
+                    <ol class="plan-list">
+                      <li v-for="(step, index) in message.run.plan" :key="index" :class="step.status">
+                        <span>{{ step.title }}</span><small>{{ STEP_STATUS[step.status] || step.status }}</small>
+                      </li>
+                    </ol>
+                    <div class="call-list">
+                      <span v-for="step in message.run.steps" :key="step.seq" :class="['call-chip', step.status]">
+                        {{ TOOL_TITLES[step.tool] || step.tool }} · {{ CALL_STATUS[step.status] || step.status }} · {{ step.durationMs }}ms
+                      </span>
+                    </div>
+                  </el-collapse-item>
+                  <el-collapse-item
+                    v-for="(result, index) in message.run.results"
+                    :key="`result-${index}`"
+                    :title="`数据：${result.title}（${result.rowCount}行）`"
+                    :name="`result-${index}`"
+                  >
+                    <div class="result-meta">来源：{{ result.source || '--' }} ｜ 统计区间：{{ result.period || '--' }}</div>
+                    <div v-for="note in result.notes" :key="note" class="result-note">{{ note }}</div>
+                    <el-table v-if="result.rows?.length" :data="result.rows.slice(0, 200)" size="small" max-height="320" border>
+                      <el-table-column v-for="column in result.columns" :key="column.key" :prop="column.key" :label="column.label" min-width="96" show-overflow-tooltip>
+                        <template #default="{ row }">{{ formatCell(row[column.key]) }}</template>
+                      </el-table-column>
+                    </el-table>
+                  </el-collapse-item>
+                </el-collapse>
+              </div>
             </div>
           </div>
 
@@ -112,7 +167,15 @@
             <div class="message-avatar">AI</div>
             <div class="message-body">
               <div class="message-name">JMH AI助手</div>
-              <div class="message-bubble typing-bubble">
+              <div v-if="liveRun?.plan?.length" class="message-bubble live-plan">
+                <div class="live-progress">{{ planProgress(liveRun.plan) }}<span v-if="liveRun.steps?.length"> ｜ {{ callSummary(liveRun.steps) }}</span></div>
+                <ol class="plan-list">
+                  <li v-for="(step, index) in liveRun.plan" :key="index" :class="step.status">
+                    <span>{{ step.title }}</span><small>{{ STEP_STATUS[step.status] || step.status }}</small>
+                  </li>
+                </ol>
+              </div>
+              <div v-else class="message-bubble typing-bubble">
                 <i /><i /><i />
               </div>
             </div>
@@ -154,13 +217,19 @@ import { computed, nextTick, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
 import {
-  chatWithAiAssistant,
   createAiConversation,
   deleteAiConversation,
+  deleteAiMemory,
+  getAgentRun,
   getAiAssistantStatus,
   getAiConversation,
-  listAiConversations
+  listAiConversations,
+  listAiMemories,
+  startAgentRun
 } from '@/api/system/aiAssistant'
+import {
+  CALL_STATUS, STEP_STATUS, TOOL_TITLES, callSummary, formatCell, parseAnswerBlocks, planProgress, pollAgentRun
+} from './agentRun'
 import useUserStore from '@/store/modules/user'
 
 const route = useRoute()
@@ -176,6 +245,9 @@ const messageContainer = ref()
 const inputRef = ref()
 const statusState = ref('checking')
 const statusModel = ref('')
+const liveRun = ref(null)
+const memories = ref([])
+const memoriesLoading = ref(false)
 
 const userDisplayName = computed(() => userStore.nickName || userStore.name || '我')
 const userInitial = computed(() => userDisplayName.value.trim().slice(0, 1).toUpperCase() || '我')
@@ -192,6 +264,7 @@ const statusText = computed(() => {
   return '正在检查服务'
 })
 const composerPlaceholder = computed(() => {
+  if (statusState.value === 'ready') return '例如：10月综合绩效排名前5名，未分配有多少？'
   if (statusState.value === 'unconfigured') return '请先在Python服务的 .env 中配置 DEEPSEEK_API_KEY'
   if (statusState.value === 'offline') return 'Python AI服务暂时不可用'
   if (statusState.value === 'checking') return '正在检查AI服务配置...'
@@ -249,27 +322,61 @@ async function sendMessage() {
       activeConversationId.value = created.data?.id || ''
       if (!activeConversationId.value) throw new Error('创建AI对话失败')
     }
-    const response = await chatWithAiAssistant({
+    const started = await startAgentRun({
       conversation_id: activeConversationId.value,
       message: content,
       page_context: {
         path: route.fullPath,
         title: route.meta?.title || document.title
       }
-    }, createRequestId('chat'))
-    const answer = response.data?.content?.trim()
-    if (!answer) throw new Error('AI助手未返回有效回答')
-    const assistantMessage = createMessage('assistant', answer)
-    assistantMessage.id = response.data?.assistantMessageId || assistantMessage.id
-    messages.value.push(assistantMessage)
+    }, createRequestId('agent-run'))
+    const runId = started.data?.runId
+    if (!runId) throw new Error('数据助手未返回任务编号')
+    const run = await pollAgentRun(runId, {
+      fetchRun: async id => (await getAgentRun(id, createRequestId('agent-poll'))).data,
+      onUpdate: value => {
+        liveRun.value = value
+        scrollToBottom()
+      }
+    })
+    if (run.status === 'failed') {
+      messages.value.push(createMessage('assistant', run.error || '数据助手执行失败', true))
+    } else {
+      const assistantMessage = createMessage('assistant', (run.answer || '').trim() || '没有得到有效回答')
+      assistantMessage.run = { plan: run.plan || [], steps: run.steps || [], results: run.results || [] }
+      messages.value.push(assistantMessage)
+    }
     await loadConversations(false)
   } catch (error) {
     const detail = error?.msg || error?.message || 'AI助手暂时无法回答，请稍后重试'
     messages.value.push(createMessage('assistant', detail, true))
   } finally {
     loading.value = false
+    liveRun.value = null
     await scrollToBottom()
     nextTick(() => inputRef.value?.focus())
+  }
+}
+
+async function loadMemories() {
+  memoriesLoading.value = true
+  try {
+    const response = await listAiMemories(createRequestId('memory-list'))
+    memories.value = Array.isArray(response.data) ? response.data : []
+  } catch (error) {
+    memories.value = []
+    ElMessage.error(error?.msg || error?.message || '加载助手记忆失败')
+  } finally {
+    memoriesLoading.value = false
+  }
+}
+
+async function removeMemory(memory) {
+  try {
+    await deleteAiMemory(memory.id, createRequestId('memory-delete'))
+    memories.value = memories.value.filter(item => item.id !== memory.id)
+  } catch (error) {
+    ElMessage.error(error?.msg || error?.message || '删除记忆失败')
   }
 }
 
@@ -745,6 +852,82 @@ function createRequestId(scope) {
   }
   i:nth-child(2) { animation-delay: 0.15s; }
   i:nth-child(3) { animation-delay: 0.3s; }
+}
+
+.answer-bubble { white-space: normal; }
+.answer-text { white-space: pre-wrap; }
+.answer-table-wrap { margin: 8px 0; overflow-x: auto; }
+.answer-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  line-height: 1.5;
+
+  th, td {
+    padding: 5px 8px;
+    border: 1px solid var(--el-border-color-lighter, #ebeef5);
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  th { background: var(--el-fill-color-light, #f5f7fa); font-weight: 600; }
+}
+
+.run-detail {
+  margin-top: 8px;
+  width: 100%;
+
+  :deep(.el-collapse) { border-top: 0; }
+  :deep(.el-collapse-item__header) { height: 34px; font-size: 12px; color: var(--el-text-color-secondary, #909399); }
+}
+
+.plan-list {
+  margin: 4px 0 6px;
+  padding-left: 18px;
+  font-size: 12.5px;
+
+  li {
+    padding: 2px 0;
+    color: var(--el-text-color-regular, #606266);
+
+    span { margin-right: 8px; }
+    small { color: var(--el-text-color-placeholder, #a8abb2); }
+    &.completed span { color: var(--el-color-success, #67c23a); }
+    &.in_progress span { color: var(--el-color-primary, #409eff); font-weight: 600; }
+    &.skipped span { text-decoration: line-through; }
+  }
+}
+
+.live-plan { min-width: 260px; white-space: normal; }
+.live-progress { margin-bottom: 4px; color: var(--el-color-primary, #409eff); font-size: 12.5px; }
+
+.call-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.call-chip {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--el-color-success-light-9, #f0f9eb);
+  color: var(--el-color-success, #67c23a);
+  font-size: 11px;
+
+  &.failed, &.invalid { background: var(--el-color-warning-light-9, #fdf6ec); color: var(--el-color-warning, #e6a23c); }
+  &.denied { background: var(--el-color-danger-light-9, #fef0f0); color: var(--el-color-danger, #f56c6c); }
+}
+
+.result-meta { margin-bottom: 6px; color: var(--el-text-color-secondary, #909399); font-size: 12px; }
+.result-note { margin-bottom: 4px; color: var(--el-color-warning, #e6a23c); font-size: 12px; }
+
+.memory-panel { font-size: 13px; }
+.memory-title { margin-bottom: 8px; color: var(--el-text-color-secondary, #909399); font-size: 12px; }
+.memory-empty { color: var(--el-text-color-placeholder, #a8abb2); }
+.memory-item {
+  padding: 6px 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid var(--el-border-color-lighter, #ebeef5);
+
+  button { flex: none; border: 0; background: transparent; color: var(--el-color-danger, #f56c6c); cursor: pointer; }
 }
 
 .composer {

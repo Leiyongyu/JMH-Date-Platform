@@ -132,6 +132,66 @@ public class AiAssistantPythonClient extends PythonHttpSupport
         }
     }
 
+    /** 提交数据助手后台任务；payload 中的 access 已由控制器按登录用户覆盖。 */
+    public Object startAgentRun(
+            Map<String, Object> payload,
+            Long erpUserId,
+            String erpUser,
+            String requestId)
+    {
+        try
+        {
+            String body = objectMapper.writeValueAsString(payload);
+            return send(userRequest("/api/v1/ai-assistant/agent-runs", erpUserId, erpUser, requestId)
+                    .header("Content-Type", "application/json;charset=utf-8")
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                    .build());
+        }
+        catch (Exception e)
+        {
+            throw failure(e);
+        }
+    }
+
+    public Object getAgentRun(String runId, Long erpUserId, String erpUser, String requestId)
+    {
+        try
+        {
+            return send(userRequest("/api/v1/ai-assistant/agent-runs/" + runId,
+                    erpUserId, erpUser, requestId).GET().build());
+        }
+        catch (Exception e)
+        {
+            throw failure(e);
+        }
+    }
+
+    public Object listMemories(Long erpUserId, String erpUser, String requestId)
+    {
+        try
+        {
+            return send(userRequest("/api/v1/ai-assistant/memories",
+                    erpUserId, erpUser, requestId).GET().build());
+        }
+        catch (Exception e)
+        {
+            throw failure(e);
+        }
+    }
+
+    public Object deleteMemory(long memoryId, Long erpUserId, String erpUser, String requestId)
+    {
+        try
+        {
+            return send(userRequest("/api/v1/ai-assistant/memories/" + memoryId,
+                    erpUserId, erpUser, requestId).DELETE().build());
+        }
+        catch (Exception e)
+        {
+            throw failure(e);
+        }
+    }
+
     private HttpRequest.Builder userRequest(
             String path, Long erpUserId, String erpUser, String requestId)
     {

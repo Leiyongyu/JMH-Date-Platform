@@ -31,3 +31,14 @@ class AiChatRequest(BaseModel):
         if not content:
             raise ValueError("消息内容不能为空")
         return content
+
+
+class AiAgentAccess(BaseModel):
+    """Java 网关根据登录用户计算并覆盖写入，前端传入的同名字段不会被采用。"""
+
+    permissions: list[str] = Field(default_factory=list, max_length=5000)
+    scopes: dict[str, list[str] | None] = Field(default_factory=dict)
+
+
+class AiAgentRunRequest(AiChatRequest):
+    access: AiAgentAccess = Field(default_factory=AiAgentAccess)

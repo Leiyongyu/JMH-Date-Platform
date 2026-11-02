@@ -128,6 +128,13 @@ class Settings:
     deepseek_thinking_enabled: bool = _env_bool(
         "DEEPSEEK_THINKING_ENABLED", False
     )
+    # 数据助手（工具调用）的执行预算：超过任一上限即停止调用工具、基于已有结果作答。
+    ai_agent_thinking_enabled: bool = _env_bool("AI_AGENT_THINKING_ENABLED", False)
+    ai_agent_max_rounds: int = int(os.getenv("AI_AGENT_MAX_ROUNDS", "8"))
+    ai_agent_max_tool_calls: int = int(os.getenv("AI_AGENT_MAX_TOOL_CALLS", "16"))
+    ai_agent_timeout_sec: int = int(os.getenv("AI_AGENT_TIMEOUT_SEC", "240"))
+    ai_agent_tool_timeout_sec: int = int(os.getenv("AI_AGENT_TOOL_TIMEOUT_SEC", "90"))
+    ai_agent_parallel_tools: int = int(os.getenv("AI_AGENT_PARALLEL_TOOLS", "4"))
     deepseek_system_prompt: str = os.getenv(
         "DEEPSEEK_SYSTEM_PROMPT",
         (

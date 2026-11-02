@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from pathlib import Path
 
 from a2wsgi import WSGIMiddleware
@@ -162,11 +163,21 @@ async def redirect_script_tools() -> RedirectResponse:
 async def startup() -> None:
     init_database()
     await asyncio.to_thread(migrations.warn_pending_on_startup)
+    await asyncio.to_thread(_fail_interrupted_agent_runs)
     await asyncio.to_thread(backfill_missing_monthly_inventory_snapshots)
     await asyncio.to_thread(cleanup_keep_recent)
     app.state.image_sop_cleanup_task = asyncio.create_task(
         _image_sop_cleanup_loop()
     )
+
+
+def _fail_interrupted_agent_runs() -> None:
+    """上次进程中断时仍在执行的数据助手任务不会再推进，标记为失败，前端不再无限等待。"""
+    from backend.repositories import ai_agent_repository
+    try:
+        ai_agent_repository.mark_stale_runs_failed(0)
+    except Exception as exc:  # 表未迁移时只告警，不影响服务启动。
+        logging.getLogger(__name__).warning("跳过数据助手中断任务清理：%s", exc)
 
 
 async def _image_sop_cleanup_loop() -> None:

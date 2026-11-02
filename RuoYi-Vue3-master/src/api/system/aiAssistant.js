@@ -55,3 +55,40 @@ export function deleteAiConversation(conversationId, requestId) {
     timeout: 15000
   })
 }
+
+export function startAgentRun(data, requestId) {
+  return request({
+    url: '/system/ai-assistant/agent-runs',
+    method: 'post',
+    data,
+    headers: requestId ? { 'X-Request-ID': requestId } : undefined,
+    timeout: 30000
+  })
+}
+
+export function getAgentRun(runId, requestId) {
+  return request({
+    url: `/system/ai-assistant/agent-runs/${runId}`,
+    method: 'get',
+    headers: requestId ? { 'X-Request-ID': requestId } : undefined,
+    timeout: 15000
+  })
+}
+
+export function listAiMemories(requestId) {
+  return request({
+    url: '/system/ai-assistant/memories',
+    method: 'get',
+    headers: requestId ? { 'X-Request-ID': requestId } : undefined,
+    timeout: 15000
+  })
+}
+
+export function deleteAiMemory(memoryId, requestId) {
+  return request({
+    url: `/system/ai-assistant/memories/${memoryId}`,
+    method: 'delete',
+    headers: requestId ? { 'X-Request-ID': requestId } : undefined,
+    timeout: 15000
+  })
+}
