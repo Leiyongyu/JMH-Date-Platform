@@ -20,10 +20,10 @@ spring:
             initialSize: 5
             # 最小连接池数量
             minIdle: 10
-            # 最大连接池数量
-            maxActive: 20
-            # 配置获取连接等待超时的时间
-            maxWait: 60000
+            # 最大连接池数量（与 Tomcat 最大线程数保持约 1:4）
+            maxActive: ${DB_POOL_MAX_ACTIVE:50}
+            # 获取连接等待超时。连接池耗尽时 10 秒内失败返回，而不是让请求挂 60 秒
+            maxWait: ${DB_POOL_MAX_WAIT_MS:10000}
             # 配置连接超时时间
             connectTimeout: 30000
             # 配置网络超时时间

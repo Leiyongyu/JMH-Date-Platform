@@ -2,7 +2,7 @@ package com.ruoyi.system.service.operation.ebay;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.system.service.finance.PerformancePythonProperties;
-import com.ruoyi.system.service.finance.PythonHttpSupport;
+import com.ruoyi.system.service.python.PythonHttpSupport;
 import java.net.URLEncoder;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;

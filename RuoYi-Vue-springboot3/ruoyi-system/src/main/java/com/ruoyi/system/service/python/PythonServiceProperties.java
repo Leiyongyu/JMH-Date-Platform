@@ -1,4 +1,4 @@
-package com.ruoyi.system.service.finance;
+package com.ruoyi.system.service.python;
 
 /** Python 内网服务连接配置的统一访问接口。 */
 public interface PythonServiceProperties

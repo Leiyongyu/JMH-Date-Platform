@@ -26,18 +26,19 @@ server:
   tomcat:
     # tomcat的URI编码
     uri-encoding: UTF-8
-    # 连接数满后的排队数，默认为100
-    accept-count: 1000
+    # 连接数满后的排队数。线程打满后排队过长只会把慢请求变成全站超时，宁可快速拒绝
+    accept-count: ${SERVER_TOMCAT_ACCEPT_COUNT:200}
     threads:
-      # tomcat最大线程数，默认为200
-      max: 800
-      # Tomcat启动初始化的线程数，默认值10
-      min-spare: 100
+      # tomcat最大线程数。需与数据库连接池 maxActive 保持同一量级（当前约 4:1），
+      # 800 线程抢 20 个连接时请求会在连接池排队，表现为全站雪崩式变慢
+      max: ${SERVER_TOMCAT_MAX_THREADS:200}
+      # Tomcat启动初始化的线程数
+      min-spare: ${SERVER_TOMCAT_MIN_SPARE_THREADS:20}
 
 # 日志配置
 logging:
   level:
-    com.ruoyi: debug
+    com.ruoyi: ${LOG_LEVEL_RUOYI:info}
     com.ruoyi.system.mapper.operation: info
     org.springframework: warn
 
@@ -217,59 +218,72 @@ sync:
 # 所有 Python 模块默认共用 JMH_PYTHON_BASE_URL；原模块变量继续作为兼容性覆盖项。
 tax-refund:
   data-project:
-    base-url: ${TAX_REFUND_DATA_PROJECT_BASE_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}}
-    connect-timeout: 5000
-    read-timeout: 600000
-    internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+    base-url: ${TAX_REFUND_DATA_PROJECT_BASE_URL:${jmh.python.base-url}}
+    connect-timeout: ${jmh.python.connect-timeout}
+    read-timeout: ${jmh.python.timeout.long}
+    internal-token: ${jmh.python.internal-token}
 
 # ERP AI助手通过Java安全代理访问Python，浏览器不接触内部Token和DeepSeek密钥
 ai-assistant:
   python:
-    base-url: ${AI_ASSISTANT_PYTHON_BASE_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}}
-    connect-timeout: 5000
-    read-timeout: 200000
-    internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+    base-url: ${AI_ASSISTANT_PYTHON_BASE_URL:${jmh.python.base-url}}
+    connect-timeout: ${jmh.python.connect-timeout}
+    read-timeout: ${jmh.python.timeout.report}
+    internal-token: ${jmh.python.internal-token}
 
 # 图片SOP通过Java安全代理访问Python；支持多图片上传、长时间AI生成和二进制下载
 image-sop:
   python:
-    base-url: ${IMAGE_SOP_PYTHON_BASE_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}/image-sop}
-    workbench-url: ${PYTHON_SCRIPT_WORKBENCH_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}/script-tools/}
-    connect-timeout: 5000
-    read-timeout: 900000
-    internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+    base-url: ${IMAGE_SOP_PYTHON_BASE_URL:${jmh.python.base-url}/image-sop}
+    workbench-url: ${PYTHON_SCRIPT_WORKBENCH_URL:${jmh.python.base-url}/script-tools/}
+    connect-timeout: ${jmh.python.connect-timeout}
+    read-timeout: ${jmh.python.timeout.long}
+    internal-token: ${jmh.python.internal-token}
 
 # 报关单页面已并入Date-Project；浏览器通过ERP短期会话和白名单代理使用。
 customs-declaration:
   legacy:
-    base-url: ${CUSTOMS_DECLARATION_LEGACY_BASE_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}/customs-declaration}
-    connect-timeout: ${CUSTOMS_DECLARATION_LEGACY_CONNECT_TIMEOUT:5000}
-    read-timeout: ${CUSTOMS_DECLARATION_LEGACY_READ_TIMEOUT:120000}
-    internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+    base-url: ${CUSTOMS_DECLARATION_LEGACY_BASE_URL:${jmh.python.base-url}/customs-declaration}
+    connect-timeout: ${CUSTOMS_DECLARATION_LEGACY_CONNECT_TIMEOUT:${jmh.python.connect-timeout}}
+    read-timeout: ${CUSTOMS_DECLARATION_LEGACY_READ_TIMEOUT:${jmh.python.timeout.fast}}
+    internal-token: ${jmh.python.internal-token}
 
 # eBay价格工具通过Java安全代理访问Python；与其他Python模块复用JMH_PYTHON_BASE_URL。
 ebay-tool:
   python:
-    base-url: ${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}/ebay-tool
-    connect-timeout: 5000
-    read-timeout: 900000
-    internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+    base-url: ${jmh.python.base-url}/ebay-tool
+    connect-timeout: ${jmh.python.connect-timeout}
+    read-timeout: ${jmh.python.timeout.long}
+    internal-token: ${jmh.python.internal-token}
 
 # Python 绩效排名服务
 performance:
   python:
-    base-url: ${PERFORMANCE_PYTHON_BASE_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}/api/v1/finance}
-    connect-timeout: 5000
-    read-timeout: 300000
-    internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+    base-url: ${PERFORMANCE_PYTHON_BASE_URL:${jmh.python.base-url}/api/v1/finance}
+    connect-timeout: ${jmh.python.connect-timeout}
+    read-timeout: ${jmh.python.timeout.report}
+    internal-token: ${jmh.python.internal-token}
 
 
 jmh:
-  python-performance:
-    base-url: ${PYTHON_PERFORMANCE_BASE_URL:${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}}
-    connect-timeout: 3s
-    read-timeout: 3h
+  # Java 调用 Python 的统一入口。上面各模块的 base-url / token / 超时都引用这里，
+  # 部署时只需配置 JMH_PYTHON_BASE_URL 与 PYTHON_INTERNAL_API_TOKEN；
+  # 各模块原有的 *_BASE_URL 环境变量仍可单独覆盖。
+  python:
+    base-url: ${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}
     internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+    connect-timeout: ${JMH_PYTHON_CONNECT_TIMEOUT_MS:5000}
+    # 读超时档位（毫秒）：fast 普通查询，report 报表/AI，long 批量导入导出，etl 同步型定时任务
+    timeout:
+      fast: ${JMH_PYTHON_TIMEOUT_FAST_MS:120000}
+      report: ${JMH_PYTHON_TIMEOUT_REPORT_MS:300000}
+      long: ${JMH_PYTHON_TIMEOUT_LONG_MS:900000}
+      etl: ${JMH_PYTHON_TIMEOUT_ETL_MS:10800000}
+  python-performance:
+    base-url: ${PYTHON_PERFORMANCE_BASE_URL:${jmh.python.base-url}}
+    connect-timeout: ${jmh.python.connect-timeout}
+    read-timeout: ${jmh.python.timeout.etl}
+    internal-token: ${jmh.python.internal-token}
   mysql-backup:
     enabled: ${MYSQL_BACKUP_ENABLED:true}
     mysqldump-path: ${MYSQLDUMP_PATH:C:/Program Files/MySQL/MySQL Server 9.7/bin/mysqldump.exe}
@@ -282,3 +296,25 @@ jmh:
     retention-days: ${MYSQL_BACKUP_RETENTION_DAYS:30}
     timeout-minutes: ${MYSQL_BACKUP_TIMEOUT_MINUTES:120}
     minimum-dump-bytes: ${MYSQL_BACKUP_MINIMUM_DUMP_BYTES:1024}
+
+# 运维端点：独立端口且只监听本机，由 Prometheus / 监控脚本在部署机本地抓取
+management:
+  server:
+    port: ${MANAGEMENT_PORT:8081}
+    address: ${MANAGEMENT_ADDRESS:127.0.0.1}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    # 告警邮件服务器不可达不应让整体健康检查失败
+    mail:
+      enabled: false
+  metrics:
+    tags:
+      application: jmh-erp

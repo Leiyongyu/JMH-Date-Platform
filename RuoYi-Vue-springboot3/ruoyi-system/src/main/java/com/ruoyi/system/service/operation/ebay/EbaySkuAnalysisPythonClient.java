@@ -3,7 +3,7 @@ package com.ruoyi.system.service.operation.ebay;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.system.service.finance.PerformancePythonProperties;
-import com.ruoyi.system.service.finance.PythonHttpSupport;
+import com.ruoyi.system.service.python.PythonHttpSupport;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 

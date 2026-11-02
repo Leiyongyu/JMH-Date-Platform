@@ -1,6 +1,6 @@
 package com.ruoyi.system.service.ai;
 
-import com.ruoyi.system.service.finance.PythonServiceProperties;
+import com.ruoyi.system.service.python.PythonServiceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 

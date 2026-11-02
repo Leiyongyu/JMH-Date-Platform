@@ -2,7 +2,7 @@ package com.ruoyi.system.service.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.exception.ServiceException;
-import com.ruoyi.system.service.finance.PythonHttpSupport;
+import com.ruoyi.system.service.python.PythonHttpSupport;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;

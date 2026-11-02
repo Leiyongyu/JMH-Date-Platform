@@ -45,6 +45,13 @@ public class SecurityConfig
     @Value("${ruoyi.security.druid-monitor-enabled:${ruoyi.security.public-monitor-enabled:true}}")
     private boolean druidMonitorEnabled;
 
+    /** 独立的运维端口（只监听本机）；与业务端口相同时运维端点仍需登录。 */
+    @Value("${management.server.port:-1}")
+    private int managementPort;
+
+    @Value("${server.port:8080}")
+    private int serverPort;
+
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration) throws Exception
     {
@@ -72,6 +79,11 @@ public class SecurityConfig
                 if (druidMonitorEnabled)
                 {
                     requests.requestMatchers("/druid/**").permitAll();
+                }
+                if (managementPort > 0 && managementPort != serverPort)
+                {
+                    requests.requestMatchers(request -> request.getLocalPort() == managementPort
+                            && request.getRequestURI().startsWith("/actuator/")).permitAll();
                 }
                 requests.anyRequest().authenticated();
             })

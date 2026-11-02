@@ -1,5 +1,6 @@
 package com.ruoyi.system.service.finance;
 
+import com.ruoyi.system.service.python.PythonServiceProperties;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;

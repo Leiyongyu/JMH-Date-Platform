@@ -36,6 +36,16 @@
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
         </dependency>
 
+        <!-- 健康检查与 Prometheus 指标（management 端口仅监听本机） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
          <!-- Mysql驱动包 -->
         <dependency>
             <groupId>com.mysql</groupId>

@@ -1,4 +1,4 @@
-package com.ruoyi.system.service.finance;
+package com.ruoyi.system.service.python;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.MDC;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -25,7 +26,9 @@ import org.springframework.web.multipart.MultipartFile;
 /**
  * Base support for internal Python HTTP clients.
  * Keeps timeout, request id, token, query string, error parsing and multipart
- * behavior consistent across finance, scheduler and tax-refund clients.
+ * behavior consistent across finance, scheduler, tax-refund, AI and eBay clients.
+ * 所有客户端访问的是同一个 Python 服务，按连接超时共享 HttpClient，
+ * 避免每个客户端各建一套连接池和 selector 线程。
  */
 public abstract class PythonHttpSupport
 {
@@ -33,6 +36,9 @@ public abstract class PythonHttpSupport
     public static final String REQUEST_ID_MDC_KEY = "request_id";
 
     private static final String TOKEN_HEADER = "X-Internal-Token";
+
+    private static final Map<Integer, HttpClient> SHARED_CLIENTS =
+            new ConcurrentHashMap<>();
 
     protected static final TypeReference<Map<String, Object>> MAP_TYPE =
             new TypeReference<>() {};
@@ -47,11 +53,16 @@ public abstract class PythonHttpSupport
     {
         this.properties = properties;
         this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofMillis(
-                        properties.getConnectTimeoutMillis()))
-                .build();
+        this.httpClient = sharedClient(properties.getConnectTimeoutMillis());
+    }
+
+    static HttpClient sharedClient(int connectTimeoutMillis)
+    {
+        return SHARED_CLIENTS.computeIfAbsent(connectTimeoutMillis,
+                millis -> HttpClient.newBuilder()
+                        .version(HttpClient.Version.HTTP_1_1)
+                        .connectTimeout(Duration.ofMillis(millis))
+                        .build());
     }
 
     protected String baseUrl()
