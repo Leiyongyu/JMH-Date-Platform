@@ -1,5 +1,6 @@
 package com.ruoyi.system.service.operation.customs;
 
+import com.ruoyi.common.utils.poi.ExcelCells;
 import com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentOption;
 import com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentSkuOption;
 import com.ruoyi.system.domain.operation.customs.CustomsDeclarationItem;
@@ -31,7 +32,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -383,7 +383,7 @@ public class CustomsProductService
             {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
-                String sku = cellString(row.getCell(0));
+                String sku = ExcelCells.plain(row.getCell(0));
                 if (sku.isEmpty() || "sku".equalsIgnoreCase(sku)) continue;
                 int qty = integerValue(row.getCell(1), 1);
                 requests.add(new SkuRequest(sku, qty));
@@ -449,7 +449,7 @@ public class CustomsProductService
             {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
-                String sku = cellString(row.getCell(3));
+                String sku = ExcelCells.plain(row.getCell(3));
                 if (sku.isEmpty()) continue;
                 try
                 {
@@ -654,7 +654,7 @@ public class CustomsProductService
     {
         CustomsProduct product = new CustomsProduct();
         product.setSku(sku);
-        String hsText = cellString(row.getCell(1));
+        String hsText = ExcelCells.plain(row.getCell(1));
         Matcher hsMatcher = HS_PATTERN.matcher(hsText);
         if (hsMatcher.find())
         {
@@ -666,10 +666,10 @@ public class CustomsProductService
             product.setHsCode("");
             product.setHsDescription(hsText);
         }
-        product.setDescriptionCn(cellString(row.getCell(2)));
-        product.setModel(defaultValue(cellString(row.getCell(4)), "通用型"));
+        product.setDescriptionCn(ExcelCells.plain(row.getCell(2)));
+        product.setModel(defaultValue(ExcelCells.plain(row.getCell(4)), "通用型"));
 
-        String weightText = cellString(row.getCell(5));
+        String weightText = ExcelCells.plain(row.getCell(5));
         Matcher weightMatcher = WEIGHT_PATTERN.matcher(weightText);
         if (weightMatcher.find())
         {
@@ -684,13 +684,13 @@ public class CustomsProductService
             product.setUnit("个");
         }
 
-        String[] priceParts = cellString(row.getCell(6)).split("/");
+        String[] priceParts = ExcelCells.plain(row.getCell(6)).split("/");
         product.setUnitPriceUsd(decimal(priceParts.length > 0 ? priceParts[0] : "0"));
         product.setCurrency(priceParts.length >= 3 ? defaultValue(priceParts[2].trim(), "USD") : "USD");
-        product.setOriginCountry(cellString(row.getCell(7)));
-        product.setDestinationCountry(defaultValue(cellString(row.getCell(8)), "美国"));
-        product.setSourceLocation(defaultValue(cellString(row.getCell(10)), ""));
-        product.setExemption(cellString(row.getCell(12)));
+        product.setOriginCountry(ExcelCells.plain(row.getCell(7)));
+        product.setDestinationCountry(defaultValue(ExcelCells.plain(row.getCell(8)), "美国"));
+        product.setSourceLocation(defaultValue(ExcelCells.plain(row.getCell(10)), ""));
+        product.setExemption(ExcelCells.plain(row.getCell(12)));
         return product;
     }
 
@@ -856,27 +856,10 @@ public class CustomsProductService
             throw new IllegalArgumentException("仅支持xlsx文件");
     }
 
-    private String cellString(Cell cell)
-    {
-        if (cell == null) return "";
-        if (cell.getCellType() == CellType.NUMERIC)
-            return BigDecimal.valueOf(cell.getNumericCellValue()).stripTrailingZeros().toPlainString();
-        if (cell.getCellType() == CellType.BOOLEAN) return Boolean.toString(cell.getBooleanCellValue());
-        if (cell.getCellType() == CellType.FORMULA)
-        {
-            CellType cachedType = cell.getCachedFormulaResultType();
-            if (cachedType == CellType.STRING) return trim(cell.getStringCellValue());
-            if (cachedType == CellType.NUMERIC)
-                return BigDecimal.valueOf(cell.getNumericCellValue()).stripTrailingZeros().toPlainString();
-            if (cachedType == CellType.BOOLEAN) return Boolean.toString(cell.getBooleanCellValue());
-            return "";
-        }
-        return trim(cell.toString());
-    }
 
     private int integerValue(Cell cell, int defaultValue)
     {
-        try { return new BigDecimal(cellString(cell)).intValue(); }
+        try { return new BigDecimal(ExcelCells.plain(cell)).intValue(); }
         catch (Exception ignored) { return defaultValue; }
     }
 

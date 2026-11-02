@@ -1,5 +1,6 @@
 package com.ruoyi.system.service.operation.customs;
 
+import com.ruoyi.common.utils.poi.ExcelCells;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.system.domain.operation.customs.CustomsDeclarationGenerateLog;
 import com.ruoyi.system.domain.operation.customs.CustomsInventoryItem;
@@ -352,12 +353,12 @@ public class CustomsInventoryService
             {
                 Row row = sheet.getRow(rowIndex);
                 if (row == null) continue;
-                String sku = cellString(row.getCell(2));
-                String productName = cellString(row.getCell(1));
+                String sku = ExcelCells.plain(row.getCell(2));
+                String productName = ExcelCells.plain(row.getCell(1));
                 if (sku.isEmpty() && productName.isEmpty()) continue;
                 try
                 {
-                    String productCode = cellString(row.getCell(0));
+                    String productCode = ExcelCells.plain(row.getCell(0));
                     if (!productCode.isEmpty()) lastProductCode = productCode;
                     CustomsInventoryItem item = parseRow(row, defaultValue(productCode, lastProductCode));
                     normalizeDateFields(item);
@@ -394,15 +395,15 @@ public class CustomsInventoryService
     {
         CustomsInventoryItem item = new CustomsInventoryItem();
         item.setProductCode(productCode);
-        item.setProductName(cellString(row.getCell(1)));
-        item.setSku(cellString(row.getCell(2)));
-        item.setPurchaseQuantity(cellString(row.getCell(3)));
-        item.setUnit(cellString(row.getCell(4)));
-        item.setTaxIncludedPrice(cellString(row.getCell(5)));
+        item.setProductName(ExcelCells.plain(row.getCell(1)));
+        item.setSku(ExcelCells.plain(row.getCell(2)));
+        item.setPurchaseQuantity(ExcelCells.plain(row.getCell(3)));
+        item.setUnit(ExcelCells.plain(row.getCell(4)));
+        item.setTaxIncludedPrice(ExcelCells.plain(row.getCell(5)));
         item.setPurchaseDate(dateOrText(row.getCell(6)));
         item.setInboundDate(dateOrText(row.getCell(7)));
         item.setInboundQuantity(decimal(row.getCell(8)));
-        item.setInboundRemark(cellString(row.getCell(9)));
+        item.setInboundRemark(ExcelCells.plain(row.getCell(9)));
         item.setOutboundDate(dateOrText(row.getCell(10)));
         item.setCzechWarehouseQty(decimal(row.getCell(11)));
         item.setUkWarehouseQty(decimal(row.getCell(12)));
@@ -412,9 +413,9 @@ public class CustomsInventoryService
         item.setFbaUkQty(decimal(row.getCell(16)));
         item.setFbaUsQty(decimal(row.getCell(17)));
         item.setFbaFrQty(decimal(row.getCell(18)));
-        item.setRemark(cellString(row.getCell(20)));
-        item.setCustomsUnit(cellString(row.getCell(21)));
-        item.setDeclarationElements(cellString(row.getCell(22)));
+        item.setRemark(ExcelCells.plain(row.getCell(20)));
+        item.setCustomsUnit(ExcelCells.plain(row.getCell(21)));
+        item.setDeclarationElements(ExcelCells.plain(row.getCell(22)));
         applyHsFields(item);
         return item;
     }
@@ -513,7 +514,7 @@ public class CustomsInventoryService
             Date date = DateUtil.getJavaDate(cellNumericValue(cell));
             return new SimpleDateFormat("yyyy-MM-dd").format(date);
         }
-        return normalizeLooseDateText(cellString(cell));
+        return normalizeLooseDateText(ExcelCells.plain(cell));
     }
 
     private String normalizeSingleDate(String value)
@@ -558,27 +559,12 @@ public class CustomsInventoryService
 
     private BigDecimal decimal(Cell cell)
     {
-        String value = cellString(cell).replace(",", "");
+        String value = ExcelCells.plain(cell).replace(",", "");
         if (value.isEmpty()) return null;
         try { return new BigDecimal(value); }
         catch (Exception ignored) { return null; }
     }
 
-    private String cellString(Cell cell)
-    {
-        if (cell == null) return "";
-        CellType type = cell.getCellType();
-        if (type == CellType.FORMULA)
-        {
-            try { type = cell.getCachedFormulaResultType(); }
-            catch (Exception ignored) { return ""; }
-        }
-        if (type == CellType.NUMERIC)
-            return BigDecimal.valueOf(cellNumericValue(cell)).stripTrailingZeros().toPlainString();
-        if (type == CellType.STRING) return trim(cell.getStringCellValue());
-        if (type == CellType.BOOLEAN) return Boolean.toString(cell.getBooleanCellValue());
-        return trim(cell.toString());
-    }
 
     private boolean isDateCell(Cell cell)
     {

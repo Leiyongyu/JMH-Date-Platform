@@ -1,5 +1,6 @@
 package com.ruoyi.system.service.operation.customs;
 
+import com.ruoyi.common.utils.poi.ExcelCells;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.system.domain.operation.customs.CustomsShipmentFeeImportBatch;
 import com.ruoyi.system.domain.operation.customs.CustomsShipmentFeeImportLog;
@@ -11,13 +12,11 @@ import com.ruoyi.system.service.operation.external.lingxing.LingxingGatewayServi
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.math.BigDecimal;
-import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -142,7 +141,7 @@ public class CustomsShipmentFeeImportService
         batch.setBatchNo(createBatchNo());
         batch.setOriginalFileName(file.getOriginalFilename());
         batch.setFileSize(file.getSize());
-        batch.setFileSha256(sha256(fileBytes));
+        batch.setFileSha256(ExcelCells.sha256Hex(fileBytes));
         batch.setTotalRows(0);
         batch.setTotalShipments(0);
         batch.setSuccessCount(0);
@@ -454,7 +453,7 @@ public class CustomsShipmentFeeImportService
                 boolean hasValue = false;
                 for (int col = 0; col < COLUMN_COUNT; col++)
                 {
-                    values[col] = cellText(source.getCell(col), formatter, evaluator);
+                    values[col] = ExcelCells.formatted(source.getCell(col), formatter, evaluator);
                     if (StringUtils.hasText(values[col])) hasValue = true;
                 }
                 if (!hasValue) continue;
@@ -849,13 +848,6 @@ public class CustomsShipmentFeeImportService
         return String.join(",", values);
     }
 
-    private String cellText(
-            Cell cell, DataFormatter formatter, FormulaEvaluator evaluator)
-    {
-        if (cell == null) return "";
-        String text = formatter.formatCellValue(cell, evaluator);
-        return text == null ? "" : text.trim();
-    }
 
     private void checkFile(MultipartFile file)
     {
@@ -869,18 +861,6 @@ public class CustomsShipmentFeeImportService
             throw new IllegalArgumentException("仅支持 .xlsx 或 .xls 文件");
     }
 
-    private String sha256(byte[] bytes)
-    {
-        try
-        {
-            return HexFormat.of().formatHex(
-                    MessageDigest.getInstance("SHA-256").digest(bytes));
-        }
-        catch (Exception e)
-        {
-            throw new IllegalStateException("计算文件摘要失败", e);
-        }
-    }
 
     private String createBatchNo()
     {
