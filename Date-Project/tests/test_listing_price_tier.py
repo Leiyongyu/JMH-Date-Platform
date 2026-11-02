@@ -88,6 +88,8 @@ def mocks(monkeypatch):
     monkeypatch.setattr(repo,'context',lambda *_:dict(rate_month='2026-09',rates={'EUR':'7.6','USD':'6.8'},
                                                      rate_months={'EUR':'2026-09','USD':'2026-09'}))
     monkeypatch.setattr(repo,'source',lambda *_:([candidate()],[],1))
+    # eBay 分档前会先用另一条连接重算单价表，单元测试里只验证分档本身。
+    monkeypatch.setattr(repo.unit_price,'refresh',lambda *_:{'months':[],'rows':0,'skipped_rows':0})
     return conn,cur
 
 

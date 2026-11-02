@@ -122,7 +122,24 @@ def test_api_accepts_range_and_rejects_invalid_range(monkeypatch):
     app = FastAPI()
     app.include_router(api.router)
     app.dependency_overrides[require_internal_access] = lambda: None
-    monkeypatch.setattr(repo, "read_inventory_range", lambda *args: ([row(args[0])], {}, []))
+    # 导出接口已改为三模块合并导出，这里替换掉它读取的三个快照查询和导出锁。
+    from contextlib import contextmanager
+    from backend.services import ebay_inventory_bundle_export_service as bundle
+
+    @contextmanager
+    def acquired(_name):
+        yield True
+
+    monkeypatch.setattr(bundle, "named_lock", acquired)
+    def list_inventory(**kw):
+        # 与真实 list_inventory 一致：反向范围在查询层拒绝。
+        if kw["start_date"] > kw["end_date"]:
+            raise ValueError("统计开始日期不能晚于结束日期")
+        return {"items": [row(kw["start_date"])], "metadata": {}}
+
+    monkeypatch.setattr(bundle, "list_inventory", list_inventory)
+    monkeypatch.setattr(bundle, "list_pivot", lambda **kw: {"items": []})
+    monkeypatch.setattr(bundle, "read_range", lambda *args: {"owners": [], "sites": []})
     with TestClient(app) as client:
         path = "/api/v1/finance/ebay-inventory-detail/export"
         response = client.post(path, json={"start_date": "2026-09-01", "end_date": "2026-09-01"})

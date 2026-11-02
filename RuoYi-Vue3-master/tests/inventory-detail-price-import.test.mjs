@@ -183,7 +183,7 @@ test('unmounted view does not display a late successful import or read another s
 
 test('API sends price and history imports as multipart without client date or operator', async () => {
   const apiSource = fs.readFileSync(new URL('../src/api/operations/ebay/inventoryDetail.js', import.meta.url), 'utf8')
-    .replace(/^import .*\n/gm, '').replace(/^export /gm, '')
+    .replace(/^import .*\r?\n/gm, '').replace(/^export /gm, '')
   const sent = []
   const context = vm.createContext({ FormData, request: payload => { sent.push(payload); return Promise.resolve({}) } })
   vm.runInContext(apiSource + '\nglobalThis.api = { importEbayInventoryPrices, importEbayInventoryHistory }', context)
