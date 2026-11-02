@@ -6,6 +6,8 @@ from typing import Callable
 from uuid import uuid4
 
 from backend.repositories import performance_repository as repo
+from backend.services import data_quality
+from backend.services.data_quality import DataQualityError
 from backend.services.ebay_token_health_service import (
     TASK_CODE as EBAY_HEALTH_TASK_CODE, check_ebay_token_health,
 )
@@ -257,6 +259,7 @@ TASK_CODES = frozenset(TASK_SPECS)
 
 # 这些异常自带 stage/metrics，失败运行记录据此还原阶段和已处理行数。
 _STAGED_ERRORS = (
+    DataQualityError,
     PurchaseOrderSyncError,
     EbayStoreListingSyncError,
     FeishuBadTransactionSyncError,
@@ -334,6 +337,10 @@ def run_scheduler_task(
                 if not acquired:
                     raise SchedulerTaskAlreadyRunning(f"{spec.name}正在执行")
                 result = spec.execute(context)
+        quality_issues = []
+        if not weekly_snapshot_only:
+            # 用已有快照重生成周报不抽取源数据，行数天然为 0，不做比对。
+            quality_issues = data_quality.check(task_code, run_id, result, repo)
         with repo.performance_connection() as connection:
             repo.insert_scheduler_run(
                 connection,
@@ -360,7 +367,10 @@ def run_scheduler_task(
                 },
             )
             connection.commit()
-        return {"run_id": run_id, "task_code": task_code, "status": "completed", "result": result}
+        return {
+            "run_id": run_id, "task_code": task_code, "status": "completed", "result": result,
+            "quality_issues": [issue.message for issue in quality_issues],
+        }
     except Exception as exc:
         staged = isinstance(exc, _STAGED_ERRORS)
         etl_stage = (

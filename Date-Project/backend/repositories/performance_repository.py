@@ -957,3 +957,35 @@ def _table_exists(cursor, database: str | None, table: str) -> bool:
             (table,),
         )
     return cursor.fetchone() is not None
+
+
+def recent_completed_runs(task_code: str, limit: int) -> list[dict[str, Any]]:
+    """最近几次成功运行的行数指标（新到旧），供数据质量门禁做基线。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT run_id, extract_rows, ods_rows, inserted_rows, skipped_rows, started_at
+            FROM scheduler_task_run
+            WHERE task_code = %s AND status = 'completed'
+            ORDER BY started_at DESC
+            LIMIT %s
+            """,
+            (task_code, limit),
+        )
+        return list(cursor.fetchall())
+
+
+def insert_quality_check(run_id: str, task_code: str, status: str, issues_json: str) -> None:
+    with db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO scheduler_task_quality_check
+                    (run_id, task_code, status, issues, checked_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON DUPLICATE KEY UPDATE status = VALUES(status),
+                    issues = VALUES(issues), checked_at = VALUES(checked_at)
+                """,
+                (run_id, task_code, status, issues_json),
+            )
+        connection.commit()
