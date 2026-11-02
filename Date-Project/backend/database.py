@@ -475,52 +475,6 @@ def _ensure_inventory_report_view_snapshot(cursor) -> None:
     )
 
 
-def _ensure_after_sales_range_columns(cursor) -> None:
-    """Add auditable calculation versions without relying on vendor-specific DDL."""
-    definitions = (
-        (
-            "dws_amz_sop_after_sales_summary",
-            "calculation_version",
-            "VARCHAR(32) NOT NULL DEFAULT 'RECORD-V2' "
-            "COMMENT '计算口径版本：QUANTITY-V3按领星售后件数计算' "
-            "AFTER `after_sales_rate`",
-        ),
-        (
-            "dws_ebay_sop_after_sales_summary",
-            "calculation_version",
-            "VARCHAR(32) NOT NULL DEFAULT 'EBAY-QUANTITY-V1' "
-            "COMMENT '计算口径版本：保持eBay有效售后数量求和口径' "
-            "AFTER `after_sales_rate`",
-        ),
-    )
-    for table_name, column_name, definition in definitions:
-        cursor.execute("SHOW TABLES LIKE %s", (table_name,))
-        if cursor.fetchone() is None:
-            continue
-        cursor.execute(
-            f"SHOW COLUMNS FROM `{table_name}` LIKE %s", (column_name,)
-        )
-        if cursor.fetchone() is None:
-            cursor.execute(
-                f"ALTER TABLE `{table_name}` "
-                f"ADD COLUMN `{column_name}` {definition}"
-            )
-    cursor.execute(
-        "UPDATE dws_amz_sop_after_sales_summary "
-        "SET calculation_version=CASE "
-        "WHEN sync_batch_id LIKE 'QUANTITY-V3-%%' THEN 'QUANTITY-V3' "
-        "ELSE 'RECORD-V2' END "
-        "WHERE calculation_version IS NULL OR calculation_version='' "
-        "OR calculation_version='LEGACY'"
-    )
-    cursor.execute(
-        "UPDATE dws_ebay_sop_after_sales_summary "
-        "SET calculation_version='EBAY-QUANTITY-V1' "
-        "WHERE calculation_version IS NULL OR calculation_version='' "
-        "OR calculation_version='LEGACY'"
-    )
-
-
 def _ensure_image_sop_owner_columns(cursor) -> None:
     """为已有图片SOP草稿表补充ERP用户隔离字段与索引。"""
     cursor.execute("SHOW TABLES LIKE 'image_sop_draft'")
@@ -579,15 +533,12 @@ def bootstrap_legacy_schema() -> None:
     project_root = Path(__file__).parent.parent
     schema_files = [
         Path(__file__).parent / "schema.sql",
-        project_root / "migrations" / "20260807_amz_sop_after_sales.sql",
-        project_root / "migrations" / "20260811_ebay_sop_after_sales.sql",
+        project_root / "migrations" / "20260807_after_sales_category_dim.sql",
         project_root / "migrations" / "20260812_image_sop.sql",
         project_root / "migrations" / "20260814_inventory_report_source_tables.sql",
         project_root / "migrations" / "20260817_inventory_report_etl_tables.sql",
         project_root / "migrations" / "20260818_ebay_inventory_age_cost.sql",
         project_root / "migrations" / "20260818_inventory_report_purchase_order_transit.sql",
-        project_root / "migrations" / "20260819_after_sales_range_optimization.sql",
-        project_root / "migrations" / "20260820_after_sales_month_state.sql",
         project_root / "migrations" / "20260820_deprecate_inventory_age_cost_import.sql",
         project_root / "migrations" / "20260820_inventory_report_dimension_views.sql",
         project_root / "migrations" / "20260902_amz_promotion_discount.sql",
@@ -617,7 +568,6 @@ def bootstrap_legacy_schema() -> None:
             _ensure_inventory_report_sales_volume_columns(cursor)
             _ensure_inventory_report_owner_rule_month(cursor)
             _ensure_inventory_report_view_snapshot(cursor)
-            _ensure_after_sales_range_columns(cursor)
             _ensure_image_sop_owner_columns(cursor)
             _ensure_customs_declaration_columns(cursor)
             _ensure_export_detail_columns(cursor)

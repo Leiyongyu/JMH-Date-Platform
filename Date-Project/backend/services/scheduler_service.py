@@ -49,12 +49,6 @@ from backend.services.currency_sync_service import (
     TASK_CODE as CURRENCY_TASK_CODE,
     sync_currency_month,
 )
-from backend.services.amz_sop_after_sales_service import (
-    TASK_CODE as AMZ_SOP_TASK_CODE,
-    TASK_NAME as AMZ_SOP_TASK_NAME,
-    AmzSopEtlError,
-    run_amz_sop_chain,
-)
 from backend.services.inventory_report_source_sync_service import (
     SALES_VOLUME_TASK_CODE,
     SALES_VOLUME_TASK_NAME,
@@ -218,16 +212,6 @@ TASK_SPECS: dict[str, TaskSpec] = {
             execute=lambda ctx: sync_fba_inventory(ctx.month),
         ),
         TaskSpec(
-            code=AMZ_SOP_TASK_CODE,
-            name=AMZ_SOP_TASK_NAME,
-            lock_name=lambda ctx: "sop:amz-after-sales-chain",
-            execute=lambda ctx: run_amz_sop_chain(
-                start_date=ctx.start_date,
-                end_date=ctx.end_date,
-                request_id=ctx.request_id,
-            ),
-        ),
-        TaskSpec(
             code=INVENTORY_REPORT_TASK_CODE,
             name=INVENTORY_REPORT_TASK_NAME,
             default_previous_month=True,
@@ -267,7 +251,6 @@ _STAGED_ERRORS = (
     FeishuBadTransactionSyncError,
     AmzListingRawSyncError,
     AmazonProfitEtlError,
-    AmzSopEtlError,
     InventoryReportSourceSyncError,
     GoodcangStorageSyncError,
 )

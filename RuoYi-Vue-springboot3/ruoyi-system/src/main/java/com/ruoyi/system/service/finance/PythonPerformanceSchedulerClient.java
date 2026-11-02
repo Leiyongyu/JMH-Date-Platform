@@ -32,8 +32,6 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
             "monthly_inventory_report_opening_inventory_fill";
     private static final String CURRENCY_MONTH_TASK =
             "currency_month_sync";
-    private static final String AMZ_SOP_TASK =
-            "amz_sop_after_sales_chain";
     private static final String GOODCANG_STORAGE_TASK =
             "goodcang_wh_inventory_storage_sync";
     private static final String SERVICE_NAME = "Python绩效ETL";
@@ -160,34 +158,14 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run(CURRENCY_MONTH_TASK, statMonth, requestId);
     }
 
-    public Map<String, Object> runAmzSop(
-            String startDate, String endDate,
-            String requestId, String triggerType)
-    {
-        return run(AMZ_SOP_TASK, null, startDate, endDate,
-                requestId, triggerType);
-    }
-
     private Map<String, Object> run(
             String taskCode, String statMonth, String requestId)
     {
-        return run(taskCode, statMonth, null, null, requestId, "JOB");
-    }
-
-    private Map<String, Object> run(
-            String taskCode, String statMonth,
-            String startDate, String endDate,
-            String requestId, String triggerType)
-    {
+        String triggerType = "JOB";
         try
         {
             Map<String, Object> payload = new LinkedHashMap<>();
-            if (AMZ_SOP_TASK.equals(taskCode))
-            {
-                payload.put("start_date", startDate);
-                payload.put("end_date", endDate);
-            }
-            else if (CLEARANCE_TASK.equals(taskCode)
+            if (CLEARANCE_TASK.equals(taskCode)
                     || INVENTORY_REPORT_SOURCE_TASK.equals(taskCode)
                     || INVENTORY_REPORT_SALES_VOLUME_TASK.equals(taskCode)
                     || INVENTORY_REPORT_OPENING_INVENTORY_TASK.equals(taskCode))

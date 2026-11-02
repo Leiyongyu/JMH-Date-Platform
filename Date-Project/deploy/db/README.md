@@ -112,3 +112,16 @@ Python 未升级时，Java 会自动退回原同步接口，所以两端部署�
 `.github/workflows/ci.yml` 会在 push 到 main 和每个 PR 上运行 Python / Java / 两个前端的测试与构建。
 建议在 GitHub 仓库 Settings → Branches 给 `main` 打开「Require status checks to pass」，
 勾选 CI 的四个 job。
+
+## 8. 下线「数据中心 > 售后数据」页面
+
+页面、Java 接口与 AMZ-SOP 售后定时任务代码已删除。部署新版代码后执行（均已纳入迁移，`db-migrate --dry-run` 可见）：
+
+| 库 | 文件 | 内容 |
+|---|---|---|
+| erp | `20261103_remove_after_sales_page.sql` | 删除售后数据菜单与 4 个按钮、角色授权、「AMZ-SOP售后链路」Quartz 任务 |
+| date | `20261103_drop_after_sales_tables.sql` | **删除 16 张售后专用表（不可恢复）**，删除 Python 调度任务定义 |
+
+- 执行前确认当天 MySQL 备份已成功。
+- 保留 `dim_amz_sop_after_sales_category`：eBay SKU 分析页面仍在使用。
+- 执行后重启 Java，用户重新登录即可看到菜单消失。
