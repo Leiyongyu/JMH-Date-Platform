@@ -18,7 +18,7 @@ from typing import Any
 from starlette.concurrency import run_in_threadpool
 
 from backend.agent.context import AgentContext, ToolPermissionError
-from backend.agent.llm import DeepSeekChatClient, LlmError
+from backend.agent.llm import AgentChatClient, LlmError
 from backend.agent.prompts import build_system_prompt
 from backend.agent.tools.base import Tool, ToolArgumentError, ToolResult
 from backend.agent.tools.business import BUSINESS_TOOLS
@@ -65,9 +65,9 @@ class CallOutcome:
 
 
 class AgentRunner:
-    def __init__(self, llm: DeepSeekChatClient | None = None, tools: list[Tool] | None = None,
+    def __init__(self, llm: AgentChatClient | None = None, tools: list[Tool] | None = None,
                  repo=runs_repo, conversations=ai_conversation_repository):
-        self.llm = llm or DeepSeekChatClient()
+        self.llm = llm or AgentChatClient()
         self.tools = {tool.name: tool for tool in (tools if tools is not None else BUSINESS_TOOLS)}
         self.repo = repo
         self.conversations = conversations

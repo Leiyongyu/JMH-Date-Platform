@@ -284,8 +284,8 @@ def test_agent_run_api_requires_owned_conversation_and_returns_run_id(monkeypatc
     from backend.repositories import ai_agent_repository
 
     monkeypatch.setattr(deps, "settings", SimpleNamespace(python_internal_api_token="t"))
-    import backend.config
-    monkeypatch.setattr(backend.config, "settings", replace(backend.config.settings, deepseek_api_key="k"))
+    from backend.agent import llm
+    monkeypatch.setattr(llm, "settings", replace(llm.settings, ai_agent_provider="deepseek", deepseek_api_key="k"))
     monkeypatch.setattr(api.ai_assistant_service, "get_conversation", lambda uid, cid: {"id": cid})
     started = {}
 
@@ -333,3 +333,70 @@ def test_thinking_is_saved_per_round_and_truncated():
     assert any(update.get("thinking_json") for update in repo.updates[:-1])
     # 完整思考仍原样回传给模型（截断只影响保存）
     assert llm.requests[1]["messages"][2]["reasoning_content"] == "先查10月"
+
+
+# ---------------------------------------------------------------- 模型提供方
+
+def test_provider_switch_and_thinking_parameters(monkeypatch):
+    from backend.agent import llm
+    base = replace(llm.settings, dashscope_api_key=" sk-test ", deepseek_api_key="ds",
+                   dashscope_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/",
+                   dashscope_model="qwen3.7-max-2026-06-08")
+    monkeypatch.setattr(llm, "settings", replace(base, ai_agent_provider="dashscope"))
+    qwen = llm.current_provider()
+    assert (qwen.name, qwen.model, qwen.api_key, qwen.key_env) == (
+        "dashscope", "qwen3.7-max-2026-06-08", "sk-test", "DASHSCOPE_API_KEY")
+    assert qwen.base_url.endswith("/compatible-mode/v1")
+    assert qwen.thinking_fields(True) == {"enable_thinking": True}
+    monkeypatch.setattr(llm, "settings", replace(base, ai_agent_provider="deepseek"))
+    assert llm.current_provider().thinking_fields(False) == {"thinking": {"type": "disabled"}}
+    monkeypatch.setattr(llm, "settings", replace(base, ai_agent_provider="unknown"))
+    assert llm.current_provider().name == "deepseek"
+
+
+def test_dashscope_request_payload_and_error_mapping(monkeypatch):
+    import httpx
+    from backend.agent import llm
+    sent = {}
+
+    def handler(request):
+        sent["url"] = str(request.url)
+        sent["auth"] = request.headers["Authorization"]
+        sent["body"] = json.loads(request.content)
+        if sent["body"]["messages"][0]["content"] == "fail":
+            return httpx.Response(401, json={"error": {"message": "Invalid API-key"}})
+        return httpx.Response(200, json={"model": "qwen3.7-max-2026-06-08", "choices": [{
+            "finish_reason": "tool_calls",
+            "message": {"content": "", "reasoning_content": "想一想",
+                        "tool_calls": [{"id": "c1", "type": "function",
+                                        "function": {"name": "sales", "arguments": "{}"}}]}}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7}})
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(llm.httpx, "AsyncClient",
+                        lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+    provider = llm.LlmProvider("dashscope", "阿里云百炼", "sk-test",
+                               "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3.7-max-2026-06-08",
+                               "DASHSCOPE_API_KEY")
+    client = llm.AgentChatClient(thinking=True, provider=provider)
+    result = asyncio.run(client.complete([{"role": "user", "content": "hi"}], [{"type": "function"}]))
+    assert sent["url"] == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    assert sent["auth"] == "Bearer sk-test"
+    assert sent["body"]["enable_thinking"] is True and "thinking" not in sent["body"]
+    assert sent["body"]["model"] == "qwen3.7-max-2026-06-08" and sent["body"]["stream"] is False
+    assert result.reasoning_content == "想一想" and result.tool_calls[0]["id"] == "c1"
+    assert result.as_message()["reasoning_content"] == "想一想"
+    with pytest.raises(LlmError, match="阿里云百炼 API Key无效.*DASHSCOPE_API_KEY"):
+        asyncio.run(client.complete([{"role": "user", "content": "fail"}]))
+    with pytest.raises(LlmError, match="DASHSCOPE_API_KEY"):
+        asyncio.run(llm.AgentChatClient(provider=replace(provider, api_key="")).complete([]))
+
+
+def test_status_reports_active_provider(monkeypatch):
+    from backend.agent import llm
+    from backend.services.ai_assistant_service import AiAssistantService
+    monkeypatch.setattr(llm, "settings", replace(llm.settings, ai_agent_provider="dashscope",
+                                                 dashscope_api_key="", dashscope_model="qwen3.7-max-2026-06-08"))
+    status = AiAssistantService().status()
+    assert status["provider"] == "dashscope" and status["configured"] is False
+    assert status["model"] == "qwen3.7-max-2026-06-08" and status["keyEnv"] == "DASHSCOPE_API_KEY"

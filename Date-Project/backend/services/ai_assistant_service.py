@@ -20,11 +20,17 @@ LOG = logging.getLogger(__name__)
 
 class AiAssistantService:
     def status(self) -> dict[str, Any]:
+        """反映数据助手当前使用的模型提供方（AI_AGENT_PROVIDER）。"""
+        from backend.agent.llm import current_provider
+
+        provider = current_provider()
         return {
-            "configured": bool(settings.deepseek_api_key.strip()),
-            "provider": "deepseek",
-            "model": settings.deepseek_model,
-            "thinkingEnabled": settings.deepseek_thinking_enabled,
+            "configured": bool(provider.api_key),
+            "provider": provider.name,
+            "providerLabel": provider.label,
+            "keyEnv": provider.key_env,
+            "model": provider.model,
+            "thinkingEnabled": settings.ai_agent_thinking_enabled,
         }
 
     def list_conversations(self, user_id: int, limit: int = 50) -> list[dict[str, Any]]:

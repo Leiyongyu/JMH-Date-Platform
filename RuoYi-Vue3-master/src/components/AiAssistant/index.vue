@@ -256,6 +256,8 @@ const messageContainer = ref()
 const inputRef = ref()
 const statusState = ref('checking')
 const statusModel = ref('')
+const statusProvider = ref('')
+const statusKeyEnv = ref('')
 const liveRun = ref(null)
 const memories = ref([])
 const memoriesLoading = ref(false)
@@ -269,14 +271,16 @@ const statusClass = computed(() => ({
   checking: 'checking'
 }[statusState.value]))
 const statusText = computed(() => {
-  if (statusState.value === 'ready') return statusModel.value ? `已连接 · ${statusModel.value}` : '已连接'
-  if (statusState.value === 'unconfigured') return '等待配置API Key'
+  if (statusState.value === 'ready') {
+    return ['已连接', statusProvider.value, statusModel.value].filter(Boolean).join(' · ')
+  }
+  if (statusState.value === 'unconfigured') return `等待配置 ${statusKeyEnv.value || 'API Key'}`
   if (statusState.value === 'offline') return 'Python服务不可用'
   return '正在检查服务'
 })
 const composerPlaceholder = computed(() => {
   if (statusState.value === 'ready') return '例如：10月综合绩效排名前5名，未分配有多少？'
-  if (statusState.value === 'unconfigured') return '请先在Python服务的 .env 中配置 DEEPSEEK_API_KEY'
+  if (statusState.value === 'unconfigured') return `请先在Python服务的 .env 中配置 ${statusKeyEnv.value || '模型 API Key'}`
   if (statusState.value === 'offline') return 'Python AI服务暂时不可用'
   if (statusState.value === 'checking') return '正在检查AI服务配置...'
   return '请输入你想咨询的问题...'
@@ -296,6 +300,8 @@ async function loadStatus() {
     const response = await getAiAssistantStatus(createRequestId('status'))
     const data = response.data || {}
     statusModel.value = data.model || ''
+    statusProvider.value = data.providerLabel || ''
+    statusKeyEnv.value = data.keyEnv || ''
     statusState.value = data.configured ? 'ready' : 'unconfigured'
   } catch (error) {
     statusState.value = 'offline'

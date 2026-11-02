@@ -129,6 +129,12 @@ class Settings:
         "DEEPSEEK_THINKING_ENABLED", False
     )
     # 数据助手（工具调用）的执行预算：超过任一上限即停止调用工具、基于已有结果作答。
+    # 数据助手的模型提供方：dashscope=阿里云百炼（测试阶段），deepseek=DeepSeek（上线）。只改这一项即可切换。
+    ai_agent_provider: str = (os.getenv("AI_AGENT_PROVIDER") or "deepseek").strip().lower()
+    dashscope_api_key: str = os.getenv("DASHSCOPE_API_KEY", "")
+    # 百炼 OpenAI 兼容地址；使用业务空间专属地址时改为 https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+    dashscope_base_url: str = os.getenv("DASHSCOPE_BASE_URL") or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    dashscope_model: str = os.getenv("DASHSCOPE_MODEL") or "qwen3.7-max-2026-06-08"
     # AI 助手专用库：会话、消息、运行记录、工具调用日志、用户记忆都放这里，与业务数据分开。
     ai_agent_database: str = os.getenv("AI_AGENT_DATABASE") or "jmh_ai_agent"
     # 思考模式：模型先输出思考过程再调用工具或作答，思考内容逐轮保存并在助手面板展示。

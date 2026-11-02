@@ -114,11 +114,12 @@ async def create_agent_run(
 ):
     """后台执行一次数据助手任务，立即返回 runId；进度与结果用 GET /agent-runs/{runId} 轮询。"""
     from backend.agent.context import AgentAccess, AgentContext
+    from backend.agent.llm import current_provider
     from backend.agent.runner import start_run
-    from backend.config import settings
 
-    if not settings.deepseek_api_key.strip():
-        raise HTTPException(status_code=503, detail="AI助手尚未配置，请在Python服务中设置 DEEPSEEK_API_KEY")
+    provider = current_provider()
+    if not provider.api_key:
+        raise HTTPException(status_code=503, detail=f"AI助手尚未配置，请在Python服务中设置 {provider.key_env}")
     conversation_id = str(payload.conversation_id)
     # 先确认会话属于当前用户，避免后台任务写入他人会话。
     await run_in_threadpool(ai_assistant_service.get_conversation, identity.user_id, conversation_id)
