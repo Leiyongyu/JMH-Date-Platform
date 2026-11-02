@@ -1,4 +1,4 @@
--- AI 数据助手：后台运行记录、工具调用日志、用户长期记忆。目标库：Date-Project。
+-- AI 数据助手：后台运行记录、工具调用日志、用户长期记忆。目标库：AI 助手专用库（AI_AGENT_DATABASE，默认 jmh_ai_agent）。
 
 CREATE TABLE IF NOT EXISTS ai_agent_run (
     run_id CHAR(36) NOT NULL COMMENT '运行ID（UUID）',
@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS ai_agent_run (
     status VARCHAR(16) NOT NULL COMMENT '状态：running 执行中 / completed 完成 / failed 失败',
     plan_json JSON NULL COMMENT '模型规划的步骤清单及各步状态',
     results_json JSON NULL COMMENT '各工具返回的表格结果（截断后，用于页面展示）',
+    thinking_json JSON NULL COMMENT '思考模式下每轮模型的思考过程（按轮次保存，单轮截断）',
     answer MEDIUMTEXT NULL COMMENT '最终回答',
     error_message VARCHAR(1000) NULL COMMENT '失败原因',
     rounds INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '模型调用轮次',

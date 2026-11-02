@@ -44,6 +44,8 @@ GRANT INSERT, UPDATE, DELETE ON `jmh_data_platform`.`ebay_replenishment_v2_forec
 GRANT INSERT, UPDATE, DELETE ON `jmh_data_platform`.`ebay_replenishment_v2_sales_type`    TO 'py_app'@'localhost', 'py_app'@'127.0.0.1';
 GRANT INSERT, UPDATE, DELETE ON `jmh_data_platform`.`ebay_replenishment_v2_review`        TO 'py_app'@'localhost', 'py_app'@'127.0.0.1';
 GRANT INSERT, UPDATE, DELETE ON `jmh_data_platform`.`products`                            TO 'py_app'@'localhost', 'py_app'@'127.0.0.1';
+-- AI 助手专用库（会话、消息、运行记录、调用日志、记忆）
+GRANT SELECT, INSERT, UPDATE, DELETE ON `jmh_ai_agent`.* TO 'py_app'@'localhost', 'py_app'@'127.0.0.1';
 -- 启动时只读检查 ERP 库迁移历史（db-status），无需写权限，已被上面的 SELECT 覆盖
 
 -- ---------------------------------------------------------------------
@@ -51,6 +53,7 @@ GRANT INSERT, UPDATE, DELETE ON `jmh_data_platform`.`products`                  
 -- ---------------------------------------------------------------------
 GRANT ALL PRIVILEGES ON `jmh_data_platform`.* TO 'migrator'@'localhost', 'migrator'@'127.0.0.1';
 GRANT ALL PRIVILEGES ON `Date-Project`.*      TO 'migrator'@'localhost', 'migrator'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON `jmh_ai_agent`.*      TO 'migrator'@'localhost', 'migrator'@'127.0.0.1';
 
 FLUSH PRIVILEGES;
 

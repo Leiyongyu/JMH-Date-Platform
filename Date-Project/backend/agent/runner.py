@@ -31,6 +31,8 @@ from backend.repositories.ai_conversation_repository import ai_conversation_repo
 
 LOG = logging.getLogger(__name__)
 MAX_CALLS_PER_ROUND = 6
+# 单轮思考内容的保存上限（字符）；完整内容仍原样回传给模型。
+THINKING_CHARS = 6000
 HISTORY_MESSAGES = 12
 FINAL_INSTRUCTION = "执行预算已用完或已获得足够数据。请不要再调用工具，直接基于上面的工具结果回答用户；未查到的部分如实说明。"
 
@@ -40,6 +42,7 @@ class RunState:
     run_id: str
     plan: list[dict[str, str]] = field(default_factory=list)
     results: list[dict[str, Any]] = field(default_factory=list)
+    thinking: list[dict[str, Any]] = field(default_factory=list)
     rounds: int = 0
     tool_calls: int = 0
     prompt_tokens: int = 0
@@ -118,6 +121,13 @@ class AgentRunner:
             state.model = reply.model
             state.prompt_tokens += reply.usage.get("promptTokens", 0)
             state.completion_tokens += reply.usage.get("completionTokens", 0)
+            if reply.reasoning_content:
+                text = reply.reasoning_content.strip()
+                state.thinking.append({
+                    "round": round_no,
+                    "content": text[:THINKING_CHARS] + ("…（已截断）" if len(text) > THINKING_CHARS else ""),
+                })
+                await self._save_progress(state)
             if exhausted or not reply.tool_calls:
                 return reply.content or "没有得到有效回答，请换个问法再试一次。"
             messages.append(reply.as_message())
@@ -224,8 +234,8 @@ class AgentRunner:
     async def _save_progress(self, state: RunState) -> None:
         await run_in_threadpool(
             self.repo.update_run, state.run_id, plan_json=state.plan, results_json=state.results,
-            rounds=state.rounds, tool_calls=state.tool_calls, prompt_tokens=state.prompt_tokens,
-            completion_tokens=state.completion_tokens, model=state.model)
+            thinking_json=state.thinking, rounds=state.rounds, tool_calls=state.tool_calls,
+            prompt_tokens=state.prompt_tokens, completion_tokens=state.completion_tokens, model=state.model)
 
     async def _complete(self, state: RunState, context: AgentContext, conversation_uuid: str,
                         answer: str) -> dict[str, Any]:
@@ -239,9 +249,9 @@ class AgentRunner:
             total_tokens=state.prompt_tokens + state.completion_tokens)
         await run_in_threadpool(
             self.repo.update_run, state.run_id, status="completed", answer=answer, plan_json=plan,
-            results_json=state.results, rounds=state.rounds, tool_calls=state.tool_calls,
-            prompt_tokens=state.prompt_tokens, completion_tokens=state.completion_tokens,
-            model=state.model, completed_at=datetime.now())
+            results_json=state.results, thinking_json=state.thinking, rounds=state.rounds,
+            tool_calls=state.tool_calls, prompt_tokens=state.prompt_tokens,
+            completion_tokens=state.completion_tokens, model=state.model, completed_at=datetime.now())
         return {"status": "completed", "answer": answer}
 
     async def _fail(self, state: RunState, context: AgentContext, conversation_uuid: str,
@@ -254,8 +264,8 @@ class AgentRunner:
             LOG.exception("persist agent error message failed run_id=%s", state.run_id)
         await run_in_threadpool(
             self.repo.update_run, state.run_id, status="failed", error_message=message[:1000],
-            plan_json=state.plan, results_json=state.results, rounds=state.rounds,
-            tool_calls=state.tool_calls, completed_at=datetime.now())
+            plan_json=state.plan, results_json=state.results, thinking_json=state.thinking,
+            rounds=state.rounds, tool_calls=state.tool_calls, completed_at=datetime.now())
         return {"status": "failed", "error": message}
 
 

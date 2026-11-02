@@ -56,7 +56,7 @@ class DeepSeekChatClient:
             "model": settings.deepseek_model,
             "messages": messages,
             "stream": False,
-            "max_tokens": max(1, settings.deepseek_max_tokens),
+            "max_tokens": max(1, settings.ai_agent_max_tokens),
             "thinking": {"type": "enabled" if self.thinking else "disabled"},
         }
         if tools:

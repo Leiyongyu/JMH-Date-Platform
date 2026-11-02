@@ -53,6 +53,8 @@ class MigrationTarget:
     name: str
     database: str
     directory: Path
+    # 从第一天起就由迁移管理的新库：自动建库，无需基线登记即可执行全部迁移。
+    managed_from_start: bool = False
 
 
 @dataclass(frozen=True)
@@ -78,6 +80,10 @@ def targets() -> dict[str, MigrationTarget]:
         ),
         "erp": MigrationTarget(
             "erp", settings.shop_source_database, Path(settings.erp_sql_dir)
+        ),
+        "agent": MigrationTarget(
+            "agent", settings.ai_agent_database, PROJECT_ROOT / "migrations_agent",
+            managed_from_start=True,
         ),
     }
 
@@ -205,8 +211,23 @@ def compare(files: list[MigrationFile], history: dict[str, dict]) -> list[Migrat
     return states
 
 
+def _database_exists(database: str, *, migrator: bool) -> bool:
+    connection = _connect(None, migrator=migrator)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) AS n FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = %s",
+                (database,),
+            )
+            return bool(cursor.fetchone()["n"])
+    finally:
+        connection.close()
+
+
 def status(target: MigrationTarget) -> list[MigrationState]:
     files = discover(target)
+    if target.managed_from_start and not _database_exists(target.database, migrator=False):
+        return compare(files, {})
     connection = _connect(target.database, migrator=False)
     try:
         with connection.cursor() as cursor:
@@ -217,6 +238,9 @@ def status(target: MigrationTarget) -> list[MigrationState]:
 
 def baseline(target: MigrationTarget, *, through: str | None = None) -> int:
     """把现有迁移文件登记为已执行（不执行 SQL），用于冻结线上现状。"""
+    if target.managed_from_start:
+        # 新库从第一天起由迁移管理，登记基线会让建表脚本被跳过。
+        return 0
     files = [
         item for item in discover(target)
         if through is None or item.version <= through
@@ -244,12 +268,18 @@ def baseline(target: MigrationTarget, *, through: str | None = None) -> int:
 
 def migrate(target: MigrationTarget, *, dry_run: bool = False) -> list[str]:
     files = discover(target)
+    if target.managed_from_start and not _database_exists(target.database, migrator=True):
+        if dry_run:
+            return [item.version for item in files]
+        _create_database(target.database)
     connection = _connect(target.database, migrator=True)
     executed: list[str] = []
     try:
         with connection.cursor() as cursor:
             history = _history(cursor, target.database)
-            if not history:
+            if not history and target.managed_from_start and not dry_run:
+                cursor.execute(HISTORY_DDL)
+            elif not history and not target.managed_from_start:
                 raise RuntimeError(
                     f"{target.name} 库还没有迁移基线。存量环境请先执行 "
                     f"`db-baseline --target {target.name}`；全新环境请先执行 init-db"
@@ -269,6 +299,18 @@ def migrate(target: MigrationTarget, *, dry_run: bool = False) -> list[str]:
     finally:
         connection.close()
     return executed
+
+
+def _create_database(database: str) -> None:
+    connection = _connect(None, migrator=True)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"CREATE DATABASE IF NOT EXISTS `{_quote(database)}` "
+                "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+            )
+    finally:
+        connection.close()
 
 
 def _apply(cursor, target: MigrationTarget, item: MigrationFile) -> None:

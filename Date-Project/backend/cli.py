@@ -42,6 +42,9 @@ def _run_migration_command(args) -> None:
             if target.name == "date":
                 # 先补齐启动时一直自动执行的历史建表脚本，保证登记与库结构一致。
                 bootstrap_legacy_schema()
+            if target.managed_from_start:
+                print(f"[{target.name}] 新库由迁移从头管理，无需登记基线，请直接 db-migrate")
+                continue
             count = migrations.baseline(target, through=args.through)
             print(f"[{target.name}] 登记基线 {count} 个迁移")
         else:
@@ -90,8 +93,8 @@ def main() -> None:
     ):
         command_parser = subparsers.add_parser(command, help=label)
         command_parser.add_argument(
-            "--target", default="all", choices=["date", "erp", "all"],
-            help="date=Python 数据库，erp=ERP 业务库",
+            "--target", default="all", choices=["date", "erp", "agent", "all"],
+            help="date=Python 数据库，erp=ERP 业务库，agent=AI 助手库",
         )
         if command == "db-baseline":
             command_parser.add_argument(

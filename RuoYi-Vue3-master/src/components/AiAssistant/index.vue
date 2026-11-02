@@ -132,6 +132,12 @@
               </div>
               <div v-if="message.run" class="run-detail">
                 <el-collapse>
+                  <el-collapse-item v-if="message.run.thinking?.length" :title="`思考过程（${message.run.thinking.length}轮）`" name="thinking">
+                    <div v-for="item in message.run.thinking" :key="item.round" class="thinking-round">
+                      <div class="thinking-label">第{{ item.round }}轮</div>
+                      <div class="thinking-text">{{ item.content }}</div>
+                    </div>
+                  </el-collapse-item>
                   <el-collapse-item v-if="message.run.plan?.length" :title="`执行计划 · ${planProgress(message.run.plan)}`" name="plan">
                     <ol class="plan-list">
                       <li v-for="(step, index) in message.run.plan" :key="index" :class="step.status">
@@ -167,13 +173,17 @@
             <div class="message-avatar">AI</div>
             <div class="message-body">
               <div class="message-name">JMH AI助手</div>
-              <div v-if="liveRun?.plan?.length" class="message-bubble live-plan">
-                <div class="live-progress">{{ planProgress(liveRun.plan) }}<span v-if="liveRun.steps?.length"> ｜ {{ callSummary(liveRun.steps) }}</span></div>
-                <ol class="plan-list">
+              <div v-if="liveRun?.plan?.length || liveRun?.thinking?.length" class="message-bubble live-plan">
+                <div v-if="liveRun.plan?.length" class="live-progress">{{ planProgress(liveRun.plan) }}<span v-if="liveRun.steps?.length"> ｜ {{ callSummary(liveRun.steps) }}</span></div>
+                <ol v-if="liveRun.plan?.length" class="plan-list">
                   <li v-for="(step, index) in liveRun.plan" :key="index" :class="step.status">
                     <span>{{ step.title }}</span><small>{{ STEP_STATUS[step.status] || step.status }}</small>
                   </li>
                 </ol>
+                <div v-if="liveRun.thinking?.length" class="live-thinking">
+                  <div class="thinking-label">正在思考 · 第{{ latestThinking(liveRun.thinking).round }}轮</div>
+                  <div class="thinking-text">{{ latestThinking(liveRun.thinking).content }}</div>
+                </div>
               </div>
               <div v-else class="message-bubble typing-bubble">
                 <i /><i /><i />
@@ -228,7 +238,8 @@ import {
   startAgentRun
 } from '@/api/system/aiAssistant'
 import {
-  CALL_STATUS, STEP_STATUS, TOOL_TITLES, callSummary, formatCell, parseAnswerBlocks, planProgress, pollAgentRun
+  CALL_STATUS, STEP_STATUS, TOOL_TITLES, callSummary, formatCell, latestThinking, parseAnswerBlocks, planProgress,
+  pollAgentRun
 } from './agentRun'
 import useUserStore from '@/store/modules/user'
 
@@ -337,13 +348,17 @@ async function sendMessage() {
       onUpdate: value => {
         liveRun.value = value
         scrollToBottom()
-      }
+      },
+      // 思考模式下单次任务可能接近 5 分钟，留出余量
+      timeoutMs: 420000
     })
     if (run.status === 'failed') {
       messages.value.push(createMessage('assistant', run.error || '数据助手执行失败', true))
     } else {
       const assistantMessage = createMessage('assistant', (run.answer || '').trim() || '没有得到有效回答')
-      assistantMessage.run = { plan: run.plan || [], steps: run.steps || [], results: run.results || [] }
+      assistantMessage.run = {
+        plan: run.plan || [], steps: run.steps || [], results: run.results || [], thinking: run.thinking || []
+      }
       messages.value.push(assistantMessage)
     }
     await loadConversations(false)
@@ -899,6 +914,17 @@ function createRequestId(scope) {
 }
 
 .live-plan { min-width: 260px; white-space: normal; }
+.live-thinking { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--el-border-color-lighter, #ebeef5); }
+.thinking-round + .thinking-round { margin-top: 8px; }
+.thinking-label { margin-bottom: 2px; color: var(--el-text-color-secondary, #909399); font-size: 11px; }
+.thinking-text {
+  max-height: 220px;
+  overflow-y: auto;
+  color: var(--el-text-color-secondary, #909399);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
 .live-progress { margin-bottom: 4px; color: var(--el-color-primary, #409eff); font-size: 12.5px; }
 
 .call-list { display: flex; flex-wrap: wrap; gap: 6px; }

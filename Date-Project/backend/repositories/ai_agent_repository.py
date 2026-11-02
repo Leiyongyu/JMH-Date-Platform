@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from backend.database import db_connection
+from backend.database import agent_db_connection as db_connection
 
 MEMORY_LIMIT = 50
 
@@ -43,7 +43,7 @@ def create_run(run_id: str, conversation_uuid: str, user_id: int, username: str,
 
 
 def update_run(run_id: str, **fields: Any) -> None:
-    allowed = {"status", "plan_json", "results_json", "answer", "error_message", "rounds",
+    allowed = {"status", "plan_json", "results_json", "thinking_json", "answer", "error_message", "rounds",
                "tool_calls", "prompt_tokens", "completion_tokens", "model", "completed_at"}
     assignments, values = [], []
     for key, value in fields.items():
@@ -63,7 +63,7 @@ def update_run(run_id: str, **fields: Any) -> None:
 def get_run(user_id: int, run_id: str) -> dict[str, Any] | None:
     with db_connection() as connection, connection.cursor() as cursor:
         cursor.execute(
-            """SELECT run_id, conversation_uuid, question, status, plan_json, results_json, answer,
+            """SELECT run_id, conversation_uuid, question, status, plan_json, results_json, thinking_json, answer,
                       error_message, rounds, tool_calls, prompt_tokens, completion_tokens, model,
                       started_at, updated_at, completed_at
                FROM ai_agent_run WHERE run_id=%s AND erp_user_id=%s""",
@@ -81,6 +81,7 @@ def get_run(user_id: int, run_id: str) -> dict[str, Any] | None:
     return {
         "runId": row["run_id"], "conversationId": row["conversation_uuid"], "question": row["question"],
         "status": row["status"], "plan": _loads(row["plan_json"]) or [], "results": _loads(row["results_json"]) or [],
+        "thinking": _loads(row["thinking_json"]) or [],
         "answer": row["answer"], "error": row["error_message"], "rounds": row["rounds"],
         "toolCalls": row["tool_calls"], "model": row["model"],
         "usage": {"promptTokens": row["prompt_tokens"], "completionTokens": row["completion_tokens"]},

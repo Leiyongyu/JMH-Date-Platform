@@ -291,6 +291,7 @@ jmh:
     databases:
       - ${MYSQL_BACKUP_DATABASE_DATE_PROJECT:Date-Project}
       - ${MYSQL_BACKUP_DATABASE_ERP:jmh_data_platform}
+      - ${MYSQL_BACKUP_DATABASE_AI_AGENT:jmh_ai_agent}
     local-temp-dir: ${MYSQL_BACKUP_TEMP_DIR:D:/JMH_Backup_Temp}
     target-dir: '${MYSQL_BACKUP_TARGET_DIR://UGREEN-9F8B/ywx123456_存储空间1/MySQL_Backup}'
     retention-days: ${MYSQL_BACKUP_RETENTION_DAYS:30}

@@ -117,3 +117,31 @@ def test_repository_migration_scripts_all_split(name):
     for item in files:
         sql = item.path.read_text(encoding="utf-8-sig")
         assert list(migrations.split_script(sql)) is not None
+
+
+def test_agent_target_is_managed_from_start(monkeypatch, tmp_path):
+    (tmp_path / "20261103_ai_agent.sql").write_text("SELECT 1;", encoding="utf-8")
+    (tmp_path / "20261103_ai_conversations.sql").write_text("SELECT 1;", encoding="utf-8")
+    target = migrations.MigrationTarget("agent", "jmh_ai_agent", tmp_path, managed_from_start=True)
+    assert migrations.targets()["agent"].managed_from_start
+    assert migrations.targets()["agent"].directory.name == "migrations_agent"
+
+    def no_connection(*args, **kwargs):
+        raise AssertionError("不应连接数据库")
+
+    monkeypatch.setattr(migrations, "_connect", no_connection)
+    # 基线登记会让建表脚本被跳过，新库必须拒绝
+    assert migrations.baseline(target) == 0
+    monkeypatch.setattr(migrations, "_database_exists", lambda database, migrator: False)
+    assert migrations.migrate(target, dry_run=True) == [
+        "20261103_ai_agent.sql", "20261103_ai_conversations.sql"]
+    assert [s.state for s in migrations.status(target)] == ["pending", "pending"]
+
+
+def test_repository_agent_migrations_split():
+    files = migrations.discover(migrations.targets()["agent"])
+    assert [item.version for item in files] == ["20261103_ai_agent.sql", "20261103_ai_conversations.sql"]
+    for item in files:
+        statements = list(migrations.split_script(item.path.read_text(encoding="utf-8")))
+        bodies = [migrations.COMMENT_ONLY.sub("", s).strip().upper() for s in statements]
+        assert bodies and all(body.startswith("CREATE TABLE IF NOT EXISTS") for body in bodies)

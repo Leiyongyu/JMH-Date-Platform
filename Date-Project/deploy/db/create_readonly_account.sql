@@ -12,5 +12,6 @@ CREATE USER IF NOT EXISTS 'ops_ro'@'127.0.0.1' IDENTIFIED BY '<OPS_RO_PASSWORD>'
 
 GRANT SELECT, SHOW VIEW ON `Date-Project`.*      TO 'ops_ro'@'localhost', 'ops_ro'@'127.0.0.1';
 GRANT SELECT, SHOW VIEW ON `jmh_data_platform`.* TO 'ops_ro'@'localhost', 'ops_ro'@'127.0.0.1';
+GRANT SELECT, SHOW VIEW ON `jmh_ai_agent`.*      TO 'ops_ro'@'localhost', 'ops_ro'@'127.0.0.1';
 
 FLUSH PRIVILEGES;

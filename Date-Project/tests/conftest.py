@@ -33,5 +33,5 @@ def _forbid_real_mysql(monkeypatch):
     import pymysql
     from backend import database
     monkeypatch.setattr(pymysql, "connect", refuse)
-    monkeypatch.setattr(database, "_pool", None)
+    monkeypatch.setattr(database, "_pools", {})
     monkeypatch.setattr(database, "_connection_pool", refuse)

@@ -76,3 +76,13 @@ test('assistant component compiles and uses the agent run API', () => {
   assert.match(source, /pollAgentRun\(/)
   assert.doesNotMatch(source, /chatWithAiAssistant/)
 })
+
+test('live view shows only the tail of the latest thinking round', async () => {
+  const { latestThinking } = await import('../src/components/AiAssistant/agentRun.js')
+  assert.deepEqual(latestThinking([]), { round: 0, content: '' })
+  const result = latestThinking([{ round: 1, content: 'a' }, { round: 2, content: 'x'.repeat(500) + '结尾' }], 10)
+  assert.equal(result.round, 2)
+  assert.equal(result.content, '…' + 'x'.repeat(8) + '结尾')
+  const source = fs.readFileSync(new URL('../src/components/AiAssistant/index.vue', import.meta.url), 'utf8')
+  assert.match(source, /思考过程/)
+})

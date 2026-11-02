@@ -125,3 +125,24 @@ Python 未升级时，Java 会自动退回原同步接口，所以两端部署�
 - 执行前确认当天 MySQL 备份已成功。
 - 保留 `dim_amz_sop_after_sales_category`：eBay SKU 分析页面仍在使用。
 - 执行后重启 Java，用户重新登录即可看到菜单消失。
+
+## 9. AI 数据助手专用库（jmh_ai_agent）
+
+会话、消息、运行记录、工具调用日志、用户记忆都放在独立库 `AI_AGENT_DATABASE`（默认 `jmh_ai_agent`），
+与业务数据分开备份和授权。该库从第一天起由迁移管理，**不需要也不能登记基线**（`db-baseline` 会自动跳过）。
+
+部署顺序（第一次）：
+
+1. 停止 Python 服务。
+2. 建库建表：`python -m backend.cli db-migrate --target agent`（先加 `--dry-run` 预览，应列出
+   `20261103_ai_agent.sql`、`20261103_ai_conversations.sql` 两个文件）。
+3. 复制存量聊天记录：用 migrator 账号执行 `move_ai_history_to_agent_db.sql`，末尾两行的源/目标行数必须相等。
+   业务库里的旧 `ai_conversations` / `ai_messages` 保留不动，作为备份。
+4. 账号：`create_app_accounts.sql` 已给 py_app、migrator 加上新库权限；只读账号 ops_ro 需要补执行
+   `create_readonly_account.sql` 中新增的 `jmh_ai_agent` 那一行。
+5. 启动 Python。Java 的每日备份已把 `jmh_ai_agent` 加入库列表（`MYSQL_BACKUP_DATABASE_AI_AGENT`），
+   **新版 Java 上线当天必须先完成第 2 步建库**，否则当晚 20:00 的备份会因库不存在而失败告警。
+
+思考模式默认开启（`AI_AGENT_THINKING_ENABLED=true`），助手面板可展开「思考过程」查看每轮思考；
+思考内容计入输出 Token，费用和耗时会比关闭时高，可按需关闭。
+

@@ -580,16 +580,20 @@ def bootstrap_legacy_schema() -> None:
         connection.close()
 
 
-_pool: PooledDB | None = None
+# 每个库一个连接池：业务库（MYSQL_DATABASE）与 AI 助手库（AI_AGENT_DATABASE）分开，
+# 账号相同，互不占用连接数。
+_pools: dict[str, PooledDB] = {}
 _pool_lock = threading.Lock()
 
 
-def _connection_pool() -> PooledDB:
-    global _pool
-    if _pool is None:
+def _connection_pool(database: str | None = None) -> PooledDB:
+    name = database or settings.mysql_database
+    pool = _pools.get(name)
+    if pool is None:
         with _pool_lock:
-            if _pool is None:
-                _pool = PooledDB(
+            pool = _pools.get(name)
+            if pool is None:
+                pool = PooledDB(
                     creator=pymysql,
                     maxconnections=20,
                     mincached=1,
@@ -602,17 +606,28 @@ def _connection_pool() -> PooledDB:
                     port=settings.mysql_port,
                     user=settings.mysql_user,
                     password=settings.mysql_password,
-                    database=settings.mysql_database,
+                    database=name,
                     charset="utf8mb4",
                     cursorclass=pymysql.cursors.DictCursor,
                     autocommit=False,
                 )
-    return _pool
+                _pools[name] = pool
+    return pool
 
 
 @contextmanager
 def db_connection() -> Iterator[Connection]:
     connection = _connection_pool().connection()
+    try:
+        yield connection
+    finally:
+        connection.close()
+
+
+@contextmanager
+def agent_db_connection() -> Iterator[Connection]:
+    """AI 助手库：会话、消息、运行记录、工具调用日志、用户记忆。"""
+    connection = _connection_pool(settings.ai_agent_database).connection()
     try:
         yield connection
     finally:

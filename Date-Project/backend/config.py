@@ -129,10 +129,15 @@ class Settings:
         "DEEPSEEK_THINKING_ENABLED", False
     )
     # 数据助手（工具调用）的执行预算：超过任一上限即停止调用工具、基于已有结果作答。
-    ai_agent_thinking_enabled: bool = _env_bool("AI_AGENT_THINKING_ENABLED", False)
+    # AI 助手专用库：会话、消息、运行记录、工具调用日志、用户记忆都放这里，与业务数据分开。
+    ai_agent_database: str = os.getenv("AI_AGENT_DATABASE") or "jmh_ai_agent"
+    # 思考模式：模型先输出思考过程再调用工具或作答，思考内容逐轮保存并在助手面板展示。
+    ai_agent_thinking_enabled: bool = _env_bool("AI_AGENT_THINKING_ENABLED", True)
+    # 思考内容计入输出 token，助手单独使用更大的上限，避免思考过长导致回答被截断。
+    ai_agent_max_tokens: int = int(os.getenv("AI_AGENT_MAX_TOKENS", "8192"))
     ai_agent_max_rounds: int = int(os.getenv("AI_AGENT_MAX_ROUNDS", "8"))
     ai_agent_max_tool_calls: int = int(os.getenv("AI_AGENT_MAX_TOOL_CALLS", "16"))
-    ai_agent_timeout_sec: int = int(os.getenv("AI_AGENT_TIMEOUT_SEC", "240"))
+    ai_agent_timeout_sec: int = int(os.getenv("AI_AGENT_TIMEOUT_SEC", "300"))
     ai_agent_tool_timeout_sec: int = int(os.getenv("AI_AGENT_TOOL_TIMEOUT_SEC", "90"))
     ai_agent_parallel_tools: int = int(os.getenv("AI_AGENT_PARALLEL_TOOLS", "4"))
     deepseek_system_prompt: str = os.getenv(

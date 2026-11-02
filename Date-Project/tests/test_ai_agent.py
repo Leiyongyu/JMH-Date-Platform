@@ -315,3 +315,21 @@ def test_agent_run_api_requires_owned_conversation_and_returns_run_id(monkeypatc
         assert client.get(run_url, headers=headers).status_code == 200
         assert client.get(run_url, headers={**headers, "X-Erp-User-ID": "2"}).status_code == 404
         assert client.post("/api/v1/ai-assistant/agent-runs", json=body).status_code == 401
+
+
+def test_thinking_is_saved_per_round_and_truncated():
+    long_thought = "想" * (runner_module.THINKING_CHARS + 10)
+    llm = ScriptedLlm([
+        reply(tool_calls=[call("a", "sales", month="2026-10")], reasoning="先查10月"),
+        reply(content="结论", reasoning=long_thought),
+    ])
+    repo = FakeRepo()
+    run(runner_module.AgentRunner(llm=llm, tools=[sales_tool()], repo=repo, conversations=FakeConversations()))
+    thinking = repo.updates[-1]["thinking_json"]
+    assert [item["round"] for item in thinking] == [1, 2]
+    assert thinking[0]["content"] == "先查10月"
+    assert thinking[1]["content"].endswith("（已截断）")
+    # 思考内容在每轮结束时就落库，前端轮询能实时看到
+    assert any(update.get("thinking_json") for update in repo.updates[:-1])
+    # 完整思考仍原样回传给模型（截断只影响保存）
+    assert llm.requests[1]["messages"][2]["reasoning_content"] == "先查10月"

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from backend.database import db_connection
+from backend.database import agent_db_connection as db_connection
 
 
 class ConversationNotFoundError(LookupError):

@@ -111,3 +111,11 @@ export function formatCell(value) {
   }
   return String(value)
 }
+
+/** 执行中只展示最新一轮思考的结尾部分，避免长文本把进度挤出视野。 */
+export function latestThinking(thinking = [], maxChars = 400) {
+  const last = thinking[thinking.length - 1]
+  if (!last) return { round: 0, content: '' }
+  const content = String(last.content || '')
+  return { round: last.round, content: content.length > maxChars ? `…${content.slice(-maxChars)}` : content }
+}
