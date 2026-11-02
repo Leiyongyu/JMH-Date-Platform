@@ -400,3 +400,9 @@ def test_status_reports_active_provider(monkeypatch):
     status = AiAssistantService().status()
     assert status["provider"] == "dashscope" and status["configured"] is False
     assert status["model"] == "qwen3.7-max-2026-06-08" and status["keyEnv"] == "DASHSCOPE_API_KEY"
+
+
+def test_system_prompt_always_requires_chinese_thinking():
+    from backend.agent.prompts import build_system_prompt
+    prompt = build_system_prompt(context(), [], [], None)
+    assert "思考过程使用中文回答" in prompt

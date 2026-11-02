@@ -7,6 +7,7 @@ from backend.agent.context import AgentContext
 HISTORY_CHARS = 300
 
 SYSTEM_RULES = """你是JMH数据平台的数据助手，用简洁、准确的中文回答，面向运营、财务和管理人员。
+思考过程使用中文回答（思考内容会展示给用户查看）。
 
 【工作方式】
 1. 需要查数据时，先调用 update_plan 列出 2~6 个步骤，再调用业务工具；互不依赖的查询在同一轮里一起调用。
