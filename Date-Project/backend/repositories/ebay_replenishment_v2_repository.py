@@ -13,6 +13,7 @@ from backend.config import settings
 from backend.database import db_connection
 from backend.services.ebay_order_product_key import product_key, product_orders_cte
 from backend.services.ebay_replenishment_periods import reference_today
+from backend.utils.values import text as _text
 
 logger = logging.getLogger(__name__)
 
@@ -320,10 +321,6 @@ def _source_database() -> str:
     return (settings.shop_source_database.strip() or "jmh_data_platform").replace(
         "`", "``"
     )
-
-
-def _text(value: Any) -> str:
-    return str(value or "").strip()
 
 
 def _decimal(value: Any) -> Decimal:

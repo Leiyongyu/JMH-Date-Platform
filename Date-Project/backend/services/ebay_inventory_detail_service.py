@@ -18,6 +18,7 @@ from backend.services.ebay_inventory_core_code import normalize_core_code, sku_c
 from backend.services.inventory_report_etl_service import (
     _ebay_assignment, _ebay_product_sku_map, _ebay_rule_map, _previous_month,
 )
+from backend.utils.values import text as _text
 
 ZERO = Decimal("0")
 TOTAL_DURATION_MONTHS = Decimal("4.03")
@@ -36,10 +37,6 @@ SORT_FIELDS = set(PLACEHOLDER_FIELDS + QUANTITY_FIELDS + PRICE_FIELDS) | {
     "overseas_max_age_days", "purchase_quantity", "total_duration_months", "last_sold_at",
     "profit_rate", "max_monthly_sales",
 }
-
-
-def _text(value) -> str:
-    return str(value or "").strip()
 
 
 def sku_middle_code(sku: str) -> str | None:

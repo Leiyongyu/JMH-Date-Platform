@@ -16,6 +16,7 @@ from backend.repositories import inventory_report_etl_repository as report_repo
 from backend.repositories.performance_repository import named_lock
 from backend.services.inventory_report_etl_service import publish_inventory_report_purchase_order
 from backend.services.weekly_inventory_api import MAX_ATTEMPTS, RETRY_BUSINESS, _retry_delay, _transport_failure
+from backend.utils.values import text as _text
 
 TASK_CODE = repo.TASK_CODE
 TASK_NAME = "月度库存采购在途同步"
@@ -83,10 +84,6 @@ def _decimal(value, field):
     if not result.is_finite() or result < 0:
         raise ValueError(f"采购单{field}必须是有限非负数")
     return result
-
-
-def _text(value):
-    return str(value or "").strip()
 
 
 def fetch_orders(client, start_date, end_date, *, full):

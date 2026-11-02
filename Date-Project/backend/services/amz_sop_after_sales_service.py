@@ -20,6 +20,11 @@ from backend.integrations.lingxing.domains.order_profit import LingXingOrderProf
 from backend.repositories import amz_sop_repository as repo
 from backend.repositories import after_sales_state_repository as state_repo
 from backend.services.amz_sop_classifier import BIG_CATEGORIES, classify_rows
+from backend.utils.values import text as _text
+from backend.services.after_sales_export_common import (
+    decimal_text as _decimal_text,
+    write_summary_sheet as _write_summary_sheet,
+)
 
 
 TASK_CODE = "amz_sop_after_sales_chain"
@@ -644,33 +649,6 @@ def _append_summary_sheet(
     _write_summary_sheet(sheet, rows)
 
 
-def _write_summary_sheet(sheet, rows: list[dict[str, Any]]) -> None:
-    headers = (
-        "售后原因（大）", "售后原因（小）", "SKU", "售后数量", "订单数量",
-        "订单号", "数据来源及售后数量", "数据来源及销量", "销量", "售后率",
-    )
-    sheet.append(headers)
-    for cell in sheet[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="4F81BD")
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-    for row in rows:
-        sheet.append((
-            row["big_category"], row["small_category"], row["business_sku"],
-            float(row["after_quantity"] or 0), int(row["order_count"] or 0),
-            row.get("order_numbers") or "", row.get("source_after_quantity_text") or "",
-            row.get("source_sales_volume_text") or "", float(row["sales_volume"] or 0),
-            float(row["after_sales_rate"] or 0),
-        ))
-    sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = sheet.dimensions
-    widths = (18, 22, 24, 12, 12, 48, 28, 28, 12, 12)
-    for index, width in enumerate(widths, 1):
-        sheet.column_dimensions[chr(64 + index)].width = width
-    for cell in sheet["J"][1:]:
-        cell.number_format = "0.00%"
-
-
 def _default_start_date(end_date: date, initial_load: bool) -> date:
     """Initial load covers the whole natural year; later runs only the current month."""
     if initial_load:
@@ -1087,11 +1065,6 @@ def _source_text(values: dict[str, Decimal]) -> str:
     )
 
 
-def _decimal_text(value: Decimal) -> str:
-    text = format(value, "f")
-    return text.rstrip("0").rstrip(".") if "." in text else text
-
-
 def _contains_star(value: str) -> bool:
     return "STAR" in _text(value).upper()
 
@@ -1147,5 +1120,3 @@ def _sha(value: Any) -> str:
     ).hexdigest()
 
 
-def _text(value: Any) -> str:
-    return str(value or "").strip()

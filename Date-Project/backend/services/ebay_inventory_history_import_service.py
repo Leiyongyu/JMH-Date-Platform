@@ -14,6 +14,7 @@ from openpyxl import load_workbook
 from backend.repositories import ebay_inventory_pivot_repository as repository
 from backend.repositories.performance_repository import named_lock
 from backend.services.ebay_inventory_workbook import ERROR_VALUES, WORKBOOK_ERRORS
+from backend.utils.values import text_keep_zero as _text
 
 MAX_FILE_BYTES = 50 * 1024 * 1024
 SHEETS = {"库存明细持续更新-US": "美国", "库存明细持续更新-DE": "德国", "库存明细持续更新-UK": "英国"}
@@ -38,10 +39,6 @@ COLUMNS = {
 TEXT_FIELDS = {"sku_middle_site_code", "sku_middle_code", "sku", "brand", "product_name",
                "grade", "source_warehouse", "owner", "last_sold_at"}
 PERCENT_FIELDS = {"in_stock_sales_ratio", "total_stock_sales_ratio", "total_stock_sales_ratio_months"}
-
-
-def _text(value):
-    return "" if value is None else str(value).strip()
 
 
 def _value(cell, field):

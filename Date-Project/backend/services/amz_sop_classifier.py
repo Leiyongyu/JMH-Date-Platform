@@ -9,6 +9,7 @@ import httpx
 
 from backend.config import settings
 from backend.repositories import amz_sop_repository as repo
+from backend.utils.values import text as _text
 
 
 BIG_CATEGORIES = (
@@ -339,10 +340,6 @@ def _normalize(value: Any) -> str:
 
 def _limited(value: Any, limit: int = 1000) -> str:
     return _text(value)[:limit]
-
-
-def _text(value: Any) -> str:
-    return str(value or "").strip()
 
 
 def _strip_code_fence(value: str) -> str:

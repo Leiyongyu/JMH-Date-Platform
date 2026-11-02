@@ -13,6 +13,7 @@ from backend.services.ebay_inventory_core_code import normalize_core_code, sku_c
 from backend.services.ebay_inventory_workbook import (
     ERROR_VALUES, MAX_EXPANDED_BYTES, MAX_FILE_BYTES, MAX_ROWS, WORKBOOK_ERRORS,
 )
+from backend.utils.values import text_keep_zero as _text
 
 MAX_COLUMNS = 64
 MAX_HEADER_ROWS = 20
@@ -26,10 +27,6 @@ MIDDLE_HEADERS = {"核心", "核心码", "中间码"}
 PRICE_SCALE = Decimal("0.000001")
 MAX_PRICE = Decimal("999999999999999999.999999")
 NUMBER_PATTERN = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?\Z")
-
-
-def _text(value) -> str:
-    return "" if value is None else str(value).strip()
 
 
 def _middle_code(sku: str) -> str | None:

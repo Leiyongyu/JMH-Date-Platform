@@ -24,6 +24,7 @@ from backend.schemas.inventory_report_source_fields import (
     LOCAL_SOURCE_FIELDS,
     OVERSEAS_SOURCE_FIELDS,
 )
+from backend.utils.values import text as _text
 
 
 TASK_CODE = "monthly_inventory_report_source_sync"
@@ -750,5 +751,3 @@ def _decimal(value: Any) -> Decimal:
         return Decimal("0")
 
 
-def _text(value: Any) -> str:
-    return str(value or "").strip()
