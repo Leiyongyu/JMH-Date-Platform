@@ -42,3 +42,20 @@ class AiAgentAccess(BaseModel):
 
 class AiAgentRunRequest(AiChatRequest):
     access: AiAgentAccess = Field(default_factory=AiAgentAccess)
+
+
+class AiAgentFeedbackRequest(BaseModel):
+    rating: int = Field(..., description="1=有帮助，-1=没帮助")
+    comment: str | None = Field(default=None, max_length=500)
+
+    @field_validator("rating")
+    @classmethod
+    def _rating(cls, value: int) -> int:
+        if value not in (1, -1):
+            raise ValueError("rating 只能是 1 或 -1")
+        return value
+
+
+class AiBriefRunRequest(BaseModel):
+    access: AiAgentAccess = Field(default_factory=AiAgentAccess)
+    force: bool = Field(default=False, description="true=手动立即运行，不检查是否到期")

@@ -30,8 +30,9 @@ class ToolResult:
     period: str = ""
     notes: list[str] = field(default_factory=list)
 
-    def for_model(self) -> str:
+    def for_model(self, result_id: int | None = None) -> str:
         payload = {
+            "result_id": result_id,
             "title": self.title,
             "source": self.source,
             "period": self.period,
@@ -45,10 +46,21 @@ class ToolResult:
         }
         if len(self.rows) > MODEL_ROW_LIMIT:
             payload["rows_truncated"] = f"仅展示前{MODEL_ROW_LIMIT}行，完整{len(self.rows)}行已在页面表格中展示"
+        if result_id is not None and self.rows:
+            payload["table_ref"] = f"[[表:{result_id}]]"
         return json.dumps(payload, ensure_ascii=False, default=_json_default)
 
-    def for_storage(self) -> dict[str, Any]:
+    def compact_for_model(self, result_id: int | None = None) -> str:
+        """上下文过长时替换早期工具结果：保留汇总与口径，明细改为按编号引用。"""
+        return json.dumps({
+            "result_id": result_id, "title": self.title, "source": self.source, "period": self.period,
+            "summary": self.summary, "notes": self.notes, "row_count": len(self.rows),
+            "rows_omitted": "明细已从上下文省略：展示用 [[表:编号]]，计算用 calculate 工具引用 result_id",
+        }, ensure_ascii=False, default=_json_default)
+
+    def for_storage(self, result_id: int | None = None) -> dict[str, Any]:
         return {
+            "id": result_id,
             "title": self.title,
             "source": self.source,
             "period": self.period,

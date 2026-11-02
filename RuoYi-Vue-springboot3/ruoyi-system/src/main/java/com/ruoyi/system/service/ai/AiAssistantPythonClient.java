@@ -192,6 +192,78 @@ public class AiAssistantPythonClient extends PythonHttpSupport
         }
     }
 
+    public Object confirmMemory(long memoryId, Long erpUserId, String erpUser, String requestId)
+    {
+        return sendJson("POST", "/api/v1/ai-assistant/memories/" + memoryId + "/confirm", Map.of(),
+                erpUserId, erpUser, requestId);
+    }
+
+    public Object saveFeedback(String runId, Map<String, Object> payload, Long erpUserId, String erpUser,
+            String requestId)
+    {
+        return sendJson("POST", "/api/v1/ai-assistant/agent-runs/" + runId + "/feedback", payload,
+                erpUserId, erpUser, requestId);
+    }
+
+    /** 全体用户的运行统计，调用方负责限制为管理员。 */
+    public Object agentStats(int days, String requestId)
+    {
+        return sendJson("GET", "/api/v1/ai-assistant/agent-stats?days=" + days, null, null, null, requestId);
+    }
+
+    public Object listBriefs(Long erpUserId, String erpUser, String requestId)
+    {
+        return sendJson("GET", "/api/v1/ai-assistant/briefs", null, erpUserId, erpUser, requestId);
+    }
+
+    /** briefId 为空时新建，否则更新。 */
+    public Object saveBrief(Long briefId, Map<String, Object> payload, Long erpUserId, String erpUser,
+            String requestId)
+    {
+        return briefId == null
+                ? sendJson("POST", "/api/v1/ai-assistant/briefs", payload, erpUserId, erpUser, requestId)
+                : sendJson("PUT", "/api/v1/ai-assistant/briefs/" + briefId, payload, erpUserId, erpUser, requestId);
+    }
+
+    public Object deleteBrief(long briefId, Long erpUserId, String erpUser, String requestId)
+    {
+        return sendJson("DELETE", "/api/v1/ai-assistant/briefs/" + briefId, null, erpUserId, erpUser, requestId);
+    }
+
+    /** 执行简报；payload 含按该用户当前权限组装的 access 与 force（手动立即运行）。 */
+    public Object runBrief(long briefId, Map<String, Object> payload, Long erpUserId, String erpUser,
+            String requestId)
+    {
+        return sendJson("POST", "/api/v1/ai-assistant/briefs/" + briefId + "/run", payload,
+                erpUserId, erpUser, requestId);
+    }
+
+    /** 到期待执行的简报：[{id, userId, username}]。 */
+    public Object dueBriefs(String requestId)
+    {
+        return sendJson("GET", "/api/v1/ai-assistant/briefs-due", null, null, null, requestId);
+    }
+
+    private Object sendJson(String method, String path, Object payload, Long erpUserId, String erpUser,
+            String requestId)
+    {
+        try
+        {
+            HttpRequest.Builder builder = userRequest(path, erpUserId, erpUser, requestId);
+            if (payload == null)
+                builder.method(method, HttpRequest.BodyPublishers.noBody());
+            else
+                builder.header("Content-Type", "application/json;charset=utf-8")
+                        .method(method, HttpRequest.BodyPublishers.ofString(
+                                objectMapper.writeValueAsString(payload), StandardCharsets.UTF_8));
+            return send(builder.build());
+        }
+        catch (Exception e)
+        {
+            throw failure(e);
+        }
+    }
+
     private HttpRequest.Builder userRequest(
             String path, Long erpUserId, String erpUser, String requestId)
     {

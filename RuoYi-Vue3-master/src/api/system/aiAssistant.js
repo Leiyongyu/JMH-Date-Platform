@@ -92,3 +92,69 @@ export function deleteAiMemory(memoryId, requestId) {
     timeout: 15000
   })
 }
+
+export function confirmAiMemory(memoryId, requestId) {
+  return request({
+    url: `/system/ai-assistant/memories/${memoryId}/confirm`,
+    method: 'post',
+    headers: requestId ? { 'X-Request-ID': requestId } : undefined,
+    timeout: 15000
+  })
+}
+
+export function sendAgentFeedback(runId, data, requestId) {
+  return request({
+    url: `/system/ai-assistant/agent-runs/${runId}/feedback`,
+    method: 'post',
+    data,
+    headers: requestId ? { 'X-Request-ID': requestId } : undefined,
+    timeout: 15000
+  })
+}
+
+export function getAgentStats(days, requestId) {
+  return request({
+    url: '/system/ai-assistant/agent-stats',
+    method: 'get',
+    params: { days },
+    headers: requestId ? { 'X-Request-ID': requestId } : undefined,
+    timeout: 30000
+  })
+}
+
+export function listAiBriefs(requestId) {
+  return request({
+    url: '/system/ai-assistant/briefs',
+    method: 'get',
+    headers: requestId ? { 'X-Request-ID': requestId } : undefined,
+    timeout: 15000
+  })
+}
+
+export function saveAiBrief(briefId, data, requestId) {
+  return request({
+    url: briefId ? `/system/ai-assistant/briefs/${briefId}` : '/system/ai-assistant/briefs',
+    method: briefId ? 'put' : 'post',
+    data,
+    headers: requestId ? { 'X-Request-ID': requestId } : undefined,
+    timeout: 15000
+  })
+}
+
+export function deleteAiBrief(briefId, requestId) {
+  return request({
+    url: `/system/ai-assistant/briefs/${briefId}`,
+    method: 'delete',
+    headers: requestId ? { 'X-Request-ID': requestId } : undefined,
+    timeout: 15000
+  })
+}
+
+export function runAiBrief(briefId, requestId) {
+  return request({
+    url: `/system/ai-assistant/briefs/${briefId}/run`,
+    method: 'post',
+    headers: requestId ? { 'X-Request-ID': requestId } : undefined,
+    timeout: 30000
+  })
+}

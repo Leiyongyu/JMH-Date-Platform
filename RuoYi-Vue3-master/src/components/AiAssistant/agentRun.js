@@ -1,4 +1,5 @@
-// 数据助手前端逻辑：轮询后台任务、计划进度、把回答里的 Markdown 表格拆成结构化数据。
+// 数据助手前端逻辑：轮询后台任务、计划进度、把回答拆成文字 / Markdown 表格 / 后端结果表格（[[表:N]]）。
+// 后端边生成边写入进行中的思考和回答，轮询间隔较短，页面即可逐段显示。
 // 回答一律用文本插值渲染，不使用 v-html。
 
 export const STEP_STATUS = {
@@ -21,7 +22,10 @@ export const TOOL_TITLES = {
   owner_rule_summary: '查询负责人规则',
   sales_dashboard_report: '查询销售看板',
   monthly_inventory_summary: '查询月度库存',
-  ebay_replenishment: '查询eBay补货'
+  ebay_replenishment: '查询eBay补货',
+  metric_definitions: '查询指标口径',
+  search_docs: '检索项目文档',
+  calculate: '精确计算'
 }
 
 const FINISHED = new Set(['completed', 'failed'])
@@ -32,7 +36,7 @@ const FINISHED = new Set(['completed', 'failed'])
  */
 export async function pollAgentRun(runId, {
   fetchRun, onUpdate = () => {}, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
-  intervalMs = 1500, timeoutMs = 300000, maxErrors = 5, now = () => Date.now(), isCancelled = () => false
+  intervalMs = 800, timeoutMs = 300000, maxErrors = 5, now = () => Date.now(), isCancelled = () => false
 }) {
   const deadline = now() + timeoutMs
   let errors = 0
@@ -71,9 +75,20 @@ function splitCells(line) {
 
 const SEPARATOR = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/
 
-/** 把回答拆成 text / table 块；表格块为 {headers, rows}。 */
-export function parseAnswerBlocks(text = '') {
-  const lines = String(text).replace(/\r\n/g, '\n').split('\n')
+const TABLE_REF = /\[\[表:(\d+)\]\]/g
+const TABLE_REF_LINE = /^\[\[表:(\d+)\]\]$/
+
+/** 把 [[表:N]] 引用拆成单独的行，便于按行解析；编号不存在的引用直接去掉。 */
+function splitTableRefs(text, results) {
+  return text.replace(TABLE_REF, (_match, id) => (results[Number(id) - 1] ? `\n[[表:${id}]]\n` : ''))
+}
+
+/**
+ * 把回答拆成块：text 文字、table 回答里的 Markdown 表格 {headers, rows}、
+ * result 后端返回的原始表格 {result}（回答里写 [[表:N]] 引用第 N 个工具结果）。
+ */
+export function parseAnswerBlocks(text = '', results = []) {
+  const lines = splitTableRefs(String(text).replace(/\r\n/g, '\n'), results || []).split('\n')
   const blocks = []
   let buffer = []
   const flushText = () => {
@@ -83,7 +98,11 @@ export function parseAnswerBlocks(text = '') {
   }
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i]
-    if (line.trim().startsWith('|') && i + 1 < lines.length && SEPARATOR.test(lines[i + 1])) {
+    const ref = line.trim().match(TABLE_REF_LINE)
+    if (ref) {
+      flushText()
+      blocks.push({ type: 'result', result: results[Number(ref[1]) - 1] })
+    } else if (line.trim().startsWith('|') && i + 1 < lines.length && SEPARATOR.test(lines[i + 1])) {
       flushText()
       const headers = splitCells(line)
       const rows = []
@@ -118,4 +137,26 @@ export function latestThinking(thinking = [], maxChars = 400) {
   if (!last) return { round: 0, content: '' }
   const content = String(last.content || '')
   return { round: last.round, content: content.length > maxChars ? `…${content.slice(-maxChars)}` : content }
+}
+
+/** 数字核对提示：只有存在对不上的数字时返回文字。 */
+export function verificationNotice(verification) {
+  if (!verification || verification.status !== 'warned') return ''
+  const numbers = (verification.unmatched || []).slice(0, 8).join('、')
+  return `以下数字未能在本次查询结果中核对到：${numbers}。请以表格数据为准。`
+}
+
+/** 本次运行里助手推断、等待用户确认的记忆。 */
+export function pendingMemories(run) {
+  return (run?.memories || []).filter(memory => memory.status === 'pending')
+}
+
+export const BRIEF_FREQUENCY = { daily: '每天', weekly: '每周', monthly: '每月' }
+export const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
+
+export function briefSchedule(brief) {
+  const hour = `${String(brief.runHour ?? 9).padStart(2, '0')}:00`
+  if (brief.frequency === 'weekly') return `每周${WEEKDAYS[(brief.weekday || 1) - 1]} ${hour}`
+  if (brief.frequency === 'monthly') return `每月${brief.monthDay}日 ${hour}`
+  return `每天 ${hour}`
 }

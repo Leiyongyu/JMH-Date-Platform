@@ -150,6 +150,13 @@ class Settings:
     ai_agent_thinking_enabled: bool = _env_bool("AI_AGENT_THINKING_ENABLED", True)
     # 思考内容计入输出 token，助手单独使用更大的上限，避免思考过长导致回答被截断。
     ai_agent_max_tokens: int = int(os.getenv("AI_AGENT_MAX_TOKENS", "8192"))
+    # auto=简单问题（寒暄、无数据意图的短句）关闭思考，可配轻量模型；on=始终思考；off=始终关闭
+    ai_agent_thinking_mode: str = (os.getenv("AI_AGENT_THINKING_MODE") or "auto").strip().lower()
+    ai_agent_simple_model: str = os.getenv("AI_AGENT_SIMPLE_MODEL", "").strip()
+    # 流式接收模型输出：进行中的思考与回答实时写入运行记录，前端轮询即可逐段显示
+    ai_agent_stream: bool = _env_bool("AI_AGENT_STREAM", True)
+    # 发给模型的上下文超过该字符数时，把较早轮次的工具结果压缩为汇总
+    ai_agent_context_chars: int = int(os.getenv("AI_AGENT_CONTEXT_CHARS", "60000"))
     ai_agent_max_rounds: int = int(os.getenv("AI_AGENT_MAX_ROUNDS", "8"))
     ai_agent_max_tool_calls: int = int(os.getenv("AI_AGENT_MAX_TOOL_CALLS", "16"))
     ai_agent_timeout_sec: int = int(os.getenv("AI_AGENT_TIMEOUT_SEC", "300"))

@@ -35,8 +35,8 @@ class ScriptedLlm:
         self.replies = list(replies)
         self.requests = []
 
-    async def complete(self, messages, tools=None, *, tool_choice=None, request_id=""):
-        self.requests.append({"messages": [dict(m) for m in messages], "tools": tools})
+    async def complete(self, messages, tools=None, *, tool_choice=None, request_id="", **options):
+        self.requests.append({"messages": [dict(m) for m in messages], "tools": tools, "options": options})
         item = self.replies.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -61,8 +61,9 @@ class FakeRepo:
         self.steps.append(dict(seq=seq, round=round_no, tool=tool, arguments=arguments, status=status,
                                rows=rows, error=error))
 
-    def save_memory(self, user_id, category, content, run_id):
+    def save_memory(self, user_id, category, content, run_id, status="active"):
         self.saved.append((user_id, category, content))
+        self.saved_status = status
         return 7
 
     def delete_memory(self, user_id, memory_id):
@@ -77,6 +78,12 @@ class FakeConversations:
 
     def context_messages(self, user_id, conversation_uuid, limit):
         return self.history
+
+    def context_summary(self, user_id, conversation_uuid):
+        return None
+
+    def summary_state(self, user_id, conversation_uuid):
+        return None
 
     def append_message(self, user_id, username, conversation_uuid, role, content, **kwargs):
         self.appended.append((role, content, kwargs.get("is_error", False)))
@@ -118,7 +125,8 @@ def test_plan_parallel_tools_then_answer():
     result = run(runner_module.AgentRunner(llm=llm, tools=[sales_tool()], repo=repo,
                                            conversations=conversations))
 
-    assert result == {"status": "completed", "answer": "10月比9月好。来源：测试"}
+    assert result["status"] == "completed" and result["answer"] == "10月比9月好。来源：测试"
+    assert result["verification"]["status"] == "passed"
     # 两个独立查询在同一轮并行完成，各记一条调用日志
     assert [(s["seq"], s["round"], s["arguments"]["month"], s["status"]) for s in repo.steps] == [
         (1, 2, "2026-09", "completed"), (2, 2, "2026-10", "completed")]

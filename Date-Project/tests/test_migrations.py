@@ -140,8 +140,13 @@ def test_agent_target_is_managed_from_start(monkeypatch, tmp_path):
 
 def test_repository_agent_migrations_split():
     files = migrations.discover(migrations.targets()["agent"])
-    assert [item.version for item in files] == ["20261103_ai_agent.sql", "20261103_ai_conversations.sql"]
+    assert [item.version for item in files] == [
+        "20261103_ai_agent.sql", "20261103_ai_conversations.sql", "20261104_ai_agent_upgrade.sql",
+    ]
     for item in files:
         statements = list(migrations.split_script(item.path.read_text(encoding="utf-8")))
         bodies = [migrations.COMMENT_ONLY.sub("", s).strip().upper() for s in statements]
-        assert bodies and all(body.startswith("CREATE TABLE IF NOT EXISTS") for body in bodies)
+        # 首批只建表；之后的升级只允许加字段、建新表，不删改已有数据
+        allowed = ("CREATE TABLE IF NOT EXISTS",) if item.version.startswith("20261103") \
+            else ("CREATE TABLE IF NOT EXISTS", "ALTER TABLE")
+        assert bodies and all(body.startswith(allowed) for body in bodies)

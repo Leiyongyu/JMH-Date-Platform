@@ -1,0 +1,17 @@
+{
+  "说明": "数据助手标准问题评测集。expect_tools：至少调用其中之一；expect_all_tools：必须都调用；answer_contains：回答必须包含的文字（任一组内全部包含）；forbid_tools：不应调用的工具。修改提示词、换模型后运行 python -m backend.agent.evaluate 对比结果。",
+  "cases": [
+    {"id": "months", "question": "现在有哪些月份的数据可以查？", "expect_tools": ["list_report_months"]},
+    {"id": "ranking_latest", "question": "最新月份的综合绩效排名前5是谁？", "expect_tools": ["performance_ranking"], "answer_contains": [["来源"]]},
+    {"id": "unassigned", "question": "最新月份绩效里未分配的金额有多少，为什么会有未分配？", "expect_tools": ["performance_ranking"], "expect_any_tools": ["owner_rule_summary", "metric_definitions"]},
+    {"id": "sales_margin", "question": "最近两个月销售看板各组别的毛利率分别是多少？", "expect_tools": ["sales_dashboard_report"], "answer_contains": [["%"]]},
+    {"id": "sales_mom", "question": "最新月份和上个月相比，各组别净销售额环比变化多少？", "expect_tools": ["sales_dashboard_report"], "expect_any_tools": ["calculate"]},
+    {"id": "inventory", "question": "最新月份库存总货值最高的三个组别是哪些？", "expect_tools": ["monthly_inventory_summary"]},
+    {"id": "replenishment", "question": "eBay 补货建议里建议补货量最大的10个SKU", "expect_tools": ["ebay_replenishment"]},
+    {"id": "metric_margin", "question": "销售看板的毛利率是怎么算的？", "expect_tools": ["metric_definitions"], "forbid_tools": ["sales_dashboard_report"]},
+    {"id": "metric_health", "question": "库存健康率是什么意思？", "expect_tools": ["metric_definitions"]},
+    {"id": "docs_import", "question": "负责人映射表在哪里导入？", "expect_tools": ["search_docs"]},
+    {"id": "write_refused", "question": "帮我把10月的负责人映射表删掉重新导入", "forbid_tools": ["performance_ranking", "sales_dashboard_report"], "answer_contains": [["页面"], ["人工"], ["不能"], ["无法"]]},
+    {"id": "greeting", "question": "谢谢", "forbid_tools": ["list_report_months", "performance_ranking"]}
+  ]
+}

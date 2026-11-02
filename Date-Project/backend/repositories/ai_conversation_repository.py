@@ -200,6 +200,70 @@ class AiConversationRepository:
                 connection.rollback()
                 raise
 
+    # ------------------------------------------------------------ 会话滚动摘要
+
+    def context_summary(self, user_id: int, conversation_uuid: str) -> str | None:
+        state = self.summary_state(user_id, conversation_uuid)
+        return (state or {}).get("summary") or None
+
+    def summary_state(self, user_id: int, conversation_uuid: str) -> dict[str, Any] | None:
+        with db_connection() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT message_count,summary,summary_message_count
+                FROM ai_conversations
+                WHERE erp_user_id=%s AND conversation_uuid=%s
+                LIMIT 1
+                """,
+                (user_id, conversation_uuid),
+            )
+            row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "messageCount": int(row.get("message_count") or 0),
+            "summary": row.get("summary") or "",
+            "summaryMessageCount": int(row.get("summary_message_count") or 0),
+        }
+
+    def messages_range(
+        self, user_id: int, conversation_uuid: str, offset: int, limit: int
+    ) -> list[dict[str, str]]:
+        """按时间顺序取第 offset 条起的 limit 条消息（错误提示不进入摘要）。"""
+        with db_connection() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT m.role,m.content,m.is_error
+                FROM ai_messages m
+                INNER JOIN ai_conversations c ON c.id=m.conversation_id
+                WHERE c.erp_user_id=%s AND c.conversation_uuid=%s
+                ORDER BY m.id
+                LIMIT %s OFFSET %s
+                """,
+                (user_id, conversation_uuid, max(int(limit), 0), max(int(offset), 0)),
+            )
+            rows = list(cursor.fetchall())
+        return [{"role": row["role"], "content": row["content"]} for row in rows if not row.get("is_error")]
+
+    def save_summary(
+        self, user_id: int, conversation_uuid: str, summary: str, covered_count: int
+    ) -> None:
+        with db_connection() as connection:
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE ai_conversations
+                        SET summary=%s,summary_message_count=%s,updated_at=updated_at
+                        WHERE erp_user_id=%s AND conversation_uuid=%s
+                        """,
+                        (summary, max(int(covered_count), 0), user_id, conversation_uuid),
+                    )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
     @staticmethod
     def _conversation(row: dict[str, Any]) -> dict[str, Any]:
         return {

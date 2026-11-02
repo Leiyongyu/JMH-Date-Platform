@@ -46,11 +46,16 @@
                 <div v-if="memoriesLoading" class="memory-empty">加载中...</div>
                 <div v-else-if="memories.length === 0" class="memory-empty">暂无记忆。可以对助手说「以后默认看德国站」。</div>
                 <div v-for="memory in memories" :key="memory.id" class="memory-item">
-                  <span>{{ memory.content }}</span>
-                  <button type="button" @click="removeMemory(memory)">删除</button>
+                  <span><em v-if="memory.status === 'pending'" class="memory-pending">待确认</em>{{ memory.content }}</span>
+                  <span class="memory-actions">
+                    <button v-if="memory.status === 'pending'" type="button" class="confirm" @click="confirmMemory(memory)">确认</button>
+                    <button type="button" @click="removeMemory(memory)">删除</button>
+                  </span>
                 </div>
               </div>
             </el-popover>
+            <button class="new-chat-button" type="button" @click="briefVisible = true">简报</button>
+            <button v-if="isAdmin" class="new-chat-button" type="button" @click="statsVisible = true">看板</button>
             <button
               class="new-chat-button"
               type="button"
@@ -120,15 +125,21 @@
               <div class="message-name">{{ message.role === 'user' ? userDisplayName : 'JMH AI助手' }}</div>
               <div v-if="message.role === 'user' || message.error" :class="['message-bubble', { error: message.error }]">{{ message.content }}</div>
               <div v-else class="message-bubble answer-bubble">
-                <template v-for="(block, index) in parseAnswerBlocks(message.content)" :key="index">
-                  <div v-if="block.type === 'text'" class="answer-text">{{ block.content }}</div>
-                  <div v-else class="answer-table-wrap">
-                    <table class="answer-table">
-                      <thead><tr><th v-for="header in block.headers" :key="header">{{ header }}</th></tr></thead>
-                      <tbody><tr v-for="(row, rowIndex) in block.rows" :key="rowIndex"><td v-for="(cell, cellIndex) in row" :key="cellIndex">{{ cell }}</td></tr></tbody>
-                    </table>
-                  </div>
-                </template>
+                <AnswerContent :content="message.content" :results="message.run?.results || []" />
+                <div v-if="verificationNotice(message.run?.verification)" class="verification-notice">
+                  {{ verificationNotice(message.run.verification) }}
+                </div>
+              </div>
+              <div v-if="message.run && pendingMemories(message.run).length" class="memory-suggestion">
+                <div v-for="memory in pendingMemories(message.run)" :key="memory.id">
+                  助手想记住：{{ memory.content }}
+                  <button type="button" class="confirm" @click="confirmMemory(memory, message.run)">记住</button>
+                  <button type="button" @click="removeMemory(memory, message.run)">不用</button>
+                </div>
+              </div>
+              <div v-if="message.run?.runId" class="feedback-bar">
+                <button type="button" :class="{ active: message.run.feedback?.rating === 1 }" @click="sendFeedback(message.run, 1)">有帮助</button>
+                <button type="button" :class="{ active: message.run.feedback?.rating === -1 }" @click="sendFeedback(message.run, -1)">没帮助</button>
               </div>
               <div v-if="message.run" class="run-detail">
                 <el-collapse>
@@ -173,7 +184,7 @@
             <div class="message-avatar">AI</div>
             <div class="message-body">
               <div class="message-name">JMH AI助手</div>
-              <div v-if="liveRun?.plan?.length || liveRun?.thinking?.length" class="message-bubble live-plan">
+              <div v-if="liveRun?.plan?.length || liveRun?.thinking?.length || liveRun?.answer" class="message-bubble live-plan">
                 <div v-if="liveRun.plan?.length" class="live-progress">{{ planProgress(liveRun.plan) }}<span v-if="liveRun.steps?.length"> ｜ {{ callSummary(liveRun.steps) }}</span></div>
                 <ol v-if="liveRun.plan?.length" class="plan-list">
                   <li v-for="(step, index) in liveRun.plan" :key="index" :class="step.status">
@@ -183,6 +194,10 @@
                 <div v-if="liveRun.thinking?.length" class="live-thinking">
                   <div class="thinking-label">正在思考 · 第{{ latestThinking(liveRun.thinking).round }}轮</div>
                   <div class="thinking-text">{{ latestThinking(liveRun.thinking).content }}</div>
+                </div>
+                <div v-if="liveRun.answer" class="live-answer">
+                  <div class="thinking-label">正在回答（生成后会自动核对数字）</div>
+                  <AnswerContent :content="liveRun.answer" :results="liveRun.results || []" />
                 </div>
               </div>
               <div v-else class="message-bubble typing-bubble">
@@ -219,6 +234,8 @@
         </div>
       </div>
     </el-drawer>
+    <BriefPanel v-model="briefVisible" @ran="handleBriefRan" />
+    <AgentStatsPanel v-if="isAdmin" v-model="statsVisible" />
   </div>
 </template>
 
@@ -227,6 +244,7 @@ import { computed, nextTick, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
 import {
+  confirmAiMemory,
   createAiConversation,
   deleteAiConversation,
   deleteAiMemory,
@@ -235,12 +253,16 @@ import {
   getAiConversation,
   listAiConversations,
   listAiMemories,
+  sendAgentFeedback,
   startAgentRun
 } from '@/api/system/aiAssistant'
 import {
-  CALL_STATUS, STEP_STATUS, TOOL_TITLES, callSummary, formatCell, latestThinking, parseAnswerBlocks, planProgress,
-  pollAgentRun
+  CALL_STATUS, STEP_STATUS, TOOL_TITLES, callSummary, formatCell, latestThinking, pendingMemories, planProgress,
+  pollAgentRun, verificationNotice
 } from './agentRun'
+import AgentStatsPanel from './AgentStatsPanel.vue'
+import AnswerContent from './AnswerContent.vue'
+import BriefPanel from './BriefPanel.vue'
 import useUserStore from '@/store/modules/user'
 
 const route = useRoute()
@@ -261,7 +283,11 @@ const statusKeyEnv = ref('')
 const liveRun = ref(null)
 const memories = ref([])
 const memoriesLoading = ref(false)
+const briefVisible = ref(false)
+const statsVisible = ref(false)
 
+// 运行看板涵盖全体用户的提问，只对管理员显示（Java 接口同样限制为 admin 角色）。
+const isAdmin = computed(() => (userStore.roles || []).includes('admin'))
 const userDisplayName = computed(() => userStore.nickName || userStore.name || '我')
 const userInitial = computed(() => userDisplayName.value.trim().slice(0, 1).toUpperCase() || '我')
 const statusClass = computed(() => ({
@@ -349,25 +375,7 @@ async function sendMessage() {
     }, createRequestId('agent-run'))
     const runId = started.data?.runId
     if (!runId) throw new Error('数据助手未返回任务编号')
-    const run = await pollAgentRun(runId, {
-      fetchRun: async id => (await getAgentRun(id, createRequestId('agent-poll'))).data,
-      onUpdate: value => {
-        liveRun.value = value
-        scrollToBottom()
-      },
-      // 思考模式下单次任务可能接近 5 分钟，留出余量
-      timeoutMs: 420000
-    })
-    if (run.status === 'failed') {
-      messages.value.push(createMessage('assistant', run.error || '数据助手执行失败', true))
-    } else {
-      const assistantMessage = createMessage('assistant', (run.answer || '').trim() || '没有得到有效回答')
-      assistantMessage.run = {
-        plan: run.plan || [], steps: run.steps || [], results: run.results || [], thinking: run.thinking || []
-      }
-      messages.value.push(assistantMessage)
-    }
-    await loadConversations(false)
+    await followRun(runId)
   } catch (error) {
     const detail = error?.msg || error?.message || 'AI助手暂时无法回答，请稍后重试'
     messages.value.push(createMessage('assistant', detail, true))
@@ -376,6 +384,86 @@ async function sendMessage() {
     liveRun.value = null
     await scrollToBottom()
     nextTick(() => inputRef.value?.focus())
+  }
+}
+
+/** 轮询一次运行直到结束：过程中展示计划、思考和正在生成的回答，结束后追加到消息列表。 */
+async function followRun(runId) {
+  const run = await pollAgentRun(runId, {
+    fetchRun: async id => (await getAgentRun(id, createRequestId('agent-poll'))).data,
+    onUpdate: value => {
+      liveRun.value = value
+      scrollToBottom()
+    },
+    // 思考模式下单次任务可能接近 5 分钟，留出余量
+    timeoutMs: 420000
+  })
+  if (run.status === 'failed') {
+    messages.value.push(createMessage('assistant', run.error || '数据助手执行失败', true))
+  } else {
+    const assistantMessage = createMessage('assistant', (run.answer || '').trim() || '没有得到有效回答')
+    assistantMessage.run = {
+      runId: run.runId, plan: run.plan || [], steps: run.steps || [], results: run.results || [],
+      thinking: run.thinking || [], verification: run.verification || null, memories: run.memories || [],
+      feedback: run.feedback || null
+    }
+    messages.value.push(assistantMessage)
+  }
+  await loadConversations(false)
+}
+
+async function sendFeedback(run, rating) {
+  let comment = null
+  if (rating < 0) {
+    try {
+      const { value } = await ElMessageBox.prompt('哪里不对？（选填，会帮助改进助手）', '没帮助', {
+        confirmButtonText: '提交', cancelButtonText: '取消', inputMaxlength: 500
+      })
+      comment = value || null
+    } catch (error) {
+      return
+    }
+  }
+  try {
+    await sendAgentFeedback(run.runId, { rating, comment }, createRequestId('feedback'))
+    run.feedback = { rating, comment }
+    ElMessage.success('感谢反馈')
+  } catch (error) {
+    ElMessage.error(error?.msg || error?.message || '提交反馈失败')
+  }
+}
+
+async function confirmMemory(memory, run) {
+  try {
+    await confirmAiMemory(memory.id, createRequestId('memory-confirm'))
+    memory.status = 'active'
+    if (run) run.memories = [...run.memories]
+    memories.value = memories.value.map(item => (item.id === memory.id ? { ...item, status: 'active' } : item))
+    ElMessage.success('已记住')
+  } catch (error) {
+    ElMessage.error(error?.msg || error?.message || '确认记忆失败')
+  }
+}
+
+/** 手动运行简报后切到简报对话并跟踪进度；正在提问时只刷新对话列表。 */
+async function handleBriefRan(data) {
+  if (!data?.runId || !data.conversationId) return
+  if (loading.value) {
+    await loadConversations(false)
+    return
+  }
+  briefVisible.value = false
+  try {
+    await loadConversations(false)
+    await loadConversation(data.conversationId, false)
+    loading.value = true
+    await followRun(data.runId)
+  } catch (error) {
+    messages.value.push(createMessage('assistant', error?.msg || error?.message || '简报执行失败', true))
+  } finally {
+    loading.value = false
+    liveRun.value = null
+    await scrollToBottom()
   }
 }
 
@@ -392,10 +480,11 @@ async function loadMemories() {
   }
 }
 
-async function removeMemory(memory) {
+async function removeMemory(memory, run) {
   try {
     await deleteAiMemory(memory.id, createRequestId('memory-delete'))
     memories.value = memories.value.filter(item => item.id !== memory.id)
+    if (run) run.memories = run.memories.filter(item => item.id !== memory.id)
   } catch (error) {
     ElMessage.error(error?.msg || error?.message || '删除记忆失败')
   }
@@ -876,23 +965,41 @@ function createRequestId(scope) {
 }
 
 .answer-bubble { white-space: normal; }
-.answer-text { white-space: pre-wrap; }
-.answer-table-wrap { margin: 8px 0; overflow-x: auto; }
-.answer-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12.5px;
-  line-height: 1.5;
-
-  th, td {
-    padding: 5px 8px;
-    border: 1px solid var(--el-border-color-lighter, #ebeef5);
-    text-align: left;
-    white-space: nowrap;
-  }
-
-  th { background: var(--el-fill-color-light, #f5f7fa); font-weight: 600; }
+.verification-notice {
+  margin-top: 8px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--el-color-warning-light-9, #fdf6ec);
+  color: var(--el-color-warning-dark-2, #b88230);
+  font-size: 12px;
 }
+.memory-suggestion {
+  margin-top: 6px;
+  color: var(--el-text-color-secondary, #909399);
+  font-size: 12px;
+
+  button { margin-left: 6px; border: 0; background: transparent; color: var(--el-text-color-secondary, #909399); cursor: pointer; }
+  .confirm { color: var(--el-color-primary, #409eff); }
+}
+.feedback-bar {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+
+  button {
+    height: 24px;
+    padding: 0 9px;
+    border: 1px solid var(--el-border-color-lighter, #ebeef5);
+    border-radius: 12px;
+    background: var(--el-bg-color, #fff);
+    color: var(--el-text-color-secondary, #909399);
+    font-size: 11.5px;
+    cursor: pointer;
+
+    &:hover, &.active { color: var(--el-color-primary, #409eff); border-color: var(--el-color-primary-light-5, #a0cfff); }
+  }
+}
+.live-answer { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--el-border-color-lighter, #ebeef5); }
 
 .run-detail {
   margin-top: 8px;
@@ -960,6 +1067,17 @@ function createRequestId(scope) {
   border-top: 1px solid var(--el-border-color-lighter, #ebeef5);
 
   button { flex: none; border: 0; background: transparent; color: var(--el-color-danger, #f56c6c); cursor: pointer; }
+  .confirm { color: var(--el-color-primary, #409eff); }
+}
+.memory-actions { flex: none; display: flex; gap: 4px; }
+.memory-pending {
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--el-color-warning-light-9, #fdf6ec);
+  color: var(--el-color-warning, #e6a23c);
+  font-size: 11px;
+  font-style: normal;
 }
 
 .composer {

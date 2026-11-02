@@ -27,6 +27,8 @@ class SaveMemoryArgs(BaseModel):
                          description="要长期记住的内容，用第三人称简述，如「用户默认看德国站」")
     category: Literal["preference", "fact", "instruction"] = Field(
         "preference", description="preference=偏好，fact=业务事实，instruction=工作习惯")
+    explicit: bool = Field(False, description="用户本轮明确要求记住（说了「记住」「以后」「默认」）时为 true；"
+                                              "根据对话推断的偏好填 false，会先请用户确认再生效")
 
 
 class ForgetMemoryArgs(BaseModel):
@@ -41,7 +43,8 @@ META_ARGS = {
 
 META_DESCRIPTIONS = {
     PLAN_TOOL: "制定或更新本次任务的执行计划。需要查数据时先调用一次列出步骤，每完成一步再更新状态。",
-    SAVE_MEMORY_TOOL: "保存用户明确表达的长期偏好或业务事实（如「以后默认看人民币」），下次对话自动带上。不要保存账号、密码、权限。",
+    SAVE_MEMORY_TOOL: "保存长期偏好或业务事实（如「以后默认看人民币」），下次对话自动带上。用户明确要求时 explicit=true 直接生效；"
+                      "从对话中推断出的偏好 explicit=false，由用户确认后生效。不要保存账号、密码、权限。",
     FORGET_MEMORY_TOOL: "删除一条长期记忆（用户说「忘掉」「不用记」时调用）。",
 }
 
