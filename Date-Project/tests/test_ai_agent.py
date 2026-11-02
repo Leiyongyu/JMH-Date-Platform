@@ -406,3 +406,58 @@ def test_system_prompt_always_requires_chinese_thinking():
     from backend.agent.prompts import build_system_prompt
     prompt = build_system_prompt(context(), [], [], None)
     assert "思考过程使用中文回答" in prompt
+
+
+def test_every_question_carries_chinese_thinking_hint_but_history_keeps_original():
+    llm = ScriptedLlm([reply(content="ok")])
+    conversations = FakeConversations()
+    run(runner_module.AgentRunner(llm=llm, tools=[sales_tool()], repo=FakeRepo(), conversations=conversations),
+        question="10月销售")
+    sent = llm.requests[0]["messages"][1]["content"]
+    assert sent == "【思考过程使用中文回答】10月销售"
+    assert conversations.appended[0][1] == "10月销售"
+
+
+def test_dotenv_overrides_only_model_settings(monkeypatch, tmp_path):
+    import os
+    from backend import config
+    env_file = tmp_path / ".env"
+    env_file.write_text("DASHSCOPE_API_KEY=new-key\nAI_AGENT_PROVIDER=dashscope\nMYSQL_USER=from-file\n",
+                        encoding="utf-8")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "stale-user-env-key")
+    monkeypatch.setenv("MYSQL_USER", "from-system")
+    monkeypatch.delenv("AI_AGENT_PROVIDER", raising=False)
+    config.load_dotenv(env_file)
+    # 模型配置以项目 .env 为准；其他配置保持「系统环境变量优先」
+    assert os.environ["DASHSCOPE_API_KEY"] == "new-key"
+    assert os.environ["AI_AGENT_PROVIDER"] == "dashscope"
+    assert os.environ["MYSQL_USER"] == "from-system"
+
+
+def test_sales_dashboard_tool_returns_backend_ratios_and_month_totals(monkeypatch):
+    from backend.services import sales_dashboard_service
+    series = lambda a, b: [{"name": "EU", "values": [a, b]}]
+    monkeypatch.setattr(sales_dashboard_service, "report", lambda *a: {
+        "currency": "CNY", "months": ["2026-08", "2026-09"],
+        "metrics": {
+            "net_sales": {"label": "净销售额", "series": series("100", "200"), "total": ["100", "200"],
+                          "summary": {"value": "300", "missing_months": []}},
+            "gross_profit": {"label": "毛利润", "series": series("10", "30"), "total": ["10", "30"],
+                             "summary": {"value": "40", "missing_months": []}},
+            "gross_margin": {"label": "毛利率", "series": series("0.158012", "0.145523"),
+                             "total": ["0.104512", "0.111234"],
+                             "summary": {"value": "0.108888", "missing_months": []}},
+            "refund_rate": {"label": "退款率", "series": series("-0.12", None), "total": ["-0.12", None],
+                            "summary": {"value": None, "missing_months": ["2026-09"]}},
+        }})
+    result = business.sales_dashboard_report(
+        context(), business.SalesDashboardArgs(platform="amz", start_month="2026-08", end_month="2026-09"))
+    by_key = {(r["month"], r["group"]): r for r in result.rows}
+    assert by_key[("2026-08", "EU")]["gross_margin"] == 0.158
+    assert by_key[("2026-09", "EU")]["gross_margin"] == 0.1455
+    assert by_key[("2026-09", "合计")]["gross_margin"] == 0.1112 and by_key[("2026-09", "合计")]["net_sales"] == 200
+    assert by_key[("2026-09", "EU")]["refund_rate"] is None
+    assert ("gross_margin", "毛利率") in result.columns and ("refund_rate", "退款率") in result.columns
+    assert result.summary["毛利率（区间合计）"] == 0.1089
+    assert any("退款率缺少月份" in note for note in result.notes)
+    assert any("不要自行重算" in note for note in result.notes)

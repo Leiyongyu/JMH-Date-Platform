@@ -8,6 +8,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
+# 这些前缀的配置以本项目 .env 为准，即使系统里存在同名环境变量（例如其他项目在 Windows 用户
+# 环境变量里设置了 DASHSCOPE_API_KEY）。其余配置仍是「已有环境变量优先」，部署方式不变。
+DOTENV_OVERRIDE_PREFIXES = ("DASHSCOPE_", "DEEPSEEK_", "AI_AGENT_")
+
+
 def load_dotenv(path: Path = PROJECT_ROOT / ".env") -> None:
     if not path.exists():
         return
@@ -23,7 +28,11 @@ def load_dotenv(path: Path = PROJECT_ROOT / ".env") -> None:
             and normalized_value[0] in {'"', "'"}
         ):
             normalized_value = normalized_value[1:-1]
-        os.environ.setdefault(key.strip(), normalized_value)
+        name = key.strip()
+        if name.startswith(DOTENV_OVERRIDE_PREFIXES):
+            os.environ[name] = normalized_value
+        else:
+            os.environ.setdefault(name, normalized_value)
 
 
 load_dotenv()

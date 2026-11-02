@@ -125,8 +125,17 @@ class SalesDashboardArgs(BaseModel):
 def sales_dashboard_report(context: AgentContext, args: SalesDashboardArgs) -> ToolResult:
     from backend.services.sales_dashboard_service import report
     data = report(args.platform, args.start_month, args.end_month, args.groups)
-    metric_keys = [key for key in ("net_sales", "gross_profit", "platform_income", "refund_amount")
-                   if key in data["metrics"]]
+    money_keys = [key for key in ("net_sales", "gross_profit", "platform_income", "refund_amount")
+                  if key in data["metrics"]]
+    # 毛利率、退款率直接取页面同一套「分子分母分别汇总后相除」的结果，模型无需自行计算。
+    ratio_keys = [key for key in ("gross_margin", "refund_rate") if key in data["metrics"]]
+    metric_keys = money_keys + ratio_keys
+
+    def value(key, raw):
+        if raw is None:
+            return None
+        return round(float(raw), 4) if key in ratio_keys else money(raw)
+
     rows = []
     for month_index, month in enumerate(data["months"]):
         groups = {series["name"] for key in metric_keys for series in data["metrics"][key]["series"]}
@@ -134,28 +143,30 @@ def sales_dashboard_report(context: AgentContext, args: SalesDashboardArgs) -> T
             row = {"month": month, "group": group}
             for key in metric_keys:
                 series = next((s for s in data["metrics"][key]["series"] if s["name"] == group), None)
-                row[key] = money(series["values"][month_index]) if series else None
+                row[key] = value(key, series["values"][month_index]) if series else None
             rows.append(row)
+        total = {"month": month, "group": "合计"}
+        for key in metric_keys:
+            totals = data["metrics"][key].get("total") or []
+            total[key] = value(key, totals[month_index]) if month_index < len(totals) else None
+        rows.append(total)
     summary = {"币种": data.get("currency", "CNY"), "月份": data["months"]}
     notes = []
-    for key in ("net_sales", "gross_profit", "platform_income", "refund_amount", "gross_margin", "refund_rate"):
-        metric = data["metrics"].get(key)
-        if not metric:
-            continue
-        value = metric.get("summary", {}).get("value")
-        summary[metric["label"] + "合计"] = (
-            round(float(value), 4) if key in ("gross_margin", "refund_rate") and value is not None else money(value)
-        )
+    for key in metric_keys:
+        metric = data["metrics"][key]
+        summary[metric["label"] + "（区间合计）"] = value(key, metric.get("summary", {}).get("value"))
         missing = metric.get("summary", {}).get("missing_months") or []
         if missing:
             notes.append(f"{metric['label']}缺少月份：{'、'.join(missing)}，合计不含这些月份")
-    labels = {"net_sales": "净销售额", "gross_profit": "毛利润", "platform_income": "平台收入", "refund_amount": "退款金额"}
+    labels = {"net_sales": "净销售额", "gross_profit": "毛利润", "platform_income": "平台收入",
+              "refund_amount": "退款金额", "gross_margin": "毛利率", "refund_rate": "退款率"}
     return ToolResult(
         title=f"销售看板 {args.platform.upper()} {args.start_month}~{args.end_month}",
         summary=summary,
         columns=[("month", "月份"), ("group", "组别")] + [(key, labels[key]) for key in metric_keys],
         rows=rows, source="销售看板（财务月度数据）", period=f"{args.start_month}~{args.end_month}",
-        notes=notes + ["毛利率=毛利润/平台收入；退款率=退款金额/销售总额，均按汇总后的分子分母计算"],
+        notes=notes + ["毛利率=毛利润/平台收入，退款率=退款金额/销售总额，均为后端按分子分母汇总后计算的小数，"
+                       "直接引用，不要自行重算；每月「合计」行为全部组别汇总"],
     )
 
 

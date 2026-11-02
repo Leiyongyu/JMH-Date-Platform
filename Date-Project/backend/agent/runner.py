@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 
 from backend.agent.context import AgentContext, ToolPermissionError
 from backend.agent.llm import AgentChatClient, LlmError
-from backend.agent.prompts import build_system_prompt
+from backend.agent.prompts import THINKING_LANGUAGE_HINT, build_system_prompt
 from backend.agent.tools.base import Tool, ToolArgumentError, ToolResult
 from backend.agent.tools.business import BUSINESS_TOOLS
 from backend.agent.tools.meta import (
@@ -89,7 +89,8 @@ class AgentRunner:
                 first_message_title=" ".join(question.split())[:40])
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": build_system_prompt(context, memories, history, page)},
-                {"role": "user", "content": question},
+                # 会话记录保存用户原话；发给模型的提问前固定加上思考语言要求。
+                {"role": "user", "content": f"{THINKING_LANGUAGE_HINT}{question}"},
             ]
             available = [tool for tool in self.tools.values() if tool.available_to(context)]
             schemas = meta_schemas() + [tool.schema() for tool in available]
@@ -134,6 +135,8 @@ class AgentRunner:
             outcomes = await self._execute(state, context, reply.tool_calls, round_no)
             for outcome in outcomes:
                 messages.append({"role": "tool", "tool_call_id": outcome.call_id, "content": outcome.content})
+            # 读完工具结果后模型容易切回英文思考，每轮补一条简短提醒。
+            messages.append({"role": "system", "content": THINKING_LANGUAGE_HINT})
             await self._save_progress(state)
         return "没有得到有效回答，请换个问法再试一次。"
 

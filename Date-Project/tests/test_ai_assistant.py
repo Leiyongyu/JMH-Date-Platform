@@ -26,9 +26,16 @@ def test_ai_chat_payload_keeps_rules_on_server() -> None:
     assert payload["stream"] is False
 
 
-def test_ai_status_does_not_expose_api_key() -> None:
+def test_ai_status_does_not_expose_api_key(monkeypatch) -> None:
+    from dataclasses import replace
+    from backend.agent import llm
+
+    # 固定提供方，避免受本机 .env 中 AI_AGENT_PROVIDER 的影响。
+    monkeypatch.setattr(llm, "settings", replace(llm.settings, ai_agent_provider="deepseek",
+                                                 deepseek_api_key="sk-secret"))
     status = ai_assistant_service.status()
 
     assert "apiKey" not in status
     assert "api_key" not in status
+    assert "sk-secret" not in str(status)
     assert status["provider"] == "deepseek"
