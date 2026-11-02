@@ -150,8 +150,13 @@ def api_import():
             unit_price_usd, g_currency = 0, 'USD'
             if g_val and '/' in g_val:
                 parts = g_val.split('/')
-                try: unit_price_usd = float(parts[0])
-                except: pass
+                try:
+                    unit_price_usd = float(parts[0])
+                except ValueError:
+                    # 单价解析失败不能按 0 写库：更新已有商品时会把正确单价覆盖成 0。
+                    errors.append(f'{sku}: G列单价无法解析「{g_val}」')
+                    skipped += 1
+                    continue
                 if len(parts) >= 3: g_currency = parts[2]
 
             product = {

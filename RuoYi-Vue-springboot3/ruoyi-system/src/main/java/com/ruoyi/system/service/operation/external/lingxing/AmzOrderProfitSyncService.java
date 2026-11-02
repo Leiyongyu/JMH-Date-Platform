@@ -1,5 +1,6 @@
 package com.ruoyi.system.service.operation.external.lingxing;
 
+import com.ruoyi.common.utils.NumberValues;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.system.domain.operation.external.AmzOrderProfit;
@@ -88,7 +89,7 @@ public class AmzOrderProfitSyncService
     private List<Map<String, Object>> getList(Map<String, Object> r, String k)
     { if (r == null) return new ArrayList<>(); Object o = r.get(k); if (o instanceof List) return (List<Map<String, Object>>) o; try { List<Map<String, Object>> result = om.convertValue(o, new TypeReference<List<Map<String, Object>>>() {}); return result != null ? result : new ArrayList<>(); } catch (Exception e) { return new ArrayList<>(); } }
     private String str(Map<String, Object> m, String k) { Object v = m.get(k); return v != null ? String.valueOf(v) : ""; }
-    private Integer intVal(Map<String, Object> m, String k) { Object v = m.get(k); if (v instanceof Number) return ((Number)v).intValue(); if (v != null) try { return Integer.parseInt(v.toString()); } catch (Exception e) {} return 0; }
+    private Integer intVal(Map<String, Object> m, String k) { return NumberValues.toInteger(m.get(k), 0, k); }
     private int getInt(Map<String, Object> m, String k) { Object v = m.get(k); if (v instanceof Number) return ((Number)v).intValue(); return 0; }
     private BigDecimal bd(Map<String, Object> m, String k) { Object v = m.get(k); if (v == null) return BigDecimal.ZERO; if (v instanceof Number) return BigDecimal.valueOf(((Number)v).doubleValue()); try { return new BigDecimal(v.toString()); } catch (Exception e) { return BigDecimal.ZERO; } }
 }

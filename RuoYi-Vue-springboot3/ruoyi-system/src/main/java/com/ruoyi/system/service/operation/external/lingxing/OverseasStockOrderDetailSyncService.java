@@ -1,5 +1,6 @@
 package com.ruoyi.system.service.operation.external.lingxing;
 
+import com.ruoyi.common.utils.NumberValues;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.system.domain.operation.external.OverseasStockOrder;
@@ -147,6 +148,6 @@ public class OverseasStockOrderDetailSyncService
     private Map<String, Object> getMap(Map<String, Object> r, String k)
     { Object o = r.get(k); return o instanceof Map ? (Map<String, Object>) o : null; }
     private String str(Map<String, Object> m, String k) { Object v = m.get(k); return v != null ? v.toString() : null; }
-    private Integer intVal(Map<String, Object> m, String k) { Object v = m.get(k); if (v instanceof Number) return ((Number)v).intValue(); if (v != null) try { return Integer.parseInt(v.toString()); } catch (Exception e) {} return null; }
+    private Integer intVal(Map<String, Object> m, String k) { return NumberValues.toInteger(m.get(k), null, k); }
     private BigDecimal bdVal(Map<String, Object> m, String k) { Object v = m.get(k); if (v == null) return null; if (v instanceof Number) return BigDecimal.valueOf(((Number)v).doubleValue()); try { return new BigDecimal(v.toString()); } catch (Exception e) { return null; } }
 }

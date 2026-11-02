@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -14,6 +15,8 @@ from backend.services.performance_service import (
     complete_performance_refresh,
     fail_performance_refresh,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AmazonProfitEtlError(RuntimeError):
@@ -179,7 +182,8 @@ def sync_amazon_monthly_profit(
             try:
                 fail_performance_refresh(refresh_context, exc)
             except Exception:
-                pass
+                # 不能掩盖原始失败，但刷新状态没写成功意味着页面可能一直显示"刷新中"。
+                logger.exception("记录绩效刷新失败状态时出错 stage=%s", stage)
         if isinstance(exc, AmazonProfitEtlError):
             raise
         raise AmazonProfitEtlError(stage, str(exc), metrics) from exc

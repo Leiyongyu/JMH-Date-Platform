@@ -1,5 +1,6 @@
 package com.ruoyi.system.service.operation.external.lingxing;
 
+import com.ruoyi.common.utils.NumberValues;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.system.domain.operation.external.AmzFbaShipment;
@@ -236,7 +237,7 @@ public class AmzFbaShipmentSyncService
 
     private String str(Map<String, Object> m, String k) { Object v = m.get(k); return v != null ? String.valueOf(v) : null; }
     private int getInt(Map<String, Object> m, String k) { Object v = m.get(k); if (v instanceof Number) return ((Number) v).intValue(); return 0; }
-    private Integer intVal(Map<String, Object> m, String k) { Object v = m.get(k); if (v instanceof Number) return ((Number) v).intValue(); if (v != null) try { return Integer.parseInt(v.toString()); } catch (Exception e) {} return 0; }
+    private Integer intVal(Map<String, Object> m, String k) { return NumberValues.toInteger(m.get(k), 0, k); }
     private Date parseDt(String s) {
         if (!StringUtils.hasText(s)) return null;
         for (DateTimeFormatter fmt : DT_FORMATS) {
