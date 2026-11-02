@@ -34,15 +34,6 @@
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-tooltip content="读取当前待到货采购单，更新当期报表；历史月份保留。首次同步耗时较长，可离开页面后回来查看。">
-            <el-button
-              v-hasPermi="['finance:monthlyInventoryReport:edit']"
-              type="success"
-              :loading="purchaseOrderSyncing"
-              :disabled="!canSyncPurchaseOrder || purchaseOrderUploading || calculating"
-              @click="handlePurchaseOrderSync"
-            >同步采购在途</el-button>
-          </el-tooltip>
           <span
             v-hasPermi="['finance:monthlyInventoryReport:edit']"
             class="monthly-inventory-upload"
@@ -481,7 +472,6 @@ import {
   getMonthlyInventoryDimensionSummary,
   getMonthlyInventorySummary,
   importMonthlyInventoryPurchaseOrder,
-  syncMonthlyInventoryPurchaseOrder,
   getMonthlyInventoryPurchaseOrderStatus,
   previewMonthlyInventoryHistory,
   importMonthlyInventoryHistory,
@@ -523,21 +513,16 @@ const purchaseOrderUploading = ref(false)
 const purchaseOrderSyncing = ref(false)
 const purchaseOrderStatus = ref({})
 const purchaseOrderStatusError = ref('')
-let purchaseOrderRequestId = null
 let purchaseOrderPollTimer = null
 let purchaseOrderDisposed = false
-let purchaseOrderSubmittedAt = 0
 let purchaseOrderStatusRequest = 0
-const canSyncPurchaseOrder = computed(() =>
-  (!statMonth.value || statMonth.value === currentNaturalMonth()) && !isImportedHistoryMonth.value
-)
 const purchaseOrderStatusText = computed(() => {
   if (purchaseOrderSyncing.value) return '正在后台同步采购在途，可离开页面后回来查看'
   if (purchaseOrderStatusError.value) return purchaseOrderStatusError.value
   const snapshot = purchaseOrderStatus.value.snapshot
   if (purchaseOrderStatus.value.source === 'EXCEL') return '当前采购在途来自手动上传文件'
   if (snapshot) return `采购在途采集时间：${snapshot.pulled_at}（北京时间）`
-  return '采购在途可通过领星接口同步，也可手动上传文件'
+  return '采购在途由每天08:30定时任务从领星同步，也可手动上传文件'
 })
 const purchaseOrderStatusDetail = computed(() => {
   const result = purchaseOrderStatus.value.snapshot?.result
@@ -1020,46 +1005,27 @@ async function loadPurchaseOrderStatus() {
   const requestVersion = ++purchaseOrderStatusRequest
   const wasSyncing = purchaseOrderSyncing.value
   try {
-    const response = await getMonthlyInventoryPurchaseOrderStatus(sourceStatMonth.value || undefined, purchaseOrderRequestId)
+    const response = await getMonthlyInventoryPurchaseOrderStatus(sourceStatMonth.value || undefined)
     if (purchaseOrderDisposed || requestVersion !== purchaseOrderStatusRequest) return
     purchaseOrderStatus.value = response.data || {}
     const run = purchaseOrderStatus.value.run
-    const waitingForStart = purchaseOrderRequestId && !run && Date.now() - purchaseOrderSubmittedAt < 60000
-    purchaseOrderSyncing.value = Boolean(purchaseOrderStatus.value.running || waitingForStart)
+    // Only the scheduled task syncs now; keep watching a run that is in progress.
+    purchaseOrderSyncing.value = Boolean(purchaseOrderStatus.value.running)
     purchaseOrderStatusError.value = ['failed', 'interrupted'].includes(run?.status)
       ? (run.error_message || '同步失败，上次成功数据保留') : ''
     if (purchaseOrderSyncing.value) {
       purchaseOrderPollTimer = setTimeout(loadPurchaseOrderStatus, 5000)
-    } else if (purchaseOrderRequestId || wasSyncing) {
-      purchaseOrderRequestId = null
-      if (run?.status === 'completed') {
-        proxy.$modal.msgSuccess('采购在途同步完成，已更新组别及个人数据')
-        await loadPeriods()
-        await loadSummary()
-      } else if (!run) {
-        purchaseOrderStatusError.value = '尚未找到任务记录，请刷新状态或查看定时任务日志'
-      }
+    } else if (wasSyncing && run?.status === 'completed') {
+      proxy.$modal.msgSuccess('采购在途同步完成，已更新组别及个人数据')
+      await loadPeriods()
+      await loadSummary()
     }
   } catch {
     if (purchaseOrderDisposed || requestVersion !== purchaseOrderStatusRequest) return
     purchaseOrderStatusError.value = '采购在途同步状态暂不可用，请检查服务和数据库迁移'
     purchaseOrderSyncing.value = false
-    // Continue observing an accepted task after a temporary network failure.
-    if (purchaseOrderRequestId) purchaseOrderPollTimer = setTimeout(loadPurchaseOrderStatus, 10000)
-  }
-}
-
-async function handlePurchaseOrderSync() {
-  if (!canSyncPurchaseOrder.value) return
-  purchaseOrderSyncing.value = true
-  try {
-    const response = await syncMonthlyInventoryPurchaseOrder()
-    purchaseOrderRequestId = response.data?.request_id || null
-    purchaseOrderSubmittedAt = Date.now()
-    proxy.$modal.msgSuccess('已提交后台同步，完成后自动刷新数据')
-    await loadPurchaseOrderStatus()
-  } catch {
-    purchaseOrderSyncing.value = false
+    // Continue observing a running task after a temporary network failure.
+    if (wasSyncing) purchaseOrderPollTimer = setTimeout(loadPurchaseOrderStatus, 10000)
   }
 }
 

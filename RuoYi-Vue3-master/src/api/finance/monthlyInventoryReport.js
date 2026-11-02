@@ -72,10 +72,6 @@ export function importMonthlyInventoryPurchaseOrder(statMonth, file) {
   })
 }
 
-export function syncMonthlyInventoryPurchaseOrder() {
-  return request({ url: '/finance/monthly-inventory-report/purchase-order-sync', method: 'post' })
-}
-
 export function getMonthlyInventoryPurchaseOrderStatus(statMonth, syncRequestId) {
   return request({
     url: '/finance/monthly-inventory-report/purchase-order-sync-status',
