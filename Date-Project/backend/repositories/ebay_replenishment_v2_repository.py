@@ -132,7 +132,7 @@ def formula_by_level(connection=None) -> dict[str, dict[str, Decimal]]:
 
 
 def list_formula_rows(active_only: bool = False, connection=None) -> list[dict[str, Any]]:
-    database = _source_database()
+    database = _rule_database()
     where_sql = "WHERE status=1" if active_only else ""
     query = f"""
         SELECT product_level,safety_coefficient,suggest_coefficient,
@@ -159,7 +159,7 @@ def list_formula_rows(active_only: bool = False, connection=None) -> list[dict[s
 def save_formula_rows(rows: list[dict[str, Any]], operator: str) -> None:
     """在一个事务内按产品级别覆盖四行系数。"""
 
-    database = _source_database()
+    database = _rule_database()
     query = f"""
         INSERT INTO `{database}`.ebay_replenishment_v2_formula
           (product_level,safety_coefficient,suggest_coefficient,remark,status,
@@ -188,7 +188,7 @@ def forecast_rules(connection=None) -> list[dict[str, Any]]:
 
     表属于jmh_data_platform（源库），旧forecast_formula表保留但不再读写。
     """
-    database = _source_database()
+    database = _rule_database()
     query = f"""
         SELECT rule_no,product_nature,condition_expr,formula_expr
         FROM `{database}`.ebay_replenishment_v2_forecast_rule
@@ -208,7 +208,7 @@ def forecast_rules(connection=None) -> list[dict[str, Any]]:
 
 def list_forecast_rule_rows() -> list[dict[str, Any]]:
     """Editor reads disabled rules too; missing table must be an actionable error."""
-    database = _source_database()
+    database = _rule_database()
     with db_connection() as connection, connection.cursor() as cursor:
         cursor.execute(f"""
             SELECT rule_no,product_nature,condition_expr,formula_expr,remark,status,
@@ -220,7 +220,7 @@ def list_forecast_rule_rows() -> list[dict[str, Any]]:
 
 
 def list_level_rules(allow_missing=False, connection=None):
-    database = _source_database()
+    database = _rule_database()
     try:
         with _read_cursor(connection) as cursor:
             cursor.execute(f"SELECT rule_no,condition_expr,result_level,remark,status,update_by,update_time FROM `{database}`.ebay_replenishment_v2_level_rule ORDER BY rule_no")
@@ -239,7 +239,7 @@ def level_rules_revision(rows):
 
 
 def save_level_rules(rows, operator, revision):
-    database = _source_database()
+    database = _rule_database()
     with db_connection() as connection, connection.cursor() as cursor:
         try:
             cursor.execute(f"SELECT rule_no,condition_expr,result_level,remark,status FROM `{database}`.ebay_replenishment_v2_level_rule ORDER BY rule_no FOR UPDATE")
@@ -264,7 +264,7 @@ def forecast_rules_revision(rows: list[dict[str, Any]]) -> str:
 
 def save_forecast_rules(rows: list[dict[str, Any]], operator: str, revision: str) -> None:
     """Only update initialized rules, atomically; reject stale editor sessions."""
-    database = _source_database()
+    database = _rule_database()
     with db_connection() as connection, connection.cursor() as cursor:
         try:
             cursor.execute(f"""
@@ -315,6 +315,12 @@ def forecast_sku_sales(site: str, sku: str) -> dict[str, Any] | None:
             GROUP BY recent.site_name,recent.inventory_sku,anchor.anchor_date
         """, (reference_today(), site, sku))
         return cursor.fetchone()
+
+
+def _rule_database() -> str:
+    """补货规则、复核备注、销售类型等 Python 自有表所在库。"""
+    configured = settings.ebay_replenishment_rule_database.strip()
+    return configured.replace("`", "``") if configured else _source_database()
 
 
 def _source_database() -> str:

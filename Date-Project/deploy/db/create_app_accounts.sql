@@ -37,7 +37,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE, CREATE TEMPORARY TABLES, LOCK TABLES, EXEC
 -- ERP 库默认只读（店铺、商品、Listing、库存等共享基础数据）
 GRANT SELECT ON `jmh_data_platform`.* TO 'py_app'@'localhost', 'py_app'@'127.0.0.1';
 -- Python 自己维护、但建在 ERP 库里的表：eBay 补货 2.0 规则/复核/销售类型，以及报关插件商品表。
--- Java 不读写这些表；后续应迁回 Date-Project 库（见架构审查第 8 条）。
+-- Java 不读写这些表。按 move_ebay_replenishment_rules.sql 迁到 Date-Project 后，前 5 条可 REVOKE。
 GRANT INSERT, UPDATE, DELETE ON `jmh_data_platform`.`ebay_replenishment_v2_formula`       TO 'py_app'@'localhost', 'py_app'@'127.0.0.1';
 GRANT INSERT, UPDATE, DELETE ON `jmh_data_platform`.`ebay_replenishment_v2_level_rule`    TO 'py_app'@'localhost', 'py_app'@'127.0.0.1';
 GRANT INSERT, UPDATE, DELETE ON `jmh_data_platform`.`ebay_replenishment_v2_forecast_rule` TO 'py_app'@'localhost', 'py_app'@'127.0.0.1';

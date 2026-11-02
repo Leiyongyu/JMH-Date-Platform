@@ -532,6 +532,8 @@ def _run_payload(run_id, task_code, status, stat_month, trigger_type, request_id
 # ---------------------------------------------------------------------------
 
 logger = logging.getLogger(__name__)
+# 运行状态保存在进程内存：要求 uvicorn 单进程运行（restart-all.cmd 与 Windows 服务脚本均如此）。
+# 若改为多 worker，需要把这里换成基于 scheduler_task_run 的跨进程状态。
 _ASYNC_RUNS: dict[str, dict] = {}
 _ASYNC_LOCK = threading.Lock()
 _ASYNC_RETENTION = timedelta(hours=24)

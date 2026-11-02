@@ -108,6 +108,9 @@ class Settings:
     feishu_bad_transaction_view_id: str = os.getenv(
         "FEISHU_BAD_TRANSACTION_VIEW_ID", "vewohlM1T4")
     shop_source_database: str = os.getenv("SHOP_SOURCE_DATABASE", "jmh_data_platform")
+    # eBay 补货 2.0 的规则/复核/销售类型表只由 Python 读写。留空时仍在 ERP 库（历史位置）；
+    # 按 deploy/db/move_ebay_replenishment_rules.sql 迁到本库后设为 Date-Project。
+    ebay_replenishment_rule_database: str = os.getenv("EBAY_REPLENISHMENT_RULE_DATABASE", "")
     python_internal_api_token: str = os.getenv(
         "PYTHON_INTERNAL_API_TOKEN",
         os.getenv("PYTHON_PERFORMANCE_INTERNAL_TOKEN", ""),

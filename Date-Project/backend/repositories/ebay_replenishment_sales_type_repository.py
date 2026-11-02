@@ -3,7 +3,7 @@ from pymysql.err import ProgrammingError
 
 from backend.database import db_connection
 from backend.services.ebay_order_product_key import product_orders_cte
-from backend.repositories.ebay_replenishment_v2_repository import _source_database
+from backend.repositories.ebay_replenishment_v2_repository import _rule_database
 
 TABLE_NAME = "ebay_replenishment_v2_sales_type"
 MIGRATION_MESSAGE = "销售类型配置表未部署，请先执行09_补货2.0销售类型.sql"
@@ -14,13 +14,13 @@ def missing_table(error):
 
 
 def join_sql():
-    return f"""LEFT JOIN `{_source_database()}`.{TABLE_NAME} sales_type
+    return f"""LEFT JOIN `{_rule_database()}`.{TABLE_NAME} sales_type
         ON sales_type.site=base.site COLLATE utf8mb4_unicode_ci
        AND sales_type.sku=base.sku COLLATE utf8mb4_unicode_ci"""
 
 
 def save(site, sku, sales_type, operator):
-    query = f"""INSERT INTO `{_source_database()}`.{TABLE_NAME}
+    query = f"""INSERT INTO `{_rule_database()}`.{TABLE_NAME}
         (site,sku,sales_type,update_by,create_time,update_time)
         VALUES (%s,%s,%s,%s,NOW(),NOW())
         ON DUPLICATE KEY UPDATE sales_type=VALUES(sales_type),

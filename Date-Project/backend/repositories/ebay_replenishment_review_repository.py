@@ -2,7 +2,7 @@
 from pymysql.err import ProgrammingError
 
 from backend.database import db_connection
-from backend.repositories.ebay_replenishment_v2_repository import _source_database
+from backend.repositories.ebay_replenishment_v2_repository import _rule_database
 from backend.services.ebay_order_product_key import product_orders_cte
 
 TABLE = "ebay_replenishment_v2_review"
@@ -17,7 +17,7 @@ def missing_table(error):
 
 
 def join_sql():
-    return f"""LEFT JOIN `{_source_database()}`.{TABLE} review
+    return f"""LEFT JOIN `{_rule_database()}`.{TABLE} review
         ON review.site=base.site COLLATE utf8mb4_unicode_ci
        AND review.sku=base.sku COLLATE utf8mb4_unicode_ci"""
 
@@ -52,7 +52,7 @@ def save(site, sku, field, text, expected_version, operator, *, confirm=False):
     # field is strictly validated by service; never interpolate arbitrary input.
     if field not in ('operations', 'development') or (confirm and field != 'operations'):
         raise ValueError('无效备注字段')
-    table = f'`{_source_database()}`.{TABLE}'
+    table = f'`{_rule_database()}`.{TABLE}'
     with db_connection() as conn, conn.cursor() as cur:
         try:
             cur.execute(f"WITH {product_orders_cte()} SELECT 1 FROM product_orders WHERE site_name=%s AND inventory_sku=%s LIMIT 1", (site, sku))
