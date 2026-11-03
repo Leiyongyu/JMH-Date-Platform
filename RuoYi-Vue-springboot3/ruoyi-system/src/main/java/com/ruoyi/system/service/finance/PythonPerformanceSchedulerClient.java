@@ -117,6 +117,11 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run("lingxing_amz_listing_raw_sync", null, requestId);
     }
 
+    public Map<String, Object> runAmzProfitReport(String statMonth, String requestId)
+    {
+        return run("amz_profit_report_sync", statMonth, requestId);
+    }
+
     public Map<String, Object> run(String statMonth, String requestId)
     {
         return run(PERFORMANCE_TASK, statMonth, requestId);

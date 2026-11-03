@@ -44,6 +44,47 @@ public class PerformancePythonClient extends PythonHttpSupport
         return get("/sales-dashboard/report", params, requestId);
     }
 
+    public Map<String, Object> amzProfitReportMonths(String requestId)
+    {
+        return get("/amz-profit-report/months", Map.of(), requestId);
+    }
+
+    public Map<String, Object> amzProfitReport(String statMonth, String dimension, String requestId)
+    {
+        return get("/amz-profit-report/report",
+                Map.of("stat_month", statMonth, "dimension", dimension), requestId);
+    }
+
+    public byte[] exportAmzProfitReport(
+            String startMonth, String endMonth, String dimensions, String requestId)
+    {
+        try
+        {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("start_month", startMonth);
+            params.put("end_month", endMonth);
+            params.put("dimensions", dimensions);
+            HttpRequest request = baseRequest(
+                    "/amz-profit-report/exports" + queryString(params), requestId)
+                    .setHeader("Accept", EXCEL_CONTENT_TYPE)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 400)
+            {
+                String body = new String(response.body(), StandardCharsets.UTF_8);
+                throw new IllegalStateException(errorMessage(
+                        parseJson(body), response.statusCode(), SERVICE_NAME));
+            }
+            return response.body();
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
     public Map<String, Object> previewSalesHistory(MultipartFile file, String requestId)
     {
         return upload("/sales-dashboard/preview", Map.of(), file, requestId, null);

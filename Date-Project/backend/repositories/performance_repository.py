@@ -784,6 +784,23 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
             INSERT INTO scheduler_task (
                 task_code, task_name, cron_expression, enabled, description
             ) VALUES (
+                'amz_profit_report_sync',
+                'AMZ利润报表数据拉取',
+                '0 0 5 7 * ?',
+                1,
+                '每月7日05:00拉取上个完整自然月领星利润统计（店铺、MSKU，结算口径）和订单利润（MSKU，订单口径），USD，按月整月替换'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
                 'monthly_inventory_report_sales_snapshot_refresh',
                 '月度库存上月销售回填补偿',
                 '0 0 13 * * ?',
