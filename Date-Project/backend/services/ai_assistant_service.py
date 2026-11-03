@@ -31,6 +31,8 @@ class AiAssistantService:
             "keyEnv": provider.key_env,
             "model": provider.model,
             "thinkingEnabled": settings.ai_agent_thinking_enabled,
+            # 配置了领星 MCP 密钥才在输入框下方显示「领星MCP」勾选项
+            "lingxingMcpConfigured": bool(settings.lingxing_mcp_key.strip()),
         }
 
     def list_conversations(self, user_id: int, limit: int = 50) -> list[dict[str, Any]]:

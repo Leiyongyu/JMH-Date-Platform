@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # 这些前缀的配置以本项目 .env 为准，即使系统里存在同名环境变量（例如其他项目在 Windows 用户
 # 环境变量里设置了 DASHSCOPE_API_KEY）。其余配置仍是「已有环境变量优先」，部署方式不变。
-DOTENV_OVERRIDE_PREFIXES = ("DASHSCOPE_", "DEEPSEEK_", "AI_AGENT_")
+DOTENV_OVERRIDE_PREFIXES = ("DASHSCOPE_", "DEEPSEEK_", "AI_AGENT_", "LINGXING_MCP_")
 
 
 def load_dotenv(path: Path = PROJECT_ROOT / ".env") -> None:
@@ -157,6 +157,10 @@ class Settings:
     ai_agent_stream: bool = _env_bool("AI_AGENT_STREAM", True)
     # 发给模型的上下文超过该字符数时，把较早轮次的工具结果压缩为汇总
     ai_agent_context_chars: int = int(os.getenv("AI_AGENT_CONTEXT_CHARS", "60000"))
+    # 领星官方 MCP：助手里勾选「领星MCP」时才使用；密钥在领星【AI助手】-【MCP】-【复制密钥】获取，只放 .env
+    lingxing_mcp_url: str = (os.getenv("LINGXING_MCP_URL")
+                             or "https://openmcp.lingxing.com/mcp-servers/lingxing-mcp").strip()
+    lingxing_mcp_key: str = os.getenv("LINGXING_MCP_KEY", "")
     ai_agent_max_rounds: int = int(os.getenv("AI_AGENT_MAX_ROUNDS", "8"))
     ai_agent_max_tool_calls: int = int(os.getenv("AI_AGENT_MAX_TOOL_CALLS", "16"))
     ai_agent_timeout_sec: int = int(os.getenv("AI_AGENT_TIMEOUT_SEC", "300"))

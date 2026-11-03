@@ -130,6 +130,7 @@ async def create_agent_run(
         user_id=identity.user_id, username=identity.username,
         access=AgentAccess.from_payload(payload.access.model_dump()),
         request_id=request.state.request_id,
+        sources=frozenset(payload.data_sources),
     )
     page = payload.page_context.model_dump() if payload.page_context else None
     run_id = await start_run(context, conversation_id, payload.message, page)

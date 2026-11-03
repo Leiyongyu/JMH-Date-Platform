@@ -47,6 +47,16 @@ for (const file of ['AnswerContent.vue', 'AgentStatsPanel.vue', 'index.vue']) {
   })
 }
 
+test('lingxing MCP is opt-in per question and lingxing tools get readable titles', async () => {
+  const { toolTitle } = await import('../src/components/AiAssistant/agentRun.js')
+  assert.equal(toolTitle('lingxing_get_fba_stock_list'), '查询领星（get_fba_stock_list）')
+  assert.equal(toolTitle('ebay_traffic'), '查询eBay流量')
+  const source = fs.readFileSync(new URL('../src/components/AiAssistant/index.vue', import.meta.url), 'utf8')
+  assert.match(source, /const useLingxing = ref\(false\)/)
+  assert.match(source, /data_sources: lingxingAvailable\.value && useLingxing\.value \? \['lingxing'\] : \[\]/)
+  assert.match(source, /v-if="lingxingAvailable"/)
+})
+
 test('stats panel is admin only and feedback is wired', () => {
   const source = fs.readFileSync(new URL('../src/components/AiAssistant/index.vue', import.meta.url), 'utf8')
   assert.match(source, /<AgentStatsPanel v-if="isAdmin"/)

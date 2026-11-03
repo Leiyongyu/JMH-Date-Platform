@@ -34,6 +34,13 @@ export const TOOL_TITLES = {
   ebay_campaigns: '查询eBay广告活动'
 }
 
+/** 工具的中文名；领星 MCP 工具名由服务端动态提供（lingxing_ 前缀），统一显示为「查询领星」。 */
+export function toolTitle(name = '') {
+  if (TOOL_TITLES[name]) return TOOL_TITLES[name]
+  if (String(name).startsWith('lingxing_')) return `查询领星（${String(name).slice('lingxing_'.length)}）`
+  return name
+}
+
 const FINISHED = new Set(['completed', 'failed'])
 
 /**

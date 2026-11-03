@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -42,6 +43,8 @@ class AiAgentAccess(BaseModel):
 
 class AiAgentRunRequest(AiChatRequest):
     access: AiAgentAccess = Field(default_factory=AiAgentAccess)
+    # 用户在输入框下方勾选的外部数据源；不勾选时只查本系统数据库
+    data_sources: list[Literal["lingxing"]] = Field(default_factory=list, max_length=4)
 
 
 class AiAgentFeedbackRequest(BaseModel):

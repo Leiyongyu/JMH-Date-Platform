@@ -16,7 +16,7 @@
       <div class="stats-section">工具调用</div>
       <el-table :data="stats.tools || []" size="small" border empty-text="暂无调用">
         <el-table-column label="工具" min-width="120">
-          <template #default="{ row }">{{ TOOL_TITLES[row.tool] || row.tool }}</template>
+          <template #default="{ row }">{{ toolTitle(row.tool) }}</template>
         </el-table-column>
         <el-table-column prop="calls" label="次数" width="70" />
         <el-table-column label="成功率" width="80">
@@ -44,7 +44,7 @@
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getAgentStats } from '@/api/system/aiAssistant'
-import { TOOL_TITLES } from './agentRun'
+import { toolTitle } from './agentRun'
 
 const visible = defineModel({ type: Boolean, default: false })
 const days = ref(30)

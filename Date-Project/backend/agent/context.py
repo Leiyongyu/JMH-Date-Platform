@@ -66,6 +66,8 @@ class AgentContext:
     access: AgentAccess
     request_id: str = ""
     today: date = field(default_factory=date.today)
+    # 本次提问勾选的外部数据源（如 lingxing）；为空时只能查本系统数据
+    sources: frozenset[str] = frozenset()
 
     def require(self, permission: str) -> None:
         if not self.access.has(permission):

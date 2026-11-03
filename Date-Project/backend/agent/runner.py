@@ -23,7 +23,7 @@ from typing import Any
 
 from starlette.concurrency import run_in_threadpool
 
-from backend.agent import grounding, routing
+from backend.agent import grounding, lingxing_mcp, routing
 from backend.agent.context import AgentContext, ToolPermissionError
 from backend.agent.llm import AgentChatClient, LlmError, LlmReply
 from backend.agent.prompts import THINKING_LANGUAGE_HINT, build_system_prompt
@@ -52,6 +52,11 @@ EXPANDED_TABLE_ROWS = 20
 CALCULATE_TOOL = "calculate"
 FINAL_INSTRUCTION = "执行预算已用完或已获得足够数据。请不要再调用工具，直接基于上面的工具结果回答用户；未查到的部分如实说明。"
 TABLE_REF = re.compile(r"\[\[表:(\d+)\]\]")
+SOURCE_NOTE_LOCAL = ("用户没有勾选「领星MCP」：只能查询本系统数据库（及 ebay_ 实时工具）。"
+                     "用户要查领星里的实时数据时，提示他在输入框下方勾选「领星MCP」后再提问。")
+SOURCE_NOTE_LINGXING = ("用户勾选了「领星MCP」：除本系统数据外，可以调用 lingxing_ 开头的工具查询领星ERP实时数据（只读）。"
+                        "本系统已有的报表口径（绩效、销售看板、月度库存）仍优先用本系统数据；领星结果需注明「来源：领星」，"
+                        "参数按工具说明填写，店铺 sid 不确定时先调用 lingxing_get_my_sids。")
 
 
 @dataclass
@@ -72,6 +77,8 @@ class RunState:
     verification: dict[str, Any] | None = None
     # tool_call_id → (result_id, ToolResult)：上下文压缩时替换为汇总
     tool_messages: dict[str, tuple[int, ToolResult]] = field(default_factory=dict)
+    # 本次运行额外提供的外部数据源工具（名称 → 工具）
+    external: dict[str, Tool] = field(default_factory=dict)
     compacted: set[str] = field(default_factory=set)
     last_stream_save: float = 0.0
 
@@ -104,8 +111,10 @@ _CALCULATE_PARSER = Tool(CALCULATE_TOOL, "", CalculateArgs, lambda context, args
 
 class AgentRunner:
     def __init__(self, llm: AgentChatClient | None = None, tools: list[Tool] | None = None,
-                 repo=runs_repo, conversations=ai_conversation_repository):
+                 repo=runs_repo, conversations=ai_conversation_repository, external_tools=None):
         self.llm = llm or AgentChatClient()
+        # 按本次勾选的外部数据源（领星 MCP）加载的工具；不勾选时为空，模型看不到这些工具
+        self.external_tools = external_tools or lingxing_mcp.tools_for
         default_tools = [*BUSINESS_TOOLS, *KNOWLEDGE_TOOLS, *EBAY_LIVE_TOOLS]
         self.tools = {tool.name: tool for tool in (tools if tools is not None else default_tools)}
         self.repo = repo
@@ -133,7 +142,8 @@ class AgentRunner:
                 # 会话记录保存用户原话；发给模型的提问前固定加上思考语言要求。
                 {"role": "user", "content": f"{THINKING_LANGUAGE_HINT}{question}"},
             ]
-            available = [tool for tool in self.tools.values() if tool.available_to(context)]
+            external = await self._load_external(state, context, messages)
+            available = [tool for tool in self.tools.values() if tool.available_to(context)] + external
             schemas = meta_schemas() + [tool.schema() for tool in available] + [calculate_schema()]
             route = routing.choose(question)
             answer = await self._loop(state, context, messages, schemas, started, route)
@@ -145,6 +155,27 @@ class AgentRunner:
         outcome = await self._complete(state, context, conversation_uuid, answer)
         await self._refresh_summary(context, conversation_uuid)
         return outcome
+
+    async def _load_external(self, state: RunState, context: AgentContext,
+                             messages: list[dict[str, Any]]) -> list[Tool]:
+        """加载本次勾选的外部数据源工具，并在系统提示里写明本次可用的数据范围。"""
+        note = SOURCE_NOTE_LOCAL
+        tools: list[Tool] = []
+        if lingxing_mcp.SOURCE in context.sources:
+            if not lingxing_mcp.configured():
+                note = "用户勾选了「领星MCP」，但服务端尚未配置领星 MCP 密钥：本次只能查询本系统数据，请如实告知。"
+            elif not lingxing_mcp.allowed(context):
+                note = f"用户勾选了「领星MCP」，但{lingxing_mcp.SCOPE_NOTE}：本次只能查询本系统数据，请如实告知。"
+            else:
+                try:
+                    tools = await run_in_threadpool(self.external_tools, context)
+                    note = SOURCE_NOTE_LINGXING
+                except Exception as exc:  # 领星不可用不影响查询本系统数据
+                    LOG.warning("load lingxing mcp tools failed request_id=%s error=%s", context.request_id, exc)
+                    note = f"用户勾选了「领星MCP」，但连接领星失败（{str(exc)[:120]}）：本次只能查询本系统数据，请如实告知。"
+        state.external = {tool.name: tool for tool in tools}
+        messages[0]["content"] += "\n\n【本次数据范围】" + note
+        return tools
 
     # ------------------------------------------------------------ 主循环
 
@@ -266,7 +297,8 @@ class AgentRunner:
             else:
                 business.append((index, call))
         results = await asyncio.gather(*(
-            self._business(context, call.get("id") or f"call_{index}", call.get("function") or {})
+            self._business(context, call.get("id") or f"call_{index}", call.get("function") or {},
+                           state.external)
             for index, call in business
         ))
         for (index, _call), outcome in zip(business, results):
@@ -298,9 +330,10 @@ class AgentRunner:
         state.tool_messages[outcome.call_id] = (result_id, outcome.result)
         outcome.content = outcome.result.for_model(result_id)
 
-    async def _business(self, context: AgentContext, call_id: str, function: dict[str, Any]) -> CallOutcome:
+    async def _business(self, context: AgentContext, call_id: str, function: dict[str, Any],
+                        external: dict[str, Tool] | None = None) -> CallOutcome:
         name = function.get("name") or ""
-        tool = self.tools.get(name)
+        tool = self.tools.get(name) or (external or {}).get(name)
         if tool is None:
             return CallOutcome(call_id, name, _error(f"不存在工具 {name}"), "invalid", error="未知工具")
         started = time.monotonic()
