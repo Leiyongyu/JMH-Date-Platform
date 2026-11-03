@@ -98,6 +98,8 @@ class Tool:
     data_scope_all: str | None = None
     # 单次调用超时（秒）；为空用 AI_AGENT_TOOL_TIMEOUT_SEC。实时调用外部接口的工具需要更长时间
     timeout_sec: int | None = None
+    # 需要用户在输入框下方勾选的外部数据源（如 ebay、lingxing）；为空表示本系统数据，始终可用
+    requires_source: str | None = None
 
     def schema(self) -> dict[str, Any]:
         return {
@@ -128,6 +130,8 @@ class Tool:
             raise ToolArgumentError(problems) from exc
 
     def available_to(self, context: AgentContext) -> bool:
+        if self.requires_source and self.requires_source not in context.sources:
+            return False
         if self.permission is not None and not context.access.has(self.permission):
             return False
         return self.data_scope_all is None or context.access.scope(self.data_scope_all) is None

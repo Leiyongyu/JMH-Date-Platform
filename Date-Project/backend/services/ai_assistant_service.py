@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import httpx
@@ -33,6 +34,8 @@ class AiAssistantService:
             "thinkingEnabled": settings.ai_agent_thinking_enabled,
             # 配置了领星 MCP 密钥才在输入框下方显示「领星MCP」勾选项
             "lingxingMcpConfigured": bool(settings.lingxing_mcp_key.strip()),
+            # 配置了 eBay 店铺凭证文件才显示「eBay实时」勾选项
+            "ebayLiveConfigured": bool(os.getenv("EBAY_SELLER_ACCOUNTS_FILE", "").strip()),
         }
 
     def list_conversations(self, user_id: int, limit: int = 50) -> list[dict[str, Any]]:

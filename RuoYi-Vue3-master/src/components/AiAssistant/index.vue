@@ -228,6 +228,13 @@
               >
                 <el-checkbox v-model="useLingxing" :disabled="loading" size="small">领星MCP</el-checkbox>
               </el-tooltip>
+              <el-tooltip
+                v-if="ebayAvailable"
+                content="勾选后本次提问可以直接查询 eBay 实时数据（订单、财务、退货纠纷、卖家等级、流量、广告）；不勾选只查本系统数据库"
+                placement="top"
+              >
+                <el-checkbox v-model="useEbay" :disabled="loading" size="small">eBay实时</el-checkbox>
+              </el-tooltip>
               <span>Enter发送，Shift + Enter换行</span>
             </div>
             <el-button
@@ -290,9 +297,15 @@ const liveRun = ref(null)
 const memories = ref([])
 const memoriesLoading = ref(false)
 const statsVisible = ref(false)
-// 领星MCP：服务端配置了密钥才显示；默认不勾选，只有勾选的那次提问才会查询领星
+// 外部数据源勾选项：服务端配置了才显示；默认不勾选，只有勾选的那次提问才会查询领星 / eBay 实时数据
 const lingxingAvailable = ref(false)
 const useLingxing = ref(false)
+const ebayAvailable = ref(false)
+const useEbay = ref(false)
+const dataSources = computed(() => [
+  ...(lingxingAvailable.value && useLingxing.value ? ['lingxing'] : []),
+  ...(ebayAvailable.value && useEbay.value ? ['ebay'] : [])
+])
 
 // 运行看板涵盖全体用户的提问，只对管理员显示（Java 接口同样限制为 admin 角色）。
 const isAdmin = computed(() => (userStore.roles || []).includes('admin'))
@@ -338,6 +351,8 @@ async function loadStatus() {
     statusKeyEnv.value = data.keyEnv || ''
     lingxingAvailable.value = Boolean(data.lingxingMcpConfigured)
     if (!lingxingAvailable.value) useLingxing.value = false
+    ebayAvailable.value = Boolean(data.ebayLiveConfigured)
+    if (!ebayAvailable.value) useEbay.value = false
     statusState.value = data.configured ? 'ready' : 'unconfigured'
   } catch (error) {
     statusState.value = 'offline'
@@ -378,7 +393,7 @@ async function sendMessage() {
     const started = await startAgentRun({
       conversation_id: activeConversationId.value,
       message: content,
-      data_sources: lingxingAvailable.value && useLingxing.value ? ['lingxing'] : [],
+      data_sources: dataSources.value,
       page_context: {
         path: route.fullPath,
         title: route.meta?.title || document.title

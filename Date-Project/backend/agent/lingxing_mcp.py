@@ -289,7 +289,7 @@ class LingxingTool(Tool):
 
         super().__init__(TOOL_PREFIX + name, description, RemoteArgs, handler, permission=None,
                          title=f"领星：{READ_ONLY_TOOLS.get(name, name)}", data_scope_all=SCOPE_AMZ,
-                         timeout_sec=CALL_TIMEOUT_SEC)
+                         timeout_sec=CALL_TIMEOUT_SEC, requires_source=SOURCE)
         object.__setattr__(self, "input_schema", input_schema)
 
     def schema(self) -> dict[str, Any]:

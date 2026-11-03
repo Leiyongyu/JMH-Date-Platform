@@ -106,7 +106,8 @@ async def run_case(case: dict[str, Any], access: AgentAccess) -> CaseResult:
     from backend.agent.runner import AgentRunner
 
     repo, conversations = MemoryRepo(), MemoryConversations()
-    context = AgentContext(user_id=0, username="评测", access=access, request_id=f"eval-{case['id']}")
+    context = AgentContext(user_id=0, username="评测", access=access, request_id=f"eval-{case['id']}",
+                           sources=frozenset(case.get("sources") or []))
     started = time.monotonic()
     outcome = await AgentRunner(repo=repo, conversations=conversations).run(
         f"eval-{case['id']}", context, "eval", case["question"], None)

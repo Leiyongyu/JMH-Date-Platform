@@ -30,10 +30,18 @@ LIVE_TIMEOUT_SEC = 180
 PERM_SALES = "finance:salesDashboard:list"
 PERM_RETURNS = "operations:ebayReturnOverview:list"
 SCOPE_NOTE = "eBay 实时数据按店铺返回，无法按负责人拆分，只对 eBay 数据范围为「全部数据」的账号开放"
+# 用户在输入框下方勾选「eBay实时」后，本次提问才提供这些工具
+EBAY_SOURCE = "ebay"
+
+
+def allowed(context: AgentContext) -> bool:
+    return context.access.scope(SCOPE_EBAY) is None
 
 
 def require_all_ebay(context: AgentContext) -> None:
-    if context.access.scope(SCOPE_EBAY) is not None:
+    if EBAY_SOURCE not in context.sources:
+        raise ToolPermissionError("本次提问没有勾选「eBay实时」，只能查询本系统数据")
+    if not allowed(context):
         raise ToolPermissionError(SCOPE_NOTE)
 
 
@@ -563,7 +571,7 @@ def ebay_campaigns(context: AgentContext, args: StoreOnlyArgs) -> ToolResult:
 
 def _live(name: str, description: str, args_model, handler, permission: str, title: str) -> Tool:
     return Tool(name, description, args_model, handler, permission=permission, title=title,
-                data_scope_all=SCOPE_EBAY, timeout_sec=LIVE_TIMEOUT_SEC)
+                data_scope_all=SCOPE_EBAY, timeout_sec=LIVE_TIMEOUT_SEC, requires_source=EBAY_SOURCE)
 
 
 EBAY_LIVE_TOOLS = [

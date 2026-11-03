@@ -31,7 +31,9 @@ from backend.agent.summary import refresh_summary
 from backend.agent.tools.base import Tool, ToolArgumentError, ToolResult, _clean_schema
 from backend.agent.tools.business import BUSINESS_TOOLS
 from backend.agent.tools.compute import CalculateArgs, CalculationError, calculate
-from backend.agent.tools.ebay_live_tools import EBAY_LIVE_TOOLS
+from backend.agent.tools.ebay_live_tools import EBAY_LIVE_TOOLS, EBAY_SOURCE
+from backend.agent.tools.ebay_live_tools import SCOPE_NOTE as EBAY_SCOPE_NOTE
+from backend.agent.tools.ebay_live_tools import allowed as ebay_allowed
 from backend.agent.tools.knowledge import KNOWLEDGE_TOOLS
 from backend.agent.tools.meta import (
     FORGET_MEMORY_TOOL, META_ARGS, META_TOOL_NAMES, PLAN_TOOL, SAVE_MEMORY_TOOL, meta_schemas,
@@ -52,8 +54,12 @@ EXPANDED_TABLE_ROWS = 20
 CALCULATE_TOOL = "calculate"
 FINAL_INSTRUCTION = "执行预算已用完或已获得足够数据。请不要再调用工具，直接基于上面的工具结果回答用户；未查到的部分如实说明。"
 TABLE_REF = re.compile(r"\[\[表:(\d+)\]\]")
-SOURCE_NOTE_LOCAL = ("用户没有勾选「领星MCP」：只能查询本系统数据库（及 ebay_ 实时工具）。"
-                     "用户要查领星里的实时数据时，提示他在输入框下方勾选「领星MCP」后再提问。")
+# 输入框下方的外部数据源勾选项：没勾的数据源工具不提供，用户问到时提示他勾选后再问
+SOURCE_NOTE_LOCAL = "用户没有勾选任何外部数据源：只能查询本系统数据库。"
+SOURCE_NOTE_EBAY = ("用户勾选了「eBay实时」：可以调用 ebay_ 开头的工具直接查询 eBay 实时数据"
+                    "（订单、财务、退货纠纷、卖家等级、流量、广告）。")
+SOURCE_NOTE_EBAY_OFF = "没有勾选「eBay实时」：用户要查 eBay 实时数据时，提示他在输入框下方勾选「eBay实时」后再提问。"
+SOURCE_NOTE_LINGXING_OFF = "没有勾选「领星MCP」：用户要查领星里的实时数据时，提示他在输入框下方勾选「领星MCP」后再提问。"
 SOURCE_NOTE_LINGXING = ("用户勾选了「领星MCP」：除本系统数据外，可以调用 lingxing_ 开头的工具查询领星ERP实时数据（只读）。"
                         "本系统已有的报表口径（绩效、销售看板、月度库存）仍优先用本系统数据；领星结果需注明「来源：领星」，"
                         "参数按工具说明填写，店铺 sid 不确定时先调用 lingxing_get_my_sids。")
@@ -159,8 +165,15 @@ class AgentRunner:
     async def _load_external(self, state: RunState, context: AgentContext,
                              messages: list[dict[str, Any]]) -> list[Tool]:
         """加载本次勾选的外部数据源工具，并在系统提示里写明本次可用的数据范围。"""
-        note = SOURCE_NOTE_LOCAL
+        notes = [SOURCE_NOTE_LOCAL] if not context.sources else []
+        if EBAY_SOURCE not in context.sources:
+            notes.append(SOURCE_NOTE_EBAY_OFF)
+        elif not ebay_allowed(context):
+            notes.append(f"用户勾选了「eBay实时」，但{EBAY_SCOPE_NOTE}：本次不能查 eBay 实时数据，请如实告知。")
+        else:
+            notes.append(SOURCE_NOTE_EBAY)
         tools: list[Tool] = []
+        note = SOURCE_NOTE_LINGXING_OFF
         if lingxing_mcp.SOURCE in context.sources:
             if not lingxing_mcp.configured():
                 note = "用户勾选了「领星MCP」，但服务端尚未配置领星 MCP 密钥：本次只能查询本系统数据，请如实告知。"
@@ -174,7 +187,7 @@ class AgentRunner:
                     LOG.warning("load lingxing mcp tools failed request_id=%s error=%s", context.request_id, exc)
                     note = f"用户勾选了「领星MCP」，但连接领星失败（{str(exc)[:120]}）：本次只能查询本系统数据，请如实告知。"
         state.external = {tool.name: tool for tool in tools}
-        messages[0]["content"] += "\n\n【本次数据范围】" + note
+        messages[0]["content"] += "\n\n【本次数据范围】" + "".join(notes + [note])
         return tools
 
     # ------------------------------------------------------------ 主循环
@@ -343,6 +356,8 @@ class AgentRunner:
             arguments = args.model_dump()
             if tool.permission:
                 context.require(tool.permission)
+            if tool.requires_source and tool.requires_source not in context.sources:
+                raise ToolPermissionError("本次提问没有勾选对应的外部数据源，只能查询本系统数据")
             if tool.data_scope_all and context.access.scope(tool.data_scope_all) is not None:
                 raise ToolPermissionError("该数据按店铺返回、无法按负责人拆分，只对「全部数据」范围的账号开放")
             async with self._semaphore:

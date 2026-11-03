@@ -21,9 +21,10 @@ STORES = [StoreTarget("b1", "Store-DE", "de_login", CRED), StoreTarget("b2", "St
 TODAY = datetime.now(live.BEIJING).date()
 
 
-def ctx(scope="all", permissions=("finance:salesDashboard:list", "operations:ebayReturnOverview:list")):
+def ctx(scope="all", permissions=("finance:salesDashboard:list", "operations:ebayReturnOverview:list"),
+        sources=("ebay",)):
     scopes = {SCOPE_EBAY: None if scope == "all" else ["张三"]}
-    return AgentContext(1, "tester", AgentAccess(frozenset(permissions), scopes), "req")
+    return AgentContext(1, "tester", AgentAccess(frozenset(permissions), scopes), "req", sources=frozenset(sources))
 
 
 @pytest.fixture(autouse=True)
@@ -148,8 +149,24 @@ def test_live_tools_require_all_ebay_scope_and_page_permission():
     assert not tools["ebay_finance_summary"].available_to(limited)
     assert tools["ebay_finance_summary"].available_to(ctx())
     assert not tools["ebay_after_sales"].available_to(ctx(permissions=("finance:salesDashboard:list",)))
-    admin = AgentContext(1, "admin", AgentAccess(frozenset({"*:*:*"}), {}), "req")
+    admin = AgentContext(1, "admin", AgentAccess(frozenset({"*:*:*"}), {}), "req", sources=frozenset({"ebay"}))
     assert all(t.available_to(admin) for t in live.EBAY_LIVE_TOOLS)
+    # 管理员没勾选「eBay实时」也不提供
+    unchecked_admin = AgentContext(1, "admin", AgentAccess(frozenset({"*:*:*"}), {}), "req")
+    assert not any(t.available_to(unchecked_admin) for t in live.EBAY_LIVE_TOOLS)
+    with pytest.raises(ToolPermissionError, match="勾选"):
+        live.ebay_orders_summary(unchecked_admin, live.OrdersArgs())
+
+
+def test_runner_only_offers_ebay_tools_when_checked():
+    llm = ScriptedLlm([reply(tool_calls=[call("a", "ebay_orders_summary")]), reply(content="请勾选eBay实时")])
+    repo = FakeRepo()
+    runner = runner_module.AgentRunner(llm=llm, tools=live.EBAY_LIVE_TOOLS, repo=repo,
+                                       conversations=FakeConversations())
+    asyncio.run(runner.run("run-1", ctx(sources=()), "conv-1", "今天eBay卖了多少", None))
+    assert not any(s["function"]["name"].startswith("ebay_") for s in llm.requests[0]["tools"])
+    assert "没有勾选「eBay实时」" in llm.requests[0]["messages"][0]["content"]
+    assert repo.steps[0]["status"] == "denied"  # 未勾选时直接调用会被拒绝
 
 
 def test_runner_hides_live_tools_and_rejects_direct_calls_for_limited_scope():
