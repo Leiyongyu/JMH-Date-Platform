@@ -156,13 +156,3 @@ export function verificationNotice(verification) {
 export function pendingMemories(run) {
   return (run?.memories || []).filter(memory => memory.status === 'pending')
 }
-
-export const BRIEF_FREQUENCY = { daily: '每天', weekly: '每周', monthly: '每月' }
-export const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
-
-export function briefSchedule(brief) {
-  const hour = `${String(brief.runHour ?? 9).padStart(2, '0')}:00`
-  if (brief.frequency === 'weekly') return `每周${WEEKDAYS[(brief.weekday || 1) - 1]} ${hour}`
-  if (brief.frequency === 'monthly') return `每月${brief.monthDay}日 ${hour}`
-  return `每天 ${hour}`
-}

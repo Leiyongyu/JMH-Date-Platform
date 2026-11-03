@@ -54,7 +54,6 @@
                 </div>
               </div>
             </el-popover>
-            <button class="new-chat-button" type="button" @click="briefVisible = true">简报</button>
             <button v-if="isAdmin" class="new-chat-button" type="button" @click="statsVisible = true">看板</button>
             <button
               class="new-chat-button"
@@ -234,7 +233,6 @@
         </div>
       </div>
     </el-drawer>
-    <BriefPanel v-model="briefVisible" @ran="handleBriefRan" />
     <AgentStatsPanel v-if="isAdmin" v-model="statsVisible" />
   </div>
 </template>
@@ -262,7 +260,6 @@ import {
 } from './agentRun'
 import AgentStatsPanel from './AgentStatsPanel.vue'
 import AnswerContent from './AnswerContent.vue'
-import BriefPanel from './BriefPanel.vue'
 import useUserStore from '@/store/modules/user'
 
 const route = useRoute()
@@ -283,7 +280,6 @@ const statusKeyEnv = ref('')
 const liveRun = ref(null)
 const memories = ref([])
 const memoriesLoading = ref(false)
-const briefVisible = ref(false)
 const statsVisible = ref(false)
 
 // 运行看板涵盖全体用户的提问，只对管理员显示（Java 接口同样限制为 admin 角色）。
@@ -442,28 +438,6 @@ async function confirmMemory(memory, run) {
     ElMessage.success('已记住')
   } catch (error) {
     ElMessage.error(error?.msg || error?.message || '确认记忆失败')
-  }
-}
-
-/** 手动运行简报后切到简报对话并跟踪进度；正在提问时只刷新对话列表。 */
-async function handleBriefRan(data) {
-  if (!data?.runId || !data.conversationId) return
-  if (loading.value) {
-    await loadConversations(false)
-    return
-  }
-  briefVisible.value = false
-  try {
-    await loadConversations(false)
-    await loadConversation(data.conversationId, false)
-    loading.value = true
-    await followRun(data.runId)
-  } catch (error) {
-    messages.value.push(createMessage('assistant', error?.msg || error?.message || '简报执行失败', true))
-  } finally {
-    loading.value = false
-    liveRun.value = null
-    await scrollToBottom()
   }
 }
 

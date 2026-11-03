@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -168,59 +167,6 @@ public class AiAssistantController extends BaseController
             String requestId)
     {
         return success(pythonClient.agentStats(Math.max(1, Math.min(days, 180)), requestId));
-    }
-
-    @GetMapping("/briefs")
-    public AjaxResult briefs(
-            @RequestHeader(value = "X-Request-ID", required = false)
-            String requestId)
-    {
-        return success(pythonClient.listBriefs(SecurityUtils.getUserId(), SecurityUtils.getUsername(), requestId));
-    }
-
-    @PostMapping("/briefs")
-    public AjaxResult createBrief(
-            @RequestBody Map<String, Object> payload,
-            @RequestHeader(value = "X-Request-ID", required = false)
-            String requestId)
-    {
-        return success(pythonClient.saveBrief(null, payload == null ? Map.of() : payload,
-                SecurityUtils.getUserId(), SecurityUtils.getUsername(), requestId));
-    }
-
-    @PutMapping("/briefs/{briefId}")
-    public AjaxResult updateBrief(
-            @PathVariable long briefId,
-            @RequestBody Map<String, Object> payload,
-            @RequestHeader(value = "X-Request-ID", required = false)
-            String requestId)
-    {
-        return success(pythonClient.saveBrief(briefId, payload == null ? Map.of() : payload,
-                SecurityUtils.getUserId(), SecurityUtils.getUsername(), requestId));
-    }
-
-    @DeleteMapping("/briefs/{briefId}")
-    public AjaxResult deleteBrief(
-            @PathVariable long briefId,
-            @RequestHeader(value = "X-Request-ID", required = false)
-            String requestId)
-    {
-        return success(pythonClient.deleteBrief(
-                briefId, SecurityUtils.getUserId(), SecurityUtils.getUsername(), requestId));
-    }
-
-    /** 手动立即运行一次简报，按当前登录用户的权限查询。 */
-    @PostMapping("/briefs/{briefId}/run")
-    public AjaxResult runBrief(
-            @PathVariable long briefId,
-            @RequestHeader(value = "X-Request-ID", required = false)
-            String requestId)
-    {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("access", agentAccess());
-        body.put("force", true);
-        return success(pythonClient.runBrief(
-                briefId, body, SecurityUtils.getUserId(), SecurityUtils.getUsername(), requestId));
     }
 
     Map<String, Object> agentAccess()

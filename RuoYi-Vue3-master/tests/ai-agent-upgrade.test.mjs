@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import {
-  briefSchedule, parseAnswerBlocks, pendingMemories, verificationNotice
+  parseAnswerBlocks, pendingMemories, verificationNotice
 } from '../src/components/AiAssistant/agentRun.js'
 
 const results = [
@@ -27,15 +27,12 @@ test('verification notice only appears for unmatched numbers', () => {
   assert.match(verificationNotice({ status: 'warned', unmatched: ['4.7%', '12,000'] }), /4\.7%、12,000/)
 })
 
-test('pending memories and brief schedule text', () => {
+test('pending memories', () => {
   assert.deepEqual(pendingMemories({ memories: [{ id: 1, status: 'active' }, { id: 2, status: 'pending' }] }).map(m => m.id), [2])
   assert.deepEqual(pendingMemories(null), [])
-  assert.equal(briefSchedule({ frequency: 'daily', runHour: 9 }), '每天 09:00')
-  assert.equal(briefSchedule({ frequency: 'weekly', weekday: 1, runHour: 8 }), '每周一 08:00')
-  assert.equal(briefSchedule({ frequency: 'monthly', monthDay: 3, runHour: 18 }), '每月3日 18:00')
 })
 
-for (const file of ['AnswerContent.vue', 'BriefPanel.vue', 'AgentStatsPanel.vue', 'index.vue']) {
+for (const file of ['AnswerContent.vue', 'AgentStatsPanel.vue', 'index.vue']) {
   test(`${file} compiles without v-html`, () => {
     const source = fs.readFileSync(new URL(`../src/components/AiAssistant/${file}`, import.meta.url), 'utf8')
     const { descriptor, errors } = parse(source)
