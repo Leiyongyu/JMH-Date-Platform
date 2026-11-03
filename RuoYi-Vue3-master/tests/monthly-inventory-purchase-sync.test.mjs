@@ -4,14 +4,13 @@ import vm from 'node:vm'
 import test from 'node:test'
 
 const source = fs.readFileSync(new URL('../src/views/finance/monthlyInventoryReport/index.vue', import.meta.url), 'utf8')
-const pollFunction = source.slice(source.indexOf('async function loadPurchaseOrderStatus()'), source.indexOf('async function handlePurchaseOrderSync()'))
+const pollFunction = source.slice(source.indexOf('async function loadPurchaseOrderStatus()'), source.indexOf('async function handleExport()'))
 
 function context(getStatus) {
   const calls = []
   const ctx = vm.createContext({
     checkPermi: () => true,
     purchaseOrderDisposed: false, purchaseOrderPollTimer: null, purchaseOrderStatusRequest: 0,
-    purchaseOrderRequestId: null, purchaseOrderSubmittedAt: 0,
     purchaseOrderSyncing: { value: true }, purchaseOrderStatus: { value: {} },
     purchaseOrderStatusError: { value: '' }, sourceStatMonth: { value: '2026-10' },
     clearTimeout: () => {}, setTimeout: () => { calls.push('poll'); return 1 },
