@@ -1,4 +1,4 @@
-"""领星 MCP：协议握手与 SSE 响应、只读白名单、勾选才提供工具、数据范围限制、结果转换。"""
+"""领星 MCP（网关形式 help / search / action）：握手与 SSE、白名单 + 官方 read 标记、勾选才提供、数据范围、结果转换。"""
 from __future__ import annotations
 
 import asyncio
@@ -13,41 +13,60 @@ from backend.agent import runner as runner_module
 from backend.agent.context import SCOPE_AMZ, AgentAccess, AgentContext
 from tests.test_ai_agent import FakeConversations, FakeRepo, ScriptedLlm, call, reply
 
-REMOTE_TOOLS = [
-    {"name": "get_my_sids", "description": "店铺列表", "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "get_fba_stock_list", "description": "FBA库存",
-     "inputSchema": {"$schema": "x", "type": "object", "properties": {"sku": {"type": "string"}}}},
-    {"name": "put_campaigns_sp", "description": "修改SP广告活动", "inputSchema": {"type": "object"}},
-    {"name": "fba_delete_shipment_list", "description": "删除发货单", "inputSchema": {"type": "object"}},
+CATALOG = [
+    {"toolId": "get_my_sids", "displayName": "查询我的店铺列表", "toolType": "read"},
+    {"toolId": "get_fba_stock_list", "displayName": "查询 FBA 仓库库存", "toolType": "read"},
+    # 白名单里有、但领星标为 write：不提供
+    {"toolId": "erp_listing", "displayName": "查询 Listing 列表", "toolType": "write"},
+    {"toolId": "put_campaigns_sp", "displayName": "修改 SP 广告活动", "toolType": "write"},
 ]
+SCHEMAS = {
+    "get_my_sids": {"type": "object", "properties": {}},
+    "get_fba_stock_list": {"$schema": "x", "type": "object", "additionalProperties": False,
+                           "properties": {"offset": {"type": "integer"}, "search_value": {"type": "string"}}},
+}
+
+
+def text_result(request_id, payload, *, error=False):
+    return {"jsonrpc": "2.0", "id": request_id, "result": {
+        "content": [{"type": "text", "text": payload if isinstance(payload, str) else json.dumps(payload)}],
+        "isError": error}}
 
 
 class FakeServer:
-    """模拟领星 MCP：initialize 返回会话号，tools/list 用 SSE 返回，tools/call 用 JSON 返回。"""
-
     def __init__(self):
-        self.calls: list[dict] = []
+        self.actions: list[dict] = []
         self.keys: set[str] = set()
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
-        self.calls.append(body)
         self.keys.add(request.headers.get("x-mcp-key", ""))
         method = body.get("method")
         if method == "initialize":
-            return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {"capabilities": {}}},
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}},
                                   headers={"mcp-session-id": "s1"})
         if method == "notifications/initialized":
             return httpx.Response(202)
         assert request.headers.get("mcp-session-id") == "s1"
-        if method == "tools/list":
-            event = json.dumps({"jsonrpc": "2.0", "id": body["id"], "result": {"tools": REMOTE_TOOLS}})
+        name, args = body["params"]["name"], body["params"]["arguments"]
+        if name == "help":
+            # help 用 SSE 返回，分两页
+            page = CATALOG[args["offset"]:args["offset"] + 2]
+            payload = {"code": 1, "success": True, "data": {"total": len(CATALOG), "tools": page}}
+            event = json.dumps(text_result(body["id"], payload))
             return httpx.Response(200, text=f"event: message\ndata: {event}\n\n",
                                   headers={"content-type": "text/event-stream"})
-        payload = {"code": 0, "total": 2, "data": [
-            {"sku": "A-1", "available": 120, "nested": {"x": 1}}, {"sku": "B-2", "available": 30, "nested": {}}]}
-        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {
-            "content": [{"type": "text", "text": json.dumps(payload)}], "isError": False}})
+        if name == "search":
+            return httpx.Response(200, json=text_result(body["id"], {"code": 1, "success": True, "data": {
+                "toolId": args["toolId"], "description": "说明", "inputSchema": SCHEMAS[args["toolId"]]}}))
+        assert name == "action"
+        self.actions.append(args)
+        if "length" in args["params"]:
+            return httpx.Response(200, json=text_result(
+                body["id"], 'call failed, status: 422, response: {"code":102,"msg":"工具参数定义已更新"}', error=True))
+        data = {"total": 2, "msg": "ok", "list": [
+            {"available": 120, "sku": "A-1", "nested": {"x": 1}}, {"available": 30, "sku": "B-2", "nested": {}}]}
+        return httpx.Response(200, json=text_result(body["id"], {"code": 1, "success": True, "data": data}))
 
 
 @pytest.fixture
@@ -67,46 +86,63 @@ def ctx(sources=("lingxing",), amz="all"):
                         sources=frozenset(sources))
 
 
-def test_only_read_only_tools_are_exposed_and_schema_is_cleaned(server):
-    tools = lx.tools_for(ctx())
-    assert [t.name for t in tools] == ["lingxing_get_my_sids", "lingxing_get_fba_stock_list"]
-    schema = tools[1].schema()["function"]["parameters"]
-    assert "$schema" not in schema and schema["properties"]["sku"]["type"] == "string"
+def by_name(tools):
+    return {t.name: t for t in tools}
+
+
+def test_only_allowlisted_tools_marked_read_are_offered(server):
+    tools = by_name(lx.tools_for(ctx()))
+    assert set(tools) == {"lingxing_tool_params", "lingxing_query"}
+    enum = tools["lingxing_query"].schema()["function"]["parameters"]["properties"]["tool_id"]["enum"]
+    assert enum == ["get_my_sids", "get_fba_stock_list"]  # erp_listing 被领星标为 write，不提供
+    assert "get_fba_stock_list=查询 FBA 仓库库存" in tools["lingxing_tool_params"].description
+    params = tools["lingxing_tool_params"]
+    schema = params.handler(ctx(), params.parse({"tool_id": "get_fba_stock_list"})).summary["参数Schema"]
+    assert '"offset"' in schema and "$schema" not in schema
+    with pytest.raises(lx.ToolArgumentError):
+        tools["lingxing_query"].parse({"tool_id": "put_campaigns_sp", "params": {}})
     assert server.keys == {"k-123"}
-    assert not lx.is_read_only("put_campaigns_sp") and not lx.is_read_only("fba_delete_shipment_list")
-    with pytest.raises(lx.McpError, match="白名单"):
-        lx.client().call("put_campaigns_sp", {})
+    with pytest.raises(lx.McpError, match="已拒绝"):
+        lx.client().run("put_campaigns_sp", {}, "write")
+    with pytest.raises(lx.McpError, match="已拒绝"):
+        lx.client().run("erp_listing", {}, "write")  # 白名单内但领星标为 write
+    with pytest.raises(lx.McpError, match="网关工具"):
+        lx.client().gateway("approval_status", {"approval_ref": "x"})
 
 
-def test_tool_call_converts_json_rows_and_skips_nested_fields(server):
-    tool = lx.tools_for(ctx())[1]
-    result = tool.handler(ctx(), tool.parse({"sku": "A"}))
+def test_action_result_puts_identifier_columns_first_and_skips_nested(server):
+    tool = by_name(lx.tools_for(ctx()))["lingxing_query"]
+    result = tool.handler(ctx(), tool.parse({"tool_id": "get_fba_stock_list", "params": {"offset": 0}}))
     assert [c[0] for c in result.columns] == ["sku", "available"]
-    assert result.rows[0] == {"sku": "A-1", "available": 120} and result.summary["total"] == 2
-    assert server.calls[-1]["params"] == {"name": "get_fba_stock_list", "arguments": {"sku": "A"}}
+    assert result.rows[0] == {"sku": "A-1", "available": 120}
+    assert result.summary == {"total": 2}
+    assert server.actions[-1] == {"toolId": "get_fba_stock_list", "params": {"offset": 0}}
+
+
+def test_code_102_becomes_actionable_hint_and_refreshes_schema(server):
+    tool = by_name(lx.tools_for(ctx()))["lingxing_query"]
+    with pytest.raises(ValueError, match="入参定义"):
+        tool.handler(ctx(), tool.parse({"tool_id": "get_fba_stock_list", "params": {"length": 5}}))
+    assert lx._tools_cache is None and not lx._schemas
 
 
 def test_not_checked_or_limited_scope_or_unconfigured_returns_no_tools(server, monkeypatch):
     assert lx.tools_for(ctx(sources=())) == []
     assert lx.tools_for(ctx(amz="self")) == []
-    assert not any(c.get("method") == "tools/list" for c in server.calls)
+    assert server.actions == []
     monkeypatch.setattr(lx, "settings", replace(lx.settings, lingxing_mcp_key=""))
     assert lx.tools_for(ctx()) == []
 
 
-def test_error_results_and_text_results():
-    with pytest.raises(ValueError, match="领星返回错误"):
-        lx.to_tool_result("get_my_sids", {"content": [{"type": "text", "text": "参数sid不能为空"}], "isError": True})
-    text = lx.to_tool_result("get_my_sids", {"content": [{"type": "text", "text": "共3个店铺"}]})
+def test_text_body_is_kept_as_text():
+    text = lx.to_tool_result("get_my_sids", {"text": "共3个店铺"})
     assert text.summary["内容"] == "共3个店铺" and not text.rows
 
 
 def test_status_codes_map_to_readable_errors():
-    def unauthorized(request):
-        return httpx.Response(401, json={})
-    client = lx.McpClient("https://mcp.test", "bad", transport=httpx.MockTransport(unauthorized))
+    client = lx.McpClient("https://mcp.test", "bad", transport=httpx.MockTransport(lambda r: httpx.Response(401)))
     with pytest.raises(lx.McpError, match="LINGXING_MCP_KEY"):
-        client.list_tools()
+        client.catalog()
 
 
 def run_agent(context, external, llm):
@@ -117,20 +153,22 @@ def run_agent(context, external, llm):
     return repo
 
 
-def test_runner_offers_lingxing_tools_only_when_checked(server, monkeypatch):
-    monkeypatch.setattr(runner_module.lingxing_mcp, "settings", lx.settings)
-    llm = ScriptedLlm([reply(tool_calls=[call("a", "lingxing_get_fba_stock_list", sku="A")]), reply(content="A-1 有 120 件")])
+def test_runner_offers_lingxing_tools_only_when_checked(server):
+    llm = ScriptedLlm([reply(tool_calls=[call("a", "lingxing_query", tool_id="get_fba_stock_list",
+                                              params={"offset": 0})]),
+                       reply(content="A-1 有 120 件")])
     repo = run_agent(ctx(), lx.tools_for, llm)
     offered = {s["function"]["name"] for s in llm.requests[0]["tools"]}
-    assert "lingxing_get_fba_stock_list" in offered
+    assert {"lingxing_query", "lingxing_tool_params"} <= offered
     assert "勾选了「领星MCP」" in llm.requests[0]["messages"][0]["content"]
     assert repo.steps[0]["status"] == "completed"
 
-    unchecked = ScriptedLlm([reply(tool_calls=[call("a", "lingxing_get_fba_stock_list")]), reply(content="请勾选")])
+    unchecked = ScriptedLlm([reply(tool_calls=[call("a", "lingxing_query", tool_id="get_my_sids")]),
+                             reply(content="请勾选")])
     repo = run_agent(ctx(sources=()), lx.tools_for, unchecked)
     assert not any(s["function"]["name"].startswith("lingxing_") for s in unchecked.requests[0]["tools"])
     assert "没有勾选「领星MCP」" in unchecked.requests[0]["messages"][0]["content"]
-    assert repo.steps[0]["status"] == "invalid"  # 未勾选时直接调用领星工具会被拒绝
+    assert repo.steps[0]["status"] == "invalid"  # 未勾选时领星工具不存在，直接调用被拒绝
 
 
 def test_runner_explains_when_lingxing_cannot_be_used(server):

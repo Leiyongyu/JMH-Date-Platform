@@ -17,11 +17,12 @@ RATIO_HINTS = ("率", "rate", "margin", "ratio", "占比")
 
 
 class CalculateArgs(BaseModel):
-    operation: Literal["period_compare", "compare", "share", "rank", "sum"] = Field(
+    operation: Literal["period_compare", "compare", "share", "rank", "sum", "count"] = Field(
         ..., description="period_compare=同一结果内两个期间对比（环比/同比）；compare=两个结果按维度对比；"
-                         "share=占合计比例；rank=排名；sum=合计")
+                         "share=占合计比例；rank=排名；sum=合计；count=按维度列分组计数（如每个国家几个店铺）")
     result_id: int = Field(..., ge=1, description="要计算的工具结果编号 result_id")
-    value_columns: list[str] = Field(..., min_length=1, max_length=6, description="数值列（中文列名或字段名）")
+    value_columns: list[str] = Field(default_factory=list, max_length=6,
+                                     description="数值列（中文列名或字段名）；count 不需要")
     key_column: str | None = Field(None, description="维度列，如 组别、负责人、SKU；share/rank/compare 必填")
     period_column: str | None = Field(None, description="period_compare 用：期间列，如 月份")
     base_period: str | None = Field(None, description="period_compare 用：基期，如 2026-08")
@@ -82,6 +83,10 @@ def _data_rows(result: dict[str, Any], key: str | None) -> list[dict[str, Any]]:
 
 def calculate(results: list[dict[str, Any]], args: CalculateArgs) -> ToolResult:
     source = _pick(results, args.result_id)
+    if args.operation == "count":
+        return _count(source, args)
+    if not args.value_columns:
+        raise CalculationError("请提供数值列 value_columns")
     values = [_column(source, name, "数值列") for name in args.value_columns]
 
     if args.operation in ("period_compare", "compare"):
@@ -168,3 +173,20 @@ def calculate(results: list[dict[str, Any]], args: CalculateArgs) -> ToolResult:
     return ToolResult(title=title, columns=columns, rows=rows[:args.top], source=f"基于结果{args.result_id}计算",
                       period=source.get("period") or "", notes=notes,
                       summary={"计算方式": args.operation, "行数": len(rows)})
+
+
+def _count(source: dict[str, Any], args: CalculateArgs) -> ToolResult:
+    """按维度列分组计数，使用完整结果（不受交给模型的 30 行限制）。"""
+    key, label = _column(source, args.key_column, "维度列（key_column）")
+    counts: dict[Any, int] = {}
+    for row in _data_rows(source, key):
+        counts[row.get(key)] = counts.get(row.get(key), 0) + 1
+    rows = [{"key": k, "count": n} for k, n in sorted(counts.items(), key=lambda item: -item[1])]
+    total = sum(counts.values())
+    notes = [f"共 {total} 行，按{label}分为 {len(rows)} 组"]
+    stored = len(source.get("rows") or [])
+    if (source.get("rowCount") or stored) > stored:
+        notes.append(f"原结果共 {source.get('rowCount')} 行，只保存了前 {stored} 行，计数基于已保存的行")
+    return ToolResult(title=f"按{label}计数", columns=[("key", label), ("count", "行数")], rows=rows[:args.top],
+                      source=f"基于结果{args.result_id}计算", period=source.get("period") or "", notes=notes,
+                      summary={"计算方式": "count", "总行数": total, "分组数": len(rows)})

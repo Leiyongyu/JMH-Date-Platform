@@ -328,7 +328,8 @@ def test_eval_cases_reference_existing_tools_and_check_rules():
     from backend.agent.tools.business import BUSINESS_TOOLS
     from backend.agent.tools.ebay_live_tools import EBAY_LIVE_TOOLS
     from backend.agent.tools.knowledge import KNOWLEDGE_TOOLS
-    names = {t.name for t in [*BUSINESS_TOOLS, *KNOWLEDGE_TOOLS, *EBAY_LIVE_TOOLS]} | {"calculate"}
+    names = {t.name for t in [*BUSINESS_TOOLS, *KNOWLEDGE_TOOLS, *EBAY_LIVE_TOOLS]} | {
+        "calculate", "lingxing_query", "lingxing_tool_params"}
     cases = evaluate.load_cases(evaluate.CASES_FILE, None)
     assert len({c["id"] for c in cases}) == len(cases) >= 10
     for case in cases:
@@ -338,3 +339,13 @@ def test_eval_cases_reference_existing_tools_and_check_rules():
     assert evaluate.check(case, "completed", ["sales"], "结论。来源：测试", {"status": "passed"}) == []
     problems = evaluate.check(case, "completed", ["x"], "结论", {"status": "warned", "unmatched": ["4.7%"]})
     assert len(problems) == 4
+
+
+def test_calculate_count_groups_rows():
+    results = [{"id": 1, "columns": [{"key": "country", "label": "国家"}, {"key": "name", "label": "店铺"}],
+                "rows": [{"country": "美国", "name": "a"}, {"country": "美国", "name": "b"}, {"country": "德国", "name": "c"}],
+                "rowCount": 3}]
+    out = calculate(results, CalculateArgs(operation="count", result_id=1, key_column="国家"))
+    assert out.rows == [{"key": "美国", "count": 2}, {"key": "德国", "count": 1}]
+    with pytest.raises(CalculationError, match="数值列"):
+        calculate(results, CalculateArgs(operation="sum", result_id=1))

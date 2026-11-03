@@ -6,8 +6,14 @@
   READ_ONLY_TOOLS 白名单里的查询工具，并再按名称里的写操作动词二次拦截；
 - 密钥绑定一个领星账号，看到的是该账号权限内的全公司数据，无法按负责人拆分，
   所以只对 AMZ 数据范围为「全部数据」的账号开放；
-- 不引入新依赖：用 httpx 实现 initialize → notifications/initialized → tools/list → tools/call，
+- 不引入新依赖：用 httpx 实现 initialize → notifications/initialized → tools/call，
   响应既可能是 JSON，也可能是 SSE（text/event-stream）。
+
+领星 MCP 是「网关」形式：MCP 层只有 help / search / action / approval_status 四个工具，
+352 个业务工具（265 个 read、87 个 write）都通过 action(toolId, params) 执行。这里的做法：
+1. help 分页取业务工具目录，只保留「在白名单内」且「官方 toolType=read」的；
+2. search 取每个工具的入参 Schema，按工具逐个提供给模型（函数名 lingxing_<toolId>）；
+3. 执行时再校验一次白名单与 toolType，然后调用 action；approval_status 和任何写工具都不提供。
 """
 from __future__ import annotations
 
@@ -17,10 +23,10 @@ import logging
 import re
 import threading
 import time
-from typing import Any
+from typing import Any, Literal
 
 import httpx
-from pydantic import BaseModel, ConfigDict
+from pydantic import Field, create_model
 
 from backend.agent.context import SCOPE_AMZ, AgentContext, ToolPermissionError
 from backend.agent.tools.base import Tool, ToolArgumentError, ToolResult
@@ -30,11 +36,20 @@ LOG = logging.getLogger(__name__)
 SOURCE = "lingxing"
 TOOL_PREFIX = "lingxing_"
 PROTOCOL_VERSION = "2025-03-26"
-TOOLS_CACHE_SECONDS = 3600
+TOOLS_CACHE_SECONDS = 6 * 3600
 CALL_TIMEOUT_SEC = 90
 MAX_TEXT = 6000
-MAX_COLUMNS = 16
+MAX_COLUMNS = 30
+KEY_COLUMNS = ("sid", "seller_name", "store_name", "shop_name", "name", "country", "marketplace", "msku",
+               "seller_sku", "sku", "local_sku", "asin", "parent_asin", "fnsku", "product_name", "local_name",
+               "item_name", "title", "date", "report_date", "data_date", "keyword", "campaign_name",
+               # 常用数量、金额字段排在其他字段前面
+               "afn_fulfillable_quantity", "available", "available_total", "quantity", "total", "volume",
+               "order_items", "sales_amount", "amount", "gross_profit", "gross_margin", "spend", "acos",
+               "impressions", "clicks", "orders", "units")
 SCOPE_NOTE = "领星数据按领星账号权限返回、无法按负责人拆分，只对 AMZ 数据范围为「全部数据」的账号开放"
+# MCP 层允许调用的网关工具；approval_status（审批写操作）不调用
+GATEWAY_TOOLS = ("help", "search", "action")
 
 # 只读白名单（领星帮助文档「领星MCP - 工具能力」中的查询类工具）。服务端没有的会自动跳过。
 READ_ONLY_TOOLS: dict[str, str] = {
@@ -189,10 +204,48 @@ class McpClient:
                 break
         return tools
 
-    def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        if not is_read_only(name):
-            raise McpError(f"{name} 不在只读白名单内，已拒绝")
-        return self.request("tools/call", {"name": name, "arguments": arguments})
+    def gateway(self, name: str, arguments: dict[str, Any]) -> Any:
+        """调用网关工具（help / search / action），返回业务 JSON；领星判定失败时抛错。"""
+        if name not in GATEWAY_TOOLS:
+            raise McpError(f"{name} 不是允许调用的领星网关工具")
+        result = self.request("tools/call", {"name": name, "arguments": arguments})
+        text = "\n".join(c.get("text") or "" for c in result.get("content") or [] if c.get("type") == "text").strip()
+        if result.get("isError"):
+            if '"code":102' in text.replace(" ", ""):
+                # 领星的「工具参数定义已更新」实际表示参数与 Schema 不符；同时刷新缓存的 Schema
+                invalidate_tools()
+                raise McpError("领星提示参数不符合该工具的入参定义（code 102）：请只使用参数说明里列出的字段、"
+                               "按说明的类型填写（整数不要加引号，JSON 数组字段传字符串）后重试")
+            raise McpError(f"领星返回错误：{text[:300] or '未知错误'}")
+        try:
+            body = json.loads(text)
+        except ValueError:
+            return {"text": text}
+        if isinstance(body, dict) and body.get("success") is False:
+            raise McpError(f"领星返回失败：{str(body.get('msg') or body.get('message') or '')[:300]}")
+        return body
+
+    def catalog(self) -> dict[str, dict[str, Any]]:
+        """help 分页取全部业务工具：{toolId: {displayName, description, toolType}}。"""
+        tools, offset = {}, 0
+        for _ in range(40):
+            body = self.gateway("help", {"limit": 50, "offset": offset})
+            data = body.get("data") or {}
+            page = data.get("tools") or []
+            for item in page:
+                tools[item.get("toolId")] = item
+            offset += len(page)
+            if not page or offset >= int(data.get("total") or 0):
+                break
+        return tools
+
+    def schema_of(self, tool_id: str) -> dict[str, Any]:
+        return (self.gateway("search", {"toolId": tool_id}).get("data") or {})
+
+    def run(self, tool_id: str, params: dict[str, Any], tool_type: str | None) -> Any:
+        if not is_read_only(tool_id) or tool_type != "read":
+            raise McpError(f"{tool_id} 不在只读白名单内或不是只读工具，已拒绝")
+        return self.gateway("action", {"toolId": tool_id, "params": params})
 
 
 _client_lock = threading.Lock()
@@ -209,9 +262,19 @@ def client() -> McpClient:
 
 
 def reset() -> None:
-    global _client, _tools_cache
+    global _client
     with _client_lock:
-        _client, _tools_cache = None, None
+        _client = None
+    invalidate_tools()
+
+
+def invalidate_tools() -> None:
+    """清掉工具目录与参数 Schema 缓存（领星提示参数定义变化时调用）。"""
+    global _tools_cache
+    with _client_lock:
+        _tools_cache = None
+    with _schema_lock:
+        _schemas.clear()
 
 
 # ---------------------------------------------------------------- 结果转换
@@ -235,29 +298,27 @@ def _scalar(value: Any) -> bool:
     return value is None or isinstance(value, (str, int, float, bool))
 
 
-def to_tool_result(name: str, result: dict[str, Any]) -> ToolResult:
-    texts = [c.get("text") or "" for c in result.get("content") or [] if c.get("type") == "text"]
-    text = "\n".join(texts).strip()
-    if result.get("isError"):
-        raise ValueError(f"领星返回错误：{text[:300] or '未知错误'}")
-    data: Any = result.get("structuredContent")
-    if data is None and text:
-        try:
-            data = json.loads(text)
-        except ValueError:
-            data = None
+def to_tool_result(name: str, body: Any) -> ToolResult:
+    """action 返回的业务 JSON → ToolResult：最大的字典列表作为明细，其余简单字段作为汇总。"""
     title = f"领星：{READ_ONLY_TOOLS.get(name, name)}"
     source = "领星 MCP（实时）"
-    if data is None:
+    if isinstance(body, dict) and set(body) == {"text"}:
+        text = body["text"]
         return ToolResult(title=title, summary={"内容": text[:MAX_TEXT]}, source=source,
                           notes=["领星返回的是文本，已原样提供"] if text else ["领星没有返回数据"])
+    data = body.get("data", body) if isinstance(body, dict) else body
     rows = _rows_in(data) or []
-    keys: list[str] = []
+    scalar_keys: list[str] = []
     for row in rows[:30]:
         for key, value in row.items():
-            if key not in keys and _scalar(value) and len(keys) < MAX_COLUMNS:
-                keys.append(key)
-    summary = {k: v for k, v in data.items() if _scalar(v)} if isinstance(data, dict) else {}
+            if key not in scalar_keys and _scalar(value):
+                scalar_keys.append(key)
+    # 先放店铺、SKU、ASIN、名称这类标识列，再按原顺序补其他字段，避免关键列被挤掉
+    keys = [k for k in KEY_COLUMNS if k in scalar_keys]
+    keys += [k for k in scalar_keys if k not in keys]
+    keys = keys[:MAX_COLUMNS]
+    summary = {k: v for k, v in data.items() if _scalar(v) and k not in ("msg", "message", "require_id", "code")} \
+        if isinstance(data, dict) else {}
     clean_rows = [{k: row.get(k) for k in keys} for row in rows]
     notes = [] if rows else ["领星没有返回明细行"]
     if rows and any(not _scalar(v) for row in rows[:30] for v in row.values()):
@@ -267,43 +328,87 @@ def to_tool_result(name: str, result: dict[str, Any]) -> ToolResult:
 
 
 # ---------------------------------------------------------------- 工具封装
+#
+# 30 个工具的完整入参 Schema 合计约 5.7 万字符，每轮都发给模型会让一次提问消耗 10 万以上 Token。
+# 所以只给模型两个小工具：先用 lingxing_tool_params 查看某个工具的参数说明（按需从领星取、缓存），
+# 再用 lingxing_query 执行；工具清单以一行一个的形式写在描述里。
 
-class RemoteArgs(BaseModel):
-    """领星工具的参数按其 inputSchema 由模型生成，这里只做 JSON 对象与大小校验，具体校验交给领星。"""
-    model_config = ConfigDict(extra="allow")
+PARAMS_TOOL = TOOL_PREFIX + "tool_params"
+QUERY_TOOL = TOOL_PREFIX + "query"
+_schema_lock = threading.Lock()
+_schemas: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
-class LingxingTool(Tool):
-    def __init__(self, name: str, description: str, input_schema: dict[str, Any]):
-        remote = name
+def _guard(context: AgentContext) -> None:
+    if SOURCE not in context.sources:
+        raise ToolPermissionError("本次提问没有勾选「领星MCP」，只能查询本系统数据")
+    if not allowed(context):
+        raise ToolPermissionError(SCOPE_NOTE)
 
-        def handler(context: AgentContext, args: RemoteArgs) -> ToolResult:
-            if not allowed(context):
-                raise ToolPermissionError(SCOPE_NOTE)
-            if SOURCE not in context.sources:
-                raise ToolPermissionError("本次提问没有勾选「领星MCP」，只能查询本系统数据")
-            try:
-                return to_tool_result(remote, client().call(remote, args.model_dump()))
-            except McpError as exc:
-                raise ValueError(str(exc)) from exc
 
-        super().__init__(TOOL_PREFIX + name, description, RemoteArgs, handler, permission=None,
-                         title=f"领星：{READ_ONLY_TOOLS.get(name, name)}", data_scope_all=SCOPE_AMZ,
-                         timeout_sec=CALL_TIMEOUT_SEC, requires_source=SOURCE)
-        object.__setattr__(self, "input_schema", input_schema)
+def tool_schema(tool_id: str) -> dict[str, Any]:
+    now = time.monotonic()
+    with _schema_lock:
+        hit = _schemas.get(tool_id)
+        if hit and hit[0] > now:
+            return hit[1]
+    detail = client().schema_of(tool_id)
+    with _schema_lock:
+        _schemas[tool_id] = (now + TOOLS_CACHE_SECONDS, detail)
+    return detail
 
-    def schema(self) -> dict[str, Any]:
-        params = {k: v for k, v in (self.input_schema or {}).items() if k not in ("$schema", "title")}
-        params.setdefault("type", "object")
-        params.setdefault("properties", {})
-        return {"type": "function", "function": {"name": self.name, "description": self.description,
-                                                 "parameters": params}}
 
-    def parse(self, raw_arguments):
-        args = super().parse(raw_arguments)
-        if len(json.dumps(args.model_dump(), ensure_ascii=False)) > 4000:
+def _compact(schema: dict[str, Any]) -> dict[str, Any]:
+    """去掉 $schema/title，保留字段、类型、说明、枚举与示例，便于模型照着填。"""
+    return {k: v for k, v in (schema or {}).items() if k not in ("$schema", "title")}
+
+
+def build_tools(catalog: dict[str, dict[str, Any]]) -> list[Tool]:
+    offered = {tool_id: entry for tool_id, entry in catalog.items()
+               if tool_id in READ_ONLY_TOOLS and entry.get("toolType") == "read" and is_read_only(tool_id)}
+    if not offered:
+        return []
+    ids = tuple(offered)
+    listing = "；".join(f"{tool_id}={(entry.get('displayName') or READ_ONLY_TOOLS[tool_id])[:24]}"
+                       for tool_id, entry in offered.items())
+
+    params_model = create_model("LingxingParamsArgs", tool_id=(Literal[ids], Field(..., description="领星工具ID")))
+    query_model = create_model(
+        "LingxingQueryArgs",
+        tool_id=(Literal[ids], Field(..., description="领星工具ID")),
+        params=(dict[str, Any], Field(default_factory=dict, description="严格按 lingxing_tool_params 返回的参数说明填写")),
+    )
+
+    def params_handler(context: AgentContext, args) -> ToolResult:
+        _guard(context)
+        try:
+            detail = tool_schema(args.tool_id)
+        except McpError as exc:
+            raise ValueError(str(exc)) from exc
+        schema = json.dumps(_compact(detail.get("inputSchema") or {}), ensure_ascii=False)
+        return ToolResult(title=f"领星工具参数：{offered[args.tool_id].get('displayName') or args.tool_id}",
+                          summary={"tool_id": args.tool_id, "说明": (detail.get("description") or "")[:500],
+                                   "参数Schema": schema[:MAX_TEXT]},
+                          source="领星 MCP", notes=["只能使用 Schema 里列出的字段，类型要一致；分页用 offset/length"])
+
+    def query_handler(context: AgentContext, args) -> ToolResult:
+        _guard(context)
+        params = args.params or {}
+        if len(json.dumps(params, ensure_ascii=False)) > 4000:
             raise ToolArgumentError("参数过长")
-        return args
+        try:
+            body = client().run(args.tool_id, params, offered[args.tool_id].get("toolType"))
+        except McpError as exc:
+            raise ValueError(str(exc)) from exc
+        return to_tool_result(args.tool_id, body)
+
+    common = dict(permission=None, data_scope_all=SCOPE_AMZ, timeout_sec=CALL_TIMEOUT_SEC, requires_source=SOURCE)
+    return [
+        Tool(PARAMS_TOOL, "【领星ERP实时】查看某个领星工具的入参说明。除参数为空的工具外，调用 lingxing_query 前先调用本工具。"
+             f"可用工具（只读）：{listing}", params_model, params_handler, title="查看领星工具参数", **common),
+        Tool(QUERY_TOOL, "【领星ERP实时】执行一个只读领星工具并返回结果；params 按 lingxing_tool_params 返回的 Schema 填写。",
+             query_model, query_handler, title="查询领星", **common),
+    ]
 
 
 def tools_for(context: AgentContext) -> list[Tool]:
@@ -315,15 +420,10 @@ def tools_for(context: AgentContext) -> list[Tool]:
         cached = _tools_cache
     if cached and cached[0] > time.monotonic():
         return cached[1]
-    remote = client().list_tools()
-    tools = []
-    for item in remote:
-        name = item.get("name") or ""
-        if not is_read_only(name):
-            continue
-        description = f"【领星ERP实时】{READ_ONLY_TOOLS[name]}。{(item.get('description') or '')[:300]}"
-        tools.append(LingxingTool(name, description, item.get("inputSchema") or {}))
+    started = time.monotonic()
+    catalog = client().catalog()
+    tools = build_tools(catalog)
     with _client_lock:
         _tools_cache = (time.monotonic() + TOOLS_CACHE_SECONDS, tools)
-    LOG.info("lingxing mcp tools loaded remote=%s read_only=%s", len(remote), len(tools))
+    LOG.info("lingxing mcp catalog loaded tools=%s seconds=%.1f", len(catalog), time.monotonic() - started)
     return tools
