@@ -221,21 +221,39 @@
           />
           <div class="composer-footer">
             <div class="composer-sources">
-              <el-tooltip
-                v-if="lingxingAvailable"
-                content="勾选后本次提问可以查询领星ERP实时数据（只读）；不勾选只查本系统数据库"
-                placement="top"
+              <el-popover placement="top-start" :width="300" trigger="click">
+                <template #reference>
+                  <button
+                    class="source-trigger"
+                    type="button"
+                    :disabled="loading"
+                    aria-label="选择数据来源"
+                  >
+                    <svg-icon icon-class="jmh-expand" class="source-trigger-icon" />
+                    <span>数据来源</span>
+                  </button>
+                </template>
+                <div class="source-panel">
+                  <div class="source-panel-title">本次提问额外查询（不勾选只查本系统数据库）</div>
+                  <div v-for="source in sourceOptions" :key="source.key" class="source-option">
+                    <el-checkbox v-model="source.model.value" :disabled="!source.available || loading">
+                      {{ source.label }}
+                    </el-checkbox>
+                    <div class="source-option-desc">{{ source.available ? source.desc : source.unavailable }}</div>
+                  </div>
+                </div>
+              </el-popover>
+              <el-tag
+                v-for="source in sourceOptions.filter(item => item.available && item.model.value)"
+                :key="source.key"
+                size="small"
+                closable
+                :disable-transitions="true"
+                @close="source.model.value = false"
               >
-                <el-checkbox v-model="useLingxing" :disabled="loading" size="small">领星MCP</el-checkbox>
-              </el-tooltip>
-              <el-tooltip
-                v-if="ebayAvailable"
-                content="勾选后本次提问可以直接查询 eBay 实时数据（订单、财务、退货纠纷、卖家等级、流量、广告）；不勾选只查本系统数据库"
-                placement="top"
-              >
-                <el-checkbox v-model="useEbay" :disabled="loading" size="small">eBay实时</el-checkbox>
-              </el-tooltip>
-              <span>Enter发送，Shift + Enter换行</span>
+                {{ source.label }}
+              </el-tag>
+              <span class="composer-hint">Enter发送，Shift + Enter换行</span>
             </div>
             <el-button
               type="primary"
@@ -302,6 +320,18 @@ const lingxingAvailable = ref(false)
 const useLingxing = ref(false)
 const ebayAvailable = ref(false)
 const useEbay = ref(false)
+const sourceOptions = [
+  {
+    key: 'lingxing', label: '领星MCP', model: useLingxing, get available() { return lingxingAvailable.value },
+    desc: '查询领星ERP实时数据（只读）',
+    unavailable: '服务端尚未配置领星 MCP 密钥（LINGXING_MCP_KEY），暂不可用'
+  },
+  {
+    key: 'ebay', label: 'eBay实时', model: useEbay, get available() { return ebayAvailable.value },
+    desc: '直接查询 eBay 订单、财务、退货纠纷、卖家等级、流量、广告',
+    unavailable: '服务端尚未配置 eBay 店铺凭证，暂不可用'
+  }
+]
 const dataSources = computed(() => [
   ...(lingxingAvailable.value && useLingxing.value ? ['lingxing'] : []),
   ...(ebayAvailable.value && useEbay.value ? ['ebay'] : [])
@@ -1104,17 +1134,40 @@ function createRequestId(scope) {
   align-items: center;
   justify-content: space-between;
 
-  span { color: var(--el-text-color-placeholder, #a8abb2); font-size: 11px; }
+  .composer-hint { color: var(--el-text-color-placeholder, #a8abb2); font-size: 11px; }
   .el-button { min-width: 82px; border-radius: 9px; }
 }
 
 .composer-sources {
   display: flex;
   align-items: center;
-  gap: 12px;
-
-  :deep(.el-checkbox__label) { font-size: 12px; }
+  flex-wrap: wrap;
+  gap: 8px;
 }
+
+.source-trigger {
+  height: 26px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--el-border-color-lighter, #ebeef5);
+  border-radius: 7px;
+  background: var(--el-bg-color, #fff);
+  color: var(--el-text-color-regular, #606266);
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover:not(:disabled) { border-color: var(--el-color-primary-light-5, #a0cfff); color: var(--el-color-primary, #409eff); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+  span { color: inherit; font-size: 12px; }
+}
+
+.source-trigger-icon { color: #0085d0; font-size: 15px; }
+
+.source-panel-title { margin-bottom: 6px; color: var(--el-text-color-secondary, #909399); font-size: 12px; }
+.source-option + .source-option { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--el-border-color-lighter, #ebeef5); }
+.source-option-desc { padding-left: 24px; color: var(--el-text-color-placeholder, #a8abb2); font-size: 11.5px; line-height: 1.5; }
 
 @keyframes typing {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }

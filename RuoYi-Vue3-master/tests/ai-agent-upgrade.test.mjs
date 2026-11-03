@@ -57,8 +57,11 @@ test('lingxing MCP is opt-in per question and lingxing tools get readable titles
   assert.match(source, /lingxingAvailable\.value && useLingxing\.value \? \['lingxing'\] : \[\]/)
   assert.match(source, /ebayAvailable\.value && useEbay\.value \? \['ebay'\] : \[\]/)
   assert.match(source, /data_sources: dataSources\.value/)
-  assert.match(source, /v-if="lingxingAvailable"/)
-  assert.match(source, /v-if="ebayAvailable"/)
+  // 两个数据来源都放在「数据来源」下拉里；未配置的显示为禁用并说明原因
+  assert.match(source, /icon-class="jmh-expand"/)
+  assert.match(source, /:disabled="!source\.available \|\| loading"/)
+  assert.match(source, /key: 'lingxing'/)
+  assert.match(source, /key: 'ebay'/)
 })
 
 test('stats panel is admin only and feedback is wired', () => {
