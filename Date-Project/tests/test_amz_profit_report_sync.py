@@ -60,7 +60,7 @@ class FakeClient:
 @pytest.fixture(autouse=True)
 def scope(monkeypatch):
     stored = {}
-    monkeypatch.setattr(service.source_repo, "amazon_seller_ids", lambda: ["101"])
+    monkeypatch.setattr(service.source_repo, "amazon_seller_ids", lambda *args, **kwargs: ["101"])
     monkeypatch.setattr(service.repo, "replace_month", lambda month, *rows: stored.update(
         month=month, seller=rows[0], msku=rows[1], order=rows[2],
     ) or {"deleted_rows": 0, "seller_rows": len(rows[0]),

@@ -15,6 +15,13 @@
         <result property="countryCode" column="country_code" />
         <result property="createdAt" column="created_at" />
         <result property="updatedAt" column="updated_at" />
+        <result property="pullEnabled" column="pull_enabled" />
+        <result property="pullStopReason" column="pull_stop_reason" />
+        <result property="pullStopDate" column="pull_stop_date" />
+        <result property="pullUpdatedBy" column="pull_updated_by" />
+        <result property="pullUpdatedAt" column="pull_updated_at" />
+        <result property="lingxingPresent" column="lingxing_present" />
+        <result property="lingxingLastSeenAt" column="lingxing_last_seen_at" />
     </resultMap>
 
     <select id="selectByPlatformAndStore" resultMap="ShopListResult">
@@ -58,12 +65,54 @@
         WHERE id = #{id}
     </update>
 
+    <!-- 只给向领星拉取数据的任务用：排除「店铺管理」里停止拉取的、以及领星已不再返回的店铺 -->
     <select id="selectSidsByPlatform" resultType="String">
         SELECT DISTINCT sid FROM shop_list
         WHERE platform_code = #{platformCode}
         <if test="status != null">AND status = #{status}</if>
         AND sid IS NOT NULL AND sid != ''
+        AND pull_enabled = 1 AND lingxing_present = 1
     </select>
+
+    <!-- 一次完整同步后按领星是否返回标记店铺：返回的记最近出现时间，没返回的标为领星已移除 -->
+    <update id="markLingxingPresence">
+        UPDATE shop_list SET
+            lingxing_present = CASE WHEN (platform_code, store_id) IN
+                <foreach collection="keys" item="k" open="(" separator="," close=")">(#{k.platformCode}, #{k.storeId})</foreach>
+                THEN 1 ELSE 0 END,
+            lingxing_last_seen_at = CASE WHEN (platform_code, store_id) IN
+                <foreach collection="keys" item="k" open="(" separator="," close=")">(#{k.platformCode}, #{k.storeId})</foreach>
+                THEN NOW() ELSE lingxing_last_seen_at END
+        WHERE platform_code = #{platformCode}
+    </update>
+
+    <select id="countPresentByPlatform" resultType="int">
+        SELECT COUNT(*) FROM shop_list WHERE platform_code = #{platformCode} AND lingxing_present = 1
+    </select>
+
+    <!-- 店铺管理页面列表 -->
+    <select id="selectForManage" resultMap="ShopListResult">
+        SELECT * FROM shop_list
+        <where>
+            <if test="platformCode != null and platformCode != ''">AND platform_code = #{platformCode}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (store_name LIKE CONCAT('%', #{keyword}, '%') OR sid = #{keyword})
+            </if>
+            <if test="pullEnabled != null">AND pull_enabled = #{pullEnabled}</if>
+            <if test="lingxingPresent != null">AND lingxing_present = #{lingxingPresent}</if>
+        </where>
+        ORDER BY platform_code, store_name
+    </select>
+
+    <update id="updatePullControl">
+        UPDATE shop_list SET
+            pull_enabled = #{pullEnabled},
+            pull_stop_reason = #{pullStopReason},
+            pull_stop_date = #{pullStopDate},
+            pull_updated_by = #{pullUpdatedBy},
+            pull_updated_at = NOW()
+        WHERE id = #{id}
+    </update>
 
     <select id="selectStoreNamesByPlatform" resultType="String">
         SELECT DISTINCT store_name FROM shop_list

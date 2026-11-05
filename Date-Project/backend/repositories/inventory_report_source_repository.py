@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from backend.config import settings
+from backend.repositories import shop_pull
 from backend.database import db_connection
 from backend.schemas.inventory_report_source_fields import (
     FBA_SOURCE_FIELDS,
@@ -71,18 +72,22 @@ META_FIELDS = (
 )
 
 
-def amazon_seller_ids() -> list[str]:
+def amazon_seller_ids(month: str | None = None) -> list[str]:
+    """要向领星拉取的亚马逊店铺；month（YYYY-MM）给出时按整月口径，停止日期在该月开始之后的店铺仍拉取。"""
     database = _source_database()
     with db_connection() as connection, connection.cursor() as cursor:
+        condition, params = shop_pull.pull_condition(
+            cursor, settings.shop_source_database.strip() or "jmh_data_platform", month=month)
         cursor.execute(
             f"""
             SELECT DISTINCT CAST(sid AS CHAR) AS sid
             FROM `{database}`.`shop_list`
             WHERE platform_code = '10001'
               AND sid IS NOT NULL
-              AND CAST(sid AS CHAR) <> ''
+              AND CAST(sid AS CHAR) <> ''{condition}
             ORDER BY sid
-            """
+            """,
+            params,
         )
         return [str(row["sid"]) for row in cursor.fetchall()]
 

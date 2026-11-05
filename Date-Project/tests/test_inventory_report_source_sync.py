@@ -75,7 +75,7 @@ def test_source_sync_stops_before_inventory_when_currency_sync_fails(monkeypatch
     monkeypatch.setattr(
         service.repo,
         "amazon_seller_ids",
-        lambda: pytest.fail("汇率失败后不应继续读取库存范围"),
+        lambda *args, **kwargs: pytest.fail("汇率失败后不应继续读取库存范围"),
     )
 
     with pytest.raises(InventoryReportSourceSyncError) as error:
@@ -91,7 +91,7 @@ def test_source_sync_does_not_overwrite_existing_month_view(monkeypatch):
         "2026-09", "2026-09-01", "2026-09-30",
     ))
     monkeypatch.setattr(service, "sync_inventory_currency_rates", lambda _month: {})
-    monkeypatch.setattr(service.repo, "amazon_seller_ids", lambda: ["seller-1"])
+    monkeypatch.setattr(service.repo, "amazon_seller_ids", lambda *args, **kwargs: ["seller-1"])
     monkeypatch.setattr(service.repo, "warehouse_wids", lambda: ["warehouse-1"])
     monkeypatch.setattr(service, "LingXingInventoryDomain", lambda: object())
     monkeypatch.setattr(service, "_fetch_fba", lambda *_args, **_kwargs: [{}])
@@ -255,7 +255,7 @@ def test_day_2_sales_volume_defaults_to_previous_month_and_only_rebuilds_amz_dwd
         lambda value: scope_args.append(value)
         or ("2026-08", "2026-08-01", "2026-08-31"),
     )
-    monkeypatch.setattr(service.repo, "amazon_seller_ids", lambda: ["1001"])
+    monkeypatch.setattr(service.repo, "amazon_seller_ids", lambda *args, **kwargs: ["1001"])
     monkeypatch.setattr(
         service,
         "_fetch_order_profit",

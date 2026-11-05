@@ -413,7 +413,7 @@ def test_display_month_maps_to_previous_snapshot_partition(monkeypatch, report_m
 
 
 def test_sales_volume_sync_records_refresh_separately(monkeypatch):
-    monkeypatch.setattr(source_sync.repo, "amazon_seller_ids", lambda: ["1"])
+    monkeypatch.setattr(source_sync.repo, "amazon_seller_ids", lambda *args, **kwargs: ["1"])
     monkeypatch.setattr(source_sync, "LingXingOrderProfitDomain", lambda: object())
     monkeypatch.setattr(source_sync, "_fetch_order_profit", lambda *_a: ([{"id": 1}], 0))
     monkeypatch.setattr(source_sync.repo, "replace_order_profit_month",
@@ -558,7 +558,7 @@ def test_source_sync_refreshes_rate_months_after_rebuild(monkeypatch):
     monkeypatch.setattr(source_sync, "sync_inventory_currency_rates", lambda _month: {
         "rate_months": ["2026-10", "2026-11"],
     })
-    monkeypatch.setattr(source_sync.repo, "amazon_seller_ids", lambda: ["seller-1"])
+    monkeypatch.setattr(source_sync.repo, "amazon_seller_ids", lambda *args, **kwargs: ["seller-1"])
     monkeypatch.setattr(source_sync.repo, "warehouse_wids", lambda: ["warehouse-1"])
     monkeypatch.setattr(source_sync, "LingXingInventoryDomain", lambda: object())
     monkeypatch.setattr(source_sync, "_fetch_fba", lambda *_a, **_k: [{}])

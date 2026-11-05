@@ -80,7 +80,7 @@ def sync_amz_profit_report(
     stage = "LOAD_SCOPE"
     progress = _Progress(month, batch_id)
     try:
-        sids = source_repo.amazon_seller_ids()
+        sids = source_repo.amazon_seller_ids(month)
         if not sids:
             raise ValueError("shop_list 中没有 platform_code=10001 的有效 sid")
         api = _Api(client or LingXingClient(), sleep)

@@ -31,6 +31,8 @@ public class LingxingShopSyncService
 
     /** 需要同步的平台 */
     private static final List<Integer> PLATFORM_CODES = Arrays.asList(10003, 10001); // eBay, Amazon
+    /** 本次返回的店铺数少于当前「领星仍存在」店铺数的这个比例时，视为同步结果异常，不标记已移除 */
+    static final double MIN_PRESENT_RATIO = 0.5;
 
     private final LingxingGatewayService gateway;
     private final ShopListMapper shopListMapper;
@@ -54,6 +56,8 @@ public class LingxingShopSyncService
         long start = System.currentTimeMillis();
         List<OperationSyncResult.FailureItem> failures = new ArrayList<>();
         int totalInserted = 0, totalUpdated = 0, totalRemote = 0;
+        // 本次领星返回的启用店铺，按平台收集，用于标记「领星已移除」
+        Map<String, List<ShopListMapper.ShopListKey>> seen = new LinkedHashMap<>();
 
         int offset = 0;
         int length = 200;
@@ -77,7 +81,7 @@ public class LingxingShopSyncService
             if (data.isEmpty()) break;
 
             totalRemote += data.size();
-            int[] stats = upsertShops(data);
+            int[] stats = upsertShops(data, seen);
             totalInserted += stats[0];
             totalUpdated += stats[1];
 
@@ -87,6 +91,9 @@ public class LingxingShopSyncService
             if (data.size() < length) break;
             offset += length;
         }
+
+        // 只有全部分页都成功才标记，避免拉取中断时把店铺误标为已移除
+        String presence = failures.isEmpty() ? markPresence(seen) : "本次同步有失败分页，未更新领星存在标记";
 
         long elapsed = System.currentTimeMillis() - start;
         int totalSuccess = totalInserted + totalUpdated;
@@ -101,8 +108,36 @@ public class LingxingShopSyncService
             return OperationSyncResult.partial("shop_list", "领星-多平台店铺", API_PATH,
                     totalRemote, totalSuccess, failures.size(), failures, elapsed);
         }
-        return OperationSyncResult.success("shop_list", "领星-多平台店铺", API_PATH,
+        OperationSyncResult result = OperationSyncResult.success("shop_list", "领星-多平台店铺", API_PATH,
                 totalRemote, totalSuccess, elapsed);
+        result.setBusinessSummary(presence);
+        return result;
+    }
+
+    /**
+     * 按平台标记领星是否仍返回该店铺。领星不再返回的店铺 lingxing_present=0，所有拉取任务自动跳过；
+     * 重新出现会自动恢复。本次返回数明显少于当前数量（或为 0）时跳过该平台，防止接口异常导致整批停拉。
+     */
+    String markPresence(Map<String, List<ShopListMapper.ShopListKey>> seen)
+    {
+        List<String> notes = new ArrayList<>();
+        for (Integer code : PLATFORM_CODES)
+        {
+            String platform = String.valueOf(code);
+            List<ShopListMapper.ShopListKey> keys = seen.getOrDefault(platform, List.of());
+            int present = shopListMapper.countPresentByPlatform(platform);
+            if (keys.isEmpty() || keys.size() < present * MIN_PRESENT_RATIO)
+            {
+                LOG.warn("店铺同步返回数异常，跳过领星存在标记 platform={} 返回={} 当前存在={}",
+                        platform, keys.size(), present);
+                notes.add("平台" + platform + "返回" + keys.size() + "家（当前" + present + "家），跳过存在标记");
+                continue;
+            }
+            shopListMapper.markLingxingPresence(platform, keys);
+            int after = shopListMapper.countPresentByPlatform(platform);
+            notes.add("平台" + platform + "领星返回" + keys.size() + "家，标记存在" + after + "家");
+        }
+        return String.join("；", notes);
     }
 
     // ========== 内部方法 ==========
@@ -124,7 +159,7 @@ public class LingxingShopSyncService
     }
 
     /** 批量 upsert，返回 [inserted, updated] */
-    private int[] upsertShops(List<Map<String, Object>> rows)
+    private int[] upsertShops(List<Map<String, Object>> rows, Map<String, List<ShopListMapper.ShopListKey>> seen)
     {
         // 1. 收集所有 (platform_code, store_id) 联合键
         List<ShopListMapper.ShopListKey> keys = new ArrayList<>();
@@ -161,6 +196,8 @@ public class LingxingShopSyncService
             Integer status = getIntObj(row, "status");
             if (status != null && status != 1) continue;
 
+            seen.computeIfAbsent(platformCode, k -> new ArrayList<>())
+                    .add(new ShopListMapper.ShopListKey(platformCode, storeId));
             String key = platformCode + ":" + storeId;
             ShopList entity = existing.get(key);
             boolean isNew = (entity == null);

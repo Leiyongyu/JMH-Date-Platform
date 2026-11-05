@@ -7,6 +7,7 @@ from itertools import islice
 from zoneinfo import ZoneInfo
 
 from backend.config import settings
+from backend.repositories import shop_pull
 from backend.database import db_connection
 
 FIELDS = tuple("""listing_id sid marketplace seller_sku fnsku asin parent_asin small_image_url
@@ -30,10 +31,14 @@ def dumps(value):
 
 
 def shop_sids() -> list[str]:
-    database = (settings.shop_source_database.strip() or "jmh_data_platform").replace("`", "``")
+    """要拉取刊登的店铺（当前快照：店铺管理里停止拉取、领星已移除的店铺立即排除）。"""
+    raw_database = settings.shop_source_database.strip() or "jmh_data_platform"
+    database = raw_database.replace("`", "``")
     with db_connection() as connection, connection.cursor() as cursor:
+        condition, params = shop_pull.pull_condition(cursor, raw_database)
         cursor.execute(f"SELECT DISTINCT sid FROM `{database}`.shop_list "
-                       "WHERE platform_code='10001' AND status=1 AND sid IS NOT NULL AND sid<>'' ORDER BY sid")
+                       "WHERE platform_code='10001' AND status=1 AND sid IS NOT NULL AND sid<>''"
+                       f"{condition} ORDER BY sid", params)
         values = [str(row["sid"]).strip() for row in cursor.fetchall()]
     if not values or any(not s.isascii() or not s.isdecimal() or int(s) <= 0 for s in values):
         raise ValueError("Amazon启用店铺sid为空或不合法；拒绝替换原始表，请先同步店铺")

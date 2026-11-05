@@ -91,7 +91,7 @@ def sync_monthly_inventory_report_sources(stat_month: str | None = None) -> dict
         ) from exc
 
     try:
-        seller_ids = repo.amazon_seller_ids()
+        seller_ids = repo.amazon_seller_ids(month)
         if not seller_ids:
             raise ValueError(
                 "jmh_data_platform.shop_list 中没有 platform_code=10001 的有效 sid"
@@ -249,7 +249,7 @@ def sync_monthly_inventory_order_profit(
                 metrics,
             )
         try:
-            seller_ids = repo.amazon_seller_ids()
+            seller_ids = repo.amazon_seller_ids(month)
             if not seller_ids:
                 raise ValueError(
                     "jmh_data_platform.shop_list 中没有 platform_code=10001 的有效 sid"
@@ -331,7 +331,7 @@ def sync_monthly_inventory_sales_volume(
         "order_profit_skipped_rows": 0,
     }
     try:
-        seller_ids = repo.amazon_seller_ids()
+        seller_ids = repo.amazon_seller_ids(month)
         if not seller_ids:
             raise ValueError(
                 "jmh_data_platform.shop_list 中没有 platform_code=10001 的有效 sid"

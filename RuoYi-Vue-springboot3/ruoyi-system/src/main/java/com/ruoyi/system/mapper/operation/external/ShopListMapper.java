@@ -24,7 +24,7 @@ public interface ShopListMapper
     /** 单条更新（按 id） */
     int updateById(ShopList shop);
 
-    /** 按平台和状态查 id 列表（用于后续 Listing 同步） */
+    /** 按平台和状态查要向领星拉取的 sid（排除店铺管理里停止拉取、以及领星已移除的店铺） */
     List<String> selectSidsByPlatform(@Param("platformCode") String platformCode,
                                       @Param("status") Integer status);
 
@@ -39,6 +39,20 @@ public interface ShopListMapper
     List<ShopList> selectByStoreName(@Param("platformCode") String platformCode,
                                      @Param("storeName") String storeName,
                                      @Param("status") Integer status);
+
+    /** 一次完整同步后，按领星本次返回的店铺标记 lingxing_present / lingxing_last_seen_at */
+    int markLingxingPresence(@Param("platformCode") String platformCode, @Param("keys") List<ShopListKey> keys);
+
+    /** 当前标记为「领星仍存在」的店铺数（用于判断本次同步结果是否异常） */
+    int countPresentByPlatform(@Param("platformCode") String platformCode);
+
+    /** 店铺管理页面：按平台、名称/sid、拉取开关、领星状态筛选 */
+    List<ShopList> selectForManage(@Param("platformCode") String platformCode, @Param("keyword") String keyword,
+                                   @Param("pullEnabled") Integer pullEnabled,
+                                   @Param("lingxingPresent") Integer lingxingPresent);
+
+    /** 店铺管理页面：修改拉取开关、原因与停止日期 */
+    int updatePullControl(ShopList shop);
 
     /** 内部类：联合键 */
     class ShopListKey

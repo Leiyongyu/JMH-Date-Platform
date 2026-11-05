@@ -10,6 +10,7 @@ from typing import Any
 from pymysql.connections import Connection
 
 from backend.config import settings
+from backend.repositories import shop_pull
 from backend.database import db_connection
 from backend.parsers.performance_common import UNASSIGNED
 
@@ -723,17 +724,21 @@ def replace_amz_profit_month(
     }
 
 
-def amazon_shop_sids() -> list[str]:
+def amazon_shop_sids(month: str | None = None) -> list[str]:
+    """要向领星拉取月利润的店铺；month 给出时，停止日期在该月开始之后的店铺仍会拉取（重跑历史月不丢数据）。"""
     with db_connection() as connection:
         with connection.cursor() as cursor:
             table_name = _shop_table_name(cursor)
+            source = None if table_name == "shop_list" else settings.shop_source_database.strip()
+            condition, params = shop_pull.pull_condition(cursor, source, month=month)
             cursor.execute(
                 f"""
                 SELECT DISTINCT CAST(sid AS CHAR) AS sid
                 FROM {table_name}
                 WHERE sid IS NOT NULL AND sid <> ''
-                  AND platform_code = '10001'
-                """
+                  AND platform_code = '10001'{condition}
+                """,
+                params,
             )
             return [str(row["sid"]) for row in cursor.fetchall() if row.get("sid")]
 

@@ -83,7 +83,7 @@ def sync_amazon_monthly_profit(
         start_date, end_date = month_range(month)
         sync_batch_id = str(uuid4())
         metrics["sync_batch_id"] = sync_batch_id
-        sids = repo.amazon_shop_sids()
+        sids = repo.amazon_shop_sids(month)
         if not sids:
             raise ValueError("shop_list 中没有可用 Amazon 店铺 SID")
 
