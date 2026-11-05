@@ -13,10 +13,6 @@ from backend.parsers.performance_common import (
     owner_is_blank,
     owner_is_invisible_whitespace,
 )
-from backend.parsers.performance_owner_rule_parser import (
-    parse_owner_rule_excel,
-    parse_unified_owner_rule_excel,
-)
 from backend.repositories import performance_repository as repo
 from backend.services.inventory_report_etl_service import (
     refresh_monthly_inventory_sales_snapshot_safely,
@@ -302,82 +298,6 @@ def import_ebay_profit(
     }
 
 
-def import_owner_rules(
-    platform: str,
-    content: bytes,
-    file_name: str,
-    rebuild: bool = True,
-    stat_month: str | None = None,
-    operator: str | None = None,
-    request_id: str = "",
-    idempotency_key: str | None = None,
-) -> dict:
-    batch_id = str(uuid4())
-    parsed = parse_owner_rule_excel(content, file_name, platform, batch_id)
-    months = [stat_month] if stat_month else parsed["months"]
-    started_at = datetime.now()
-    with repo.performance_connection() as connection:
-        repo.upsert_owner_rules(connection, parsed["rules"], parsed["raw_rows"])
-        repo.insert_import_batch(
-            connection,
-            {
-                "batch_id": batch_id,
-                "import_type": "owner_rule",
-                "platform": platform,
-                "stat_month": stat_month or (",".join(parsed["months"])[:7] if parsed["months"] else None),
-                "source_file_name": file_name,
-                "file_hash": parsed["file_hash"],
-                "idempotency_key": idempotency_key,
-                "status": "completed",
-                "total_rows": len(parsed["rules"]),
-                "inserted_rows": len(parsed["rules"]),
-                "updated_rows": 0,
-                "skipped_rows": 0,
-                "operator": operator,
-                "request_id": request_id,
-                "error_message": None,
-                "started_at": started_at,
-                "completed_at": datetime.now(),
-            },
-        )
-        connection.commit()
-    refreshes = []
-    if rebuild:
-        for month in months:
-            refreshes.append(
-                refresh_performance(month, platform, trigger_source="owner_rule_import", request_id=request_id)
-            )
-    return {
-        "batch_id": batch_id,
-        "platform": platform,
-        "imported_rows": len(parsed["rules"]),
-        "months": parsed["months"],
-        "month_count": len(parsed["months"]),
-        "refreshes": refreshes,
-    }
-
-
-def import_unified_owner_rules(
-    content: bytes,
-    file_name: str,
-    rebuild: bool = True,
-    operator: str | None = None,
-    request_id: str = "",
-    idempotency_key: str | None = None,
-) -> dict:
-    """Incrementally upsert every monthly rule found in the unified workbook."""
-    batch_id = str(uuid4())
-    parsed = parse_unified_owner_rule_excel(
-        content,
-        file_name,
-        batch_id,
-    )
-    return apply_unified_owner_rules(
-        parsed, batch_id, file_name, import_type="owner_rule_unified", rebuild=rebuild,
-        operator=operator, request_id=request_id, idempotency_key=idempotency_key,
-    )
-
-
 def apply_unified_owner_rules(
     parsed: dict,
     batch_id: str,
@@ -455,7 +375,7 @@ def apply_unified_owner_rules(
         refresh_performance(
             month,
             "combined",
-            trigger_source="unified_owner_rule_import",
+            trigger_source=import_type,
             request_id=request_id,
         )
         for month in refresh_months
@@ -469,7 +389,6 @@ def apply_unified_owner_rules(
         "upserted_rows": len(parsed["rules"]),
         "platform_stats": parsed["platform_stats"],
         "sheet_stats": parsed["sheet_stats"],
-        "ignored_sheets": parsed["ignored_sheets"],
         "deleted_ods_rows": legacy_deleted["ods_rows"],
         "deleted_dwd_rows": legacy_deleted["dwd_rows"],
         "refreshed_months": refresh_months if rebuild else [],

@@ -1,13 +1,17 @@
+"""负责人映射表解析与入库（飞书多维表格同步后还原成的 6 张表）。"""
 from contextlib import contextmanager
-from io import BytesIO
 
 import pandas as pd
 import pytest
 
 from backend.parsers.performance_owner_rule_parser import (
-    parse_unified_owner_rule_excel,
+    parse_unified_owner_rule_frames,
 )
 from backend.services import performance_service
+
+
+def _parse(frames, file_name, batch_id):
+    return parse_unified_owner_rule_frames(frames, file_name, b"content", batch_id)
 
 
 SHEET_KEYS = {
@@ -26,8 +30,7 @@ def _unified_workbook(
     august_owner: str = "八月负责人",
     september_owner: str = "九月负责人",
     overrides: dict[str, list[dict]] | None = None,
-    extra_sheet: bool = False,
-) -> bytes:
+) -> dict[str, pd.DataFrame]:
     frames = {}
     for index, (sheet_name, key_column) in enumerate(SHEET_KEYS.items(), start=1):
         key = (
@@ -47,17 +50,11 @@ def _unified_workbook(
         )
     for sheet_name, rows in (overrides or {}).items():
         frames[sheet_name] = pd.DataFrame(rows)
-    if extra_sheet:
-        frames["说明"] = pd.DataFrame([{"备注": "不允许额外Sheet"}])
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        for sheet_name, frame in frames.items():
-            frame.to_excel(writer, sheet_name=sheet_name, index=False)
-    return output.getvalue()
+    return frames
 
 
 def test_unified_parser_reads_all_month_columns_and_returns_sheet_stats():
-    parsed = parse_unified_owner_rule_excel(
+    parsed = _parse(
         _unified_workbook(),
         "负责人表.xlsx",
         "batch-1",
@@ -94,13 +91,13 @@ def test_unified_parser_reads_all_month_columns_and_returns_sheet_stats():
 
 
 def test_unified_parser_ignores_note_column():
-    parsed = parse_unified_owner_rule_excel(
+    parsed = _parse(
         _unified_workbook(),
         "负责人划分.xlsx",
         "batch-ignore-notes",
     )
 
-    assert parsed["ignored_sheets"] == []
+    # 备注列不参与：只生成两个月份列的负责人
     assert {row["principal_name"] for row in parsed["rules"]} == {
         "八月负责人",
         "九月负责人",
@@ -108,17 +105,15 @@ def test_unified_parser_ignores_note_column():
     assert parsed["platform_stats"] == {"amazon": 10, "ebay": 2}
 
 
-def test_unified_parser_requires_required_sheets_and_rejects_unknown_sheets():
-    with pytest.raises(ValueError, match="Sheet结构不正确.*非模板Sheet"):
-        parse_unified_owner_rule_excel(
-            _unified_workbook(extra_sheet=True),
-            "负责人表.xlsx",
-            "batch-2",
-        )
+def test_unified_parser_requires_all_six_tables():
+    frames = _unified_workbook()
+    frames.pop("EBAY")
+    with pytest.raises(ValueError, match="负责人映射表缺少: EBAY"):
+        _parse(frames, "飞书", "batch-2")
 
 
 def test_unified_parser_persists_blank_owner_as_unassigned_rule():
-    parsed = parse_unified_owner_rule_excel(
+    parsed = _parse(
         _unified_workbook(
             overrides={
                 "EBAY": [
@@ -152,7 +147,7 @@ def test_unified_parser_persists_blank_owner_as_unassigned_rule():
 
 
 def test_unified_parser_persists_pending_owner_as_empty_string():
-    parsed = parse_unified_owner_rule_excel(
+    parsed = _parse(
         _unified_workbook(
             overrides={
                 "US1": [
@@ -189,7 +184,7 @@ def test_unified_parser_rejects_required_sheet_without_match_keys():
         ValueError,
         match="US1.*没有有效匹配键记录",
     ):
-        parse_unified_owner_rule_excel(
+        _parse(
             _unified_workbook(
                 overrides={
                     "US1": [
@@ -224,7 +219,7 @@ def test_unified_parser_rejects_conflicting_store_owners_across_us_sheets():
         ],
     }
     with pytest.raises(ValueError, match="Amazon店铺负责人配置冲突"):
-        parse_unified_owner_rule_excel(
+        _parse(
             _unified_workbook(overrides=overrides),
             "负责人表.xlsx",
             "batch-4",
@@ -234,7 +229,7 @@ def test_unified_parser_rejects_conflicting_store_owners_across_us_sheets():
 def test_unified_import_upserts_all_months_and_only_deletes_legacy_us3(
     monkeypatch,
 ):
-    parsed = parse_unified_owner_rule_excel(
+    parsed = _parse(
         _unified_workbook(),
         "负责人表.xlsx",
         "batch-parser",
@@ -253,11 +248,6 @@ def test_unified_import_upserts_all_months_and_only_deletes_legacy_us3(
     legacy_delete_calls = []
     batch_calls = []
     refresh_calls = []
-    monkeypatch.setattr(
-        performance_service,
-        "parse_unified_owner_rule_excel",
-        lambda *_args, **_kwargs: parsed,
-    )
     monkeypatch.setattr(
         performance_service.repo,
         "performance_connection",
@@ -299,9 +289,11 @@ def test_unified_import_upserts_all_months_and_only_deletes_legacy_us3(
         lambda _limit: [{"stat_month": "2026-08"}],
     )
 
-    result = performance_service.import_unified_owner_rules(
-        b"workbook",
-        "负责人表.xlsx",
+    result = performance_service.apply_unified_owner_rules(
+        parsed,
+        "batch-parser",
+        "飞书多维表格:app",
+        import_type="owner_rule_feishu",
         request_id="request-1",
     )
 
@@ -322,13 +314,14 @@ def test_unified_import_upserts_all_months_and_only_deletes_legacy_us3(
     }
     assert fake_connection.commits == 1
     assert batch_calls[0][1]["platform"] == "combined"
+    assert batch_calls[0][1]["import_type"] == "owner_rule_feishu"
     assert batch_calls[0][1]["stat_month"] is None
     assert refresh_calls == [
         (
             "2026-08",
             "combined",
             {
-                "trigger_source": "unified_owner_rule_import",
+                "trigger_source": "owner_rule_feishu",
                 "request_id": "request-1",
             },
         )
@@ -340,5 +333,4 @@ def test_unified_import_upserts_all_months_and_only_deletes_legacy_us3(
     assert result["deleted_dwd_rows"] == 2
     assert result["refreshed_months"] == ["2026-08"]
     assert result["skipped_refresh_months"] == ["2026-09"]
-    assert result["ignored_sheets"] == []
     assert len(result["refreshes"]) == 1

@@ -114,16 +114,6 @@
                     </div>
                   </el-popover>
                 </el-dropdown-item>
-                <el-dropdown-item
-                  command="importOwnerRules"
-                  v-hasPermi="['finance:performanceRanking:edit']"
-                >
-                  <el-icon class="data-menu-icon owner-icon"><Upload /></el-icon>
-                  <div class="data-menu-copy">
-                    <span>导入负责人映射表</span>
-                    <small>按文件内月份列增量更新 AMZ 与 eBay 规则</small>
-                  </div>
-                </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -334,52 +324,6 @@
       </template>
     </el-dialog>
 
-    <el-dialog
-      v-model="ownerImportDialogVisible"
-      title="导入负责人映射表"
-      width="560px"
-      append-to-body
-      :close-on-click-modal="false"
-      @closed="resetOwnerImportDialog"
-    >
-      <el-form :model="importForm" label-width="92px">
-        <el-form-item label="Excel文件" required>
-          <el-upload
-            ref="uploadRef"
-            class="owner-upload"
-            drag
-            accept=".xlsx,.xls"
-            :auto-upload="false"
-            :limit="1"
-            :on-change="handleFileChange"
-            :on-remove="handleFileRemove"
-          >
-            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-            <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
-            <template #tip>
-              <div class="el-upload__tip">
-                请使用新版“负责人划分”模板。必须且只能包含 EU-店铺、EU-品牌、EU-OTH、
-                US1、US2、EBAY 六个工作表；系统自动识别全部“YYYYMM”月份列，备注列不参与导入。
-                相同组别、店铺或品牌、规则类型和月份执行覆盖更新，新记录增量新增，
-                文件中未出现的其他历史规则保留。空值、待定和待到按未匹配保存。
-                EBAY 工作表首列直接填写品牌；EU 英国站点统一归吴清栩。
-              </div>
-            </template>
-          </el-upload>
-        </el-form-item>
-        <el-form-item label="后续操作">
-          <el-checkbox v-model="importForm.rebuildAfterImport">
-            导入成功后立即重新匹配已有利润数据的月份
-          </el-checkbox>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="ownerImportDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="importing" @click="submitOwnerRules">
-          导入并增量更新
-        </el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -391,7 +335,6 @@ import {
   exportAmzPerformanceSource,
   getPerformanceMonths,
   importEbayPerformanceProfit,
-  importPerformanceOwnerRules,
   listPerformanceRanking,
   listPerformanceUnmatched,
   refreshPerformanceRanking
@@ -404,11 +347,8 @@ const monthOptions = ref([])
 const actualMonth = ref('')
 const refreshing = ref(false)
 const sourceExporting = ref(false)
-const importing = ref(false)
 const profitImporting = ref(false)
-const ownerImportDialogVisible = ref(false)
 const profitDialogVisible = ref(false)
-const uploadRef = ref()
 const profitUploadRef = ref()
 const lastRefreshStats = ref()
 const queryRef = ref()
@@ -429,10 +369,6 @@ const unmatchedVisible = ref(false)
 const unmatchedLoading = ref(false)
 const unmatchedItems = ref([])
 const unmatchedTotals = ref()
-const importForm = reactive({
-  file: undefined,
-  rebuildAfterImport: true
-})
 const profitImportForm = reactive({
   file: undefined,
   statMonth: undefined
@@ -453,7 +389,7 @@ const rankingSubtitle = computed(() => query.platform === 'combined'
 const grossProfitRanking = computed(() => sortRanking('grossProfit'))
 const netSalesRanking = computed(() => sortRanking('netSalesAmount'))
 const dataOperationLoading = computed(() => (
-  sourceExporting.value || profitImporting.value || importing.value
+  sourceExporting.value || profitImporting.value
 ))
 
 function formatMoney(value) {
@@ -725,8 +661,7 @@ async function handleAmzSourceExport() {
 function handleDataCommand(command) {
   const actions = {
     exportAmzSource: handleAmzSourceExport,
-    importEbayProfit: openProfitImportDialog,
-    importOwnerRules: openOwnerImportDialog
+    importEbayProfit: openProfitImportDialog
   }
   actions[command]?.()
 }
@@ -747,60 +682,6 @@ function normalizeRefresh(result = {}) {
     amzProfitRows: result.amz_profit_rows ?? result.amzProfitRows ?? 0,
     ebayProfitRows: result.ebay_profit_rows ?? result.ebayProfitRows ?? 0,
     partial: result.partial || false
-  }
-}
-
-function openOwnerImportDialog() {
-  importForm.file = undefined
-  importForm.rebuildAfterImport = true
-  ownerImportDialogVisible.value = true
-}
-
-function handleFileChange(uploadFile) {
-  importForm.file = uploadFile.raw
-}
-
-function handleFileRemove() {
-  importForm.file = undefined
-}
-
-function resetOwnerImportDialog() {
-  uploadRef.value?.clearFiles()
-  importForm.file = undefined
-}
-
-async function submitOwnerRules() {
-  if (!importForm.file) {
-    proxy.$modal.msgError('请选择负责人划分Excel文件')
-    return
-  }
-
-  importing.value = true
-  try {
-    const response = await importPerformanceOwnerRules(
-      importForm.file,
-      importForm.rebuildAfterImport
-    )
-    const result = response.data || {}
-    const importedMonths = result.months || []
-    proxy.$modal.msgSuccess(
-      `负责人映射导入完成：${result.month_count || importedMonths.length}个月，共增量写入${result.upserted_rows || result.imported_rows || 0}条规则`
-    )
-    query.pageNum = 1
-    const rebuildAfterImport = importForm.rebuildAfterImport
-    ownerImportDialogVisible.value = false
-    if (rebuildAfterImport && result.refreshes?.length) {
-      const currentRefresh = result.refreshes.find(
-        item => item.stat_month === query.statMonth
-      )
-      lastRefreshStats.value = normalizeRefresh(
-        currentRefresh || result.refreshes[result.refreshes.length - 1]
-      )
-    }
-    await loadMonths()
-    await loadData()
-  } finally {
-    importing.value = false
   }
 }
 
@@ -929,7 +810,6 @@ onBeforeUnmount(() => {
 }
 :global(.performance-data-menu .export-icon) { color: #15803d; background: #ecfdf3; }
 :global(.performance-data-menu .profit-icon) { color: #1d4ed8; background: #eff6ff; }
-:global(.performance-data-menu .owner-icon) { color: #b45309; background: #fffbeb; }
 :global(.performance-data-menu .data-menu-copy) {
   display: flex;
   flex-direction: column;

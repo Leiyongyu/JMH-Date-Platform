@@ -154,30 +154,6 @@ public class PerformanceRankingController extends BaseController
                 .body(file);
     }
 
-    @Log(title = "AMZ与eBay月度绩效负责人规则导入",
-            businessType = BusinessType.IMPORT)
-    @PreAuthorize("@ss.hasPermi('finance:performanceRanking:edit')")
-    @PostMapping("/owner-rules/import")
-    public AjaxResult importOwnerRules(
-            @RequestParam("file") MultipartFile file,
-            @RequestParam(defaultValue = "true") boolean rebuild,
-            @RequestHeader(value = "X-Request-ID", required = false)
-            String requestId,
-            @RequestHeader(value = "Idempotency-Key", required = false)
-            String idempotencyKey)
-    {
-        try
-        {
-            return success(data(pythonClient.importUnifiedOwnerRules(
-                    file, rebuild, getUsername(),
-                    requestId, idempotencyKey)));
-        }
-        catch (Exception e)
-        {
-            return error(e.getMessage());
-        }
-    }
-
     @PreAuthorize("@ss.hasPermi('finance:performanceRanking:list')")
     @GetMapping("/owner-rules/summary")
     public AjaxResult ownerRuleSummary(

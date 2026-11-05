@@ -20,8 +20,6 @@ from backend.schemas.responses import success_response
 from backend.repositories import clearance_repository as clearance_repo
 from backend.services.performance_service import (
     import_ebay_profit,
-    import_owner_rules,
-    import_unified_owner_rules,
     list_performance_rankings,
     performance_unmatched,
     owner_rule_summary,
@@ -489,67 +487,6 @@ async def post_ebay_profit_import(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"eBay利润导入失败: {exc}") from exc
-
-
-@router.post("/performance-owner-rule-imports", status_code=201)
-async def post_owner_rule_import(
-    request: Request,
-    platform: str = Query(..., pattern="^(amazon|ebay)$"),
-    file: UploadFile = File(...),
-    rebuild: bool = True,
-    stat_month: str | None = Query(None, pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
-    operator: str | None = None,
-):
-    try:
-        content = await file.read()
-        result = await run_in_threadpool(
-            import_owner_rules,
-            platform,
-            content,
-            file.filename or "owner-rules.xlsx",
-            rebuild=rebuild,
-            stat_month=stat_month,
-            operator=operator,
-            request_id=request.state.request_id,
-            idempotency_key=request.headers.get("Idempotency-Key"),
-        )
-        return success_response(result, request_id=request.state.request_id, message="owner rules imported")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"负责人规则导入失败: {exc}") from exc
-
-
-@router.post("/performance-owner-rule-unified-imports", status_code=201)
-async def post_unified_owner_rule_import(
-    request: Request,
-    file: UploadFile = File(...),
-    rebuild: bool = True,
-    operator: str | None = None,
-):
-    try:
-        content = await file.read()
-        result = await run_in_threadpool(
-            import_unified_owner_rules,
-            content,
-            file.filename or "unified-owner-rules.xlsx",
-            rebuild=rebuild,
-            operator=operator,
-            request_id=request.state.request_id,
-            idempotency_key=request.headers.get("Idempotency-Key"),
-        )
-        return success_response(
-            result,
-            request_id=request.state.request_id,
-            message="unified owner rules imported",
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"统一负责人规则导入失败: {exc}",
-        ) from exc
 
 
 @router.get("/performance-owner-rule-summaries")

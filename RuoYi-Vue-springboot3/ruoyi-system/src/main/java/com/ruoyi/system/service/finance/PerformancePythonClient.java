@@ -525,40 +525,6 @@ public class PerformancePythonClient extends PythonHttpSupport
                 requestId, idempotencyKey);
     }
 
-    public Map<String, Object> importOwnerRules(
-            String platform,
-            MultipartFile file,
-            boolean rebuild,
-            String statMonth,
-            String operator,
-            String requestId,
-            String idempotencyKey)
-    {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("platform", platform);
-        params.put("rebuild", rebuild);
-        params.put("stat_month", statMonth);
-        params.put("operator", operator);
-        return upload(
-                "/performance-owner-rule-imports", params, file,
-                requestId, idempotencyKey);
-    }
-
-    public Map<String, Object> importUnifiedOwnerRules(
-            MultipartFile file,
-            boolean rebuild,
-            String operator,
-            String requestId,
-            String idempotencyKey)
-    {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("rebuild", rebuild);
-        params.put("operator", operator);
-        return upload(
-                "/performance-owner-rule-unified-imports", params, file,
-                requestId, idempotencyKey);
-    }
-
     private Map<String, Object> upload(
             String path,
             Map<String, ?> params,

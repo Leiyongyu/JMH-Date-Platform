@@ -9,8 +9,8 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
- * 负责人映射表飞书同步：每天检查飞书多维表格，内容有变化才入库，只重算负责人有变化的月份的绩效。
- * 手工上传「负责人划分.xlsx」仍可用，作为兜底。
+ * 负责人映射表飞书同步：每周一 08:00 检查飞书多维表格，内容有变化才入库，只重算负责人有变化的月份的绩效。
+ * 负责人只在飞书维护，ERP 不再提供上传入口；需要立即生效时在定时任务页面对本任务「执行一次」。
  */
 @Component("pythonOwnerRuleFeishuTask")
 public class PythonOwnerRuleFeishuTask
@@ -27,7 +27,7 @@ public class PythonOwnerRuleFeishuTask
         this.logs = logs;
     }
 
-    public void runDaily()
+    public void runWeekly()
     {
         long started = System.currentTimeMillis();
         String requestId = "quartz-owner-rule-feishu-" + UUID.randomUUID();

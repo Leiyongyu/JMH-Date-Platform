@@ -43,19 +43,6 @@ export function exportAmzPerformanceSource(statMonth) {
   })
 }
 
-export function importPerformanceOwnerRules(file, rebuild = true) {
-  const data = new FormData()
-  data.append('file', file)
-  return request({
-    url: '/finance/performance-ranking/owner-rules/import',
-    method: 'post',
-    params: { rebuild },
-    headers: { 'Content-Type': 'multipart/form-data' },
-    data,
-    timeout: 600000
-  })
-}
-
 export function getPerformanceOwnerRuleSummary(statMonth) {
   return request({
     url: '/finance/performance-ranking/owner-rules/summary',

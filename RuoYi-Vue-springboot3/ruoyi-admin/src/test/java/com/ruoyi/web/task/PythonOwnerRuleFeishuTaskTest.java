@@ -26,7 +26,7 @@ class PythonOwnerRuleFeishuTaskTest
         IOperationSyncLogService logs = mock(IOperationSyncLogService.class);
         when(logs.start(anyString(), anyString(), anyString(), anyString(), anyString(), any(), any())).thenReturn(9L);
         when(client.runOwnerRuleFeishu(anyString())).thenReturn(Map.of("data", Map.of("result", result)));
-        new PythonOwnerRuleFeishuTask(client, logs).runDaily();
+        new PythonOwnerRuleFeishuTask(client, logs).runWeekly();
         ArgumentCaptor<OperationSyncResult> captor = ArgumentCaptor.forClass(OperationSyncResult.class);
         verify(logs).finish(eq(9L), captor.capture());
         return captor.getValue();
@@ -55,7 +55,7 @@ class PythonOwnerRuleFeishuTaskTest
         PythonPerformanceSchedulerClient client = mock(PythonPerformanceSchedulerClient.class);
         IOperationSyncLogService logs = mock(IOperationSyncLogService.class);
         when(client.runOwnerRuleFeishu(anyString())).thenThrow(new IllegalStateException("飞书负责人表缺少数据表：EBAY"));
-        assertThrows(IllegalStateException.class, () -> new PythonOwnerRuleFeishuTask(client, logs).runDaily());
+        assertThrows(IllegalStateException.class, () -> new PythonOwnerRuleFeishuTask(client, logs).runWeekly());
         ArgumentCaptor<OperationSyncResult> captor = ArgumentCaptor.forClass(OperationSyncResult.class);
         verify(logs).finish(any(), captor.capture());
         assertEquals(OperationSyncResult.STATUS_FAILED, captor.getValue().getStatus());

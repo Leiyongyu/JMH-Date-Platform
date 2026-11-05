@@ -5,7 +5,6 @@ import pytest
 
 from backend.parsers.ebay_performance_profit_parser import parse_ebay_profit_excel
 from backend.parsers.performance_common import normalize_text
-from backend.parsers.performance_owner_rule_parser import parse_owner_rule_excel
 from backend.repositories.performance_repository import normalize_principal
 
 
@@ -147,23 +146,9 @@ def test_explicit_invalid_stat_month_is_rejected(stat_month):
         )
 
 
-def test_nan_owner_cells_are_empty_and_future_empty_month_is_not_imported():
-    owner_file = _workbook(
-        pd.DataFrame(
-            [{"品牌": "BMW", "202608负责人": "方黎力", "202609负责人": float("nan")}]
-        )
-    )
-
-    parsed = parse_owner_rule_excel(
-        owner_file, "eBay负责人.xlsx", "ebay", "owner-batch"
-    )
-
+def test_nan_owner_cells_are_treated_as_empty():
     assert normalize_text(float("nan")) == ""
     assert normalize_text(pd.NA) == ""
     assert normalize_principal(float("nan")) == "未分配"
     assert normalize_text("NULL") == ""
     assert normalize_principal("null") == "未分配"
-    assert parsed["months"] == ["2026-08"]
-    assert [(row["stat_month"], row["principal_name"]) for row in parsed["rules"]] == [
-        ("2026-08", "方黎力")
-    ]
