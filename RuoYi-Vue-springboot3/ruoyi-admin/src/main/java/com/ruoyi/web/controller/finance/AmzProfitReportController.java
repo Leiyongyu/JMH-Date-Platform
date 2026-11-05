@@ -44,7 +44,7 @@ public class AmzProfitReportController extends BaseController
     @PreAuthorize("@ss.hasPermi('finance:amzProfitReport:list') and @ss.hasPermi('finance:amzProfitReport:export')")
     @GetMapping("/export")
     public ResponseEntity<?> export(@RequestParam String startMonth, @RequestParam String endMonth,
-            @RequestParam(defaultValue = "STORE,OWNER") String dimensions,
+            @RequestParam(defaultValue = "GROUP,STORE,OWNER") String dimensions,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
         try

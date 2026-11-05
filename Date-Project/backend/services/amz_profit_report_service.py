@@ -21,7 +21,8 @@ from backend.services import inventory_report_etl_service as inventory
 
 
 LOG = logging.getLogger(__name__)
-DIMENSIONS = ("STORE", "OWNER")
+DIMENSIONS = ("GROUP", "STORE", "OWNER")
+DIMENSION_LABELS = {"GROUP": "组别", "STORE": "店铺", "OWNER": "个人"}
 ZERO = Decimal("0")
 MONEY = Decimal("0.01")
 RATE = Decimal("0.000001")
@@ -79,7 +80,7 @@ def get_report(stat_month: str, dimension: str = "STORE") -> dict[str, Any]:
     month = inventory._month(stat_month)
     dim = str(dimension or "").strip().upper()
     if dim not in DIMENSIONS:
-        raise ValueError("dimension 必须是 STORE 或 OWNER")
+        raise ValueError("dimension 必须是 GROUP、STORE 或 OWNER")
     previous = inventory._previous_month(month)
     shops = inventory_repo.amazon_shop_map()
     current = _aggregate(month, dim, shops)
@@ -135,7 +136,7 @@ def export_report(
         raise ValueError(f"一次最多导出{MAX_EXPORT_MONTHS}个月")
     selected = [str(item).strip().upper() for item in (dimensions or DIMENSIONS)]
     if not selected or any(item not in DIMENSIONS for item in selected):
-        raise ValueError("dimensions 只能是 STORE、OWNER")
+        raise ValueError("dimensions 只能是 GROUP、STORE、OWNER")
     available = {row["stat_month"] for row in list_months(120)}
     months = [month for month in months if month in available]
     if not months:
@@ -148,8 +149,9 @@ def export_report(
     for dim in DIMENSIONS:
         if dim not in selected:
             continue
-        sheet = workbook.create_sheet("店铺" if dim == "STORE" else "个人")
-        headers = ["月份", "组别", "店铺" if dim == "STORE" else "负责人",
+        sheet = workbook.create_sheet(DIMENSION_LABELS[dim])
+        name_header = {"GROUP": [], "STORE": ["店铺"], "OWNER": ["负责人"]}[dim]
+        headers = ["月份", "组别", *name_header,
                    *(label for _field, label, _kind in EXPORT_COLUMNS)]
         sheet.append(headers)
         for cell in sheet[1]:
@@ -162,19 +164,21 @@ def export_report(
                 (row["department_code"].removeprefix("AMZ-"), row["dimension_value"], row, False)
                 for row in report["rows"]
             ]
+            first_value_column = 4 if name_header else 3
             for group, name, values, is_total in lines:
-                sheet.append([month, group, name, *(
+                sheet.append([month, group, *([name] if name_header else []), *(
                     _export_value(values.get(field), kind)
                     for field, _label, kind in EXPORT_COLUMNS
                 )])
-                for index, (_field, _label, kind) in enumerate(EXPORT_COLUMNS, start=4):
+                for index, (_field, _label, kind) in enumerate(EXPORT_COLUMNS, start=first_value_column):
                     sheet.cell(sheet.max_row, index).number_format = EXPORT_FORMATS[kind]
                 if is_total:
                     for cell in sheet[sheet.max_row]:
                         cell.font = Font(bold=True)
                         cell.fill = total_fill
-        sheet.freeze_panes = "D2"
-        for index, width in enumerate([10, 12, 14, *([14] * len(EXPORT_COLUMNS))], start=1):
+        sheet.freeze_panes = "D2" if name_header else "C2"
+        widths = [10, 12, *([14] if name_header else []), *([14] * len(EXPORT_COLUMNS))]
+        for index, width in enumerate(widths, start=1):
             sheet.column_dimensions[sheet.cell(1, index).column_letter].width = width
     buffer = BytesIO()
     workbook.save(buffer)
@@ -238,6 +242,8 @@ def _classify(row, dim, shops, rules, excluded) -> tuple[str, str] | None:
     department = inventory._department(inventory._amazon_group(store) or matched_group)
     if not department:
         return _skip(excluded, "unmatched_department")
+    if dim == "GROUP":
+        return department, department.removeprefix("AMZ-")
     if dim == "STORE":
         return department, inventory._store_dimension_name(store) or "未知店铺"
     return department, inventory._principal(principal)
@@ -252,12 +258,17 @@ def _skip(excluded, reason) -> None:
 def _targets(month: str, dim: str) -> tuple[dict[tuple[str, str], Decimal | None], str | None]:
     stat_month = inventory._previous_month(month)
     try:
-        payload = inventory.get_dimension_summary(dim, stat_month)
+        payload = (
+            inventory.get_department_summary(stat_month) if dim == "GROUP"
+            else inventory.get_dimension_summary(dim, stat_month)
+        )
     except Exception:
         LOG.exception("AMZ利润报表读取月度库存销售目标失败 month=%s dim=%s", month, dim)
         return {}, "月度库存销售目标读取失败"
     if payload.get("historical_import") or not payload.get("items"):
-        return {}, f"月度库存{stat_month}没有{'店铺' if dim == 'STORE' else '个人'}维度销售目标"
+        return {}, f"月度库存{stat_month}没有{DIMENSION_LABELS[dim]}维度销售目标"
+    if dim == "GROUP":
+        return _group_targets(payload["items"]), None
     targets: dict[tuple[str, str], Decimal | None] = {}
     for item in payload["items"]:
         if int(item.get("is_age_cost_only") or 0) or str(item.get("platform_code") or "").upper() != "AMZ":
@@ -272,6 +283,23 @@ def _targets(month: str, dim: str) -> tuple[dict[tuple[str, str], Decimal | None
             continue
         targets[key] = (targets.get(key) or ZERO) + _num(value)
     return targets, None
+
+
+def _group_targets(items: list[dict[str, Any]]) -> dict[tuple[str, str], Decimal | None]:
+    """AMZ department rows of the inventory GROUP view.
+
+    Skips the total, eBay and the display-only AMZ-US3 row (MJ + ZXY), so the
+    profit report's MJ and ZXY rows each keep their own target.
+    """
+    targets: dict[tuple[str, str], Decimal | None] = {}
+    for item in items:
+        department = inventory.normalize_text(item.get("department_code")).upper()
+        if int(item.get("is_total") or 0) or department not in inventory.VALID_DEPARTMENTS \
+                or not department.startswith("AMZ-"):
+            continue
+        value = item.get("sales_target_usd")
+        targets[(department, department.removeprefix("AMZ-"))] = _num(value) if value is not None else None
+    return targets
 
 
 def _metrics(

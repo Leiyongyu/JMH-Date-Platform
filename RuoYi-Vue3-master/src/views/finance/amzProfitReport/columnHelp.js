@@ -5,7 +5,7 @@ const settlementTable = 'date-project.dwd_lingxing_profit_msku_month（日记录
 const orderApi = '领星 POST /basicOpen/finance/mreport/OrderProfit（订单利润-MSKU，订单口径，currencyCode=USD）。每月7日05:00整月拉取上个自然月。'
 const orderTable = 'date-project.ods_lingxing_order_profit_msku_month'
 const targetApi = '无外部接口；取月度库存报表的“销售目标（USD）”。'
-const targetTable = 'date-project.monthly_inventory_report_view_snapshot（库存月＝报表月−1；店铺取STORE、个人取OWNER维度的AMZ行）'
+const targetTable = 'date-project.monthly_inventory_report_view_snapshot（库存月＝报表月−1；组别取GROUP、店铺取STORE、个人取OWNER维度的AMZ行；组别不含US3展示行，MJ、ZXY各用各的目标）'
 const scope = '口径同月度库存：剔除斯露星、斯鑫雅、水金余等店铺；智贸云、优贝诺只保留MSKU含zmy/dsq；组别按店铺名前缀（US3按店铺分MJ/ZXY）；个人按当月AMZ负责人规则（US按店铺，EU按SKU品牌/OTH编码，UK固定负责人），匹配不上归“未分配”。'
 const ratioEmpty = '分母为0或缺少数据时显示--，不按0计算。'
 const arrow = '涨跌图标：与上月同一指标比较（红色上升、绿色下降），图标右侧为变化幅度——金额、销量为（本月−上月）÷|上月|，比率类为本月−上月的百分点（pp）；上月未拉取或上月为0时不显示幅度。'

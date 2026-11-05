@@ -36,7 +36,7 @@ def months(limit: int = Query(24, ge=1, le=120)):
 @router.get("/report")
 def report(
     stat_month: str = Query(..., pattern=MONTH_PATTERN),
-    dimension: str = Query("STORE", pattern="^(STORE|OWNER)$"),
+    dimension: str = Query("STORE", pattern="^(GROUP|STORE|OWNER)$"),
 ):
     return run(lambda: service.get_report(stat_month, dimension))
 
@@ -45,7 +45,7 @@ def report(
 def export(
     start_month: str = Query(..., pattern=MONTH_PATTERN),
     end_month: str = Query(..., pattern=MONTH_PATTERN),
-    dimensions: str = Query("STORE,OWNER", max_length=20),
+    dimensions: str = Query("GROUP,STORE,OWNER", max_length=30),
 ):
     try:
         name, content = service.export_report(start_month, end_month, dimensions.split(","))

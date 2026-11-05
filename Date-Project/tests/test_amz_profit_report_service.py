@@ -145,7 +145,7 @@ def test_target_failure_does_not_break_report(monkeypatch, data):
 
 def test_invalid_dimension_is_rejected(data):
     with pytest.raises(ValueError):
-        service.get_report("2026-09", "GROUP")
+        service.get_report("2026-09", "BRAND")
 
 
 def test_export_writes_one_sheet_per_dimension_with_month_rows(monkeypatch):
@@ -195,3 +195,47 @@ def test_export_rejects_range_without_data(monkeypatch):
     monkeypatch.setattr(service, "list_months", lambda limit=24: [{"stat_month": "2026-09"}])
     with pytest.raises(ValueError, match="没有已拉取的数据"):
         service.export_report("2026-05", "2026-06", ["STORE"])
+
+
+def test_group_dimension_sums_departments_with_inventory_group_targets(monkeypatch, data):
+    monkeypatch.setattr(service.inventory, "get_department_summary", lambda month: {
+        "stat_month": month, "items": [
+            {"department_code": "AMZ-US1", "sales_target_usd": "2000.00", "is_total": 0},
+            {"department_code": "AMZ-US2-MJ", "sales_target_usd": "300.00", "is_total": 0},
+            {"department_code": "AMZ-US3", "sales_target_usd": "999.00", "is_total": 0},   # display row
+            {"department_code": "EBAY-1", "sales_target_usd": "888.00", "is_total": 0},
+            {"department_code": "AUTO-PARTS-TOTAL", "sales_target_usd": "5000.00", "is_total": 1},
+        ]})
+
+    report = service.get_report("2026-09", "GROUP")
+
+    rows = {r["department_code"]: r for r in report["rows"]}
+    assert set(rows) == {"AMZ-EU", "AMZ-US1", "AMZ-US2-MJ"}
+    assert rows["AMZ-US1"]["dimension_value"] == "US1"
+    assert rows["AMZ-US1"]["sales_amount"] == "1300.00"      # 川服喜 US + CA
+    assert rows["AMZ-US1"]["target_usd"] == "2000.00"
+    assert rows["AMZ-US1"]["achievement_rate"] == "0.650000"
+    assert rows["AMZ-US2-MJ"]["target_usd"] == "300.00"
+    assert rows["AMZ-EU"]["target_usd"] is None
+    assert report["total"]["target_usd"] == "2300.00"         # US3 display row and eBay excluded
+    assert report["total"]["sales_amount"] == service.get_report("2026-09", "STORE")["total"]["sales_amount"]
+
+
+def test_export_includes_group_sheet_without_name_column(monkeypatch):
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    monkeypatch.setattr(service, "list_months", lambda limit=24: [{"stat_month": "2026-09"}])
+    row = {"department_code": "AMZ-US1", "dimension_value": "US1",
+           **{field: None for field, _label, _kind in service.EXPORT_COLUMNS}, "sales_qty": "5"}
+    monkeypatch.setattr(service, "get_report", lambda month, dim: {"rows": [row], "total": dict(row)})
+
+    _name, content = service.export_report("2026-09", "2026-09")
+
+    book = load_workbook(BytesIO(content))
+    assert book.sheetnames == ["组别", "店铺", "个人"]
+    group = book["组别"]
+    assert [c.value for c in group[1]][:3] == ["月份", "组别", "每月业绩目标（USD）"]
+    assert [c.value for c in group[3]][:2] == ["2026-09", "US1"]
+    assert group.cell(3, 5).value == 5 and group.cell(3, 5).number_format == "#,##0"

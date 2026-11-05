@@ -9,6 +9,7 @@
         </el-form-item>
         <el-form-item>
           <el-radio-group v-model="dimension" @change="loadReport">
+            <el-radio-button value="GROUP">组别</el-radio-button>
             <el-radio-button value="STORE">店铺</el-radio-button>
             <el-radio-button value="OWNER">个人</el-radio-button>
           </el-radio-group>
@@ -39,7 +40,8 @@
         <el-table-column label="组别" min-width="110" fixed="left">
           <template #default="{ row }">{{ row.isTotal ? '合计' : departmentLabel(row.department_code) }}</template>
         </el-table-column>
-        <el-table-column :label="dimension === 'STORE' ? '店铺' : '负责人'" min-width="120" fixed="left">
+        <el-table-column v-if="dimension !== 'GROUP'" :label="dimension === 'STORE' ? '店铺' : '负责人'"
+          min-width="120" fixed="left">
           <template #default="{ row }">{{ row.isTotal ? '' : row.dimension_value }}</template>
         </el-table-column>
         <el-table-column v-for="column in columns" :key="column.key" :min-width="column.width || 120" align="right">
@@ -81,6 +83,7 @@
         </el-form-item>
         <el-form-item label="维度">
           <el-checkbox-group v-model="exportDimensions">
+            <el-checkbox value="GROUP">组别</el-checkbox>
             <el-checkbox value="STORE">店铺</el-checkbox>
             <el-checkbox value="OWNER">个人</el-checkbox>
           </el-checkbox-group>
@@ -195,7 +198,7 @@ function changeLabel(column, row) {
 
 const exportVisible = ref(false)
 const exportRange = ref([])
-const exportDimensions = ref(['STORE', 'OWNER'])
+const exportDimensions = ref(['GROUP', 'STORE', 'OWNER'])
 const exporting = ref(false)
 const pulledMonths = computed(() => new Set(months.value.map(item => item.stat_month)))
 
