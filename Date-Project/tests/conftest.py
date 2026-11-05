@@ -1,6 +1,11 @@
 import json
+import os
 from pathlib import Path
 import pytest
+
+# 必须在任何测试模块 import backend.main（会调用 configure_logging）之前设置：
+# 测试日志只走控制台/pytest 捕获，不写正式服务日志 logs/date-project-api.log。
+os.environ["DATE_PROJECT_FILE_LOGGING"] = "0"
 
 
 @pytest.fixture
