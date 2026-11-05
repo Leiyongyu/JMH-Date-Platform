@@ -8,6 +8,15 @@ export function listPerformanceRanking(query) {
   })
 }
 
+// 排名图表已排除未分配，这里取未匹配明细与原因，供排查用。
+export function listPerformanceUnmatched(query) {
+  return request({
+    url: '/finance/performance-ranking/unmatched',
+    method: 'get',
+    params: query
+  })
+}
+
 export function getPerformanceMonths(limit = 12) {
   return request({
     url: '/finance/performance-ranking/months',

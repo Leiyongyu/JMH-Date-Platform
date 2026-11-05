@@ -155,6 +155,15 @@
           {{ lastRefreshStats.unmatchedRows || 0 }} 条，生成 {{ lastRefreshStats.rows || 0 }} 条{{ platformTitle }}负责人汇总
         </template>
       </el-alert>
+
+      <div class="unassigned-hint">
+        <el-text size="small" type="info">
+          排名已排除「未分配」，只比较真实负责人；未匹配的利润明细与原因见右侧。
+        </el-text>
+        <el-button type="warning" plain size="small" @click="openUnmatched">
+          未匹配排查
+        </el-button>
+      </div>
     </el-card>
 
     <div v-loading="loading" class="ranking-grid">
@@ -188,6 +197,89 @@
         <div ref="netSalesChartRef" class="ranking-chart"></div>
       </el-card>
     </div>
+
+    <el-dialog
+      v-model="unmatchedVisible"
+      title="未匹配负责人排查"
+      width="1040px"
+      append-to-body
+    >
+      <el-alert type="info" :closable="false" show-icon class="unmatched-alert">
+        <template #title>
+          归属规则来自「负责人划分」Excel，<strong>按月独立生效，不会沿用上个月</strong>。
+          Amazon 店铺的匹配键是<strong>去掉 US1/US2 前缀后的店铺主体名</strong>，
+          Excel 的「店铺名」列必须只写主体（例如店铺 <code>US1-嘉茂鸿</code> 要写 <code>嘉茂鸿</code>）。
+          EU 的归属只按 SKU 品牌码／中间码，<strong>在「EU-店铺」页配负责人不生效</strong>。
+        </template>
+      </el-alert>
+
+      <div v-if="unmatchedTotals" class="unmatched-summary">
+        <el-tag type="warning" effect="plain">
+          共 {{ unmatchedTotals.keys || 0 }} 个匹配键 / {{ unmatchedTotals.sourceRows || 0 }} 条利润行
+        </el-tag>
+        <el-tag
+          v-for="bucket in unmatchedTotals.byReason || []"
+          :key="bucket.reason"
+          :type="reasonTagType(bucket.reason)"
+          effect="plain"
+        >
+          {{ bucket.reasonText }}：{{ bucket.keys }} 个
+        </el-tag>
+      </div>
+
+      <el-table
+        v-loading="unmatchedLoading"
+        :data="unmatchedItems"
+        size="small"
+        border
+        max-height="460"
+        empty-text="该月没有未匹配的利润数据"
+      >
+        <el-table-column prop="platform" label="平台" width="76">
+          <template #default="scope">
+            {{ scope.row.platform === 'amazon' ? 'Amazon' : 'eBay' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="匹配维度" min-width="190" show-overflow-tooltip>
+          <template #default="scope">{{ scope.row.dimensionText }}</template>
+        </el-table-column>
+        <el-table-column label="匹配键" min-width="130" show-overflow-tooltip>
+          <template #default="scope">
+            <code v-if="scope.row.matchKey">{{ scope.row.matchKey }}</code>
+            <el-text v-else size="small" type="danger">（空）</el-text>
+          </template>
+        </el-table-column>
+        <el-table-column label="原因" min-width="270">
+          <template #default="scope">
+            <el-tag :type="reasonTagType(scope.row.reason)" effect="light" size="small">
+              {{ scope.row.reasonText }}
+            </el-tag>
+            <el-text
+              v-if="!scope.row.countsInRanking"
+              size="small"
+              type="info"
+              class="not-counted"
+            >
+              金额未计入排名
+            </el-text>
+          </template>
+        </el-table-column>
+        <el-table-column prop="sourceRows" label="利润行数" width="92" align="right" />
+        <el-table-column label="毛利润" width="124" align="right">
+          <template #default="scope">{{ scope.row.grossProfit }}</template>
+        </el-table-column>
+        <el-table-column label="示例" min-width="190" show-overflow-tooltip>
+          <template #default="scope">
+            <div v-if="scope.row.sampleStore">店铺：{{ scope.row.sampleStore }}</div>
+            <div v-if="scope.row.sampleSku">SKU：{{ scope.row.sampleSku }}</div>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <template #footer>
+        <el-button @click="unmatchedVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="profitDialogVisible"
@@ -301,6 +393,7 @@ import {
   importEbayPerformanceProfit,
   importPerformanceOwnerRules,
   listPerformanceRanking,
+  listPerformanceUnmatched,
   refreshPerformanceRanking
 } from '@/api/finance/performanceRanking'
 
@@ -328,8 +421,14 @@ const query = reactive({
   pageSize: 1000,
   platform: 'combined',
   statMonth: undefined,
-  principalName: undefined
+  principalName: undefined,
+  // 排名是人与人的比较，未分配不参与；明细通过「未匹配排查」查看。
+  excludeUnassigned: true
 })
+const unmatchedVisible = ref(false)
+const unmatchedLoading = ref(false)
+const unmatchedItems = ref([])
+const unmatchedTotals = ref()
 const importForm = reactive({
   file: undefined,
   rebuildAfterImport: true
@@ -511,6 +610,29 @@ async function loadData() {
     loading.value = false
   }
 }
+
+async function openUnmatched() {
+  unmatchedVisible.value = true
+  unmatchedLoading.value = true
+  try {
+    const response = await listPerformanceUnmatched({
+      platform: query.platform,
+      statMonth: query.statMonth
+    })
+    unmatchedItems.value = response.data?.items || []
+    unmatchedTotals.value = response.data?.totals
+  } finally {
+    unmatchedLoading.value = false
+  }
+}
+
+const reasonTagType = reason => ({
+  RULE_MISSING: 'danger',
+  OWNER_BLANK: 'warning',
+  OWNER_WHITESPACE: 'danger',
+  KEY_EMPTY: 'warning',
+  SHOP_UNKNOWN: 'info'
+}[reason] || 'info')
 
 async function loadMonths(selectLatest = false) {
   const response = await getPerformanceMonths(60)
@@ -850,6 +972,26 @@ onBeforeUnmount(() => {
   max-height: 70vh;
 }
 .summary-card { margin-bottom: 16px; }
+.unassigned-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+.unmatched-alert { margin-bottom: 12px; }
+.unmatched-alert code {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--el-fill-color-light);
+}
+.unmatched-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.not-counted { margin-left: 6px; }
 .card-header { display: flex; align-items: center; justify-content: space-between; }
 .title { font-size: 16px; font-weight: 600; }
 .subtitle { margin-left: 12px; color: var(--el-text-color-secondary); font-size: 13px; }

@@ -11,6 +11,7 @@ from pymysql.connections import Connection
 
 from backend.config import settings
 from backend.database import db_connection
+from backend.parsers.performance_common import UNASSIGNED
 
 
 RANKING_TABLES = {
@@ -71,6 +72,7 @@ def list_rankings(
     order: str,
     page: int,
     page_size: int,
+    exclude_unassigned: bool = False,
 ) -> dict[str, Any]:
     table = _ranking_table(platform)
     month = stat_month or latest_ranking_month(platform)
@@ -84,6 +86,13 @@ def list_rankings(
     if principal_name:
         where.append("principal_name LIKE %s")
         params.append(f"%{principal_name}%")
+    if exclude_unassigned:
+        # Ranking charts compare people, so the catch-all bucket is hidden
+        # there. The row stays in the table: the monthly inventory report and
+        # the AI assistant both read it, and the unmatched diagnostics explain
+        # it instead.
+        where.append("principal_name <> %s")
+        params.append(UNASSIGNED)
     where_sql = " AND ".join(where)
     offset = (page - 1) * page_size
 
@@ -183,6 +192,89 @@ def get_owner_rules(connection: Connection, platform: str, stat_month: str) -> d
         ): normalize_principal(row["principal_name"])
         for row in rows
     }
+
+
+def get_owner_rules_raw(
+    connection: Connection, platform: str, stat_month: str
+) -> dict[tuple[str, str, str], str]:
+    """Same keys as :func:`get_owner_rules`, with the stored owner text kept.
+
+    The diagnostics need the untouched cell to tell "no rule row at all" apart
+    from "rule row exists but its owner cell is blank for this month".
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT group_code, rule_type, match_key, principal_name
+            FROM dwd_performance_owner_rule
+            WHERE platform = %s AND stat_month = %s
+            """,
+            (platform, stat_month),
+        )
+        rows = cursor.fetchall()
+    return {
+        (
+            (row["group_code"] or "").upper(),
+            (row["rule_type"] or "").upper(),
+            row["match_key"] or "",
+        ): row["principal_name"]
+        for row in rows
+    }
+
+
+def ebay_unmatched_breakdown(
+    connection: Connection, stat_month: str
+) -> list[dict[str, Any]]:
+    """Group eBay profit rows that reach no real owner, by brand code.
+
+    Mirrors the CASE in :func:`refresh_ebay_ranking_sql`, and additionally
+    surfaces owner cells holding only invisible whitespace: MySQL ``TRIM()``
+    keeps U+3000 / U+00A0, so that ranking SQL accepts them as a real owner
+    while every Python path treats them as unassigned.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                p.brand_code AS match_key,
+                CASE
+                    WHEN p.brand_code = '' OR p.brand_code = 'UNKNOWN'
+                        THEN 'KEY_EMPTY'
+                    WHEN r.match_key IS NULL
+                        THEN 'RULE_MISSING'
+                    WHEN TRIM(r.principal_name) <> ''
+                         AND TRIM(REPLACE(REPLACE(r.principal_name,
+                                  _utf8mb4 0xE38080, ' '),
+                                  _utf8mb4 0xC2A0, ' ')) = ''
+                        THEN 'OWNER_WHITESPACE'
+                    ELSE 'OWNER_BLANK'
+                END AS reason,
+                COUNT(*) AS source_rows,
+                SUM(p.gross_profit) AS gross_profit,
+                SUM(p.net_sales_amount) AS net_sales_amount,
+                MIN(p.sku) AS sample_sku
+            FROM dwd_ebay_monthly_profit p
+            LEFT JOIN dwd_performance_owner_rule r
+                ON r.platform = 'ebay'
+                AND r.stat_month = p.stat_month
+                AND r.rule_type = 'EBAY_BRAND'
+                AND r.match_key = p.brand_code
+            WHERE p.stat_month = %s
+              AND p.brand_code NOT IN ('FLL', 'LEJ', 'CL')
+              AND (
+                    r.principal_name IS NULL
+                    OR LOWER(TRIM(r.principal_name)) IN
+                       ('', '待定', '待到', 'nan', 'nat', '<na>', 'none', 'null')
+                    OR TRIM(REPLACE(REPLACE(r.principal_name,
+                             _utf8mb4 0xE38080, ' '),
+                             _utf8mb4 0xC2A0, ' ')) = ''
+              )
+            GROUP BY p.brand_code, reason
+            ORDER BY gross_profit DESC
+            """,
+            (stat_month,),
+        )
+        return list(cursor.fetchall())
 
 
 def delete_owner_rules_by_group(
@@ -885,7 +977,7 @@ def _ensure_default_scheduler_task(connection: Connection) -> None:
 
 def normalize_principal(value: Any) -> str:
     text = "" if value is None else str(value).replace("\u3000", " ").replace("\xa0", " ").strip()
-    return "未分配" if text.casefold() in {"", "待定", "待到", "nan", "nat", "<na>", "none", "null"} else text
+    return UNASSIGNED if text.casefold() in {"", "待定", "待到", "nan", "nat", "<na>", "none", "null"} else text
 
 
 def decimal_zero() -> Decimal:

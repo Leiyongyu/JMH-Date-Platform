@@ -6,7 +6,13 @@ from decimal import Decimal
 from uuid import uuid4
 
 from backend.parsers.ebay_performance_profit_parser import parse_ebay_profit_excel
-from backend.parsers.performance_common import EU_UK_FIXED_OWNER, normalize_text
+from backend.parsers.performance_common import (
+    EU_UK_FIXED_OWNER,
+    UNASSIGNED,
+    normalize_text,
+    owner_is_blank,
+    owner_is_invisible_whitespace,
+)
 from backend.parsers.performance_owner_rule_parser import (
     parse_owner_rule_excel,
     parse_unified_owner_rule_excel,
@@ -17,7 +23,30 @@ from backend.services.inventory_report_etl_service import (
 )
 
 
-UNASSIGNED = "未分配"
+# Why a profit row never reached a real owner. Ordered most actionable first;
+# the ERP ranking page renders them in this order.
+UNMATCHED_REASONS = {
+    "RULE_MISSING": "负责人划分表里没有这一行，需要新增后重新导入",
+    "OWNER_BLANK": "规则行存在，但该月负责人列为空或填了待定/待到",
+    "OWNER_WHITESPACE": (
+        "该月负责人单元格只有不可见空白（全角空格/NBSP）；"
+        "eBay 会把它当成真实负责人，必须在 Excel 里清掉"
+    ),
+    "KEY_EMPTY": "SKU 缺失或格式异常，取不出品牌码/中间码",
+    "SHOP_UNKNOWN": "店铺主数据缺失：sid 在 shop_list 里查不到，金额未计入排名",
+}
+
+# Distinguishes "no rule row" from "rule row whose owner cell is empty",
+# which None cannot do because an empty cell is stored as an empty string.
+_MISSING = object()
+
+UNMATCHED_DIMENSIONS = {
+    "STORE": "Amazon 店铺名（去掉 US1/US2 前缀后的主体）",
+    "BRAND": "Amazon EU SKU 品牌码（SKU 第 1 段）",
+    "OTH_CODE": "Amazon EU 中间码（OTH- 后的第 2 段）",
+    "EBAY_BRAND": "eBay 品牌码（SKU 品牌前缀）",
+    "SHOP": "Amazon 店铺主数据",
+}
 
 
 def list_performance_rankings(
@@ -28,6 +57,7 @@ def list_performance_rankings(
     order: str = "desc",
     page: int = 1,
     page_size: int = 100,
+    exclude_unassigned: bool = False,
 ) -> dict:
     page = max(page, 1)
     page_size = min(max(page_size, 1), 1000)
@@ -39,6 +69,7 @@ def list_performance_rankings(
         order=order,
         page=page,
         page_size=page_size,
+        exclude_unassigned=exclude_unassigned,
     )
     items = [
         _ranking_item(row)
@@ -48,6 +79,7 @@ def list_performance_rankings(
         "platform": platform,
         "stat_month": data["stat_month"],
         "currency": "CNY",
+        "excludeUnassigned": exclude_unassigned,
         "partial": any(bool(row.get("partial")) for row in data["items"]),
         "items": items,
         "pagination": {
@@ -426,6 +458,187 @@ def import_unified_owner_rules(
     }
 
 
+def performance_unmatched(platform: str, stat_month: str | None) -> dict:
+    """Explain, per matching key, why profit rows fell through to 未分配.
+
+    Computed live from the current rule table rather than stored, so the answer
+    always reflects the workbook as it stands now and no extra table has to be
+    kept in step with the ranking refresh.
+    """
+    month = stat_month or repo.latest_ranking_month(platform)
+    if not month:
+        return {
+            "platform": platform,
+            "stat_month": None,
+            "items": [],
+            "totals": _empty_unmatched_totals(),
+        }
+
+    items: list[dict] = []
+    with repo.performance_connection() as connection:
+        if platform in {"amazon", "combined"}:
+            items.extend(_amazon_unmatched(connection, month))
+        if platform in {"ebay", "combined"}:
+            items.extend(_ebay_unmatched(connection, month))
+
+    reason_order = list(UNMATCHED_REASONS)
+    items.sort(
+        key=lambda item: (
+            reason_order.index(item["reason"])
+            if item["reason"] in reason_order
+            else len(reason_order),
+            -item["grossProfit"],
+        )
+    )
+    return {
+        "platform": platform,
+        "stat_month": month,
+        "items": [_json_ready(item) for item in items],
+        "totals": _unmatched_totals(items),
+    }
+
+
+def _empty_unmatched_totals() -> dict:
+    return {
+        "keys": 0,
+        "sourceRows": 0,
+        "grossProfit": "0",
+        "netSalesAmount": "0",
+        "byReason": [],
+    }
+
+
+def _unmatched_totals(items: list[dict]) -> dict:
+    by_reason: dict[str, dict] = {}
+    for item in items:
+        bucket = by_reason.setdefault(
+            item["reason"],
+            {
+                "reason": item["reason"],
+                "reasonText": item["reasonText"],
+                "keys": 0,
+                "sourceRows": 0,
+                "grossProfit": Decimal("0"),
+            },
+        )
+        bucket["keys"] += 1
+        bucket["sourceRows"] += item["sourceRows"]
+        bucket["grossProfit"] += item["grossProfit"]
+    return {
+        "keys": len(items),
+        "sourceRows": sum(item["sourceRows"] for item in items),
+        "grossProfit": str(sum((item["grossProfit"] for item in items), Decimal("0"))),
+        "netSalesAmount": str(
+            sum((item["netSalesAmount"] for item in items), Decimal("0"))
+        ),
+        "byReason": [
+            {**bucket, "grossProfit": str(bucket["grossProfit"])}
+            for bucket in by_reason.values()
+        ],
+    }
+
+
+def _unmatched_item(
+    platform: str,
+    dimension: str,
+    match_key: str,
+    reason: str,
+) -> dict:
+    return {
+        "platform": platform,
+        "dimension": dimension,
+        "dimensionText": UNMATCHED_DIMENSIONS.get(dimension, dimension),
+        "matchKey": match_key,
+        "reason": reason,
+        "reasonText": UNMATCHED_REASONS.get(reason, reason),
+        "sourceRows": 0,
+        "grossProfit": Decimal("0"),
+        "netSalesAmount": Decimal("0"),
+        "sampleStore": None,
+        "sampleSku": None,
+        "countsInRanking": reason != "SHOP_UNKNOWN",
+    }
+
+
+def _amazon_unmatched(connection, stat_month: str) -> list[dict]:
+    profit_rows = repo.get_amz_profit_rows(connection, stat_month)
+    rules = repo.get_owner_rules(connection, "amazon", stat_month)
+    raw_rules = repo.get_owner_rules_raw(connection, "amazon", stat_month)
+    store_rules = _amazon_store_rules(rules)
+    # Store rules are keyed by name only, so look the raw cell up the same way.
+    raw_store_rules = {
+        key[2]: value
+        for key, value in raw_rules.items()
+        if key[1] == "STORE" and key[0] != "EU"
+    }
+
+    buckets: dict[tuple[str, str, str], dict] = {}
+    for row in profit_rows:
+        target = _amazon_match_target(row)
+        if target is None:
+            dimension, match_key, reason = "SHOP", "", "SHOP_UNKNOWN"
+        else:
+            dimension, match_key = target
+            if dimension == "EU_UK":
+                continue
+            if dimension == "STORE":
+                if _amazon_store_owner(match_key, store_rules):
+                    continue
+                raw = raw_store_rules.get(match_key, _MISSING)
+            else:
+                if rules.get(("EU", dimension, match_key), UNASSIGNED) != UNASSIGNED:
+                    continue
+                raw = raw_rules.get(("EU", dimension, match_key), _MISSING)
+            reason = _unmatched_reason(match_key, raw)
+
+        bucket = buckets.setdefault(
+            (dimension, match_key, reason),
+            _unmatched_item("amazon", dimension, match_key, reason),
+        )
+        bucket["sourceRows"] += 1
+        bucket["grossProfit"] += _decimal(row.get("gross_profit"))
+        bucket["netSalesAmount"] += _decimal(row.get("net_sales_amount"))
+        if bucket["sampleStore"] is None:
+            bucket["sampleStore"] = normalize_text(row.get("store_name")) or None
+        if bucket["sampleSku"] is None:
+            bucket["sampleSku"] = normalize_text(row.get("local_sku")) or None
+    return list(buckets.values())
+
+
+def _unmatched_reason(match_key: str, raw_owner) -> str:
+    if not match_key:
+        return "KEY_EMPTY"
+    if raw_owner is _MISSING:
+        return "RULE_MISSING"
+    if owner_is_invisible_whitespace(raw_owner):
+        return "OWNER_WHITESPACE"
+    if owner_is_blank(raw_owner):
+        return "OWNER_BLANK"
+    # The rule names a real person yet the row still missed it: the only way
+    # left is a key that differs from the configured one after normalisation.
+    return "RULE_MISSING"
+
+
+def _ebay_unmatched(connection, stat_month: str) -> list[dict]:
+    items = []
+    for row in repo.ebay_unmatched_breakdown(connection, stat_month):
+        item = _unmatched_item(
+            "ebay",
+            "EBAY_BRAND",
+            str(row.get("match_key") or ""),
+            str(row.get("reason") or "RULE_MISSING"),
+        )
+        item["sourceRows"] = int(row.get("source_rows") or 0)
+        item["grossProfit"] = _decimal(row.get("gross_profit"))
+        item["netSalesAmount"] = _decimal(row.get("net_sales_amount"))
+        item["sampleSku"] = row.get("sample_sku") or None
+        # The whitespace case is the one reason eBay still counts the row
+        # under a blank-looking owner instead of 未分配.
+        item["countsInRanking"] = item["reason"] != "OWNER_WHITESPACE"
+        items.append(item)
+    return items
+
+
 def owner_rule_summary(platform: str, stat_month: str) -> dict:
     rows = repo.owner_rule_summary(platform, stat_month)
     return {"platform": platform, "stat_month": stat_month, "items": [_json_ready(row) for row in rows]}
@@ -518,33 +731,61 @@ def _amazon_store_rules(
     return result
 
 
-def _amazon_principal(
-    row: dict,
-    rules: dict[tuple[str, str, str], str],
-    store_rules: dict[str, str] | None = None,
-) -> tuple[str, bool, bool]:
+def _amazon_match_target(row: dict) -> tuple[str, str] | None:
+    """Resolve which rule dimension and key one Amazon profit row matches on.
+
+    ``None`` means the row carries no store name at all, so it is out of
+    scope for owner matching. Dimension ``EU_UK`` needs no key: those stores
+    have a fixed owner. Keeping this in one place means the ranking ETL and
+    the unmatched diagnostics can never compute the key differently.
+    """
     store_name = normalize_text(row.get("store_name"))
-    local_sku = normalize_text(row.get("local_sku")).upper()
     if not store_name:
-        return UNASSIGNED, False, True
+        return None
+    local_sku = normalize_text(row.get("local_sku")).upper()
 
     if store_name.startswith("EU-"):
         if store_name.upper().endswith("-UK"):
-            return EU_UK_FIXED_OWNER, True, False
+            return "EU_UK", ""
         if local_sku.startswith("OTH-"):
-            key = _sku_segment(local_sku, 1)
-            return rules.get(("EU", "OTH_CODE", key), UNASSIGNED), True, False
-        return rules.get(("EU", "BRAND", _sku_segment(local_sku, 0)), UNASSIGNED), True, False
+            return "OTH_CODE", _sku_segment(local_sku, 1)
+        return "BRAND", _sku_segment(local_sku, 0)
 
-    if store_rules is None:
-        store_rules = _amazon_store_rules(rules)
-    store_key = _store_segment(store_name)
+    return "STORE", _store_segment(store_name)
+
+
+def _amazon_store_owner(
+    store_key: str, store_rules: dict[str, str]
+) -> str | None:
     # Prefer the exact store configured for the selected month. "重庆茁凯"
     # historically shared the "邱存帅" rule, but newer owner files can
     # configure both rows independently. Keep that alias only as a fallback.
     principal = store_rules.get(store_key)
     if principal is None and store_key == "重庆茁凯":
         principal = store_rules.get("邱存帅")
+    return principal or None
+
+
+def _amazon_principal(
+    row: dict,
+    rules: dict[tuple[str, str, str], str],
+    store_rules: dict[str, str] | None = None,
+) -> tuple[str, bool, bool]:
+    target = _amazon_match_target(row)
+    if target is None:
+        return UNASSIGNED, False, True
+    dimension, match_key = target
+
+    if dimension == "EU_UK":
+        return EU_UK_FIXED_OWNER, True, False
+    if dimension == "OTH_CODE":
+        return rules.get(("EU", "OTH_CODE", match_key), UNASSIGNED), True, False
+    if dimension == "BRAND":
+        return rules.get(("EU", "BRAND", match_key), UNASSIGNED), True, False
+
+    if store_rules is None:
+        store_rules = _amazon_store_rules(rules)
+    principal = _amazon_store_owner(match_key, store_rules)
     if principal:
         return principal, True, False
 

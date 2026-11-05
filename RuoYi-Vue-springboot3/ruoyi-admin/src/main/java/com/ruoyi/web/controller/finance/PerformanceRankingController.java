@@ -64,6 +64,7 @@ public class PerformanceRankingController extends BaseController
             @RequestParam(defaultValue = "desc") String order,
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "100") int pageSize,
+            @RequestParam(defaultValue = "false") boolean excludeUnassigned,
             @RequestHeader(value = "X-Request-ID", required = false)
             String requestId)
     {
@@ -77,7 +78,31 @@ public class PerformanceRankingController extends BaseController
             params.put("order", order);
             params.put("page", pageNum);
             params.put("page_size", pageSize);
+            params.put("exclude_unassigned", excludeUnassigned);
             return rankingTable(pythonClient.rankings(params, requestId));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
+    /** 未匹配负责人的明细与原因；排名图表已排除未分配，这里负责解释。 */
+    @PreAuthorize("@ss.hasPermi('finance:performanceRanking:list')")
+    @GetMapping("/unmatched")
+    public AjaxResult unmatched(
+            @RequestParam(defaultValue = "combined") String platform,
+            @RequestParam(required = false) String statMonth,
+            @RequestHeader(value = "X-Request-ID", required = false)
+            String requestId)
+    {
+        try
+        {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("platform", platform);
+            params.put("stat_month", statMonth);
+            return success(data(
+                    pythonClient.rankingUnmatched(params, requestId)));
         }
         catch (Exception e)
         {

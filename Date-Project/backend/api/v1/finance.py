@@ -23,6 +23,7 @@ from backend.services.performance_service import (
     import_owner_rules,
     import_unified_owner_rules,
     list_performance_rankings,
+    performance_unmatched,
     owner_rule_summary,
     performance_months,
     refresh_performance,
@@ -392,6 +393,7 @@ def get_performance_rankings(
     order: str = Query("desc", pattern="^(desc|asc)$"),
     page: int = 1,
     page_size: int = 100,
+    exclude_unassigned: bool = False,
 ):
     return success_response(
         list_performance_rankings(
@@ -402,7 +404,20 @@ def get_performance_rankings(
             order=order,
             page=page,
             page_size=page_size,
+            exclude_unassigned=exclude_unassigned,
         ),
+        request_id=request.state.request_id,
+    )
+
+
+@router.get("/performance-unmatched")
+def get_performance_unmatched(
+    request: Request,
+    platform: str = Query("combined", pattern="^(combined|amazon|ebay)$"),
+    stat_month: str | None = Query(None, pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+):
+    return success_response(
+        performance_unmatched(platform=platform, stat_month=stat_month),
         request_id=request.state.request_id,
     )
 

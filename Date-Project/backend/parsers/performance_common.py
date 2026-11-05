@@ -15,6 +15,13 @@ STAT_MONTH_RE = re.compile(r"^20\d{2}-(0[1-9]|1[0-2])$")
 
 EU_UK_FIXED_OWNER = "吴清栩"
 
+# The single owner label for profit rows that match no rule. Shared so the
+# ranking reader, the ETL and the unmatched diagnostics cannot drift apart.
+UNASSIGNED = "未分配"
+
+# Owner cells that mean "deliberately not assigned yet".
+PENDING_OWNER_TEXTS = {"待定", "待到"}
+
 
 def normalize_text(value: Any) -> str:
     if value is None:
@@ -33,7 +40,28 @@ def normalize_text(value: Any) -> str:
 
 def normalize_principal(value: Any) -> str:
     text = normalize_text(value)
-    return "未分配" if text in {"", "待定", "待到"} else text
+    return UNASSIGNED if text in {"", *PENDING_OWNER_TEXTS} else text
+
+
+def owner_is_blank(value: Any) -> bool:
+    """True when an owner cell carries no real person for that month."""
+    return normalize_text(value) in {"", *PENDING_OWNER_TEXTS}
+
+
+def owner_is_invisible_whitespace(value: Any) -> bool:
+    """True when an owner cell looks filled but holds only blank characters.
+
+    ``str.strip()`` drops U+3000 and U+00A0, so Python reads these cells as
+    empty, while MySQL ``TRIM()`` keeps them and the eBay ranking SQL then
+    treats the cell as a real owner name. Such a rule row therefore behaves
+    differently on the two platforms and has to be fixed in the workbook.
+    """
+    if value is None:
+        return False
+    raw = str(value)
+    return raw != "" and raw.strip() == "" and (
+        "　" in raw or "\xa0" in raw
+    )
 
 
 def stat_month_from_yyyymm(yyyymm: str) -> str:

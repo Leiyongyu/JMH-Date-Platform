@@ -34,6 +34,13 @@ public class PerformancePythonClient extends PythonHttpSupport
         return get("/performance-rankings", params, requestId);
     }
 
+    /** 未匹配到负责人的明细及原因，供绩效排名页排查用。 */
+    public Map<String, Object> rankingUnmatched(
+            Map<String, ?> params, String requestId)
+    {
+        return get("/performance-unmatched", params, requestId);
+    }
+
     public Map<String, Object> salesDashboardOptions(String requestId)
     {
         return get("/sales-dashboard/options", Map.of(), requestId);
