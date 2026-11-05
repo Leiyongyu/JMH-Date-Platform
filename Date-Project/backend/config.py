@@ -110,6 +110,8 @@ class Settings:
     feishu_seller_level_table_id: str = os.getenv("FEISHU_SELLER_LEVEL_TABLE_ID", "")
     feishu_seller_level_view_id: str = os.getenv("FEISHU_SELLER_LEVEL_VIEW_ID", "")
     # 不良交易刊登表。视图筛的是当周那一批，增量同步只拉它；全量回填才不带视图。
+    # 负责人映射表（飞书多维表格，6 张数据表与「负责人划分.xlsx」的 6 个 Sheet 同名同结构）
+    feishu_owner_rule_app_token: str = os.getenv("FEISHU_OWNER_RULE_APP_TOKEN", "Y9xEbDuoVauS9MseULQcL48FnQk")
     feishu_bad_transaction_app_token: str = os.getenv(
         "FEISHU_BAD_TRANSACTION_APP_TOKEN", "UjvXbOPJTalrRKsmZKpcUjQ5nEe")
     feishu_bad_transaction_table_id: str = os.getenv(

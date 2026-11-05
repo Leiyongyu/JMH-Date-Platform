@@ -372,6 +372,28 @@ def import_unified_owner_rules(
         file_name,
         batch_id,
     )
+    return apply_unified_owner_rules(
+        parsed, batch_id, file_name, import_type="owner_rule_unified", rebuild=rebuild,
+        operator=operator, request_id=request_id, idempotency_key=idempotency_key,
+    )
+
+
+def apply_unified_owner_rules(
+    parsed: dict,
+    batch_id: str,
+    file_name: str,
+    *,
+    import_type: str,
+    rebuild: bool = True,
+    operator: str | None = None,
+    request_id: str = "",
+    idempotency_key: str | None = None,
+    only_months: set[str] | None = None,
+) -> dict:
+    """统一负责人规则入库（Excel 上传与飞书同步共用）：按月增量 upsert、记批次、重算有数据的月份。
+
+    only_months 给出时只重算其中的月份（飞书同步只重算负责人真正有变化的月份）。
+    """
     months = parsed["months"]
     started_at = datetime.now()
     with repo.performance_connection() as connection:
@@ -393,7 +415,7 @@ def import_unified_owner_rules(
             connection,
             {
                 "batch_id": batch_id,
-                "import_type": "owner_rule_unified",
+                "import_type": import_type,
                 "platform": "combined",
                 "stat_month": None,
                 "source_file_name": file_name,
@@ -426,7 +448,8 @@ def import_unified_owner_rules(
         else set()
     )
     refresh_months = [
-        month for month in months if month in available_months
+        month for month in months
+        if month in available_months and (only_months is None or month in only_months)
     ]
     refreshes = [
         refresh_performance(

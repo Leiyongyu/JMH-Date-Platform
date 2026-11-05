@@ -487,6 +487,38 @@ def upsert_refresh_run(connection: Connection, payload: dict[str, Any]) -> None:
         )
 
 
+def owner_rule_snapshot(months: list[str]) -> dict[tuple[str, str, str, str, str], str]:
+    """指定月份现有的负责人规则：(platform, stat_month, group_code, rule_type, match_key) → 负责人（空=未分配）。"""
+    if not months:
+        return {}
+    placeholders = ", ".join(["%s"] * len(months))
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT platform, stat_month, group_code, rule_type, match_key, principal_name
+            FROM dwd_performance_owner_rule WHERE stat_month IN ({placeholders})
+            """,
+            tuple(months),
+        )
+        return {(r["platform"], r["stat_month"], r["group_code"], r["rule_type"], r["match_key"]):
+                r["principal_name"] or "" for r in cursor.fetchall()}
+
+
+def latest_import_hash(import_type: str) -> str | None:
+    """某类导入最近一次成功批次的来源指纹（飞书同步用来判断内容是否有变化）。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT file_hash FROM performance_import_batch
+            WHERE import_type = %s AND status = 'completed'
+            ORDER BY completed_at DESC, started_at DESC LIMIT 1
+            """,
+            (import_type,),
+        )
+        row = cursor.fetchone()
+    return row["file_hash"] if row else None
+
+
 def insert_import_batch(connection: Connection, payload: dict[str, Any]) -> None:
     with connection.cursor() as cursor:
         cursor.execute(

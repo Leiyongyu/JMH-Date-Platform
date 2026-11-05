@@ -88,6 +88,12 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run("feishu_bad_transaction_sync", null, requestId);
     }
 
+    /** 负责人映射表从飞书多维表格同步；内容未变时 Python 直接跳过。 */
+    public Map<String, Object> runOwnerRuleFeishu(String requestId)
+    {
+        return run("owner_rule_feishu_sync", null, requestId);
+    }
+
     /** Read sanitized local credential expiry metadata; never fetch tokens or listings. */
     public Map<String, Object> ebayCredentialExpiry(String requestId)
     {

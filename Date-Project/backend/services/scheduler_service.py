@@ -23,6 +23,11 @@ from backend.services.ebay_store_listing_sync_service import (
     EbayStoreListingSyncError,
     sync_ebay_store_listings,
 )
+from backend.services.owner_rule_feishu_sync_service import (
+    TASK_CODE as OWNER_RULE_FEISHU_TASK_CODE,
+    TASK_NAME as OWNER_RULE_FEISHU_TASK_NAME,
+    sync_owner_rules_from_feishu,
+)
 from backend.services.feishu_bad_transaction_sync_service import (
     TASK_CODE as FEISHU_BAD_TRANSACTION_TASK_CODE,
     TASK_NAME as FEISHU_BAD_TRANSACTION_TASK_NAME,
@@ -165,6 +170,14 @@ TASK_SPECS: dict[str, TaskSpec] = {
             period_args_error="eBay店铺商品仅拉取当前在售列表，不接受历史月份或日期",
             lock_name=lambda ctx: "ebay:store-listing:replace",
             execute=lambda ctx: sync_ebay_store_listings(),
+        ),
+        TaskSpec(
+            code=OWNER_RULE_FEISHU_TASK_CODE,
+            name=OWNER_RULE_FEISHU_TASK_NAME,
+            period_args_error="负责人映射表按飞书当前内容整表同步（含全部月份列），不接受月份或日期参数",
+            # 与 Excel 上传共用负责人规则，同步与重算期间不允许并发
+            lock_name=lambda ctx: "performance:owner-rule:feishu",
+            execute=lambda ctx: sync_owner_rules_from_feishu(request_id=ctx.request_id),
         ),
         TaskSpec(
             code=FEISHU_BAD_TRANSACTION_TASK_CODE,

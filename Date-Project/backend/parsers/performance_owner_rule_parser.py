@@ -73,7 +73,28 @@ def parse_unified_owner_rule_excel(
         raise ValueError(
             "负责人映射表Sheet结构不正确；" + "；".join(details)
         )
+    frames = {
+        sheet_name: pd.read_excel(workbook, sheet_name=sheet_name, dtype=object)
+        for sheet_name in UNIFIED_OWNER_SHEETS
+    }
+    result = parse_unified_owner_rule_frames(frames, file_name, content, import_batch_id)
+    result["ignored_sheets"] = sorted(actual & UNIFIED_OWNER_IGNORED_SHEETS)
+    return result
 
+
+def parse_unified_owner_rule_frames(
+    frames: dict[str, pd.DataFrame],
+    file_name: str,
+    content: bytes,
+    import_batch_id: str,
+) -> dict[str, Any]:
+    """按统一负责人模板解析各表（Excel 各 Sheet 或飞书多维表格各数据表），校验规则完全一致。
+
+    content 只用于计算来源指纹（Excel 为文件字节，飞书为规范化后的表内容）。
+    """
+    missing = set(UNIFIED_OWNER_SHEETS) - set(frames)
+    if missing:
+        raise ValueError(f"负责人映射表缺少: {', '.join(sorted(missing))}")
     rules: list[dict[str, Any]] = []
     raw_rows: list[dict[str, Any]] = []
     sheet_stats: list[dict[str, Any]] = []
@@ -88,7 +109,7 @@ def parse_unified_owner_rule_excel(
         key_column,
         uppercase_key,
     ) in UNIFIED_OWNER_SHEETS.items():
-        df = pd.read_excel(workbook, sheet_name=sheet_name, dtype=object)
+        df = frames[sheet_name]
         resolved_key_column = (
             df.columns[0]
             if key_column is None and len(df.columns) > 0
@@ -214,7 +235,7 @@ def parse_unified_owner_rule_excel(
     result = _result(content, rules, raw_rows, months)
     result["month_count"] = len(months)
     result["sheet_stats"] = sheet_stats
-    result["ignored_sheets"] = sorted(actual & UNIFIED_OWNER_IGNORED_SHEETS)
+    result["ignored_sheets"] = []
     result["platform_stats"] = platform_stats
     return result
 
