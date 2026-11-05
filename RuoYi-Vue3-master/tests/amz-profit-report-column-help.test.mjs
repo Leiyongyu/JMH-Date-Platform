@@ -5,7 +5,8 @@ import vm from 'node:vm'
 import { amzProfitColumnHelp } from '../src/views/finance/amzProfitReport/columnHelp.js'
 
 const source = fs.readFileSync(new URL('../src/views/finance/amzProfitReport/index.vue', import.meta.url), 'utf8')
-const columnKeys = Array.from(source.matchAll(/\{ key: '([^']+)', label:/g), match => match[1])
+const columnsSource = source.slice(source.indexOf('const columns = ['), source.indexOf('].map(column =>'))
+const columnKeys = Array.from(columnsSource.matchAll(/\{ key: '([^']+)', label:/g), match => match[1])
 
 test('every report column has source API, table, rule and empty handling', () => {
   assert.equal(columnKeys.length, 13)
@@ -39,9 +40,30 @@ test('trend uses the supplied up/down icons with the change shown inline', () =>
   assert.doesNotMatch(source, /[↑↓]/)
 })
 
+test('page uses the reusable month-range picker and export follows the page period', () => {
+  assert.ok(source.includes("import DateRangePicker from '@/components/DateRangePicker/index.vue'"))
+  assert.equal((source.match(/<DateRangePicker v-model="period" mode="month"/g) || []).length, 1)
+  assert.doesNotMatch(source, /exportRange/)
+  assert.ok(source.includes('const [startMonth, endMonth] = period.value'))
+  assert.ok(source.includes('exportDimensions.value = [dimension.value]'))
+  assert.doesNotMatch(source, /statMonth|target_stat_month|report\.previous_month/)
+  const api = fs.readFileSync(new URL('../src/api/finance/amzProfitReport.js', import.meta.url), 'utf8')
+  assert.ok(api.includes('params: { startMonth, endMonth, dimension, currency }'))
+  assert.ok(api.includes('params: { startMonth, endMonth, dimensions, currency }'))
+})
+
+test('currency defaults to CNY and drives display, query and export', () => {
+  assert.ok(source.includes("const currency = ref('CNY')"))
+  assert.ok(source.includes('getAmzProfitReport(startMonth, endMonth, dimension.value, currency.value)'))
+  assert.ok(source.includes("exportDimensions.value.join(','), currency.value)"))
+  assert.ok(source.includes("report.value?.currency_code === 'USD' ? '$' : '¥'"))
+  assert.match(amzProfitColumnHelp.sales_amount.formula, /我的汇率/)
+  assert.match(amzProfitColumnHelp.sales_amount.formula, /不用官方汇率/)
+})
+
 test('export is a permission-gated month-range dialog', () => {
   assert.ok(source.includes("v-hasPermi=\"['finance:amzProfitReport:export']\""))
-  assert.ok(source.includes('type="monthrange"'))
+  assert.doesNotMatch(source, /type="monthrange"/)
   assert.ok(source.includes('icon-class="jmh-export"'))
   assert.ok(source.includes('icon-class="jmh-refresh"'))
   assert.doesNotMatch(source, />刷新<\/el-button>/)

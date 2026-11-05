@@ -13,7 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-/** AMZ利润报表（店铺/个人维度，USD）。数据由Python按月拉取，ERP只负责鉴权与转发。 */
+/** AMZ利润报表（组别/店铺/个人维度，CNY 或 USD）。数据由Python按月拉取，ERP只负责鉴权与转发。 */
 @RestController
 @RequestMapping("/finance/amz-profit-report")
 public class AmzProfitReportController extends BaseController
@@ -32,11 +32,21 @@ public class AmzProfitReportController extends BaseController
 
     @PreAuthorize("@ss.hasPermi('finance:amzProfitReport:list')")
     @GetMapping("/report")
-    public AjaxResult report(@RequestParam String statMonth,
+    public AjaxResult report(@RequestParam(required = false) String startMonth,
+            @RequestParam(required = false) String endMonth,
+            @RequestParam(required = false) String statMonth,
             @RequestParam(defaultValue = "STORE") String dimension,
+            @RequestParam(defaultValue = "CNY") String currency,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
-        try { return success(client.amzProfitReport(statMonth, dimension, requestId).get("data")); }
+        // statMonth 为旧的单月参数，保留兼容。
+        String start = startMonth != null && !startMonth.isBlank() ? startMonth : statMonth;
+        if (start == null || start.isBlank())
+        {
+            return error("请选择开始月份");
+        }
+        String end = endMonth != null && !endMonth.isBlank() ? endMonth : start;
+        try { return success(client.amzProfitReport(start, end, dimension, currency, requestId).get("data")); }
         catch (Exception e) { return error(e.getMessage()); }
     }
 
@@ -45,12 +55,15 @@ public class AmzProfitReportController extends BaseController
     @GetMapping("/export")
     public ResponseEntity<?> export(@RequestParam String startMonth, @RequestParam String endMonth,
             @RequestParam(defaultValue = "GROUP,STORE,OWNER") String dimensions,
+            @RequestParam(defaultValue = "CNY") String currency,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
         try
         {
-            byte[] file = client.exportAmzProfitReport(startMonth, endMonth, dimensions, requestId);
-            String filename = URLEncoder.encode("AMZ利润报表-" + startMonth + "至" + endMonth + ".xlsx",
+            byte[] file = client.exportAmzProfitReport(startMonth, endMonth, dimensions, currency, requestId);
+            String period = startMonth.equals(endMonth) ? startMonth : startMonth + "至" + endMonth;
+            String label = "USD".equalsIgnoreCase(currency) ? "美元" : "人民币";
+            String filename = URLEncoder.encode("AMZ利润报表-" + period + "-" + label + ".xlsx",
                     StandardCharsets.UTF_8).replace("+", "%20");
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename)

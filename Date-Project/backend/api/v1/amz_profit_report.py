@@ -16,6 +16,7 @@ router = APIRouter(
 )
 LOG = logging.getLogger(__name__)
 MONTH_PATTERN = r"^20\d{2}-(0[1-9]|1[0-2])$"
+CURRENCY_PATTERN = "^(CNY|USD)$"
 
 
 def run(action):
@@ -35,10 +36,16 @@ def months(limit: int = Query(24, ge=1, le=120)):
 
 @router.get("/report")
 def report(
-    stat_month: str = Query(..., pattern=MONTH_PATTERN),
+    start_month: str | None = Query(None, pattern=MONTH_PATTERN),
+    end_month: str | None = Query(None, pattern=MONTH_PATTERN),
+    stat_month: str | None = Query(None, pattern=MONTH_PATTERN, description="单月查询，兼容旧参数"),
     dimension: str = Query("STORE", pattern="^(GROUP|STORE|OWNER)$"),
+    currency: str = Query("CNY", pattern=CURRENCY_PATTERN, description="CNY 按各月 USD 我的汇率换算"),
 ):
-    return run(lambda: service.get_report(stat_month, dimension))
+    start = start_month or stat_month
+    if not start:
+        raise HTTPException(400, detail="请提供 start_month（或 stat_month）")
+    return run(lambda: service.get_report(start, dimension, end_month or start, currency))
 
 
 @router.get("/exports")
@@ -46,9 +53,10 @@ def export(
     start_month: str = Query(..., pattern=MONTH_PATTERN),
     end_month: str = Query(..., pattern=MONTH_PATTERN),
     dimensions: str = Query("GROUP,STORE,OWNER", max_length=30),
+    currency: str = Query("CNY", pattern=CURRENCY_PATTERN),
 ):
     try:
-        name, content = service.export_report(start_month, end_month, dimensions.split(","))
+        name, content = service.export_report(start_month, end_month, dimensions.split(","), currency)
     except ValueError as exc:
         raise HTTPException(400, detail=str(exc)) from exc
     except Exception as exc:

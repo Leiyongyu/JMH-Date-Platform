@@ -76,6 +76,24 @@ def order_month_rows(stat_month: str) -> list[dict[str, Any]]:
     ), stat_month)
 
 
+def usd_my_rates(months: Iterable[str]) -> dict[str, Any]:
+    """CNY per 1 USD for each month: LingXing 我的汇率 (my_rate), never rate_org."""
+    wanted = sorted(set(months))
+    if not wanted:
+        return {}
+    placeholders = ",".join(["%s"] * len(wanted))
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT rate_month,my_rate
+            FROM dim_lingxing_currency_month
+            WHERE currency_code='USD' AND rate_month IN ({placeholders})
+            """,
+            wanted,
+        )
+        return {str(row["rate_month"]): row["my_rate"] for row in cursor.fetchall()}
+
+
 def months(limit: int = 24) -> list[dict[str, Any]]:
     with db_connection() as connection, connection.cursor() as cursor:
         cursor.execute(

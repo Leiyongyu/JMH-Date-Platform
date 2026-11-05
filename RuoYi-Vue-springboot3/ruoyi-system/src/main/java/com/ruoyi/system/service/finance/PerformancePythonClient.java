@@ -56,14 +56,17 @@ public class PerformancePythonClient extends PythonHttpSupport
         return get("/amz-profit-report/months", Map.of(), requestId);
     }
 
-    public Map<String, Object> amzProfitReport(String statMonth, String dimension, String requestId)
+    public Map<String, Object> amzProfitReport(
+            String startMonth, String endMonth, String dimension, String currency, String requestId)
     {
         return get("/amz-profit-report/report",
-                Map.of("stat_month", statMonth, "dimension", dimension), requestId);
+                Map.of("start_month", startMonth, "end_month", endMonth, "dimension", dimension,
+                        "currency", currency),
+                requestId);
     }
 
     public byte[] exportAmzProfitReport(
-            String startMonth, String endMonth, String dimensions, String requestId)
+            String startMonth, String endMonth, String dimensions, String currency, String requestId)
     {
         try
         {
@@ -71,6 +74,7 @@ public class PerformancePythonClient extends PythonHttpSupport
             params.put("start_month", startMonth);
             params.put("end_month", endMonth);
             params.put("dimensions", dimensions);
+            params.put("currency", currency);
             HttpRequest request = baseRequest(
                     "/amz-profit-report/exports" + queryString(params), requestId)
                     .setHeader("Accept", EXCEL_CONTENT_TYPE)
