@@ -767,10 +767,10 @@
                 <input type="text" id="new-mc" data-legacy-only placeholder="中间码（选填）">
                 <button class="btn-add" onclick="addSku()">添加</button>
                 <button class="btn-refresh" onclick="refreshSkuList()">刷新</button>
-                <button class="btn-refresh" data-legacy-only style="background:#6c757d;" onclick="document.getElementById('sku-import-file').click()">从Excel导入</button>
-                <input type="file" id="sku-import-file" accept=".xlsx,.xlsm,.xls" style="display:none;" onchange="importSkuExcel(this)">
+                <button class="btn-refresh" style="background:#6c757d;" onclick="document.getElementById('sku-import-file').click()">上传对照表</button>
+                <input type="file" id="sku-import-file" accept=".xlsx,.xlsm" style="display:none;" onchange="importSkuExcel(this)">
             </div>
-            <div id="sku-map-hint" style="font-size:11px;color:#98a2b3;margin-bottom:8px;">导入格式：第一列SKU，第二列主OE，第三列中间码（可选）。</div>
+            <div id="sku-map-hint" style="font-size:11px;color:#98a2b3;margin-bottom:8px;">上传格式与 SKU主OE对照表 相同：A列「中间码+站点」，D列「OE号」（B、C列不读）。按中间码+站点增量覆盖：没有的新增、有的覆盖OE号、表里有但文件里没有的保留；OE号为空的行跳过。</div>
             <div class="sku-search">
                 <input type="text" id="sku-search-input" placeholder="搜索 SKU、OE 或中间码..." oninput="filterSkuList()">
             </div>
@@ -1749,11 +1749,6 @@ async function loadSkuList() {
         siteKeyMode = Boolean(data.siteKeyMode);
         document.querySelectorAll('[data-legacy-only]').forEach(el => { el.style.display = siteKeyMode ? 'none' : ''; });
         document.getElementById('new-sku').placeholder = siteKeyMode ? '中间码+站点，如 10144US' : 'SKU';
-        document.getElementById('sku-map-hint').textContent = mappingReadOnly
-            ? '当前映射不可编辑。'
-            : siteKeyMode
-                ? '可添加或编辑中间码+站点及 OE。中间码和站点由完整键自动生成；原表 B/C 列公式会保留。空 OE 可在此补充，保存后立即可查询。'
-                : '导入格式：第一列SKU，第二列主OE，第三列中间码（可选）。';
         renderSkuList(skuListData);
     } catch (e) {
         alert('加载失败: ' + e.message);
@@ -1773,7 +1768,7 @@ function renderSkuList(items) {
             <td>${esc(item.site || '')}</td>
             <td>
                 ${mappingReadOnly ? '' : `<button class="btn-edit">编辑</button>
-                ${siteKeyMode ? '' : `<button class="btn-delete">删除</button>`}`}
+                <button class="btn-delete">删除</button>`}
             </td>
         `;
         tr.querySelector('.btn-edit')?.addEventListener('click', () => editSku(item.sku, item.oe, item.middleCode || ''));
@@ -1852,15 +1847,14 @@ async function saveEditSku() {
 }
 
 async function deleteSku(sku) {
-    if (!confirm(`确定要删除 SKU "${sku}" 吗？`)) return;
+    if (!confirm(`确定要删除 "${sku}" 的 OE 映射吗？删除后该中间码+站点将查不到 OE。`)) return;
     try {
         const resp = await fetch(`${API_BASE}/api/sku/delete`, {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({sku})
         });
-        const data = await resp.json();
-        if (data.error) { alert(data.error); }
-        else { loadSkuList(); }
+        await readApiJson(resp);
+        await loadSkuList();
     } catch (e) { alert('删除失败: ' + e.message); }
 }
 
@@ -1868,14 +1862,14 @@ async function refreshSkuList() {
     try {
         const resp = await fetch(`${API_BASE}/api/sku/refresh`, {method: 'POST'});
         const data = await readApiJson(resp);
-        if (data.success) { loadSkuList(); alert('已重新加载 Excel 文件'); }
+        if (data.success) { loadSkuList(); alert('已从数据库重新加载对照表'); }
     } catch (e) { alert('刷新失败: ' + e.message); }
 }
 
 async function importSkuExcel(input) {
     const file = input.files[0];
     if (!file) return;
-    if (!confirm(`确定从 "${file.name}" 导入映射吗？\n没有的追加，有的覆盖，不会删除现有数据。`)) {
+    if (!confirm(`确定上传 "${file.name}" 吗？\n按中间码+站点增量覆盖：没有的新增，有的覆盖 OE号，不会删除现有数据。`)) {
         input.value = '';
         return;
     }
@@ -1883,13 +1877,11 @@ async function importSkuExcel(input) {
     fd.append('file', file);
     try {
         const resp = await fetch(`${API_BASE}/api/sku/import`, { method: 'POST', body: fd });
-        const data = await resp.json();
-        if (data.error) {
-            alert('导入失败: ' + data.error);
-        } else {
-            alert(`导入成功！\n读取 ${data.totalRows} 行，跳过 ${data.skippedRows} 行\n导入 ${data.imported} 条：新增 ${data.created}，覆盖 ${data.updated}`);
-            loadSkuList();
-        }
+        const data = await readApiJson(resp);
+        const skipped = (data.skipped || []).slice(0, 10).join('\n');
+        alert(`上传成功！\n读取 ${data.totalRows} 行：新增 ${data.created}，覆盖 ${data.updated}，未变 ${data.unchanged}，跳过 ${data.skippedRows}`
+            + (skipped ? `\n\n跳过的行（最多显示 10 条）：\n${skipped}` : ''));
+        loadSkuList();
     } catch (e) {
         alert('导入失败: ' + e.message);
     }

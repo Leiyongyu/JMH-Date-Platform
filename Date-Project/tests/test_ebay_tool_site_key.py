@@ -1,11 +1,12 @@
-"""Composite middle-code/site mapping and mixed-site search tests."""
+"""Composite middle-code/site mapping (database table) and mixed-site search tests."""
 from __future__ import annotations
 
-from pathlib import Path
+import base64
+from io import BytesIO
 
 import pytest
 from fastapi import HTTPException
-from openpyxl import Workbook, load_workbook
+from openpyxl import Workbook
 from openpyxl.styles import Font
 
 from backend.ebay_tool import app as tool
@@ -28,6 +29,7 @@ def options():
 
 @pytest.fixture
 def mapping(monkeypatch):
+    monkeypatch.setattr(tool, "_mapping_loaded", True)
     monkeypatch.setattr(tool, "_mapping_schema", "site_key")
     monkeypatch.setattr(tool, "_site_key_oe_map", {
         "10144US": ("10144", "us", "OE-US"),
@@ -50,30 +52,6 @@ def test_exact_site_key_lookup_and_blank_oe(mapping):
     assert any("50244US" in error and "为空" in error for error in missing)
     assert any("bad" in error and "格式" in error for error in missing)
     assert any("中间码不存在" in error for error in tool._resolve_site_key_targets(["99999US"])[2])
-
-
-def test_loader_derives_site_from_key_when_formula_caches_are_blank(monkeypatch):
-    class Sheet:
-        def iter_rows(self, *, min_row, max_row=None, max_col=None, values_only):
-            if max_row == 1:
-                return iter([("中间码+站点", "中间码", "站点", "OE号")])
-            return iter([("00123UK", None, None, "OE-UK")])
-
-    class Workbook:
-        active = Sheet()
-
-        def close(self):
-            pass
-
-    monkeypatch.setattr(tool.os.path, "exists", lambda path: True)
-    monkeypatch.setattr(tool, "load_workbook", lambda *a, **kw: Workbook())
-    monkeypatch.setattr(tool, "_mapping_schema", tool._mapping_schema)
-    monkeypatch.setattr(tool, "_site_key_oe_map", tool._site_key_oe_map)
-    monkeypatch.setattr(tool, "_sku_oe_map", tool._sku_oe_map)
-    monkeypatch.setattr(tool, "_middle_code_oe_map", tool._middle_code_oe_map)
-    monkeypatch.setattr(tool, "_custom_middle_codes", tool._custom_middle_codes)
-    tool.load_sku_oe_map()
-    assert tool._site_key_oe_map["00123UK"] == ("00123", "uk", "OE-UK")
 
 
 def test_mixed_sites_and_same_oe_keep_independent_groups(mapping, monkeypatch):
@@ -122,7 +100,7 @@ def test_unmatched_input_does_not_fall_back_to_raw_oe(mapping):
         ))
 
 
-# 测试用固定映射表，不依赖业务人员会持续编辑的真实 SKU主OE对照表.xlsx。
+# 测试用固定映射表，不依赖业务人员会持续编辑的真实 SKU主OE对照表.xlsx 或数据库。
 SAMPLE_ROWS = [
     ("10144US", "7L6616403B"),
     ("10144UK", "7L6616403B-UK"),
@@ -133,110 +111,180 @@ SAMPLE_ROWS = [
 ]
 
 
-def _write_sample_workbook(path: Path) -> Path:
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.append(["中间码+站点", "中间码", "站点", "OE号"])
-    for index, (key, oe) in enumerate(SAMPLE_ROWS, start=2):
-        sheet.append([key, f"=LEFT(A{index},LEN(A{index})-2)", f"=RIGHT(A{index},2)", oe])
-        sheet.cell(index, 1).font = Font(name="Arial", bold=True)
-    workbook.save(path)
-    return path
+class FakeRepo:
+    """In-memory stand-in for ebay_sku_oe_repository with the same semantics."""
+
+    def __init__(self, rows=()):
+        self.rows = {key: {"site_key": key, "middle_code": key[:-2], "site": key[-2:], "oe_no": oe,
+                           "update_by": "seed"} for key, oe in rows}
+
+    def list_mappings(self):
+        return [dict(row) for _, row in sorted(self.rows.items())]
+
+    def upsert_mappings(self, rows, operator):
+        created = updated = 0
+        for row in rows:
+            old = self.rows.get(row["site_key"])
+            if old is None:
+                created += 1
+            elif old["oe_no"] != row["oe_no"]:
+                updated += 1
+            else:
+                continue
+            self.rows[row["site_key"]] = {**row, "update_by": operator}
+        return {"created": created, "updated": updated, "unchanged": len(rows) - created - updated}
+
+    def insert_mapping(self, row, operator):
+        if row["site_key"] in self.rows:
+            return False
+        self.rows[row["site_key"]] = {**row, "update_by": operator}
+        return True
+
+    def update_mapping(self, original, row, operator):
+        if original not in self.rows:
+            return "missing"
+        if row["site_key"] != original and row["site_key"] in self.rows:
+            return "duplicate"
+        del self.rows[original]
+        self.rows[row["site_key"]] = {**row, "update_by": operator}
+        return "ok"
+
+    def delete_mapping(self, key):
+        return self.rows.pop(key, None) is not None
 
 
 def _isolate_mapping_state(monkeypatch):
-    for name in ("_site_key_oe_map", "_sku_oe_map", "_middle_code_oe_map", "_custom_middle_codes", "_mapping_schema"):
+    for name in ("_site_key_oe_map", "_sku_oe_map", "_middle_code_oe_map", "_mapping_schema", "_mapping_loaded"):
         monkeypatch.setattr(tool, name, getattr(tool, name))
 
 
 @pytest.fixture
-def sample_workbook(tmp_path, monkeypatch):
-    path = _write_sample_workbook(tmp_path / "SKU主OE对照表.xlsx")
-    monkeypatch.setattr(tool, "SKU_OE_FILE", str(path))
+def repo(monkeypatch):
+    fake = FakeRepo([(key, oe or "") for key, oe in SAMPLE_ROWS])
+    monkeypatch.setattr(tool, "sku_oe_repo", fake)
     _isolate_mapping_state(monkeypatch)
-    assert tool.load_sku_oe_map()
-    return path
+    monkeypatch.setattr(tool, "_mapping_loaded", False)
+    return fake
 
 
-def test_mapping_workbook_is_four_column_source(sample_workbook):
-    assert tool._mapping_schema == "site_key"
-    assert tool._site_key_oe_map["10144US"] == ("10144", "us", "7L6616403B")
-    assert tool._site_key_oe_map["50244US"][2] == ""
-    assert len(tool._site_key_oe_map) == len(SAMPLE_ROWS)
+def _workbook_bytes(rows, header=("中间码+站点", "中间码", "站点", "OE号")) -> bytes:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(list(header))
+    for index, (key, oe) in enumerate(rows, start=2):
+        sheet.append([key, f"=LEFT(A{index},LEN(A{index})-2)", f"=RIGHT(A{index},2)", oe])
+        sheet.cell(index, 1).font = Font(name="Arial", bold=True)
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+class Request:
+    def __init__(self, body=None, username=None):
+        self.body = body
+        self.headers = {}
+        if username:
+            encoded = base64.urlsafe_b64encode(username.encode("utf-8")).decode().rstrip("=")
+            self.headers["X-ERP-Username-B64"] = encoded
+
+    async def json(self):
+        return self.body
+
+
+class Upload:
+    def __init__(self, content, filename="SKU主OE对照表.xlsx"):
+        self.content = content
+        self.filename = filename
+
+    async def read(self):
+        return self.content
+
+
+def test_queries_read_the_database_table_lazily(repo):
+    assert tool._mapping_loaded is False
+    _targets, mapping, missing = tool._resolve_site_key_targets(["10144us", "50244US"])
+    assert tool._mapping_loaded is True
+    assert mapping == {"10144US": "7L6616403B"}
+    assert tool._site_key_oe_map["10144UK"] == ("10144", "uk", "7L6616403B-UK")
+    assert any("50244US" in error and "为空" in error for error in missing)
     listing = run_immediate(tool.api_sku_list())
-    assert listing["readOnly"] is False
-    assert listing["siteKeyMode"] is True
-    assert listing["total"] == len(tool._site_key_oe_map)
+    assert listing["siteKeyMode"] is True and listing["total"] == len(SAMPLE_ROWS)
+
+
+def test_unreadable_table_reports_migration_hint(monkeypatch):
+    _isolate_mapping_state(monkeypatch)
+    monkeypatch.setattr(tool, "_mapping_loaded", False)
+
+    class Broken:
+        def list_mappings(self):
+            raise RuntimeError("Table 'dim_ebay_sku_oe_site' doesn't exist")
+
+    monkeypatch.setattr(tool, "sku_oe_repo", Broken())
     with pytest.raises(HTTPException) as error:
-        tool._require_writable_legacy_map()
-    assert error.value.status_code == 409
+        tool._resolve_site_key_targets(["10144US"])
+    assert error.value.status_code == 503
+    assert "20261106_ebay_sku_oe_site.sql" in error.value.detail
 
 
-@pytest.fixture
-def editable_copy(sample_workbook):
-    return sample_workbook
+def test_upload_overwrites_by_site_key_and_keeps_the_rest(repo):
+    content = _workbook_bytes([
+        ("10144US", "NEW-OE"),        # overwrite
+        ("10141US", "8K0616039"),     # same value -> unchanged
+        ("99999DE", "BRAND-NEW"),     # create
+        ("10144UK", None),            # blank OE -> skipped, existing kept
+        ("bad-key", "X"),             # bad format
+        ("99999DE", "SECOND"),        # duplicate in file -> first wins
+        ("88888UK", 12345.0),         # numeric OE cell
+    ])
+    result = run_immediate(tool.api_sku_import(Request(username="张三"), file=Upload(content)))
+    assert (result["created"], result["updated"], result["unchanged"]) == (2, 1, 1)
+    assert result["totalRows"] == 7 and result["skippedRows"] == 3
+    assert any("10144UK" in item and "为空" in item for item in result["skipped"])
+    assert any("bad-key" in item and "格式" in item for item in result["skipped"])
+    assert any("99999DE" in item and "重复" in item for item in result["skipped"])
+    assert repo.rows["10144US"]["oe_no"] == "NEW-OE"
+    assert repo.rows["10144US"]["update_by"] == "张三"
+    assert repo.rows["10144UK"]["oe_no"] == "7L6616403B-UK"      # untouched
+    assert repo.rows["30532US"]["oe_no"] == "SAME-OE"            # absent from file, kept
+    assert repo.rows["99999DE"] == {"site_key": "99999DE", "middle_code": "99999", "site": "DE",
+                                    "oe_no": "BRAND-NEW", "update_by": "张三"}
+    assert repo.rows["88888UK"]["oe_no"] == "12345"
+    assert tool._resolve_site_key_targets(["99999DE"])[1] == {"99999DE": "BRAND-NEW"}   # cache reloaded
 
 
-def test_add_and_edit_preserve_four_columns_formulas_and_styles(editable_copy):
-    original = load_workbook(editable_copy)
-    original_sheet = original.active
-    original_rows = original_sheet.max_row
-    original_formula = original_sheet["B2"].value
-    original_style = original_sheet.cell(original_rows, 1).style_id
-    original.close()
-
-    tool._save_site_key_entry(None, "00999US", "NEW-OE")
-    assert tool._site_key_oe_map["00999US"] == ("00999", "us", "NEW-OE")
-    tool._save_site_key_entry("50244US", "50244US", "FILLED-OE")
-    assert tool._resolve_site_key_targets(["50244US"])[1] == {"50244US": "FILLED-OE"}
-    tool._save_site_key_entry("00999US", "00999UK", "EDITED-OE")
-    assert "00999US" not in tool._site_key_oe_map
-    assert tool._site_key_oe_map["00999UK"] == ("00999", "uk", "EDITED-OE")
-
-    saved = load_workbook(editable_copy)
-    sheet = saved.active
-    assert sheet.max_column == 4
-    assert sheet.max_row == original_rows + 1
-    assert sheet["B2"].value == original_formula
-    assert sheet["D2"].value == "7L6616403B"
-    assert sheet.cell(original_rows + 1, 1).value == "00999UK"
-    assert sheet.cell(original_rows + 1, 2).value == f"=LEFT(A{original_rows + 1},LEN(A{original_rows + 1})-2)"
-    assert sheet.cell(original_rows + 1, 3).value == f"=RIGHT(A{original_rows + 1},2)"
-    assert sheet.cell(original_rows + 1, 1).style_id == original_style
-    saved.close()
+def test_upload_rejects_wrong_header_empty_data_and_other_types(repo):
+    wrong_header = _workbook_bytes([("10144US", "X")], header=("SKU", "", "", "OE"))
+    with pytest.raises(HTTPException, match="表头应为"):
+        run_immediate(tool.api_sku_import(Request(), file=Upload(wrong_header)))
+    with pytest.raises(HTTPException, match="没有可导入"):
+        run_immediate(tool.api_sku_import(Request(), file=Upload(_workbook_bytes([("10144US", None)]))))
+    with pytest.raises(HTTPException, match="仅支持"):
+        run_immediate(tool.api_sku_import(Request(), file=Upload(b"x", "a.csv")))
+    assert repo.rows["10144US"]["oe_no"] == "7L6616403B"
 
 
-def test_duplicate_and_failed_save_leave_memory_and_file_unchanged(editable_copy, monkeypatch):
-    before = editable_copy.read_bytes()
-    in_memory = dict(tool._site_key_oe_map)
+def test_add_update_delete_write_the_table(repo):
+    result = run_immediate(tool.api_sku_add(Request({"sku": "00998us", "oe": "API-OE"}, "李四")))
+    assert result["sku"] == "00998US" and repo.rows["00998US"]["update_by"] == "李四"
     with pytest.raises(HTTPException, match="已存在"):
-        tool._save_site_key_entry(None, "10144US", "DUPLICATE")
-    assert editable_copy.read_bytes() == before
-    assert tool._site_key_oe_map == in_memory
-
-    monkeypatch.setattr(tool.os, "replace", lambda *args: (_ for _ in ()).throw(PermissionError("locked")))
-    with pytest.raises(HTTPException, match="文件可能正在被占用"):
-        tool._save_site_key_entry("50244US", "50244US", "NEW-OE")
-    assert editable_copy.read_bytes() == before
-    assert tool._site_key_oe_map == in_memory
-
-
-def test_add_update_api_and_specific_query_errors(editable_copy):
-    class Request:
-        def __init__(self, body):
-            self.body = body
-
-        async def json(self):
-            return self.body
-
-    result = run_immediate(tool.api_sku_add(Request({"sku": "00998us", "oe": "API-OE"})))
-    assert result["sku"] == "00998US"
-    result = run_immediate(tool.api_sku_update(Request({
-        "originalSku": "00998US", "sku": "00998UK", "oe": "EDIT-OE",
-    })))
-    assert result["sku"] == "00998UK"
+        run_immediate(tool.api_sku_add(Request({"sku": "00998US", "oe": "DUP"})))
+    run_immediate(tool.api_sku_update(Request({"originalSku": "00998US", "sku": "00998UK", "oe": "EDIT-OE"})))
+    assert "00998US" not in repo.rows
     assert tool._resolve_site_key_targets(["00998UK"])[1] == {"00998UK": "EDIT-OE"}
+    with pytest.raises(HTTPException, match="已存在"):
+        run_immediate(tool.api_sku_update(Request({"originalSku": "00998UK", "sku": "10144US", "oe": "X"})))
+    with pytest.raises(HTTPException, match="不存在"):
+        run_immediate(tool.api_sku_update(Request({"originalSku": "77777US", "sku": "77777US", "oe": "X"})))
+    with pytest.raises(HTTPException, match="不能为空"):
+        run_immediate(tool.api_sku_add(Request({"sku": "00997US", "oe": " "})))
+    run_immediate(tool.api_sku_delete(Request({"sku": "00998uk"})))
+    assert "00998UK" not in repo.rows
+    assert "00998UK" not in tool._site_key_oe_map
+    with pytest.raises(HTTPException, match="不存在"):
+        run_immediate(tool.api_sku_delete(Request({"sku": "00998UK"})))
 
+
+def test_specific_query_errors(repo):
     with pytest.raises(HTTPException, match="中间码不存在"):
         run_immediate(tool.api_scrape(nkw="99999US", input_type="site_key", **options()))
     with pytest.raises(HTTPException, match="对应站点没有映射"):
@@ -244,27 +292,21 @@ def test_add_update_api_and_specific_query_errors(editable_copy):
     with pytest.raises(HTTPException, match="OE 号为空"):
         run_immediate(tool.api_scrape(nkw="50244US", input_type="site_key", **options()))
 
-def test_excel_query_reads_first_column_as_site_keys(sample_workbook):
-    content = sample_workbook.read_bytes()
+
+def test_excel_query_reads_first_column_as_site_keys():
     keys, kind, total, _, _ = tool._parse_excel_keywords_from_bytes(
-        content, "SKU主OE对照表.xlsx", site_key_mode=True
+        _workbook_bytes(SAMPLE_ROWS), "SKU主OE对照表.xlsx", site_key_mode=True
     )
     assert kind == "site_key"
     assert total == len(SAMPLE_ROWS)
     assert "10141US" in keys and "10141UK" in keys
 
 
-def test_excel_endpoint_uses_site_mapping_without_manual_site(sample_workbook, monkeypatch):
-    class Upload:
-        filename = "query.xlsx"
-
-        async def read(self):
-            return sample_workbook.read_bytes()
-
+def test_excel_endpoint_uses_site_mapping_without_manual_site(repo, monkeypatch):
     received = []
     monkeypatch.setattr(tool, "_start_search_task", lambda *a, **kw: (received.append((a, kw)) or {"ok": True}))
     assert run_immediate(tool.api_scrape_file(
-        file=Upload(), input_type="site_key", **options()
+        file=Upload(_workbook_bytes(SAMPLE_ROWS), "query.xlsx"), input_type="site_key", **options()
     )) == {"ok": True}
     targets = received[0][1]["targets"]
     assert any(t["inputKey"] == "10144US" and t["site"] == "us" for t in targets)

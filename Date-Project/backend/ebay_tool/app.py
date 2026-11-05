@@ -11,6 +11,8 @@ eBay 价格抓取工具 — FastAPI 子应用
 
 from __future__ import annotations
 
+import base64
+import logging
 import os
 import re
 import tempfile
@@ -34,6 +36,10 @@ from openpyxl.utils import get_column_letter
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+from backend.repositories import ebay_sku_oe_repository as sku_oe_repo
+
+LOG = logging.getLogger(__name__)
+
 # ═══════════════════════ 凭据（环境变量）═══════════════════════
 
 CLIENT_ID = os.getenv("EBAY_CLIENT_ID", "").strip()
@@ -52,13 +58,15 @@ EBAY_SORTS = {
 }
 
 # ═══════════════════════ SKU-OE 对应关系配置 ═══════════════════════
+# 对照表存数据库 dim_ebay_sku_oe_site（中间码+站点 → OE号）。内存只缓存一份供查询，
+# 每次写库成功后整表重载。SKU主OE对照表.xlsx 只作为首次导入的数据来源，查询不再读它。
 
 SKU_OE_FILE = str(Path(__file__).resolve().parent / "SKU主OE对照表.xlsx")
 _sku_oe_map: dict[str, str] = {}
 _middle_code_oe_map: dict[str, str] = {}
-_custom_middle_codes: dict[str, str] = {}
 _site_key_oe_map: dict[str, tuple[str, str, str]] = {}
-_mapping_schema = "legacy"
+_mapping_schema = "site_key"
+_mapping_loaded = False
 _sku_oe_lock = threading.Lock()
 
 
@@ -68,153 +76,127 @@ def _split_site_key(value: str) -> tuple[str, str] | None:
     return (match.group(1), match.group(2).lower()) if match else None
 
 
-def _extract_middle_code(sku: str) -> str:
-    """从 SKU 中提取中间码：去掉第一个 '-' 前的前缀，如 HME-220292 → 220292"""
-    if not sku:
-        return ""
-    idx = sku.find("-")
-    if 0 < idx < len(sku) - 1:
-        return sku[idx + 1:]
-    return ""
-
-
 def load_sku_oe_map() -> bool:
-    """加载旧 SKU-OE 表或新的“中间码+站点”四列表。"""
-    global _sku_oe_map, _middle_code_oe_map, _custom_middle_codes
-    global _site_key_oe_map, _mapping_schema
+    """从数据库整表重载查询缓存；读库失败时保留上一份缓存并返回 False。"""
+    global _sku_oe_map, _middle_code_oe_map, _site_key_oe_map
+    global _mapping_schema, _mapping_loaded
+    try:
+        rows = sku_oe_repo.list_mappings()
+    except Exception:
+        LOG.exception("加载 eBay 中间码+站点 OE 对照表失败")
+        return False
+    site_map: dict[str, tuple[str, str, str]] = {}
+    for row in rows:
+        key = str(row.get("site_key") or "").strip().upper()
+        parts = _split_site_key(key)
+        if parts:
+            site_map[key] = (parts[0], parts[1], str(row.get("oe_no") or "").strip())
     with _sku_oe_lock:
-        try:
-            if not os.path.exists(SKU_OE_FILE):
-                _sku_oe_map = {}
-                _middle_code_oe_map = {}
-                _custom_middle_codes = {}
-                _site_key_oe_map = {}
-                _mapping_schema = "legacy"
-                return False
-
-            # 普通模式只保存实际存在的单元格；此文件的只读维度可能被格式扩到百万行。
-            wb = load_workbook(SKU_OE_FILE, read_only=False, data_only=True)
-            ws = wb.active
-            new_map: dict[str, str] = {}
-            mc_map: dict[str, str] = {}
-            custom_mc: dict[str, str] = {}
-            site_map: dict[str, tuple[str, str, str]] = {}
-
-            header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
-            is_site_key = bool(
-                header_row and len(header_row) >= 4
-                and "中间码" in str(header_row[0] or "")
-                and "站点" in str(header_row[0] or "")
-                and "OE" in str(header_row[3] or "").upper()
-            )
-            if is_site_key:
-                for row in ws.iter_rows(min_row=2, max_col=4, values_only=True):
-                    if not row[0]:
-                        continue
-                    key = str(row[0]).strip().upper()
-                    parts = _split_site_key(key)
-                    oe = str(row[3]).strip() if row[3] is not None else ""
-                    if not parts:
-                        continue
-                    middle, site = parts
-                    if key in site_map:
-                        raise ValueError(f"映射键重复：{key}")
-                    site_map[key] = (middle, site, oe)
-                if not site_map:
-                    raise ValueError("四列表没有有效的中间码+站点键")
-                wb.close()
-                _site_key_oe_map = site_map
-                _sku_oe_map = {key: item[2] for key, item in site_map.items() if item[2]}
-                _middle_code_oe_map = {}
-                _custom_middle_codes = {}
-                _mapping_schema = "site_key"
-                return True
-
-            has_mc_col = (
-                header_row
-                and len(header_row) > 2
-                and header_row[2]
-                and "中间码" in str(header_row[2])
-            )
-
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                if row[0] and row[1]:
-                    sku = str(row[0]).strip()
-                    oe = str(row[1]).strip()
-                    if sku and oe:
-                        new_map[sku] = oe
-                        auto_mc = _extract_middle_code(sku)
-                        if has_mc_col and len(row) > 2 and row[2]:
-                            mc = str(row[2]).strip()
-                            if mc and mc.upper() != (auto_mc or "").upper():
-                                custom_mc[sku] = mc
-                        else:
-                            mc = auto_mc
-                        if mc:
-                            mc_map[mc.upper()] = oe
-
-            wb.close()
-            _sku_oe_map = new_map
-            _middle_code_oe_map = mc_map
-            _custom_middle_codes = custom_mc
-            _site_key_oe_map = {}
-            _mapping_schema = "legacy"
-            return True
-        except Exception as e:
-            print(f"加载 SKU-OE 对应表失败: {e}")
-            return False
+        _site_key_oe_map = site_map
+        _sku_oe_map = {key: item[2] for key, item in site_map.items() if item[2]}
+        _middle_code_oe_map = {}
+        _mapping_schema = "site_key"
+        _mapping_loaded = True
+    return True
 
 
-def save_sku_oe_map() -> bool:
-    """保存 SKU-OE 对应关系到 Excel 文件（含中间码列）"""
-    global _sku_oe_map
-    with _sku_oe_lock:
-        if _mapping_schema == "site_key":
-            return False  # 不用旧三列写法覆盖用户的四列源文件。
-        try:
-            wb = Workbook()
-            ws = wb.active
-            ws.append(["SKU", "主OE", "中间码"])
-            for sku, oe in sorted(_sku_oe_map.items()):
-                mc = _custom_middle_codes.get(sku) or _extract_middle_code(sku)
-                ws.append([sku, oe, mc])
-            ws.column_dimensions["A"].width = 15
-            ws.column_dimensions["B"].width = 25
-            ws.column_dimensions["C"].width = 15
-            wb.save(SKU_OE_FILE)
-            wb.close()
-            _reload_middle_code_map()
-            return True
-        except Exception as e:
-            print(f"保存 SKU-OE 对应表失败: {e}")
-            return False
+def _ensure_mapping_loaded() -> None:
+    if not _mapping_loaded and not load_sku_oe_map():
+        raise HTTPException(
+            status_code=503,
+            detail="OE 对照表读取失败，请确认已执行迁移 20261106_ebay_sku_oe_site.sql 并检查服务日志",
+        )
 
 
-def _reload_middle_code_map() -> None:
-    """重建中间码映射。调用方需已持有 _sku_oe_lock"""
-    global _middle_code_oe_map
-    mc_map: dict[str, str] = {}
-    for sku, oe in _sku_oe_map.items():
-        mc = _custom_middle_codes.get(sku) or _extract_middle_code(sku)
-        if mc:
-            mc_map[mc.upper()] = oe
-    _middle_code_oe_map = mc_map
+def _mapping_row(key: str, oe: str) -> dict[str, str]:
+    key = str(key or "").strip().upper()
+    oe = str(oe or "").strip()
+    parts = _split_site_key(key)
+    if not parts:
+        raise HTTPException(status_code=400, detail="中间码+站点格式错误，应如 10144US、10144UK、10144DE")
+    if not oe:
+        raise HTTPException(status_code=400, detail="OE 号不能为空")
+    if oe.startswith("="):
+        raise HTTPException(status_code=400, detail="OE 号不能以 = 开头")
+    if len(key) > 40 or len(oe) > 255:
+        raise HTTPException(status_code=400, detail="中间码+站点最长 40 位，OE 号最长 255 位")
+    return {"site_key": key, "middle_code": parts[0], "site": parts[1].upper(), "oe_no": oe}
+
+
+def _cell_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return str(value).strip()
+
+
+def parse_site_key_workbook(content: bytes) -> dict:
+    """解析与原对照表同结构的四列 Excel：A 列中间码+站点，D 列 OE号；B/C 公式列不读。
+
+    OE 为空的行跳过（不会清空库里已有的 OE）；同一键在文件里出现多次时以第一次为准。
+    """
+    # 普通模式只读实际存在的单元格；只读模式的维度可能被格式扩到百万行。
+    wb = load_workbook(BytesIO(content), read_only=False, data_only=True)
+    try:
+        ws = wb.active
+        if ws is None:
+            raise ValueError("Excel 文件没有工作表")
+        header = next(ws.iter_rows(min_row=1, max_row=1, max_col=4, values_only=True), None) or ()
+        first = _cell_text(header[0] if len(header) > 0 else "")
+        fourth = _cell_text(header[3] if len(header) > 3 else "").upper()
+        if not ("中间码" in first and "站点" in first and "OE" in fourth):
+            raise ValueError("表头应为：A1「中间码+站点」、D1「OE号」，与 SKU主OE对照表 相同")
+        rows: list[dict[str, str]] = []
+        skipped: list[str] = []
+        seen: dict[str, int] = {}
+        total = 0
+        for index, row in enumerate(ws.iter_rows(min_row=2, max_col=4, values_only=True), start=2):
+            raw = _cell_text(row[0] if row else None)
+            if not raw:
+                continue
+            total += 1
+            key = raw.upper()
+            oe = _cell_text(row[3] if len(row) > 3 else None)
+            if not _split_site_key(key):
+                skipped.append(f"第{index}行 {raw}：格式应为中间码+DE/UK/US")
+            elif not oe or oe.startswith("="):
+                skipped.append(f"第{index}行 {key}：OE号为空，未修改")
+            elif key in seen:
+                skipped.append(f"第{index}行 {key}：与第{seen[key]}行重复，以第{seen[key]}行为准")
+            elif len(key) > 40 or len(oe) > 255:
+                skipped.append(f"第{index}行 {key}：中间码+站点超过 40 位或 OE号超过 255 位")
+            else:
+                seen[key] = index
+                rows.append(_mapping_row(key, oe))
+    finally:
+        wb.close()
+    return {"rows": rows, "totalRows": total, "skipped": skipped}
+
+
+def import_site_key_workbook(content: bytes, operator: str) -> dict:
+    """按中间码+站点增量覆盖：没有的新增、有的覆盖 OE号、文件里没有的保留。"""
+    parsed = parse_site_key_workbook(content)
+    if not parsed["rows"]:
+        raise ValueError("Excel 中没有可导入的中间码+站点数据")
+    counts = sku_oe_repo.upsert_mappings(parsed["rows"], operator)
+    load_sku_oe_map()
+    return {
+        "totalRows": parsed["totalRows"],
+        "imported": len(parsed["rows"]),
+        "skippedRows": len(parsed["skipped"]),
+        "skipped": parsed["skipped"][:100],
+        **counts,
+    }
 
 
 def get_oe_by_sku(sku: str) -> str | None:
-    """通过 SKU 或中间码查找 OE"""
+    """通过中间码+站点查找 OE"""
     if not sku:
         return None
-    key = sku.strip()
-    if _mapping_schema == "site_key":
-        return (_site_key_oe_map.get(key.upper()) or ("", "", ""))[2] or None
-    oe = _sku_oe_map.get(key)
-    if oe:
-        return oe
-    return _middle_code_oe_map.get(key.upper())
+    _ensure_mapping_loaded()
+    return (_site_key_oe_map.get(sku.strip().upper()) or ("", "", ""))[2] or None
 
-
-load_sku_oe_map()
 
 # ── eBay 站点配置 ──
 SITES: dict[str, dict] = {
@@ -951,6 +933,8 @@ def _resolve_oe_list(
     oe_list: list[str] = []
     sku_mapping: dict[str, str] = {}
     not_found_skus: list[str] = []
+    if input_type != "oe":
+        _ensure_mapping_loaded()
 
     if input_type == "oe":
         oe_list = input_list
@@ -988,6 +972,7 @@ def _resolve_site_key_targets(
     targets: list[dict[str, str]] = []
     mapping: dict[str, str] = {}
     not_found: list[str] = []
+    _ensure_mapping_loaded()
     with _sku_oe_lock:
         if _mapping_schema != "site_key":
             raise HTTPException(status_code=400, detail="当前对照表不是“中间码+站点”四列格式，请刷新映射表")
@@ -1339,220 +1324,72 @@ async def api_check():
 
 @router.get("/api/sku/list")
 async def api_sku_list():
+    _ensure_mapping_loaded()
     with _sku_oe_lock:
-        if _mapping_schema == "site_key":
-            items = [
-                {"sku": key, "oe": oe, "middleCode": middle, "site": site.upper()}
-                for key, (middle, site, oe) in sorted(_site_key_oe_map.items())
-            ]
-        else:
-            items = [
-                {
-                    "sku": sku,
-                    "oe": oe,
-                    "middleCode": _custom_middle_codes.get(sku)
-                    or _extract_middle_code(sku),
-                }
-                for sku, oe in sorted(_sku_oe_map.items())
-            ]
-    return {"items": items, "total": len(items), "readOnly": False,
-            "siteKeyMode": _mapping_schema == "site_key"}
+        items = [
+            {"sku": key, "oe": oe, "middleCode": middle, "site": site.upper()}
+            for key, (middle, site, oe) in sorted(_site_key_oe_map.items())
+        ]
+    return {"items": items, "total": len(items), "readOnly": False, "siteKeyMode": True}
 
 
-def _save_site_key_entry(original_key: str | None, key: str, oe: str) -> None:
-    """保留四列表和现有公式；文件保存成功后才更新查询用的内存映射。"""
-    global _site_key_oe_map, _sku_oe_map
-    parts = _split_site_key(key)
-    if not parts:
-        raise HTTPException(status_code=400, detail="中间码+站点格式错误，应如 10144US、10144UK、10144DE")
-    if not oe:
-        raise HTTPException(status_code=400, detail="OE 号不能为空")
-    if oe.startswith("="):
-        raise HTTPException(status_code=400, detail="OE 号不能以 = 开头")
-    with _sku_oe_lock:
-        if _mapping_schema != "site_key":
-            raise HTTPException(status_code=409, detail="当前不是中间码+站点四列表，请刷新映射表")
-        wb = None
-        temp_path = None
+def _operator(request: object) -> str:
+    """ERP 代理传来的用户名（Base64URL）；离线调用或缺失时记为 unknown。"""
+    headers = getattr(request, "headers", None) or {}
+    encoded = str(headers.get("X-ERP-Username-B64", "") or "").strip()
+    if encoded:
         try:
-            source_stat = os.stat(SKU_OE_FILE)
-            wb = load_workbook(SKU_OE_FILE)
-            ws = wb.active
-            headers = [ws.cell(1, col).value for col in range(1, 5)]
-            if not ("中间码" in str(headers[0] or "") and "站点" in str(headers[0] or "")
-                    and "OE" in str(headers[3] or "").upper()):
-                raise HTTPException(status_code=409, detail="Excel 表头已变化，请先核对四列表")
-            positions: dict[str, int] = {}
-            for row in range(2, ws.max_row + 1):
-                raw = ws.cell(row, 1).value
-                if raw is None or not str(raw).strip():
-                    continue
-                existing = str(raw).strip().upper()
-                if existing in positions:
-                    raise HTTPException(status_code=409, detail=f"Excel 中存在重复映射键：{existing}")
-                positions[existing] = row
-            if original_key is None:
-                if key in positions:
-                    raise HTTPException(status_code=409, detail=f"中间码+站点 {key} 已存在，请使用编辑")
-                row = ws.max_row + 1
-                for col in range(1, 5):
-                    ws.cell(row, col)._style = copy(ws.cell(row - 1, col)._style)
-                ws.cell(row, 2, f"=LEFT(A{row},LEN(A{row})-2)")
-                ws.cell(row, 3, f"=RIGHT(A{row},2)")
-            else:
-                row = positions.get(original_key)
-                if row is None:
-                    raise HTTPException(status_code=409, detail=f"原映射 {original_key} 不存在，请刷新后重试")
-                if key != original_key and key in positions:
-                    raise HTTPException(status_code=409, detail=f"中间码+站点 {key} 已存在")
-            ws.cell(row, 1, key)
-            ws.cell(row, 4, oe)
-            updated: dict[str, tuple[str, str, str]] = {}
-            for data_row in range(2, ws.max_row + 1):
-                raw_key = ws.cell(data_row, 1).value
-                if raw_key is None or not str(raw_key).strip():
-                    continue
-                normalized = str(raw_key).strip().upper()
-                row_parts = _split_site_key(normalized)
-                if row_parts:
-                    raw_oe = ws.cell(data_row, 4).value
-                    updated[normalized] = (row_parts[0], row_parts[1], str(raw_oe).strip() if raw_oe is not None else "")
-            # 同目录临时文件 + 原子替换，避免保存失败时损坏源文件或污染内存。
-            fd, temp_path = tempfile.mkstemp(prefix="sku-oe-", suffix=".xlsx", dir=str(Path(SKU_OE_FILE).parent))
-            os.close(fd)
-            wb.save(temp_path)
-            wb.close()
-            wb = None
-            current_stat = os.stat(SKU_OE_FILE)
-            if (current_stat.st_mtime_ns, current_stat.st_size) != (source_stat.st_mtime_ns, source_stat.st_size):
-                raise HTTPException(status_code=409, detail="Excel 文件保存期间被其他程序修改，请刷新后重试")
-            os.replace(temp_path, SKU_OE_FILE)
-            temp_path = None
-        except HTTPException:
-            raise
-        except (OSError, PermissionError) as exc:
-            raise HTTPException(status_code=500, detail=f"保存 Excel 失败，文件可能正在被占用：{exc}") from exc
-        finally:
-            if wb is not None:
-                wb.close()
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
-        _site_key_oe_map = updated
-        _sku_oe_map = {item_key: item[2] for item_key, item in updated.items() if item[2]}
+            name = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8").strip()
+            if name:
+                return name[:64]
+        except Exception:
+            pass
+    user_id = str(headers.get("X-ERP-User-ID", "") or "").strip()
+    return f"user:{user_id}"[:64] if user_id else "unknown"
 
 
-def _require_writable_legacy_map() -> None:
-    if _mapping_schema == "site_key":
-        raise HTTPException(
-            status_code=409,
-            detail="当前为“中间码+站点”四列表；删除和整表导入暂不支持，请使用新增或编辑",
-        )
+async def _json_body(request: Request) -> dict:
+    data = await request.json()
+    if not data:
+        raise HTTPException(status_code=400, detail="缺少数据")
+    return data
 
 
 @router.post("/api/sku/add")
 async def api_sku_add(request: Request):
-    data = await request.json()
-    if not data:
-        raise HTTPException(status_code=400, detail="缺少数据")
-    if _mapping_schema == "site_key":
-        key = str(data.get("sku") or "").strip().upper()
-        oe = str(data.get("oe") or "").strip()
-        _save_site_key_entry(None, key, oe)
-        return {"success": True, "sku": key, "oe": oe}
-
-    sku = data.get("sku", "").strip()
-    oe = data.get("oe", "").strip()
-    middle_code = data.get("middleCode", "").strip()
-
-    if not sku or not oe:
-        raise HTTPException(status_code=400, detail="SKU 和 OE 都不能为空")
-
-    with _sku_oe_lock:
-        if sku in _sku_oe_map:
-            raise HTTPException(
-                status_code=400, detail=f"SKU '{sku}' 已存在"
-            )
-        _sku_oe_map[sku] = oe
-        if middle_code:
-            _custom_middle_codes[sku] = middle_code
-
-    if save_sku_oe_map():
-        return {"success": True, "sku": sku, "oe": oe, "middleCode": middle_code}
-    else:
-        with _sku_oe_lock:
-            _sku_oe_map.pop(sku, None)
-            _custom_middle_codes.pop(sku, None)
-        raise HTTPException(status_code=500, detail="保存到 Excel 文件失败")
+    data = await _json_body(request)
+    row = _mapping_row(data.get("sku"), data.get("oe"))
+    if not sku_oe_repo.insert_mapping(row, _operator(request)):
+        raise HTTPException(status_code=409, detail=f"中间码+站点 {row['site_key']} 已存在，请使用编辑")
+    load_sku_oe_map()
+    return {"success": True, "sku": row["site_key"], "oe": row["oe_no"]}
 
 
 @router.post("/api/sku/update")
 async def api_sku_update(request: Request):
-    data = await request.json()
-    if not data:
-        raise HTTPException(status_code=400, detail="缺少数据")
-    if _mapping_schema == "site_key":
-        original = str(data.get("originalSku") or data.get("sku") or "").strip().upper()
-        key = str(data.get("sku") or "").strip().upper()
-        oe = str(data.get("oe") or "").strip()
-        _save_site_key_entry(original, key, oe)
-        return {"success": True, "sku": key, "oe": oe}
-
-    sku = data.get("sku", "").strip()
-    oe = data.get("oe", "").strip()
-    middle_code = data.get("middleCode", "").strip()
-
-    if not sku or not oe:
-        raise HTTPException(status_code=400, detail="SKU 和 OE 都不能为空")
-
-    with _sku_oe_lock:
-        if sku not in _sku_oe_map:
-            raise HTTPException(
-                status_code=400, detail=f"SKU '{sku}' 不存在"
-            )
-        old_oe = _sku_oe_map[sku]
-        old_mc = _custom_middle_codes.get(sku)
-        _sku_oe_map[sku] = oe
-        if middle_code:
-            _custom_middle_codes[sku] = middle_code
-        else:
-            _custom_middle_codes.pop(sku, None)
-
-    if save_sku_oe_map():
-        return {"success": True, "sku": sku, "oe": oe, "middleCode": middle_code}
-    else:
-        with _sku_oe_lock:
-            _sku_oe_map[sku] = old_oe
-            if old_mc is not None:
-                _custom_middle_codes[sku] = old_mc
-            else:
-                _custom_middle_codes.pop(sku, None)
-        raise HTTPException(status_code=500, detail="保存到 Excel 文件失败")
+    data = await _json_body(request)
+    row = _mapping_row(data.get("sku"), data.get("oe"))
+    original = str(data.get("originalSku") or row["site_key"]).strip().upper()
+    result = sku_oe_repo.update_mapping(original, row, _operator(request))
+    if result == "missing":
+        raise HTTPException(status_code=409, detail=f"原映射 {original} 不存在，请刷新后重试")
+    if result == "duplicate":
+        raise HTTPException(status_code=409, detail=f"中间码+站点 {row['site_key']} 已存在")
+    load_sku_oe_map()
+    return {"success": True, "sku": row["site_key"], "oe": row["oe_no"]}
 
 
 @router.post("/api/sku/delete")
 async def api_sku_delete(request: Request):
-    _require_writable_legacy_map()
-    data = await request.json()
-    if not data:
-        raise HTTPException(status_code=400, detail="缺少数据")
-
-    sku = data.get("sku", "").strip()
-    if not sku:
-        raise HTTPException(status_code=400, detail="缺少 SKU")
-
-    with _sku_oe_lock:
-        if sku not in _sku_oe_map:
-            raise HTTPException(
-                status_code=400, detail=f"SKU '{sku}' 不存在"
-            )
-        old_oe = _sku_oe_map.pop(sku)
-
-    if save_sku_oe_map():
-        return {"success": True, "sku": sku}
-    else:
-        with _sku_oe_lock:
-            _sku_oe_map[sku] = old_oe
-        raise HTTPException(status_code=500, detail="保存到 Excel 文件失败")
+    data = await _json_body(request)
+    key = str(data.get("sku") or "").strip().upper()
+    if not key:
+        raise HTTPException(status_code=400, detail="缺少中间码+站点")
+    if not sku_oe_repo.delete_mapping(key):
+        raise HTTPException(status_code=409, detail=f"中间码+站点 {key} 不存在，请刷新后重试")
+    LOG.info("eBay OE 对照表删除 %s by %s", key, _operator(request))
+    load_sku_oe_map()
+    return {"success": True, "sku": key}
 
 
 @router.post("/api/sku/lookup")
@@ -1560,159 +1397,47 @@ async def api_sku_lookup(request: Request):
     data = await request.json()
     if not data or "skus" not in data:
         raise HTTPException(status_code=400, detail="缺少 SKU 列表")
-
-    skus = data["skus"]
+    _ensure_mapping_loaded()
     results: list[dict] = []
     not_found: list[str] = []
-
     with _sku_oe_lock:
-        for sku in skus:
-            sku = sku.strip()
-            if sku:
-                if _mapping_schema == "site_key":
-                    entry = _site_key_oe_map.get(sku.upper())
-                    oe = entry[2] if entry else ""
-                else:
-                    oe = _sku_oe_map.get(sku) or _middle_code_oe_map.get(sku.upper())
-                if oe:
-                    result = {"sku": sku, "oe": oe}
-                    if _mapping_schema == "site_key":
-                        result["site"] = entry[1].upper()
-                    results.append(result)
-                else:
-                    not_found.append(sku)
-
-    return {
-        "found": results,
-        "not_found": not_found,
-        "total": len(results),
-    }
+        for sku in data["skus"]:
+            sku = str(sku or "").strip()
+            if not sku:
+                continue
+            entry = _site_key_oe_map.get(sku.upper())
+            if entry and entry[2]:
+                results.append({"sku": sku, "oe": entry[2], "site": entry[1].upper()})
+            else:
+                not_found.append(sku)
+    return {"found": results, "not_found": not_found, "total": len(results)}
 
 
 @router.post("/api/sku/refresh")
 async def api_sku_refresh():
     if not load_sku_oe_map():
-        raise HTTPException(status_code=500, detail="对照表重新加载失败，请检查文件、表头和重复键")
-    return {"success": True, "total": len(_site_key_oe_map) if _mapping_schema == "site_key" else len(_sku_oe_map)}
+        raise HTTPException(status_code=503, detail="对照表重新加载失败，请检查数据库连接和服务日志")
+    return {"success": True, "total": len(_site_key_oe_map)}
 
 
 @router.post("/api/sku/import")
-async def api_sku_import(file: UploadFile = File(...)):
-    """从 Excel 文件批量导入 SKU-OE 映射（覆盖式）"""
-    global _sku_oe_map
-    _require_writable_legacy_map()
-
+async def api_sku_import(request: Request, file: UploadFile = File(...)):
+    """上传与 SKU主OE对照表 同结构的 Excel，按中间码+站点增量覆盖。"""
     if not file.filename:
-        raise HTTPException(
-            status_code=400, detail="请选择要导入的 Excel 文件"
-        )
-
-    fname_lower = file.filename.lower()
-    if not (
-        fname_lower.endswith(".xlsx")
-        or fname_lower.endswith(".xlsm")
-        or fname_lower.endswith(".xls")
-    ):
-        raise HTTPException(
-            status_code=400, detail="仅支持 .xlsx、.xlsm、.xls 文件"
-        )
-
+        raise HTTPException(status_code=400, detail="请选择要导入的 Excel 文件")
+    if not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status_code=400, detail="仅支持 .xlsx、.xlsm 文件")
+    content = await file.read()
     try:
-        content = await file.read()
-        wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
-        ws = wb.active
-        if ws is None:
-            wb.close()
-            raise HTTPException(
-                status_code=400, detail="Excel 文件没有工作表"
-            )
-
-        rows = list(ws.iter_rows(min_row=1, values_only=True))
-        wb.close()
-
-        if len(rows) < 2:
-            raise HTTPException(
-                status_code=400,
-                detail="Excel 文件至少需要表头+1行数据",
-            )
-
-        header = rows[0]
-
-        def norm(v: object) -> str:
-            return re.sub(r"[\s_]", "", str(v or "")).lower()
-
-        col_sku = col_oe = -1
-        for i, h in enumerate(header):
-            n = norm(h)
-            if n in ("sku", "skuid", "skuno"):
-                col_sku = i
-            elif n in (
-                "oe",
-                "主oe",
-                "主oeno",
-                "oeno",
-                "oenumber",
-                "oenr",
-                "partnumber",
-                "partno",
-            ):
-                col_oe = i
-
-        if col_sku < 0:
-            col_sku = 0
-        if col_oe < 0:
-            col_oe = 1
-
-        new_map: dict[str, str] = {}
-        total_rows = 0
-        skipped_rows = 0
-        for row in rows[1:]:
-            total_rows += 1
-            sku = (
-                str(row[col_sku]).strip()
-                if len(row) > col_sku and row[col_sku]
-                else ""
-            )
-            oe = (
-                str(row[col_oe]).strip()
-                if len(row) > col_oe and row[col_oe]
-                else ""
-            )
-            if not sku or not oe:
-                skipped_rows += 1
-                continue
-            new_map[sku] = oe
-
-        if not new_map:
-            raise HTTPException(
-                status_code=400,
-                detail="Excel 中未读取到有效的 SKU-OE 数据",
-            )
-
-        # 增量合并：没有的追加，有的覆盖
-        with _sku_oe_lock:
-            old_skus = set(_sku_oe_map.keys())
-            new_skus = set(new_map.keys())
-            created = len(new_skus - old_skus)
-            updated = len(new_skus & old_skus)
-            _sku_oe_map.update(new_map)
-
-        save_sku_oe_map()
-
-        return {
-            "success": True,
-            "totalRows": total_rows,
-            "skippedRows": skipped_rows,
-            "imported": len(new_map),
-            "created": created,
-            "updated": updated,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"Excel 解析失败: {str(e)}"
-        )
+        result = import_site_key_workbook(content, _operator(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        LOG.exception("eBay OE 对照表导入失败")
+        raise HTTPException(status_code=400, detail=f"Excel 解析或保存失败: {exc}") from exc
+    LOG.info("eBay OE 对照表导入 %s by %s: %s", file.filename, _operator(request),
+             {k: v for k, v in result.items() if k != "skipped"})
+    return {"success": True, **result}
 
 
 @router.post("/api/export")
