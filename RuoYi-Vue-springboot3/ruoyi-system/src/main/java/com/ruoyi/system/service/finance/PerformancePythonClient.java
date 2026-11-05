@@ -55,33 +55,6 @@ public class PerformancePythonClient extends PythonHttpSupport
                 Map.of("stat_month", statMonth, "dimension", dimension), requestId);
     }
 
-    /** 运营目标与人效：year 为空时 Python 返回最新年度。 */
-    public Map<String, Object> opsTargetReport(Integer year, String requestId)
-    {
-        return get("/ops-target/report", year == null ? Map.of() : Map.of("year", year), requestId);
-    }
-
-    /** 修改某年度某部门的目标字段；部门名含 & 等字符，按路径段编码。PUT 不自动重试。 */
-    public Map<String, Object> updateOpsTarget(
-            int year, String deptCode, Map<String, Object> values, String operator, String requestId)
-    {
-        try
-        {
-            String dept = java.net.URLEncoder.encode(deptCode, StandardCharsets.UTF_8).replace("+", "%20");
-            String json = objectMapper.writeValueAsString(Map.of("values", values == null ? Map.of() : values));
-            HttpRequest request = baseRequest("/ops-target/rows/" + year + "/" + dept, requestId)
-                    .header("Content-Type", "application/json;charset=utf-8")
-                    .header("X-Erp-User", operator == null ? "" : operator)
-                    .PUT(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
-                    .build();
-            return sendJson(request, false);
-        }
-        catch (Exception e)
-        {
-            throw asRuntime(e);
-        }
-    }
-
     public byte[] exportAmzProfitReport(
             String startMonth, String endMonth, String dimensions, String requestId)
     {
