@@ -321,6 +321,18 @@ def test_cny_refuses_months_without_my_rate(monkeypatch, data):
     monkeypatch.setattr(service.repo, "usd_my_rates", lambda months: {"2026-09": Decimal("6.5")})
     report = service.get_report("2026-08", "STORE", end_month="2026-09", currency="CNY")
     assert report["previous_exchange_rate"] is None
+    assert report["previous_missing_rate"] is False    # June/July have no data: a data gap, not a rate gap
+
+
+def test_previous_period_without_rate_is_reported_apart_from_missing_data(monkeypatch, data):
+    # 2026-09 vs 2026-08: August data is there, only its 我的汇率 is missing
+    monkeypatch.setattr(service.repo, "usd_my_rates", lambda months: {"2026-09": Decimal("6.5")})
+    report = service.get_report("2026-09", "STORE", currency="CNY")
+    assert report["previous_missing_rate"] is True
+    assert report["previous_ready"] is False
+    assert report["total"]["previous"] is None and report["total"]["sales_mom"] is None
+    usd = service.get_report("2026-09", "STORE")
+    assert usd["previous_ready"] is True and usd["previous_missing_rate"] is False
     with pytest.raises(ValueError, match="currency 必须是 CNY 或 USD"):
         service.get_report("2026-09", "STORE", currency="EUR")
 

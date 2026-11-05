@@ -235,7 +235,9 @@ const notices = computed(() => {
   else if (data.missing_settlement_months.length) result.push(`${data.missing_settlement_months.join('、')} 结算数据尚未拉取，区间合计只包含已拉取的月份`)
   if (!data.order_ready) result.push(`${span} 订单利润尚未拉取，订单毛利润/订单毛利率显示--`)
   else if (data.missing_order_months.length) result.push(`${data.missing_order_months.join('、')} 订单利润尚未拉取，订单毛利润只包含已拉取的月份`)
-  if (!data.previous_ready) result.push(`上期 ${periodLabel(data.previous_start_month, data.previous_end_month)} 数据未完整拉取，环比和涨跌图标不显示`)
+  const previous = periodLabel(data.previous_start_month, data.previous_end_month)
+  if (data.previous_missing_rate) result.push(`上期 ${previous} 缺少 USD 我的汇率，按人民币无法对比，可切换美元查看`)
+  else if (!data.previous_ready) result.push(`上期 ${previous} 数据未完整拉取，环比和涨跌图标不显示`)
   if (data.target_note) result.push(data.target_note)
   return result
 })

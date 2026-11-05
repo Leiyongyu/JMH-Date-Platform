@@ -114,10 +114,10 @@ def get_report(
     targets, target_note, _missing = _range_targets(months, dim, rates)
     # Arrows and 环比 only compare against a fully pulled previous period;
     # half a period would make every metric look like a sharp rise.
-    previous_ready = (
-        prior["settlement_ready"] and not prior["missing_settlement_months"]
-        and not prior["missing_rate_months"]
-    )
+    previous_data_ready = prior["settlement_ready"] and not prior["missing_settlement_months"]
+    # Data is complete but CNY has no 我的汇率 for the previous period's last month.
+    previous_missing_rate = previous_data_ready and bool(prior["missing_rate_months"])
+    previous_ready = previous_data_ready and not previous_missing_rate
     prior_rows = prior["rows"] if previous_ready else {}
 
     keys = set(current["rows"]) | set(targets)
@@ -157,6 +157,7 @@ def get_report(
         "missing_settlement_months": current["missing_settlement_months"],
         "missing_order_months": current["missing_order_months"],
         "previous_ready": previous_ready,
+        "previous_missing_rate": previous_missing_rate,
         "excluded": current["excluded"],
         "rows": rows,
         "total": {
@@ -249,7 +250,10 @@ def _export_notes(report: dict[str, Any]) -> list[str]:
         notes.append("说明：" + "、".join(report["missing_order_months"]) + " 订单利润未拉取，订单毛利润只包含已拉取的月份")
     if report.get("previous_start_month"):
         previous = _period_label(report["previous_start_month"], report["previous_end_month"])
-        notes.append(f"说明：销售额环比与上期 {previous} 比较" + ("" if report.get("previous_ready") else "（上期未完整拉取，不计算）"))
+        if report.get("previous_missing_rate"):
+            notes.append(f"说明：上期 {previous} 缺少 USD 我的汇率，按人民币无法对比，可切换美元导出")
+        else:
+            notes.append(f"说明：销售额环比与上期 {previous} 比较" + ("" if report.get("previous_ready") else "（上期未完整拉取，不计算）"))
     if report.get("target_note"):
         notes.append("说明：" + report["target_note"])
     return notes

@@ -58,6 +58,8 @@ test('currency defaults to CNY and drives display, query and export', () => {
   assert.ok(source.includes("exportDimensions.value.join(','), currency.value)"))
   assert.ok(source.includes("report.value?.currency_code === 'USD' ? '$' : '¥'"))
   assert.match(amzProfitColumnHelp.sales_amount.formula, /我的汇率/)
+  assert.ok(source.includes('缺少 USD 我的汇率，按人民币无法对比，可切换美元查看'))
+  assert.ok(source.indexOf('data.previous_missing_rate') < source.indexOf('数据未完整拉取，环比和涨跌图标不显示'))
   assert.match(amzProfitColumnHelp.sales_amount.formula, /不用官方汇率/)
 })
 
