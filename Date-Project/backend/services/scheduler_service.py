@@ -347,6 +347,23 @@ def _prepare_run(
     return spec, context
 
 
+def _already_running_message(spec: "TaskSpec", context: TaskContext, run_id: str) -> str:
+    """重复触发时写明正在执行的是哪一次，方便用户判断是等待还是排查卡住。"""
+    base = f"{spec.name}正在执行"
+    try:
+        running = repo.running_scheduler_run(context.task_code, context.month, run_id)
+    except Exception:  # 查询失败不影响原有的拒绝逻辑
+        logger.warning("查询正在执行的任务记录失败 task=%s", context.task_code, exc_info=True)
+        running = None
+    if not running or not running.get("started_at"):
+        return base
+    started = running["started_at"]
+    minutes = max(0, int((datetime.now() - started).total_seconds() // 60))
+    month = f"{context.month} " if context.month else ""
+    return (f"{base}：{month}这次拉取于 {started:%Y-%m-%d %H:%M:%S} 开始，已执行约 {minutes} 分钟"
+            f"（run_id={running['run_id']}），请等它结束后再触发；结束后可在调度日志查看结果")
+
+
 def _execute_run(spec: "TaskSpec", context: TaskContext, run_id: str) -> dict:
     task_code = context.task_code
     month = context.month
@@ -366,7 +383,7 @@ def _execute_run(spec: "TaskSpec", context: TaskContext, run_id: str) -> dict:
         else:
             with repo.named_lock(spec.lock_name(context)) as acquired:
                 if not acquired:
-                    raise SchedulerTaskAlreadyRunning(f"{spec.name}正在执行")
+                    raise SchedulerTaskAlreadyRunning(_already_running_message(spec, context, run_id))
                 result = spec.execute(context)
         quality_issues = []
         if not weekly_snapshot_only:

@@ -4,9 +4,14 @@
 at most 7 days, so a month is fetched in weekly windows and summed. 订单利润
 (OrderProfit) is the order basis and is fetched for the whole month at once.
 All three sources are validated first and then replaced together.
+
+进度日志（logger 名 backend.services.amz_profit_report_sync_service）：开始、每个阶段开始、
+每个「时间窗口 × 店铺组」拉完、领星重试、结束（行数与耗时）都写 INFO/WARNING，
+一个月的拉取要几十分钟，运行中可以据此判断进行到哪一步。
 """
 from __future__ import annotations
 
+import logging
 import time
 from calendar import monthrange
 from collections import defaultdict
@@ -27,6 +32,7 @@ from backend.services.weekly_inventory_api import (
 )
 
 
+LOG = logging.getLogger(__name__)
 TASK_CODE = "amz_profit_report_sync"
 TASK_NAME = "AMZ利润报表数据拉取"
 SELLER_PATH = "bd/profit/statistics/open/seller/list"
@@ -72,12 +78,15 @@ def sync_amz_profit_report(
         "ods_rows": 0,
     }
     stage = "LOAD_SCOPE"
+    progress = _Progress(month, batch_id)
     try:
         sids = source_repo.amazon_seller_ids()
         if not sids:
             raise ValueError("shop_list 中没有 platform_code=10001 的有效 sid")
         api = _Api(client or LingXingClient(), sleep)
         windows = month_windows(month)
+        groups = _groups(sids)
+        progress.start(len(sids), len(windows), len(groups))
 
         common = {"stat_month": month, "currency_code": CURRENCY,
                   "sync_batch_id": batch_id, "synced_at": synced_at}
@@ -85,39 +94,49 @@ def sync_amz_profit_report(
         # OrderProfit needs only a few calls; run it first so an upstream
         # failure surfaces before the long settlement pull.
         stage = "EXTRACT_ORDER"
+        progress.stage(stage, "订单利润（整月）", len(groups))
         orders = OrderMonthAccumulator(common)
-        for group in _groups(sids):
+        for number, group in enumerate(groups, 1):
             for page in api.order_pages(_body(group, windows[0][0], windows[-1][1])):
                 for record in page:
                     orders.add(record)
+            progress.step(stage, number, len(groups), orders.records)
         metrics["order_records"] = orders.records
         order_rows = orders.rows()
         metrics["skipped_rows"] = orders.skipped
 
         stage = "EXTRACT_SELLER"
+        total_steps = len(windows) * len(groups)
+        progress.stage(stage, "利润统计-店铺（按周）", total_steps)
         seller_records = []
-        for start, end in windows:
-            for group in _groups(sids):
+        for window_no, (start, end) in enumerate(windows):
+            for group_no, group in enumerate(groups, 1):
                 for page in api.settlement_pages(SELLER_PATH, _body(group, start, end)):
                     seller_records.extend((start, record) for record in page)
+                progress.step(stage, window_no * len(groups) + group_no, total_steps, len(seller_records),
+                              f"{start}~{end}")
         metrics["seller_records"] = len(seller_records)
         seller_rows = seller_daily_rows(month, seller_records, common)
 
         # A month of MSKU-day records is ~10^5 wide dicts; fold each page into
         # the monthly rows right away instead of keeping the raw records.
         stage = "EXTRACT_MSKU"
+        progress.stage(stage, "利润统计-MSKU（按周）", total_steps)
         msku = MskuMonthAccumulator(common)
-        for start, end in windows:
-            for group in _groups(sids):
+        for window_no, (start, end) in enumerate(windows):
+            for group_no, group in enumerate(groups, 1):
                 for page in api.settlement_pages(MSKU_PATH, _body(group, start, end)):
                     for record in page:
                         msku.add(start, record)
+                progress.step(stage, window_no * len(groups) + group_no, total_steps, msku.records,
+                              f"{start}~{end}")
         metrics["msku_records"] = msku.records
         msku_rows = msku.rows()
 
         metrics["extract_rows"] = len(seller_records) + msku.records + orders.records
 
         stage = "TRANSFORM"
+        progress.stage(stage, "校验与汇总", 0)
         empty = [name for name, rows in (
             ("利润统计-店铺", seller_rows), ("利润统计-MSKU", msku_rows),
             ("订单利润", order_rows),
@@ -129,15 +148,18 @@ def sync_amz_profit_report(
         metrics["reconcile_diff_stores"] = reconcile_stores(seller_rows, msku_rows)
 
         stage = "LOAD"
+        progress.stage(stage, "整月替换写入", 0)
         stored = repo.replace_month(month, seller_rows, msku_rows, order_rows)
     except AmzProfitReportSyncError:
         raise
     except Exception as exc:
+        progress.failed(stage, exc)
         raise AmzProfitReportSyncError(
             stage, f"AMZ利润报表数据拉取失败（{stage}），原有月份数据保持不变: {exc}",
             metrics,
         ) from exc
     inserted = stored["seller_rows"] + stored["msku_rows"] + stored["order_rows"]
+    progress.finished(metrics["extract_rows"], stored)
     return {
         **metrics,
         **stored,
@@ -360,10 +382,45 @@ class _Api:
             if retryable and attempt < MAX_ATTEMPTS:
                 delay = _retry_delay(attempt, retry_after)
                 if delay is not None:
+                    LOG.warning("AMZ利润报表拉取 领星重试 path=%s offset=%s %s attempt=%s/%s 等待%.1f秒",
+                                path, body.get("offset"), detail, attempt, MAX_ATTEMPTS, delay)
                     self.sleep(delay)
                     continue
             raise RuntimeError(f"{path} 请求失败：{detail}，offset={body['offset']}")
         raise RuntimeError(f"{path} 请求失败")
+
+
+class _Progress:
+    """拉取进度日志：开始、阶段、每个窗口×店铺组、结束；不记录任何令牌或明细内容。"""
+
+    def __init__(self, month: str, batch_id: str):
+        self.month = month
+        self.batch_id = batch_id
+        self.started = time.monotonic()
+
+    def _elapsed(self) -> str:
+        return f"{time.monotonic() - self.started:.0f}秒"
+
+    def start(self, sids: int, windows: int, groups: int) -> None:
+        LOG.info("AMZ利润报表拉取开始 month=%s batch=%s 店铺sid=%s 时间窗口=%s 店铺组=%s",
+                 self.month, self.batch_id, sids, windows, groups)
+
+    def stage(self, stage: str, label: str, steps: int) -> None:
+        LOG.info("AMZ利润报表拉取 month=%s 阶段=%s（%s）%s 已用时%s", self.month, stage, label,
+                 f"共{steps}批" if steps else "", self._elapsed())
+
+    def step(self, stage: str, done: int, total: int, records: int, window: str = "") -> None:
+        LOG.info("AMZ利润报表拉取 month=%s 阶段=%s 进度%s/%s %s累计%s条 已用时%s", self.month, stage, done, total,
+                 f"窗口{window} " if window else "", records, self._elapsed())
+
+    def failed(self, stage: str, exc: Exception) -> None:
+        LOG.warning("AMZ利润报表拉取失败 month=%s batch=%s 阶段=%s 已用时%s 原因=%s", self.month, self.batch_id,
+                    stage, self._elapsed(), str(exc)[:300])
+
+    def finished(self, extract_rows: int, stored: dict[str, Any]) -> None:
+        LOG.info("AMZ利润报表拉取完成 month=%s batch=%s 领星记录=%s 写入店铺日=%s MSKU=%s 订单利润=%s 耗时%s",
+                 self.month, self.batch_id, extract_rows, stored.get("seller_rows"), stored.get("msku_rows"),
+                 stored.get("order_rows"), self._elapsed())
 
 
 def _records_and_total(response: dict) -> tuple[list[dict], int]:

@@ -1100,6 +1100,22 @@ def insert_quality_check(run_id: str, task_code: str, status: str, issues_json: 
         connection.commit()
 
 
+def running_scheduler_run(task_code: str, stat_month: str | None, exclude_run_id: str) -> dict[str, Any] | None:
+    """同一任务、同一月份最近一条仍在执行的运行记录（用于重复触发时告诉用户是哪一次在跑）。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT run_id, trigger_type, request_id, started_at
+            FROM scheduler_task_run
+            WHERE task_code = %s AND status = 'running' AND run_id <> %s
+              AND (stat_month <=> %s)
+            ORDER BY started_at DESC LIMIT 1
+            """,
+            (task_code, exclude_run_id, stat_month),
+        )
+        return cursor.fetchone()
+
+
 def get_scheduler_run(run_id: str) -> dict[str, Any] | None:
     with db_connection() as connection, connection.cursor() as cursor:
         cursor.execute(
