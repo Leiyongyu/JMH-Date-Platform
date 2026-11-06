@@ -29,6 +29,11 @@ insensitive, ':' or '=' as separator:
 Also write machine-level environment variables for the Java service.
 Requires an elevated shell.
 
+.PARAMETER EnvOnly
+Skip the .env rewrite and only set the machine environment variables. Use it
+to finish the Java half from an elevated shell after a first run already
+updated .env.
+
 .PARAMETER DryRun
 Parse and validate only. Nothing is written.
 
@@ -44,6 +49,8 @@ param(
     [string] $CredentialFile,
 
     [switch] $SetMachineEnv,
+
+    [switch] $EnvOnly,
 
     [switch] $DryRun
 )
@@ -165,11 +172,15 @@ function Set-MachineEnvironment([hashtable] $Credentials, [bool] $Apply) {
     $principal = New-Object System.Security.Principal.WindowsPrincipal($identity)
     $elevated = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $elevated) {
-        throw "-SetMachineEnv needs an elevated shell (Run as administrator)."
+        # Returning instead of throwing: a first run without elevation has
+        # already rewritten .env by this point, and throwing here would hide
+        # the remaining steps printed at the end.
+        Write-Warning 'Not an elevated shell - machine environment NOT set.'
+        return $false
     }
     if (-not $Apply) {
         Write-Step "[dry-run] would set LINGXING_APP_ID and LINGXING_APP_SECRET at machine scope"
-        return
+        return $true
     }
     [System.Environment]::SetEnvironmentVariable('LINGXING_APP_ID', $Credentials.AppId, 'Machine')
     [System.Environment]::SetEnvironmentVariable('LINGXING_APP_SECRET', $Credentials.AppSecret, 'Machine')
@@ -181,6 +192,7 @@ function Set-MachineEnvironment([hashtable] $Credentials, [bool] $Apply) {
     }
     Write-Step "verified by reading the machine scope back"
     Write-Step "NOTE: already running processes keep the old value until restarted."
+    return $true
 }
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
@@ -200,19 +212,32 @@ if ($credentials.AppId.Length -ne 16) {
 Write-Host ''
 
 Write-Host 'Python service (.env):'
-Update-DotEnv -Path $dotEnvPath -Credentials $credentials -Apply $apply
+if ($EnvOnly) {
+    Write-Step 'skipped - -EnvOnly was passed'
+}
+else {
+    Update-DotEnv -Path $dotEnvPath -Credentials $credentials -Apply $apply
+}
 Write-Host ''
 
 Write-Host 'Java service (machine environment):'
+$machineEnvOk = $true
 if ($SetMachineEnv) {
-    Set-MachineEnvironment -Credentials $credentials -Apply $apply
+    $machineEnvOk = Set-MachineEnvironment -Credentials $credentials -Apply $apply
 }
 else {
+    $machineEnvOk = $false
     Write-Step 'skipped - pass -SetMachineEnv on the machine that runs the Java service'
 }
 Write-Host ''
 
 if ($apply) {
+    if (-not $machineEnvOk) {
+        Write-Host 'STILL TO DO - the Java half. From an ELEVATED shell, in the repo root:'
+        Write-Host '  powershell -NoProfile -ExecutionPolicy Bypass -File ".\Date-Project\deploy\ops\rotate_lingxing_credentials.ps1" -CredentialFile "<path to the file>" -EnvOnly -SetMachineEnv'
+        Write-Host '  (-EnvOnly keeps it from rewriting .env a second time.)'
+        Write-Host ''
+    }
     Write-Host 'Done. Remaining steps are manual, in this order:'
     Write-Host '  1. Restart the Python service, then run, from the Date-Project folder:'
     Write-Host '       .venv\Scripts\python.exe -m backend.cli lingxing-token --refresh'
