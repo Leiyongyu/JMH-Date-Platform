@@ -118,8 +118,8 @@
           :loading="syncing" v-hasPermi="['operations:amzReplenishment:sync']">拉取AMZ最新数据</el-button>
       </el-col>
       <el-col :span="1.5">
-        <el-button type="warning" plain icon="Download" @click="handleExport"
-          v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
+        <el-button type="warning" plain icon="Download" :loading="exporting" @click="handleExport"
+          v-hasPermi="['operations:amzReplenishment:export']">{{ exporting ? '导出中…' : '导出' }}</el-button>
       </el-col>
       <el-col :span="1.5" class="profit-source-note">
         鼠标停留在列名上可查看字段的数据来源和计算规则。
@@ -324,7 +324,7 @@ import { ref, reactive, toRefs, h, resolveComponent, getCurrentInstance, compute
 import { searchEuReplenishment, refreshEuReplenishment } from '@/api/operations/amz/euReplenishment'
 import { syncAmzAll } from '@/api/operations/sync'
 import request from '@/utils/request'
-import { parseTime } from '@/utils/ruoyi'
+import { parseTime, blobValidate } from '@/utils/ruoyi'
 import { Filter, Delete, QuestionFilled } from '@element-plus/icons-vue'
 import { ElTooltip } from 'element-plus'
 import { getAmzReplenishmentFieldHelp } from '../fieldHelp'
@@ -724,7 +724,12 @@ async function handleColumnApply(keys) {
   proxy.$modal.msgSuccess('列配置已保存')
 }
 
-function handleExport() {
+// 全量导出数据量大（欧洲组约 2.7 万行），不能用默认 10 秒超时；与刷新同为 10 分钟。
+const EXPORT_TIMEOUT = 600000
+const exporting = ref(false)
+
+async function handleExport() {
+  if (exporting.value) return
   const sel = checkedRows.value.length > 0
   const body = { scope: sel ? 'SELECTED' : 'FILTERED',
     rowKeys: sel ? checkedRows.value.map(r => (r.sid||'') + '|' + (r.sellerSku||'') + '|' + (r.warehouseSku||'') + '|' + (r.warehouseName||'')) : undefined,
@@ -733,10 +738,22 @@ function handleExport() {
     body.filters = buildFilters()
     if (queryParams.value.sortField) { body.sortField = queryParams.value.sortField; body.sortOrder = queryParams.value.sortOrder || 'descending' }
   }
-  request({ url: '/operations/amz/replenishment/eu/export', method: 'post', data: body, responseType: 'blob' }).then(res => {
+  exporting.value = true
+  try {
+    const res = await request({ url: '/operations/amz/replenishment/eu/export', method: 'post', data: body,
+      responseType: 'blob', timeout: EXPORT_TIMEOUT })
+    // 后端出错（如另一次导出仍在执行）返回的是 JSON，不能当成 xlsx 保存。
+    if (!blobValidate(res)) {
+      const result = JSON.parse(await res.text())
+      proxy.$modal.msgError(result.msg || '导出失败')
+      return
+    }
     const blob = new Blob([res]); const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
     a.download = `amz_eu_replenishment_${new Date().getTime()}.xlsx`; a.click()
-  })
+    URL.revokeObjectURL(a.href)
+  } finally {
+    exporting.value = false
+  }
 }
 
 function formatCell(col, value) {

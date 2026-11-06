@@ -7,7 +7,7 @@ import java.util.*;
 import jakarta.servlet.http.HttpServletResponse;
 
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -89,7 +89,9 @@ public class UnifiedExportService
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setHeader("Content-Disposition", "attachment; filename=" +
                 java.net.URLEncoder.encode(fileName + ".xlsx", "UTF-8"));
-        Workbook wb = new XSSFWorkbook();
+        // 流式写入：内存只保留 500 行，其余写临时文件，避免数万行时整表驻留内存拖慢导出。
+        SXSSFWorkbook wb = new SXSSFWorkbook(500);
+        wb.setCompressTempFiles(true);
         Sheet sheet = wb.createSheet(fileName);
         // 表头
         CellStyle headerStyle = wb.createCellStyle();
@@ -113,8 +115,17 @@ public class UnifiedExportService
                 xr.createCell(i).setCellValue(v != null ? String.valueOf(v) : "");
             }
         }
-        OutputStream os = response.getOutputStream();
-        wb.write(os); wb.close(); os.flush();
+        try
+        {
+            OutputStream os = response.getOutputStream();
+            wb.write(os);
+            os.flush();
+        }
+        finally
+        {
+            wb.dispose();
+            wb.close();
+        }
     }
 
     // ========== 参数构建 ==========
