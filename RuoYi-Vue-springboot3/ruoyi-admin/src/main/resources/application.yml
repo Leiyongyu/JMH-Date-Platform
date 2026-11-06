@@ -166,8 +166,10 @@ lingxing:
     # 0 combines all active shops; a positive value explicitly enables shop batches.
     sid-batch-size: ${LINGXING_RESTOCK_SID_BATCH_SIZE:0}
   endpoint: ${LINGXING_ENDPOINT:http://8.137.177.25/lingxing-proxy}
-  app-id: ${LINGXING_APP_ID:ak_DBmvLSyHfhc5H}
-  app-secret: ${LINGXING_APP_SECRET:8VSwwqXgu/RtUvslYIacHQ==}
+  # 生产凭据只能通过服务器环境变量注入，与 eBay 一致：仓库里不留默认值，
+  # 否则轮换后的密钥又会进提交历史。缺失时 LingxingAuthService 直接报错。
+  app-id: ${LINGXING_APP_ID:}
+  app-secret: ${LINGXING_APP_SECRET:}
   connect-timeout: 60000
   read-timeout: 120000
   token-refresh-skew-seconds: 300

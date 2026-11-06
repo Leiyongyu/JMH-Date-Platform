@@ -23,8 +23,25 @@ public class LingxingAuthService
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * application.yml 不再为凭据保留默认值，缺失时这里给出可执行的报错；
+     * 否则空 appId 会先被当成 AES 签名密钥，报出与根因无关的签名错误。
+     */
+    private void requireCredentials()
+    {
+        if (!StringUtils.hasText(properties.getAppId())
+                || !StringUtils.hasText(properties.getAppSecret()))
+        {
+            throw new IllegalStateException(
+                    "领星凭据未配置：请在服务器环境变量中设置 LINGXING_APP_ID 与 "
+                    + "LINGXING_APP_SECRET（机器级），然后重启Java服务。"
+                    + "可用 Date-Project/deploy/ops/rotate_lingxing_credentials.ps1 写入。");
+        }
+    }
+
     public Map<String, Object> getAccessTokenResponse() throws Exception
     {
+        requireCredentials();
         Map<String, String> query = new LinkedHashMap<>();
         query.put("appId", properties.getAppId());
         query.put("appSecret", properties.getAppSecret());
@@ -33,6 +50,7 @@ public class LingxingAuthService
 
     public String getAccessToken() throws Exception
     {
+        requireCredentials();
         CachedToken token = cachedToken;
         if (token != null && token.isValid(properties.getTokenRefreshSkewSeconds()))
         {
