@@ -99,17 +99,18 @@ function Read-Credentials([string] $Path) {
             throw "$($pair[0]) contains whitespace, quotes or '#'. Clean the file and retry."
         }
     }
-    # The secret is base64. Copying it out of the LingXing console drops the
-    # trailing '=' padding easily, and the only symptom is LingXing answering
-    # "code=2001013, app authentication failed" long after the rotation looked
-    # like it succeeded - so refuse the value right here instead.
-    if ($appSecret -match '^[A-Za-z0-9+/]+={0,2}$' -and ($appSecret.Length % 4) -ne 0) {
-        $needed = 4 - ($appSecret.Length % 4)
-        throw ("AppSecret is $($appSecret.Length) characters, which is not a valid " +
-               "base64 length. It looks like $needed trailing '=' character(s) were " +
-               "lost while copying. Re-copy the whole secret from the LingXing " +
-               "console: it should be $($appSecret.Length + $needed) characters and " +
-               "end with '='.")
+    # A note, not a gate. The previous secret was base64 (24 chars ending
+    # '=='), so a length that is not a multiple of four can mean the trailing
+    # padding was lost while copying. It was verified NOT to be the cause of
+    # the 2026-11-06 failure though: padding a 43-character secret to 44 was
+    # rejected by LingXing exactly the same way, so this shape is apparently
+    # legitimate and must never block a rotation.
+    if ($appSecret -match '^[A-Za-z0-9+/]+$' -and ($appSecret.Length % 4) -ne 0) {
+        Write-Warning ("AppSecret is $($appSecret.Length) characters, not a multiple " +
+                       "of 4. If authentication fails, check the console for lost " +
+                       "trailing '=' padding - but note a padded variant was already " +
+                       "tried and rejected once, so look at IP allowlisting and " +
+                       "whether the credential is enabled before assuming truncation.")
     }
     return @{ AppId = $appId; AppSecret = $appSecret }
 }
