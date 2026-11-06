@@ -99,6 +99,18 @@ function Read-Credentials([string] $Path) {
             throw "$($pair[0]) contains whitespace, quotes or '#'. Clean the file and retry."
         }
     }
+    # The secret is base64. Copying it out of the LingXing console drops the
+    # trailing '=' padding easily, and the only symptom is LingXing answering
+    # "code=2001013, app authentication failed" long after the rotation looked
+    # like it succeeded - so refuse the value right here instead.
+    if ($appSecret -match '^[A-Za-z0-9+/]+={0,2}$' -and ($appSecret.Length % 4) -ne 0) {
+        $needed = 4 - ($appSecret.Length % 4)
+        throw ("AppSecret is $($appSecret.Length) characters, which is not a valid " +
+               "base64 length. It looks like $needed trailing '=' character(s) were " +
+               "lost while copying. Re-copy the whole secret from the LingXing " +
+               "console: it should be $($appSecret.Length + $needed) characters and " +
+               "end with '='.")
+    }
     return @{ AppId = $appId; AppSecret = $appSecret }
 }
 
