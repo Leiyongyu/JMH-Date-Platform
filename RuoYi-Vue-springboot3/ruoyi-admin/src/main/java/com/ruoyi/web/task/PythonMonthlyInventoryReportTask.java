@@ -329,8 +329,17 @@ public class PythonMonthlyInventoryReportTask
             Map<String, Object> resultData = map(data.get("result"));
             Map<String, Object> refresh = map(resultData.get("report_refresh"));
             int changedRows = integer(refresh.get("changed_rows"));
+            Object status = refresh.get("status");
+            // 补偿检查：快照已是最新（unchanged，0行）属正常结果，不能按“结果为空”判失败。
+            // 只有 Python 明确回填失败或没返回回填结果才告警；locked/no_snapshot/skipped
+            // 记为成功并在摘要写明原因，次日会再次检查。
+            if (status == null || "failed".equals(String.valueOf(status)))
+            {
+                throw new IllegalStateException("回填失败："
+                        + (status == null ? "Python未返回回填结果" : refresh.get("reason")));
+            }
 
-            OperationSyncResult result = OperationSyncResult.success(
+            OperationSyncResult result = OperationSyncResult.successAllowEmpty(
                     SALES_SNAPSHOT_SYNC_TYPE, SALES_SNAPSHOT_SYNC_NAME,
                     SALES_SNAPSHOT_API_PATH, changedRows, changedRows,
                     System.currentTimeMillis() - started);
