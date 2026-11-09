@@ -51,7 +51,11 @@ SOURCE_COLUMN_MAP = {
     "SKU状态": "sku_status",
     "Listing链接": "listing_url",
     "可用库存": "available_inventory",
-    "订单利润(￥)": "order_profit_cny",
+    # 数字酋长 2026-11 改版把表头从「订单利润(￥)」改成了「订单利润」。
+    # 用 7586 行真实数据验证过数值含义没变，仍是人民币：按人民币算利润率中位数
+    # +7.8%、P10 -12.9%、P90 +30.7%，92.2% 落在 ±50% 内；按原币算中位数会变成
+    # +60.2%、P90 +250%，不可能。所以只跟着改表头名，字段语义不动。
+    "订单利润": "order_profit_cny",
     "订单总金额": "order_total_amount_original",
     "购买数量": "purchase_quantity",
     "平台SKU数量": "platform_sku_quantity",
@@ -86,6 +90,7 @@ def import_orders(content: bytes, file_name: str, operator: str | None = None) -
     sheet = "Worksheet" if "Worksheet" in workbook.sheet_names else workbook.sheet_names[0]
     frame = pd.read_excel(workbook, sheet_name=sheet, dtype=object)
     _validate_order_template_columns(frame.columns, file_name)
+    _validate_order_amount_columns(frame, file_name)
     valid, replaceable = _prepare_order_frame(frame)
     return _persist_orders(
         valid, replaceable, batch_id, file_name, sheet, operator, len(frame)
@@ -110,6 +115,33 @@ def _validate_order_template_columns(columns, file_name: str | None = None) -> N
             f"模板应为{len(expected_columns)}列，当前为{len(actual_columns)}列，"
             f"第{mismatch_index + 1}列应为“{expected_value}”，实际为“{actual_value}”"
         )
+
+
+# 表头对了不代表数据在。2026-11-09 那份导出表头完全合规，但「订单利润」和
+# 「采购成本(¥)」两列 7956 行全空；同一天另一份导出这两列分别 100% 和 94% 有值。
+# 整列空会被静默写成 0，下游 SUM(order_profit_cny) 算出来的利润和利润率就是错的，
+# 而且回填 UPDATE 的条件是 source<>0，补不回来。所以整列空直接拒收。
+REQUIRED_NON_EMPTY_COLUMNS = ("订单利润", "采购成本(¥)")
+
+
+def _validate_order_amount_columns(frame, file_name: str | None = None) -> None:
+    empty_columns = [
+        column for column in REQUIRED_NON_EMPTY_COLUMNS
+        if column in frame.columns and _column_is_entirely_empty(frame[column])
+    ]
+    if empty_columns:
+        raise ValueError(
+            f"订单文件“{file_name or '未知文件'}”的{'、'.join(empty_columns)}整列没有数据，"
+            f"共{len(frame)}行；这两项是人民币金额，缺了会让利润和利润率算成0。"
+            f"请回数字酋长重新导出一份带这些字段的订单文件，不要用这份。"
+        )
+
+
+def _column_is_entirely_empty(series) -> bool:
+    if len(series) == 0:
+        return False
+    text = series.astype(str).str.strip()
+    return bool((series.isna() | text.isin({"", "nan", "None", "NaT"})).all())
 
 
 def _prepare_order_frame(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:

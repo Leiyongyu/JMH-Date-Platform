@@ -99,18 +99,20 @@ function Read-Credentials([string] $Path) {
             throw "$($pair[0]) contains whitespace, quotes or '#'. Clean the file and retry."
         }
     }
-    # A note, not a gate. The previous secret was base64 (24 chars ending
-    # '=='), so a length that is not a multiple of four can mean the trailing
-    # padding was lost while copying. It was verified NOT to be the cause of
-    # the 2026-11-06 failure though: padding a 43-character secret to 44 was
-    # rejected by LingXing exactly the same way, so this shape is apparently
-    # legitimate and must never block a rotation.
-    if ($appSecret -match '^[A-Za-z0-9+/]+$' -and ($appSecret.Length % 4) -ne 0) {
-        Write-Warning ("AppSecret is $($appSecret.Length) characters, not a multiple " +
-                       "of 4. If authentication fails, check the console for lost " +
-                       "trailing '=' padding - but note a padded variant was already " +
-                       "tried and rejected once, so look at IP allowlisting and " +
-                       "whether the credential is enabled before assuming truncation.")
+    # A note, not a gate. Length is NOT a reliable signal: the secret in use
+    # since 2026-11-06 is 43 characters, which is not a multiple of four, and
+    # LingXing accepts it. Do not treat an odd length as truncation.
+    #
+    # What actually broke the 2026-11-06 rotation was hand-transcribing the
+    # secret: 'l' (lower L) was typed as 'I' (capital i) and 'W' as 'w'. Three
+    # authentication attempts were burned before the right pair was found.
+    # Always use the copy button in the LingXing console and paste - never
+    # read the value off the screen and retype it.
+    if ($appSecret -match '[Il1O0]') {
+        Write-Warning ("AppSecret contains characters that look alike on screen " +
+                       "(I/l/1, O/0). Paste it from the LingXing console copy " +
+                       "button - a retyped secret fails with code 2001013, which " +
+                       "looks exactly like a wrong or disabled credential.")
     }
     return @{ AppId = $appId; AppSecret = $appSecret }
 }

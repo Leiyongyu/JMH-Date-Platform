@@ -17,7 +17,7 @@ SUM_FIELDS = (
     'forecast_return_quantity', 'forecast_return_amount',
     'chengdu_in_transit_quantity', 'chengdu_sellable_quantity',
     'overseas_in_transit_quantity', 'overseas_sellable_quantity',
-    'safety_stock_quantity', 'suggested_replenishment_quantity',
+    'pending_outbound_quantity', 'safety_stock_quantity', 'suggested_replenishment_quantity',
     'safety_stock_quantity_2', 'suggested_replenishment_quantity_2',
 )
 COMMON_FIELDS = ('product_name', 'principal_name', 'product_level', 'product_nature',

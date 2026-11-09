@@ -60,35 +60,36 @@ class EbayReplenishmentV2ExportServiceTest
     }
 
     @Test
-    void writes38ColumnsWithNumbersBlanksAndSeparateMonthlyDetails() throws Exception
+    void writes39ColumnsWithNumbersBlanksAndSeparateMonthlyDetails() throws Exception
     {
         byte[] bytes = new EbayReplenishmentV2ExportService().buildExcel(payload(), Map.of(), ALL_PERMISSIONS);
         try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes)))
         {
             assertEquals(3, workbook.getNumberOfSheets());
             var sheet = workbook.getSheet("补货2.0");
-            assertEquals(38, sheet.getRow(0).getLastCellNum());
-            assertEquals("负责人", sheet.getRow(0).getCell(37).getStringCellValue());
-            assertEquals("任雅婷", sheet.getRow(1).getCell(37).getStringCellValue());
+            assertEquals(39, sheet.getRow(0).getLastCellNum());
+            assertEquals("负责人", sheet.getRow(0).getCell(38).getStringCellValue());
+            assertEquals("任雅婷", sheet.getRow(1).getCell(38).getStringCellValue());
             assertEquals(1, sheet.getLastRowNum());
-            assertEquals("建议补货量2", sheet.getRow(0).getCell(33).getStringCellValue());
-            assertEquals("运营", sheet.getRow(0).getCell(34).getStringCellValue());
-            assertEquals("开发", sheet.getRow(0).getCell(35).getStringCellValue());
-            assertEquals("运营的完整备注超过五字", sheet.getRow(1).getCell(34).getStringCellValue());
-            assertEquals("已确认", sheet.getRow(1).getCell(36).getStringCellValue());
+            assertEquals("待出库", sheet.getRow(0).getCell(27).getStringCellValue());
+            assertEquals("建议补货量2", sheet.getRow(0).getCell(34).getStringCellValue());
+            assertEquals("运营", sheet.getRow(0).getCell(35).getStringCellValue());
+            assertEquals("开发", sheet.getRow(0).getCell(36).getStringCellValue());
+            assertEquals("运营的完整备注超过五字", sheet.getRow(1).getCell(35).getStringCellValue());
+            assertEquals("已确认", sheet.getRow(1).getCell(37).getStringCellValue());
             assertEquals("00001234567890123456", sheet.getRow(1).getCell(1).getStringCellValue());
             assertEquals(CellType.STRING, sheet.getRow(1).getCell(2).getCellType());
             assertEquals(CellType.NUMERIC, sheet.getRow(1).getCell(3).getCellType());
             var formatter = new DataFormatter(Locale.US);
-            assertEquals("开发完整备注", formatter.formatCellValue(sheet.getRow(1).getCell(35)));
+            assertEquals("开发完整备注", formatter.formatCellValue(sheet.getRow(1).getCell(36)));
             assertEquals("0", formatter.formatCellValue(sheet.getRow(1).getCell(3)));
             assertEquals("12.50%", formatter.formatCellValue(sheet.getRow(1).getCell(8)));
             assertEquals("--", sheet.getRow(1).getCell(15).getStringCellValue());
             assertEquals("刷单", sheet.getRow(1).getCell(22).getStringCellValue());
             assertEquals(12.3456, sheet.getRow(1).getCell(12).getNumericCellValue(), 0.000001);
-            assertEquals(0, sheet.getRow(1).getCell(28).getNumericCellValue());
-            assertEquals(12, sheet.getRow(1).getCell(30).getNumericCellValue());
-            assertEquals(31, sheet.getRow(1).getCell(32).getNumericCellValue());
+            assertEquals(0, sheet.getRow(1).getCell(29).getNumericCellValue());
+            assertEquals(12, sheet.getRow(1).getCell(31).getNumericCellValue());
+            assertEquals(31, sheet.getRow(1).getCell(33).getNumericCellValue());
             var monthly = workbook.getSheet("90天分段明细");
             assertEquals("2026-08", monthly.getRow(1).getCell(2).getStringCellValue());
             assertEquals("--", monthly.getRow(1).getCell(6).getStringCellValue());
@@ -106,7 +107,7 @@ class EbayReplenishmentV2ExportServiceTest
         byte[] bytes = new EbayReplenishmentV2ExportService().buildExcel(data, Map.of(), ALL_PERMISSIONS);
         try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes)))
         {
-            assertEquals(67, workbook.getSheet("补货2.0").getRow(1).getCell(29).getNumericCellValue());
+            assertEquals(67, workbook.getSheet("补货2.0").getRow(1).getCell(30).getNumericCellValue());
         }
     }
 

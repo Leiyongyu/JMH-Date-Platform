@@ -138,7 +138,7 @@
       <el-upload ref="uploadRef" drag accept=".xlsx" :auto-upload="false" :limit="1" :on-change="onFile" :on-remove="onRemove">
         <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
         <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
-        <template #tip><div class="el-upload__tip">模板不变；按平台订单号＋付款日期增量覆盖。发货状态包含“已作废”的行不导入，重传时会移除对应订单旧明细；仅“已退款”仍保留。利润取“订单利润(￥)”字段。</div></template>
+        <template #tip><div class="el-upload__tip">只接受数字酋长最新导出模板；按平台订单号＋付款日期增量覆盖。发货状态包含“已作废”的行不导入，重传时会移除对应订单旧明细；仅“已退款”仍保留。利润取“订单利润”字段（数字酋长 2026-11 起去掉了货币标注，数值仍是人民币）。</div></template>
       </el-upload>
       <template #footer><el-button @click="importVisible=false">取消</el-button><el-button type="primary" :loading="importing" @click="submitImport">导入并分析</el-button></template>
     </el-dialog>
@@ -178,7 +178,7 @@ const columnDefs = [
   { key: 'profit_amount', label: '利润', minWidth: 125, align: 'right', format: 'money' },
   {
     key: 'profit_rate', label: '利润率', width: 105, align: 'right', format: 'percentage',
-    tip: '利润率 = 当前筛选区间内“订单利润(￥)”汇总 ÷ 已支付金额 × 100%。利润和已支付金额均来自上传的订单文件。'
+    tip: '利润率 = 当前筛选区间内“订单利润”汇总 ÷ 已支付金额 × 100%。利润和已支付金额均来自上传的订单文件。'
   },
   { key: 'sold_quantity', label: '已售出', width: 95, align: 'right' },
   { key: 'chengdu_in_transit_quantity', label: '成都在途', width: 110, align: 'right', format: 'integer', tip: '实时库存，按站点和完整SKU匹配成都仓待接收数；不受付款日期影响。' },

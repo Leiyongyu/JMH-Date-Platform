@@ -229,3 +229,70 @@ def test_the_short_lived_old_column_names_get_renamed_not_duplicated():
     # 改名必须发生在补列之前，否则旧列还在、新列又被当成缺失加一遍。
     source = inspect.getsource(orders._initialize_tables)
     assert source.index("_rename_legacy_columns") < source.index("for table_name, columns in")
+
+
+# ------------------------------------------------- 数字酋长 2026-11 表头改版
+
+def test_profit_column_lost_its_currency_suffix_in_november():
+    """数字酋长 2026-11 把「订单利润(￥)」的货币标注去掉了。
+
+    用 7586 行真实导出验证过数值含义没变，还是人民币（按人民币算利润率中位数
+    +7.8%、92.2% 落在 ±50% 内；按原币算中位数 +60.2%、P90 +250%，不可能），
+    所以只跟着改表头名，order_profit_cny 的语义不动。
+    """
+    assert orders.ORDER_TEMPLATE_COLUMNS[30] == "订单利润"
+    assert orders.SOURCE_COLUMN_MAP["订单利润"] == "order_profit_cny"
+    assert "订单利润(￥)" not in orders.SOURCE_COLUMN_MAP
+
+
+def test_october_template_is_rejected_pointing_at_column_thirtyone():
+    """改版前的表头要被拒，且报错要指到第31列，不能只说"列数不对"。"""
+    stale = ["订单利润(￥)" if c == "订单利润" else c
+             for c in orders.ORDER_TEMPLATE_COLUMNS]
+    with pytest.raises(ValueError) as error:
+        orders._validate_order_template_columns(stale, "改版前模板.xlsx")
+    assert "第31列应为“订单利润”" in str(error.value)
+    assert "实际为“订单利润(￥)”" in str(error.value)
+
+
+def paid_order(number="A", profit=12.3, cost=4.5):
+    row = order(number)
+    row.update({"订单利润": profit, "采购成本(¥)": cost})
+    return row
+
+
+@pytest.mark.parametrize("blank_column", ["订单利润", "采购成本(¥)"])
+@pytest.mark.parametrize("blank_value", [None, "", "   "])
+def test_an_entirely_blank_amount_column_is_rejected(blank_column, blank_value):
+    """2026-11-09 那份导出表头全合规，却有两列 7956 行全空。
+
+    整列空会被静默写成 0，利润和利润率就错了，而回填 UPDATE 的条件是
+    source<>0，事后补不回来。所以必须在入库前拒掉。
+    """
+    frame = pd.DataFrame([paid_order("A"), paid_order("B")])
+    frame[blank_column] = blank_value
+    with pytest.raises(ValueError) as error:
+        orders._validate_order_amount_columns(frame, "缺数据.xlsx")
+    message = str(error.value)
+    assert blank_column in message
+    assert "共2行" in message
+
+
+def test_a_single_blank_cell_does_not_reject_the_file():
+    """真实导出里采购成本有约6%的空值，只有整列空才算异常。"""
+    frame = pd.DataFrame([paid_order("A"), paid_order("B", cost=None)])
+    orders._validate_order_amount_columns(frame, "正常.xlsx")
+
+
+def test_both_amount_columns_blank_are_named_together():
+    frame = pd.DataFrame([paid_order("A"), paid_order("B")])
+    frame["订单利润"] = None
+    frame["采购成本(¥)"] = None
+    with pytest.raises(ValueError, match="订单利润、采购成本"):
+        orders._validate_order_amount_columns(frame, "两列都空.xlsx")
+
+
+def test_zero_is_real_data_not_a_missing_column():
+    """利润为0的单子是真实存在的（刚好打平），不能当成缺数据。"""
+    frame = pd.DataFrame([paid_order("A", profit=0), paid_order("B", profit=0)])
+    orders._validate_order_amount_columns(frame, "全是0.xlsx")
