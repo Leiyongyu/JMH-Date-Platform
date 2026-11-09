@@ -93,27 +93,3 @@ def test_assemble_items_leaves_three_month_rates_empty_when_denominators_are_zer
     assert item["return_rate"] is None
     assert item["sell_through_ratio"] == "0.000000"
     assert item["product_level"] is None
-
-
-def test_pending_outbound_is_display_only(level_rules):
-    months = service.rolling_periods(date(2026, 8, 31))
-    base = {
-        "site": "德国", "sku": "TYT-90050-0159", "product_name": "换挡电机",
-        "sales_qty_m1": Decimal("90"), "paid_amount_m1": Decimal("900"),
-        "chengdu_in_transit_quantity": Decimal("1"), "chengdu_sellable_quantity": Decimal("2"),
-        "overseas_in_transit_quantity": Decimal("3"), "overseas_sellable_quantity": Decimal("4"),
-    }
-    lead = {("德国", "TYT-90050-0159"): Decimal("60")}
-    formulas = {level: {"safety_coefficient": Decimal("1"), "suggest_coefficient": Decimal("2")}
-                for level in ("S", "A", "B", "C")}
-    without = service._assemble_items([dict(base)], months, level_rules=level_rules,
-                                      lead_time_days=lead, formula_configs=formulas)[0]
-    locked = service._assemble_items([{**base, "pending_outbound_quantity": Decimal("25")}], months,
-                                     level_rules=level_rules, lead_time_days=lead,
-                                     formula_configs=formulas)[0]
-    assert without["pending_outbound_quantity"] is None      # source without the weekly join
-    assert locked["pending_outbound_quantity"] == "25"
-    assert without["suggested_replenishment_quantity"] is not None
-    for key in ("safety_stock_quantity", "suggested_replenishment_quantity",
-                "safety_stock_quantity_2", "suggested_replenishment_quantity_2"):
-        assert locked[key] == without[key], key

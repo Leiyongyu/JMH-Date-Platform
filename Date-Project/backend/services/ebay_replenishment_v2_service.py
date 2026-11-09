@@ -714,11 +714,6 @@ def _assemble_items(
                 "overseas_sellable_quantity": _quantity_text(
                     row.get("overseas_sellable_quantity")
                 ),
-                # 待出库（锁定量）只展示，不参与库存合计、安全库存和建议补货量。
-                "pending_outbound_quantity": (
-                    _quantity_text(row["pending_outbound_quantity"])
-                    if "pending_outbound_quantity" in row else None
-                ),
                 "safety_stock_quantity": safety_stock_quantity,
                 "suggested_replenishment_quantity": suggested_replenishment_quantity,
                 "monthly_metrics": monthly_metrics,

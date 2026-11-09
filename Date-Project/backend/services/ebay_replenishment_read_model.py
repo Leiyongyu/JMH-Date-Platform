@@ -26,7 +26,7 @@ from backend.services.ebay_inventory_shared import inventory_ctes
 from backend.services.ebay_replenishment_periods import rolling_periods, reference_today
 from backend.services.ebay_replenishment_sales_type_service import normalize_filter
 
-ENGINE_VERSION = 'rolling-read-model-v4'  # v4: 待出库（周快照锁定量）
+ENGINE_VERSION = 'rolling-read-model-v5'  # v5: 去掉 v4 的待出库字段，强制重算
 PREFIX = 'dws_ebay_replenishment_'
 NUMERIC_FIELDS = ('sales_qty_7d', 'sales_qty_15d', 'sales_qty_30d', 'sales_qty',
                   'gross_profit_amount', 'profit_rate', 'return_qty', 'return_rate',
@@ -75,10 +75,6 @@ def source_signatures(cursor, today, connection):
     inventory_signature = _table_signature(cursor, f'`{repo._source_database()}`.warehouse_inventory_detail',
         'wid,sku,quantity_receive,product_valid_num,product_onway',
         'WHERE wid IN (18674,18675,18676,18699,18700,18701,18702)')
-    # 待出库 comes from the latest completed weekly batch; a new batch is a new input.
-    cursor.execute(f'WITH {inventory_repo.weekly_snapshot_cte()} SELECT sync_batch_id,snapshot_date FROM inventory_snapshot')
-    weekly = cursor.fetchone() or {}
-    weekly_signature = [str(weekly.get('sync_batch_id') or ''), str(weekly.get('snapshot_date') or '')]
     # Hash the effective input projections, not all raw listing/rent rows. These
     # projections are also reused by the build in the same transaction.
     cursor.execute("SELECT match_key,principal_name,rule_type FROM dwd_performance_owner_rule WHERE platform='ebay' AND stat_month=%s AND rule_type='EBAY_BRAND' ORDER BY group_code,match_key",
@@ -91,7 +87,7 @@ def source_signatures(cursor, today, connection):
         forecast=repo.forecast_rules(connection=connection),
         levels=repo.list_level_rules(allow_missing=True,connection=connection),
         rent=inventory_repo.read_rent_snapshot(connection=connection))
-    signatures = [daily,inventory_signature,weekly_signature]
+    signatures = [daily,inventory_signature]
     for value in inputs.values():
         signatures.append(sorted(value.items()) if isinstance(value,dict) else value)
     return daily, _digest([today, ENGINE_VERSION, signatures]), inputs
@@ -142,18 +138,15 @@ def read_daily_rows(cursor, periods):
         SELECT d.site,d.sku,d.product_name,
           ROW_NUMBER() OVER (PARTITION BY d.site,d.sku ORDER BY latest_payment_time DESC,latest_order_id DESC) rn
         FROM {PREFIX}daily d JOIN base b ON d.site=b.site AND d.sku=b.sku
-      ), {inventory_ctes()}, {inventory_repo.weekly_pending_outbound_ctes()}
+      ), {inventory_ctes()}
       SELECT base.*,latest.product_name,
         COALESCE(i.chengdu_in_transit_quantity,0) chengdu_in_transit_quantity,
         COALESCE(i.chengdu_sellable_quantity,0) chengdu_sellable_quantity,
         COALESCE(i.overseas_in_transit_quantity,0) overseas_in_transit_quantity,
-        COALESCE(i.overseas_sellable_quantity,0) overseas_sellable_quantity,
-        COALESCE(w.pending_outbound_quantity,0) pending_outbound_quantity
+        COALESCE(i.overseas_sellable_quantity,0) overseas_sellable_quantity
       FROM base LEFT JOIN latest ON latest.site=base.site AND latest.sku=base.sku AND latest.rn=1
       LEFT JOIN inventory_summary i ON i.site COLLATE utf8mb4_unicode_ci=base.site
-        AND i.sku COLLATE utf8mb4_unicode_ci=base.sku
-      LEFT JOIN weekly_pending_outbound w ON w.site COLLATE utf8mb4_unicode_ci=base.site
-        AND w.sku COLLATE utf8mb4_unicode_ci=base.sku''', params)
+        AND i.sku COLLATE utf8mb4_unicode_ci=base.sku''', params)
     return cursor.fetchall()
 
 

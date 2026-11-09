@@ -579,11 +579,11 @@ const columnDefs = [
   },
   {
     key: 'grossProfitAmount', label: '毛利', align: 'right', width: 145, sortable: true, format: 'money', monthlyKey: 'grossProfitAmount',
-    tip: '毛利取订单数据中的“订单利润”；主值为近30天，鼠标悬停可查看近90天。'
+    tip: '毛利取订单数据中的“订单利润(￥)”；主值为近30天，鼠标悬停可查看近90天。'
   },
   {
     key: 'profitRate', label: '利润率', align: 'right', width: 110, sortable: true, format: 'percentage',
-    tip: '最近90天（每30天一段）利润率 = 90天订单利润合计 ÷ 90天净支付金额合计 × 100%；不按单月拆分或平均月度百分比。'
+    tip: '最近90天（每30天一段）利润率 = 90天订单利润(￥)合计 ÷ 90天净支付金额合计 × 100%；不按单月拆分或平均月度百分比。'
   },
   {
     key: 'returnQty', label: '退货量', align: 'right', width: 130, sortable: true, format: 'integer', monthlyKey: 'returnQty',
@@ -634,7 +634,6 @@ const columnDefs = [
   { key: 'chengduSellableQty', label: '成都可售', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取成都中转仓可售数' },
   { key: 'overseasInTransitQty', label: '海外在途', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取海外仓在途数' },
   { key: 'overseasSellableQty', label: '海外可售', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取海外仓可售数' },
-  { key: 'pendingOutboundQty', label: '待出库', align: 'right', width: 105, format: 'integer', tip: '锁定量：取 date-project.ods_lingxing_inventory_detail_weekly.product_lock_num，与库存明细「待出库」同一周快照批次和取数规则；成都中转仓3个＋谷仓海外仓4个合计，按站点和完整SKU汇总。周快照数据，不是实时库存；只展示，不参与库存合计、安全库存和建议补货量。' },
   { key: 'chengduWarehouseToWarehouseDays', label: '成都仓到仓时间', align: 'right', width: 165, format: 'days', manualLeadTime: true, tip: '人工填写整数天数；按站点和完整SKU长期保存，回车或鼠标离开后自动保存。' },
   { key: 'chengduQcToWarehouseDays', label: '成都质检出仓时间', align: 'right', width: 175, format: 'days', manualLeadTime: true, tip: '人工填写整数天数；按站点和完整SKU长期保存，回车或鼠标离开后自动保存。' },
   { key: 'overseasTransitToListingDays', label: '海外在途到上架时间', align: 'right', width: 185, format: 'days', manualLeadTime: true, tip: '未手动设置时默认德国67天、英国72天、美国60天。可按站点和完整SKU编辑，回车或鼠标离开后自动保存；手动值（包括0）优先，清空恢复站点默认值。' },
@@ -657,7 +656,7 @@ const {
   openColumnConfig,
   initColumnConfig,
   applyColumnConfig
-} = useColumnConfig('operations:ebay:replenishment:v2', columnDefs, fixedColumnKeys, fixedColumnKeys, {}, { operationsNote: '__append__', developmentNote: '__append__', principalName: '__append__', pendingOutboundQty: 'overseasSellableQty' })
+} = useColumnConfig('operations:ebay:replenishment:v2', columnDefs, fixedColumnKeys, fixedColumnKeys, {}, { operationsNote: '__append__', developmentNote: '__append__', principalName: '__append__' })
 
 const hierarchyColumns = computed(() => visibleColumns.value.filter(col => !['site', 'sku'].includes(col.key)))
 
@@ -1029,7 +1028,6 @@ function normalizeRow(item) {
     chengduSellableQty: numberOrNull(item.chengdu_sellable_quantity),
     overseasInTransitQty: numberOrNull(item.overseas_in_transit_quantity),
     overseasSellableQty: numberOrNull(item.overseas_sellable_quantity),
-    pendingOutboundQty: numberOrNull(item.pending_outbound_quantity),
     chengduWarehouseToWarehouseDays: numberOrNull(item.chengdu_warehouse_to_warehouse_days),
     chengduQcToWarehouseDays: numberOrNull(item.chengdu_qc_outbound_days),
     overseasTransitToListingDays: numberOrNull(item.overseas_transit_to_listing_days),

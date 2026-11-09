@@ -77,7 +77,6 @@ public class EbayReplenishmentV2ExportService
             new Column("成都可售", "chengdu_sellable_quantity", Format.INTEGER, 16),
             new Column("海外在途", "overseas_in_transit_quantity", Format.INTEGER, 16),
             new Column("海外可售", "overseas_sellable_quantity", Format.INTEGER, 16),
-            new Column("待出库", "pending_outbound_quantity", Format.INTEGER, 14),
             new Column("成都仓到仓时间", "chengdu_warehouse_to_warehouse_days", Format.DAYS, 22),
             new Column("成都质检出仓时间", "chengdu_qc_outbound_days", Format.DAYS, 24),
             new Column("海外在途到上架时间", "overseas_transit_to_listing_days", Format.DAYS, 26),

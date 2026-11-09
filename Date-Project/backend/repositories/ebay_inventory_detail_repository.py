@@ -41,47 +41,6 @@ def _weekly_snapshot_cte() -> str:
     """
 
 
-def weekly_snapshot_cte() -> str:
-    """Latest completed weekly inventory batch as CTE ``inventory_snapshot``."""
-    return _weekly_snapshot_cte()
-
-
-def weekly_pending_outbound_ctes() -> str:
-    """补货2.0「待出库」：与库存明细同一周快照批次、同一代表行规则。
-
-    7个仓库的 product_lock_num（锁定量）按站点＋完整SKU汇总，结果 CTE 为
-    ``weekly_pending_outbound``；名称带 weekly_ 前缀，不与实时库存的
-    inventory_source / inventory_summary 冲突。
-    """
-    return f"""
-        {_weekly_snapshot_cte()},
-        weekly_lock_ranked AS (
-            SELECT i.wid,i.sku,i.product_lock_num,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY i.wid,i.product_id
-                       ORDER BY (i.product_total IS NOT NULL) DESC,i.product_total DESC,
-                                i.seller_id DESC,i.id DESC
-                   ) lock_rank
-            FROM ods_lingxing_inventory_detail_weekly i
-            JOIN inventory_snapshot b
-              ON b.sync_batch_id=i.sync_batch_id AND b.snapshot_date=i.snapshot_date
-            WHERE i.wid IN (18674,18675,18676,18699,18700,18701,18702)
-        ),
-        weekly_pending_outbound AS (
-            SELECT site,sku,SUM(product_lock_num) pending_outbound_quantity
-            FROM (
-                SELECT CASE WHEN wid IN (18674,18699) THEN '德国'
-                            WHEN wid IN (18675,18702) THEN '英国'
-                            WHEN wid IN (18676,18700,18701) THEN '美国' END site,
-                       TRIM(sku) sku,COALESCE(product_lock_num,0) product_lock_num
-                FROM weekly_lock_ranked
-                WHERE lock_rank=1 AND sku IS NOT NULL AND TRIM(sku)<>''
-            ) locked
-            GROUP BY site,sku
-        )
-    """
-
-
 def _weekly_inventory_ctes() -> str:
     """Only this page switches sources; replenishment/shared inventory stays unchanged.
 
