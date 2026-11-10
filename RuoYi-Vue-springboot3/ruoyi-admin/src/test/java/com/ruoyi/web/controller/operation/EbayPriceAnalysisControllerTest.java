@@ -212,22 +212,24 @@ class EbayPriceAnalysisControllerTest
     }
 
     @Test
-    void dailyTaskTreatsEmptySnapshotAsFailureAndNeverRefreshes()
+    void weeklyTaskTreatsEmptySnapshotAsFailureAndNeverRefreshes()
     {
         var fixture = new TaskFixture();
         when(fixture.scheduler.runEbayStoreListing(anyString())).thenReturn(response(0, 0, 0));
 
-        var error = assertThrows(IllegalStateException.class, fixture.task::runDaily);
+        var error = assertThrows(IllegalStateException.class, fixture.task::runWeekly);
 
-        assertTrue(error.getMessage().contains("eBay在售刊登每日同步失败"));
+        assertTrue(error.getMessage().contains("eBay在售刊登每周同步失败"));
         assertTrue(error.getCause().getMessage().contains("空快照"));
+        // listing 失败：不拉谷仓，也不刷表。
+        verify(fixture.scheduler, never()).runGoodcangProductInventory(anyString());
         verify(fixture.scheduler, never()).runEbayPriceAnalysisRefresh(anyString());
         var result = captureFinish(fixture);
         assertEquals(OperationSyncResult.STATUS_FAILED, result.getStatus());
     }
 
     @Test
-    void dailyTaskKeepsSuccessfulListingPullWhenRefreshFails()
+    void weeklyTaskKeepsSuccessfulListingPullWhenRefreshFails()
     {
         var fixture = new TaskFixture();
         when(fixture.scheduler.runEbayStoreListing(anyString()))
@@ -235,7 +237,7 @@ class EbayPriceAnalysisControllerTest
         when(fixture.scheduler.runEbayPriceAnalysisRefresh(anyString()))
                 .thenThrow(new IllegalStateException("Python绩效ETL错误[HTTP 502]: 内部任务执行失败: boom"));
 
-        fixture.task.runDaily();
+        fixture.task.runWeekly();
 
         var result = captureFinish(fixture);
         assertEquals(OperationSyncResult.STATUS_SUCCESS, result.getStatus());
@@ -246,12 +248,12 @@ class EbayPriceAnalysisControllerTest
         verify(fixture.scheduler, times(1)).runEbayPriceAnalysisRefresh(anyString());
         // 刷表失败必须单独告警，否则看板会悄悄停在上一次快照。
         verify(fixture.alerts).sendAlert(eq("ebay"),
-                eq("ebay_price_analysis_daily_sync:refresh"), anyString(), anyString(),
+                eq("ebay_price_analysis_weekly_sync:refresh"), anyString(), anyString(),
                 eq("FAILED"), contains("HTTP 502"), isNull());
     }
 
     @Test
-    void dailyTaskRunsRefreshRightAfterListingPull()
+    void weeklyTaskRunsListingThenGoodcangThenRefresh()
     {
         var fixture = new TaskFixture();
         when(fixture.scheduler.runEbayStoreListing(anyString()))
@@ -260,16 +262,19 @@ class EbayPriceAnalysisControllerTest
                 "data", Map.of("status", "completed", "result",
                         Map.of("rows", 18013, "matched_rows", 16566, "stat_date", "2026-11-10"))));
 
-        fixture.task.runDaily();
+        fixture.task.runWeekly();
 
         var order = inOrder(fixture.scheduler);
         order.verify(fixture.scheduler).runEbayStoreListing(anyString());
+        order.verify(fixture.scheduler).runGoodcangProductInventory(anyString());
         order.verify(fixture.scheduler).runEbayPriceAnalysisRefresh(anyString());
         var result = captureFinish(fixture);
         assertEquals(OperationSyncResult.STATUS_SUCCESS, result.getStatus());
         assertTrue(result.getBusinessSummary().contains("价格分析刷表成功：DWS行数=18013"),
                 result.getBusinessSummary());
         assertTrue(result.getBusinessSummary().contains("未匹配库存=1447"), result.getBusinessSummary());
+        assertTrue(result.getBusinessSummary().contains("谷仓库存同步成功：写入=9120"),
+                result.getBusinessSummary());
         verify(fixture.alerts, never()).sendAlert(anyString(), anyString(), anyString(), anyString(),
                 anyString(), anyString(), any());
     }
@@ -284,6 +289,8 @@ class EbayPriceAnalysisControllerTest
         fixture.task.syncListingOnly();
 
         verify(fixture.scheduler).runEbayStoreListing(anyString());
+        verify(fixture.scheduler, never()).runGoodcangProductInventory(anyString());
+        verify(fixture.scheduler, never()).runEbayPriceAnalysisRefresh(anyString());
         verifyNoInteractions(fixture.priceAnalysis);
         var result = captureFinish(fixture);
         assertEquals(OperationSyncResult.STATUS_SUCCESS, result.getStatus());
@@ -291,13 +298,13 @@ class EbayPriceAnalysisControllerTest
     }
 
     @Test
-    void dailyTaskRejectsResponseFromAnOutdatedPythonService()
+    void weeklyTaskRejectsResponseFromAnOutdatedPythonService()
     {
         var fixture = new TaskFixture();
         when(fixture.scheduler.runEbayStoreListing(anyString()))
                 .thenReturn(Map.of("code", 0, "data", Map.of("status", "completed")));
 
-        var error = assertThrows(IllegalStateException.class, fixture.task::runDaily);
+        var error = assertThrows(IllegalStateException.class, fixture.task::runWeekly);
 
         assertTrue(error.getCause().getMessage().contains("最新Python服务"));
         verify(fixture.scheduler, never()).runEbayPriceAnalysisRefresh(anyString());
@@ -407,6 +414,9 @@ class EbayPriceAnalysisControllerTest
         {
             when(logs.start(anyString(), anyString(), anyString(), anyString(),
                     anyString(), isNull(), isNull())).thenReturn(77L);
+            when(scheduler.runGoodcangProductInventory(anyString())).thenReturn(
+                    Map.of("code", 0, "data", Map.of("status", "completed", "result",
+                        Map.of("extract_rows", 9120, "ods_rows", 9120, "sync_batch_id", "gc-1"))));
             task = new PythonEbayStoreListingSyncTask(scheduler, priceAnalysis, logs, alerts);
         }
     }

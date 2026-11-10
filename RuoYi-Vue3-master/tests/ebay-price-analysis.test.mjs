@@ -280,8 +280,10 @@ test('sampled scatter is labelled so it is not read as the full set', () => {
 
 test('page keeps the fixed wording of the data-definition footer', () => {
   for (const line of [
-    'eBay 售价与库存为在售刊登快照，快照日期见页头',
-    'wid 18699/18700/18701/18702',
+    'eBay 售价与可售量为在售刊登每周快照（每周一更新），快照日期见页头',
+    '海外仓库存为谷仓区域仓接口每周快照（DE / UK / 美东 USEA / 美西 USWE，美国两仓合计；捷克 CZ 暂不纳入）',
+    '成都中转仓库存仍为领星周快照',
+    '海外仓按「站点 + 去掉 SKU 第一段（品牌前缀，谷仓侧为 JMH）」匹配',
     '覆盖天数 = 谷仓可售 ÷ 近 7 日日均销量',
     '售价按站点币种和领星月度汇率折算 USD，汇率缺失时不折算',
     '采购成本取订单文件中的真实采购成本，未参与售价估算',
@@ -292,6 +294,15 @@ test('page keeps the fixed wording of the data-definition footer', () => {
   // 两个数据源都停摆过，快照日期必须明确，不能被当成实时数据。
   assert.match(pageSource, /快照日期/)
   assert.match(pageSource, /不是实时库存/)
+})
+
+test('data-definition wording follows the weekly goodcang snapshot', () => {
+  // 海外仓改用谷仓区域仓接口、eBay 与谷仓都改为每周一同步，页面不能再写旧口径。
+  for (const phrase of ['谷仓区域仓接口每周快照', '每周一更新', '美国两仓合计', '捷克 CZ 暂不纳入', '成都中转仓库存仍为领星周快照', '去掉 SKU 第一段']) {
+    assert.ok(pageSource.includes(phrase), `missing weekly wording: ${phrase}`)
+  }
+  assert.doesNotMatch(pageSource, /wid 1870[0-2]|wid 18699|领星周快照的海外仓/)
+  assert.doesNotMatch(pageSource, /每天|每日/)
 })
 
 test('columns use the shared column config and drop the store column when summarised', () => {

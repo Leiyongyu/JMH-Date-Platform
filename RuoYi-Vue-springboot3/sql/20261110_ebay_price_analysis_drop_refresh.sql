@@ -6,7 +6,7 @@
 --       既不拉 eBay 也不刷表；代码侧已删除 POST /refresh 及权限，这里清掉已入库的部分。
 -- 背景：20261110_ebay_price_analysis_menu.sql 与 Date-Project/migrations/20261110_ebay_price_analysis.sql
 --       已执行过，改原脚本对已入库的权限和表无效，所以另出本清理脚本。
--- 不动：定时任务 ebay_price_analysis_refresh（刷 DWS）、eBay在售刊登每日同步任务、
+-- 不动：定时任务 ebay_price_analysis_refresh（刷 DWS）、eBay在售刊登每周同步任务、
 --       dws_ebay_price_analysis 数据表、价格分析页面/导出权限，全部保留。
 -- 幂等：两段都可重复执行；没有可删的内容时删除 0 行 / 表不存在不报错。
 -- 分两段，分别在两个库执行（同一连接内用 USE 切换）。

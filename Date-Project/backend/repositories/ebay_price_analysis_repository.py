@@ -1,7 +1,8 @@
-"""eBay 价格分析 BI 的取数与落库：两个 ODS 关联出一张 DWS，查询只读那一列状态。
+"""eBay 价格分析 BI 的取数与落库：在售刊登关联库存、销量、成本，出一张 DWS，查询只读那一列状态。
 
     ods_ebay_store_listing_latest          在售刊登（售价、可售量、已售量）
-    ods_lingxing_inventory_detail_weekly   领星周快照（海外仓/成都中转仓可售、在途、锁定）
+    ods_goodcang_product_inventory_latest  谷仓区域仓库存（海外仓可售、海外在途、待出库）
+    ods_lingxing_inventory_detail_weekly   领星周快照（只取成都中转仓可售、锁定）
     dwd_ebay_sku_analysis_order            近 7/30 日销量
     ods_ebay_sku_analysis_order_raw        真实采购成本
     dim_lingxing_currency_month            月度汇率（my_rate）
@@ -9,15 +10,18 @@
                  ▼
     dws_ebay_price_analysis                一行 = 一条在售刊登
 
-关联口径：站点 + **完整 SKU**。DE→德国、UK→英国、US→美国，其余站点（实测只有 1 条 FR）
-落在「未匹配」。实测命中率 DE 95.1% / UK 97.1% / US 81.8%，降级到「品牌-中间码」
-只提升到 97.7% / 98.6% / 85.5%，不值得损失精度，中间码只作聚合与下钻维度。
+库存关联口径：
+- 海外仓（谷仓）：站点 + **去掉 SKU 第一段后的其余部分完整比对**（inventory_key）。
+  谷仓 SKU 统一是 JMH- 前缀，listing 是品牌前缀，去掉第一段后编码体系一致。
+  区域仓 → 站点：DE→德国、UK→英国、USEA + USWE→美国（两仓合计）；CZ 等不纳入。
+- 成都中转仓（领星 wid 18674/18675/18676）：站点 + **完整 SKU**，与原口径一致。
+- 谷仓或成都任一关联上即算匹配；其余站点（实测只有 1 条 FR）落在「未匹配」。
 
-未关联到库存的刊登**必须保留**（inventory_matched=0、状态「未匹配」）：US 站有近两成
-关联不上，静默丢掉会让库存缺口和超卖判断失真。这类行的库存列、cover_days、stock_gap
-一律留 NULL，不写 0 —— 0 会被当成「有数据且为零」，进而被算进缺口和超卖。
+未关联到库存的刊登**必须保留**（inventory_matched=0、状态「未匹配」）：静默丢掉会让
+库存缺口和超卖判断失真。这类行的库存列、cover_days、stock_gap 一律留 NULL，不写 0 ——
+0 会被当成「有数据且为零」，进而被算进缺口和超卖。
 
-库存批次的选法与 ebay_inventory_detail_repository 一致：只认跑出过成功周报导出的
+成都仓的领星批次选法与 ebay_inventory_detail_repository 一致：只认跑出过成功周报导出的
 那批快照（同一 snapshot_date 下还躺着 INTERRUPTED / FAILED 的批次），再按
 (wid, product_id) 取整行代表，不把多个 seller 的同一份实物库存相加。
 """
@@ -32,13 +36,15 @@ from backend.database import db_connection
 TABLE = "dws_ebay_price_analysis"
 LISTING_TABLE = "ods_ebay_store_listing_latest"
 INVENTORY_TABLE = "ods_lingxing_inventory_detail_weekly"
+GOODCANG_TABLE = "ods_goodcang_product_inventory_latest"
 ORDER_TABLE = "dwd_ebay_sku_analysis_order"
 ORDER_RAW_TABLE = "ods_ebay_sku_analysis_order_raw"
 RATE_TABLE = "dim_lingxing_currency_month"
 EXPORT_FILE_TABLE = "ops_weekly_export_file"
 
-# 海外仓与成都中转仓的仓库ID，以及各自的站点归属，与库存明细页同一套。
-OVERSEAS_WIDS = (18699, 18700, 18701, 18702)
+# 海外仓取谷仓区域仓库存：区域仓 → 站点；美东、美西合计为美国，CZ 等没有站点归属的仓不纳入。
+GOODCANG_SITE_BY_WAREHOUSE = {"DE": "德国", "UK": "英国", "USEA": "美国", "USWE": "美国"}
+# 成都中转仓仍取领星周快照，仓库ID与站点归属与库存明细页同一套。
 CHENGDU_WIDS = (18674, 18675, 18676)
 SITE_NAME_BY_SITE = {"DE": "德国", "UK": "英国", "US": "美国"}
 
@@ -97,10 +103,33 @@ def _site_name_sql(site_expression: str) -> str:
     return f"CASE {site_expression} {whens} END"
 
 
+def inventory_key(sku: Any) -> str | None:
+    """海外仓关联键：去掉 SKU 第一段（品牌前缀，谷仓侧为 JMH），其余部分完整保留。
+
+    谷仓有两段 SKU（JMH-10022）和四段以上 SKU（JMH-30020-2-0018、JMH-10437-0774-YXR），
+    所以不能只取「中间码-尾号」两段，否则会把不同商品错配到一起。
+    与 _inventory_key_sql 同一规则：listing 与谷仓两边都按它取 key。
+    """
+    text = str(sku or "").strip().upper()
+    if "-" not in text:
+        return None
+    return text.split("-", 1)[1].strip() or None
+
+
+def _inventory_key_sql(expression: str) -> str:
+    """inventory_key 的 SQL 版本，两边（listing / 谷仓）用同一段表达式取 key。"""
+    text = f"UPPER(TRIM(CAST({expression} AS CHAR(255))))"
+    return (f"NULLIF(TRIM(CASE WHEN LOCATE('-',{text})>0 "
+            f"THEN SUBSTRING({text},LOCATE('-',{text})+1) END),'')")
+
+
 def _inventory_ctes() -> str:
-    wids = ",".join(str(wid) for wid in (*CHENGDU_WIDS, *OVERSEAS_WIDS))
-    overseas = ",".join(str(wid) for wid in OVERSEAS_WIDS)
+    """海外仓取谷仓区域仓库存（站点 + 去前缀 key），成都中转仓仍取领星周快照（站点 + 完整 SKU）。"""
     chengdu = ",".join(str(wid) for wid in CHENGDU_WIDS)
+    warehouses = ",".join(f"'{code}'" for code in GOODCANG_SITE_BY_WAREHOUSE)
+    site_case = " ".join(f"WHEN '{code}' THEN '{name}'"
+                         for code, name in GOODCANG_SITE_BY_WAREHOUSE.items())
+    gc_key = _inventory_key_sql("g.product_sku")
     return f"""
         inventory_snapshot AS (
             SELECT i.sync_batch_id,i.snapshot_date,MAX(i.pulled_at) inventory_pulled_at
@@ -125,30 +154,29 @@ def _inventory_ctes() -> str:
             FROM {INVENTORY_TABLE} i
             JOIN inventory_snapshot b
               ON b.sync_batch_id=i.sync_batch_id AND b.snapshot_date=i.snapshot_date
-            WHERE i.wid IN ({wids})
+            WHERE i.wid IN ({chengdu})
         ),
-        inventory_source AS (
-            SELECT CASE WHEN wid IN (18674,18699) THEN '德国'
-                        WHEN wid IN (18675,18702) THEN '英国'
-                        WHEN wid IN (18676,18700,18701) THEN '美国' END site_name,
+        chengdu_inventory AS (
+            SELECT CASE wid WHEN 18674 THEN '德国' WHEN 18675 THEN '英国'
+                            WHEN 18676 THEN '美国' END site_name,
                    TRIM(sku) sku,
-                   CASE WHEN wid IN ({chengdu}) THEN COALESCE(product_valid_num,0)
-                        ELSE 0 END chengdu_sellable,
-                   CASE WHEN wid IN ({overseas}) THEN COALESCE(product_valid_num,0)
-                        ELSE 0 END overseas_sellable,
-                   CASE WHEN wid IN ({overseas}) THEN COALESCE(product_onway,0)
-                        ELSE 0 END overseas_in_transit,
-                   COALESCE(product_lock_num,0) pending_outbound
+                   SUM(COALESCE(product_valid_num,0)) chengdu_sellable,
+                   SUM(COALESCE(product_lock_num,0)) chengdu_pending_outbound
             FROM inventory_ranked
             WHERE inventory_rank=1 AND sku IS NOT NULL AND TRIM(sku)<>''
+            GROUP BY wid,TRIM(sku)
         ),
-        inventory_summary AS (
-            SELECT site_name,sku,
-                   SUM(chengdu_sellable) chengdu_sellable,
-                   SUM(overseas_sellable) overseas_sellable,
-                   SUM(overseas_in_transit) overseas_in_transit,
-                   SUM(pending_outbound) pending_outbound
-            FROM inventory_source GROUP BY site_name,sku
+        overseas_inventory AS (
+            -- 美东 USEA + 美西 USWE 合计为美国；CZ 等没有站点归属的仓不纳入。
+            SELECT CASE g.warehouse_code {site_case} END site_name,
+                   {gc_key} sku_key,
+                   SUM(COALESCE(g.sellable,0)) overseas_sellable,
+                   SUM(COALESCE(g.onway,0)) overseas_in_transit,
+                   SUM(COALESCE(g.reserved,0)) overseas_pending_outbound
+            FROM {GOODCANG_TABLE} g
+            WHERE g.warehouse_code IN ({warehouses})
+            GROUP BY CASE g.warehouse_code {site_case} END,{gc_key}
+            HAVING sku_key IS NOT NULL
         )
     """
 
@@ -278,14 +306,25 @@ def _source_rows(cursor, stat_month: str, stat_date: date) -> list[dict[str, Any
                listing.currency,listing.current_price,listing.ebay_quantity,
                listing.ebay_quantity_available,listing.ebay_quantity_sold,
                listing.watch_count,
-               inventory.overseas_sellable,inventory.overseas_in_transit,
-               inventory.chengdu_sellable,inventory.pending_outbound,
+               -- 谷仓或成都任一关联上即算匹配；两边都没关联上时库存列留 NULL（build_row 据此判「未匹配」）。
+               CASE WHEN overseas.site_name IS NULL AND chengdu.site_name IS NULL THEN NULL
+                    ELSE COALESCE(overseas.overseas_sellable,0) END overseas_sellable,
+               CASE WHEN overseas.site_name IS NULL AND chengdu.site_name IS NULL THEN NULL
+                    ELSE COALESCE(overseas.overseas_in_transit,0) END overseas_in_transit,
+               CASE WHEN overseas.site_name IS NULL AND chengdu.site_name IS NULL THEN NULL
+                    ELSE COALESCE(chengdu.chengdu_sellable,0) END chengdu_sellable,
+               CASE WHEN overseas.site_name IS NULL AND chengdu.site_name IS NULL THEN NULL
+                    ELSE COALESCE(overseas.overseas_pending_outbound,0)
+                         + COALESCE(chengdu.chengdu_pending_outbound,0) END pending_outbound,
                sales7.qty sales_qty_7d,sales30.qty sales_qty_30d,
                cost.unit_cost purchase_cost_cny
         FROM listing
-        LEFT JOIN inventory_summary inventory
-          ON {_collate('inventory.site_name')} = {site_name}
-         AND {_collate('inventory.sku')} = {sku}
+        LEFT JOIN overseas_inventory overseas
+          ON {_collate('overseas.site_name')} = {site_name}
+         AND {_collate('overseas.sku_key')} = {_collate(_inventory_key_sql('listing.sku'))}
+        LEFT JOIN chengdu_inventory chengdu
+          ON {_collate('chengdu.site_name')} = {site_name}
+         AND {_collate('chengdu.sku')} = {sku}
         LEFT JOIN sales_7d sales7
           ON {_collate('sales7.site_name')} = {site_name}
          AND {_collate('sales7.inventory_sku')} = {sku}
@@ -309,6 +348,27 @@ def _source_rows(cursor, stat_month: str, stat_date: date) -> list[dict[str, Any
     return rows
 
 
+def goodcang_snapshot(cursor) -> dict[str, Any]:
+    """谷仓库存表是否存在、纳入看板的四个仓合计多少行。只读。
+
+    刷表据此拦截：表不存在（迁移未执行）或四个仓 0 行（首次同步失败）时，算下去会把正常看板
+    整表覆盖成「海外仓全部未匹配」，还看起来像刷成功了。
+    """
+    cursor.execute(
+        "SELECT COUNT(*) AS n FROM information_schema.TABLES "
+        "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s",
+        (GOODCANG_TABLE,),
+    )
+    if not int((cursor.fetchone() or {}).get("n") or 0):
+        return {"exists": False, "rows": 0}
+    warehouses = ",".join(["%s"] * len(GOODCANG_SITE_BY_WAREHOUSE))
+    cursor.execute(
+        f"SELECT COUNT(*) AS n FROM {GOODCANG_TABLE} WHERE warehouse_code IN ({warehouses})",
+        tuple(GOODCANG_SITE_BY_WAREHOUSE),
+    )
+    return {"exists": True, "rows": int((cursor.fetchone() or {}).get("n") or 0)}
+
+
 def read_source(stat_month: str | None = None) -> dict[str, Any]:
     """同一一致性读事务里取刊登、库存、销量、成本与汇率，避免混用替换前后的批次。"""
     with db_connection() as connection:
@@ -320,12 +380,18 @@ def read_source(stat_month: str | None = None) -> dict[str, Any]:
                 if not batch:
                     connection.commit()
                     return {"batch": {}, "rows": [], "rates": {}, "windows": {}}
+                goodcang = goodcang_snapshot(cursor)
+                if not goodcang["exists"] or not goodcang["rows"]:
+                    # 谷仓表缺失时源查询本身会报错；空表时算出来全是未匹配。都不取源数据，由 service 拒绝刷表。
+                    connection.commit()
+                    return {"batch": batch, "rows": [], "rates": {}, "windows": {},
+                            "goodcang": goodcang}
                 stat_date = batch["stat_date"]
                 rows = _source_rows(cursor, batch["stat_month"], stat_date)
                 month_rates = rates(cursor, stat_date.strftime("%Y-%m"))
             connection.commit()
             return {"batch": batch, "rows": rows, "rates": month_rates,
-                    "windows": sales_windows(stat_date)}
+                    "windows": sales_windows(stat_date), "goodcang": goodcang}
         except Exception:
             connection.rollback()
             raise

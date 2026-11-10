@@ -97,6 +97,12 @@ from backend.services.goodcang_storage_sync_service import (
     GoodcangStorageSyncError,
     sync_goodcang_storage,
 )
+from backend.services.goodcang_product_inventory_sync_service import (
+    TASK_CODE as GOODCANG_PRODUCT_INVENTORY_TASK_CODE,
+    TASK_NAME as GOODCANG_PRODUCT_INVENTORY_TASK_NAME,
+    GoodcangProductInventorySyncError,
+    sync_goodcang_product_inventory,
+)
 
 AMZ_TASK_CODE = "amz_monthly_order_profit_sync"
 OPENING_INVENTORY_TASK_CODE = (
@@ -228,6 +234,14 @@ TASK_SPECS: dict[str, TaskSpec] = {
             execute=lambda ctx: sync_goodcang_storage(),
         ),
         TaskSpec(
+            code=GOODCANG_PRODUCT_INVENTORY_TASK_CODE,
+            name=GOODCANG_PRODUCT_INVENTORY_TASK_NAME,
+            period_args_error="谷仓区域仓库存只拉取当前快照，不接受历史月份或日期",
+            # 单独一把锁：同步在一个事务里整表替换，刷表读方只会看到旧表或新表，不必与刷表共锁。
+            lock_name=lambda ctx: "goodcang:product-inventory:replace",
+            execute=lambda ctx: sync_goodcang_product_inventory(),
+        ),
+        TaskSpec(
             code=AMZ_TASK_CODE,
             name="AMZ月度订单利润同步",
             default_previous_month=True,
@@ -312,6 +326,7 @@ _STAGED_ERRORS = (
     AmzProfitReportSyncError,
     InventoryReportSourceSyncError,
     GoodcangStorageSyncError,
+    GoodcangProductInventorySyncError,
 )
 
 

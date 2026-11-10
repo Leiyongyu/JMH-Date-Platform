@@ -58,7 +58,7 @@ RISKS = (
     ("oversell", STATUS_OVERSELL, "eBay 可售超过谷仓+成都可用"),
     ("out_of_stock", STATUS_OUT_OF_STOCK, "谷仓可售为 0 但 eBay 仍在售"),
     ("replenish", STATUS_REPLENISH, f"覆盖天数不足 {COVER_DAYS_THRESHOLD} 天"),
-    ("unmatched", STATUS_UNMATCHED, "按站点+完整SKU 未关联到谷仓库存"),
+    ("unmatched", STATUS_UNMATCHED, "按站点+去掉品牌前缀的SKU 未关联到谷仓或成都库存"),
     ("slow_moving", STATUS_SLOW_MOVING, "近 30 日无销量但谷仓仍有可售"),
 )
 
@@ -253,6 +253,14 @@ def refresh_price_analysis() -> dict[str, Any]:
     batch = source.get("batch") or {}
     if not batch:
         raise ValueError("ods_ebay_store_listing_latest 没有任何在售刊登，未刷表")
+    # 谷仓同步失败时 Java 仍会继续刷表（用上一份谷仓快照）；但表不存在或为空时不能刷，
+    # 否则正常看板会被整表覆盖成「海外仓全部未匹配」。抛错即不写表，DWS 保持上一次结果。
+    goodcang = source.get("goodcang") or {}
+    if not goodcang.get("exists"):
+        raise ValueError(f"{repo.GOODCANG_TABLE} 不存在，请先执行 20261110_goodcang_product_inventory.sql；"
+                         "未刷表，看板保持上一次结果")
+    if not goodcang.get("rows"):
+        raise ValueError("谷仓库存快照为空（DE/UK/USEA/USWE 合计 0 行），未刷表，看板保持上一次结果")
     rows = build_rows(source, batch_id=batch_id, refreshed_at=refreshed_at)
     written = repo.replace_rows(rows)
     result = {
@@ -262,6 +270,7 @@ def refresh_price_analysis() -> dict[str, Any]:
         "matched_rows": sum(row["inventory_matched"] for row in rows),
         "missing_price_usd": sum(row["price_usd"] is None for row in rows),
         "status_counts": _counter(row["status"] for row in rows),
+        "goodcang_rows": goodcang["rows"],
     }
     LOG.info("eBay价格分析刷表完成 batch=%s rows=%s", batch_id, written["rows"])
     return result

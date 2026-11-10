@@ -188,6 +188,7 @@ def refresh_repo(monkeypatch):
         "rates": RATES,
         "rows": [source(), source(seller_account="b-shop", item_id="9",
                                   overseas_sellable=None, chengdu_sellable=None)],
+        "goodcang": {"exists": True, "rows": 4913},
     })
 
     def replace(rows):
@@ -219,9 +220,52 @@ def test_refresh_without_listing_batch_raises_and_writes_nothing(monkeypatch):
     writer.assert_not_called()
 
 
+@pytest.mark.parametrize("goodcang,message", [
+    ({"exists": False, "rows": 0}, "ods_goodcang_product_inventory_latest 不存在"),
+    ({"exists": True, "rows": 0}, "谷仓库存快照为空"),
+    (None, "不存在"),
+])
+def test_refresh_refuses_missing_or_empty_goodcang_snapshot(monkeypatch, goodcang, message):
+    source_data = {"batch": {"stat_date": STAT_DATE}, "rates": RATES, "rows": []}
+    if goodcang is not None:
+        source_data["goodcang"] = goodcang
+    monkeypatch.setattr(repo, "read_source", lambda: source_data)
+    writer = MagicMock()
+    monkeypatch.setattr(repo, "replace_rows", writer)
+    with pytest.raises(ValueError, match=message) as error:
+        service.refresh_price_analysis()
+    assert "看板保持上一次结果" in str(error.value)
+    writer.assert_not_called()
+
+
+class _SnapshotCursor:
+    def __init__(self, table_exists, rows):
+        self.answers = [{"n": 1 if table_exists else 0}, {"n": rows}]
+        self.sql = []
+
+    def execute(self, sql, params=()):
+        self.sql.append((sql, params))
+
+    def fetchone(self):
+        return self.answers.pop(0)
+
+
+def test_goodcang_snapshot_checks_table_then_counts_only_dashboard_warehouses():
+    cursor = _SnapshotCursor(True, 4913)
+    assert repo.goodcang_snapshot(cursor) == {"exists": True, "rows": 4913}
+    assert "information_schema.TABLES" in cursor.sql[0][0]
+    assert cursor.sql[0][1] == (repo.GOODCANG_TABLE,)
+    assert cursor.sql[1][0].startswith("SELECT COUNT(*)")
+    assert cursor.sql[1][1] == ("DE", "UK", "USEA", "USWE")
+    missing = _SnapshotCursor(False, 0)
+    assert repo.goodcang_snapshot(missing) == {"exists": False, "rows": 0}
+    assert len(missing.sql) == 1, "表不存在时不再查表"
+
+
 def test_refresh_write_failure_propagates_to_the_scheduler(monkeypatch):
     monkeypatch.setattr(repo, "read_source", lambda: {
-        "batch": {"stat_date": STAT_DATE}, "rates": RATES, "rows": [source()]})
+        "batch": {"stat_date": STAT_DATE}, "rates": RATES, "rows": [source()],
+        "goodcang": {"exists": True, "rows": 1}})
     monkeypatch.setattr(repo, "replace_rows", MagicMock(side_effect=RuntimeError("lock wait")))
     with pytest.raises(RuntimeError, match="lock wait"):
         service.refresh_price_analysis()
@@ -562,12 +606,65 @@ def test_migration_declares_every_column_the_loader_writes():
 
 def test_source_query_keeps_unmatched_listings_and_uses_the_agreed_warehouses():
     query = repo._inventory_ctes()
-    assert "18699,18700,18701,18702" in query and "18674,18675,18676" in query
-    assert "德国" in query and "英国" in query and "美国" in query
+    # 海外仓改取谷仓区域仓：DE/UK/USEA/USWE，美国两仓合计，CZ 不纳入；不再读领星海外仓 wid。
+    assert repo.GOODCANG_TABLE in query
+    assert "'DE','UK','USEA','USWE'" in query and "'CZ'" not in query
+    assert "WHEN 'USEA' THEN '美国' WHEN 'USWE' THEN '美国'" in query
+    assert "SUM(COALESCE(g.onway,0)) overseas_in_transit" in query, "海外在途取 onway，不取 total_onway"
+    assert "total_onway" not in query
+    assert "SUM(COALESCE(g.reserved,0)) overseas_pending_outbound" in query
+    for wid in (18699, 18700, 18701, 18702):
+        assert str(wid) not in query
+    # 成都中转仓仍取领星周快照、只认成功周报导出的那批。
+    assert "WHERE i.wid IN (18674,18675,18676)" in query
     assert "weekly_inventory_bin" in query, "只认跑出过成功周报导出的那批快照"
+    assert "德国" in query and "英国" in query and "美国" in query
     assert repo.SITE_NAME_BY_SITE == {"DE": "德国", "UK": "英国", "US": "美国"}
     listing = repo._listing_cte(None)
     assert "ORDER BY MAX(pulled_at) DESC" in listing
+
+
+@pytest.mark.parametrize("sku,key", [
+    ("JMH-10437-0774", "10437-0774"),
+    ("DAS-10437-0774", "10437-0774"),
+    ("JMH-10437-0774-YXR", "10437-0774-YXR"),
+    ("JMH-30020-2-0018", "30020-2-0018"),
+    ("BMW-30020-2-0018", "30020-2-0018"),
+    ("JMH-10022", "10022"),
+    (" jmh-10022 ", "10022"),
+    ("NOPREFIX", None),
+    ("JMH-", None),
+    (None, None),
+])
+def test_inventory_key_strips_only_the_first_segment(sku, key):
+    assert repo.inventory_key(sku) == key
+
+
+def test_overseas_join_uses_the_same_key_expression_on_both_sides():
+    query = repo._inventory_ctes()
+    # 谷仓侧与 listing 侧都用 _inventory_key_sql 取 key
+    assert repo._inventory_key_sql("g.product_sku") in query
+    listing_key = repo._inventory_key_sql("listing.sku")
+    assert "SUBSTRING(" in listing_key and "LOCATE('-'" in listing_key
+
+
+def test_source_query_matches_overseas_by_key_and_chengdu_by_full_sku(monkeypatch):
+    captured = {}
+
+    class Cursor:
+        def execute(self, sql, params=()):
+            captured["sql"] = sql
+
+        def fetchall(self):
+            return []
+
+    repo._source_rows(Cursor(), "2026-11", date(2026, 11, 10))
+    sql = captured["sql"]
+    assert "LEFT JOIN overseas_inventory overseas" in sql
+    assert repo._inventory_key_sql("listing.sku") in sql
+    assert "LEFT JOIN chengdu_inventory chengdu" in sql
+    # 两边都没关联上才留 NULL，任一关联上即算匹配
+    assert "WHEN overseas.site_name IS NULL AND chengdu.site_name IS NULL THEN NULL" in sql
 
 
 def test_filters_bind_every_value_and_whitelist_sort_columns():

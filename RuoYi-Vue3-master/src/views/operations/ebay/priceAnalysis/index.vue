@@ -44,8 +44,8 @@
 
       <el-alert type="info" :closable="false" show-icon class="snapshot-alert">
         <template #title>
-          看板展示 {{ displayValue(overview.stat_date) }} 的快照：eBay 侧为在售刊登快照，
-          谷仓侧为领星周快照的海外仓可售量，均<strong>不是实时库存</strong>。
+          看板展示 {{ displayValue(overview.stat_date) }} 的快照：eBay 侧为在售刊登每周快照（每周一更新），
+          海外仓为谷仓区域仓接口每周快照，成都中转仓为领星周快照，均<strong>不是实时库存</strong>。
         </template>
       </el-alert>
 
@@ -345,8 +345,10 @@
         <span class="card-title">口径说明</span>
       </template>
       <ul class="note-list">
-        <li>eBay 售价与库存为在售刊登快照，快照日期见页头</li>
-        <li>谷仓库存为领星周快照的海外仓可售件数（wid 18699/18700/18701/18702），<strong>不是实时库存</strong></li>
+        <li>eBay 售价与可售量为在售刊登每周快照（每周一更新），快照日期见页头</li>
+        <li>海外仓库存为谷仓区域仓接口每周快照（DE / UK / 美东 USEA / 美西 USWE，美国两仓合计；捷克 CZ 暂不纳入），<strong>不是实时库存</strong></li>
+        <li>成都中转仓库存仍为领星周快照</li>
+        <li>海外仓按「站点 + 去掉 SKU 第一段（品牌前缀，谷仓侧为 JMH）」匹配</li>
         <li>覆盖天数 = 谷仓可售 ÷ 近 7 日日均销量；近 7 日无销量时不计算，显示「—」</li>
         <li>售价按站点币种和领星月度汇率折算 USD，汇率缺失时不折算</li>
         <li>采购成本取订单文件中的真实采购成本，未参与售价估算</li>
@@ -452,7 +454,7 @@ const columnDefs = [
   { key: 'ebay_quantity_available', label: 'eBay可售', width: 110, align: 'right', format: 'integer', sortable: true },
   {
     key: 'overseas_sellable', label: '谷仓可售', width: 110, align: 'right', format: 'integer', sortable: true,
-    tip: '领星周快照的海外仓可售件数，不是实时库存。'
+    tip: '谷仓区域仓接口每周快照的海外仓可售件数（美国两仓合计），不是实时库存。'
   },
   { key: 'overseas_in_transit', label: '海外在途', width: 110, align: 'right', format: 'integer' },
   { key: 'chengdu_sellable', label: '成都可售', width: 110, align: 'right', format: 'integer' },

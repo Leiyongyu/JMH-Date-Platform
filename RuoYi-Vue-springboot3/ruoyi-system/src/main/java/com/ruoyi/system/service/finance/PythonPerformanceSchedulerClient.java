@@ -78,6 +78,12 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run("ebay_store_listing_sync", null, requestId);
     }
 
+    /** 谷仓区域仓库存：整表单事务替换 ods_goodcang_product_inventory_latest。 */
+    public Map<String, Object> runGoodcangProductInventory(String requestId)
+    {
+        return run("goodcang_product_inventory_sync", null, requestId);
+    }
+
     /** eBay价格分析刷表：整表读当前在售刊登快照，重算 DWS 并事务替换。 */
     public Map<String, Object> runEbayPriceAnalysisRefresh(String requestId)
     {

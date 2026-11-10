@@ -12,10 +12,11 @@ UI 布局参考 `D:/JMH/项目/个人简历网址/erp-bi/index.html`（只参考
 | eBay 售价 | `ods_ebay_store_listing_latest` | `current_price` + `currency` | 原币十进制文本，不丢精度 |
 | eBay 库存 | 同上 | `quantity` / `quantity_available` / `quantity_sold` | 接口原值，缺失不补零 |
 | 店铺、站点 | 同上 | `seller_account` / `site` | site 由 ViewItemURL 域名识别，取值 DE/UK/US/FR |
-| 谷仓海外仓 | `ods_lingxing_inventory_detail_weekly` | `product_valid_num`，wid 18699/18700/18701/18702 | **周快照**，非实时 |
-| 海外在途 | 同上 | `product_onway`，同 wid | |
-| 成都中转仓 | 同上 | `product_valid_num`，wid 18674/18675/18676 | |
-| 待出库（锁定） | 同上 | `product_lock_num` | |
+| 谷仓海外仓可售 | `ods_goodcang_product_inventory_latest`（谷仓 `get_product_inventory`） | `sellable` | **每周快照**，非实时（2026-11-10 起，原为领星转述） |
+| 海外在途 | 同上 | `onway`（不取 `total_onway`） | |
+| 海外待出库 | 同上 | `reserved`（出库单已预占） | |
+| 成都中转仓 | `ods_lingxing_inventory_detail_weekly` | `product_valid_num`，wid 18674/18675/18676 | 领星周快照，**不变** |
+| 成都待出库 | 同上 | `product_lock_num` | 与海外 `reserved` 相加得 `pending_outbound` |
 | 近 7/30 日销量 | `dwd_ebay_sku_analysis_order` | `purchase_quantity`，按 `payment_time` | 数字酋长订单，手动上传 |
 | 采购成本 | `ods_ebay_sku_analysis_order_raw` | `purchase_cost_cny` | 真实成本，**不用售价 45% 估算** |
 | 汇率 | `dim_lingxing_currency_month` | `my_rate` | 月度，按 `stat_month` 取 |
@@ -23,7 +24,14 @@ UI 布局参考 `D:/JMH/项目/个人简历网址/erp-bi/index.html`（只参考
 站点映射（listing 的 site → 库存的 site）：`DE→德国`、`UK→英国`、`US→美国`。
 `FR` 只有 1 条且关联不上，归入「未匹配」，不单独建站点。
 
-### 实测关联命中率（2026-11-10，按站点 + 完整 SKU）
+谷仓仓库 → 站点：`DE→德国`、`UK→英国`、`USEA`（新泽西）+ `USWE`（加州）→ `美国`（两仓合计）。
+与领星 `warehouse.t_warehouse_code` / `goodcang_warehouse.wid` 的登记一致
+（DE↔18699、USEA↔18700、USWE↔18701、UK↔18702）。`CZ`（捷克）没有 wid，**暂不纳入**，
+等到货并定好站点归属再加；ODS 里原样保留。
+
+### 实测关联命中率（2026-11-10 初版，领星口径，按站点 + 完整 SKU）
+
+> 这张表是用 9 月那批 listing 算的，已过时，仅留档。换源依据见下面「换成谷仓」一节。
 
 | 站点 | listing | 命中 | 命中率 |
 | --- | --- | --- | --- |
@@ -35,6 +43,26 @@ UI 布局参考 `D:/JMH/项目/个人简历网址/erp-bi/index.html`（只参考
 两边 SKU 同为 `品牌-中间码-尾号`（`TYT-90245-0772`），格式一致，**用完整 SKU 关联**。
 降级到「品牌-中间码」只提升到 97.7% / 98.6% / 85.5%，不值得损失精度。
 中间码只作为看板的分组与下钻维度。
+
+### 换成谷仓（2026-11-10 用户决定）
+
+调研见 `outputs/交接/谷仓库存接口-对数调研-回报.md`（不进仓库），用同一批 11-10 listing 对比：
+
+| 站点 | 领星（站点 + 完整 SKU） | 谷仓（站点 + 去掉第一段） |
+| --- | --- | --- |
+| DE | 93.6% | 96.6% |
+| UK | 96.2% | 98.6% |
+| US | 87.4% | 90.0% |
+
+- **可售口径相同**：同一天（09-16）领星 `product_valid_num` 与它自己记录的谷仓原数
+  `third_inventory.qty_sellable` 99.1%–99.8% 相等，领星只是转述谷仓。换源不改变含义。
+- **待出库、在途是口径不同**：领星 `product_lock_num` 几乎全为 0，谷仓 `reserved` 才是出库单预占数；
+  领星 `product_onway` 比谷仓 `onway` 大（DE 10636 对 7145），多算了领星侧已建单、谷仓未登记的货。
+- **关联键改为「站点 + 去掉 SKU 第一段后其余完整比对」**：谷仓 SKU 一律是 `JMH-…`，
+  eBay / 领星是 `品牌-…`，去掉第一段后同一套编码。**不能只取中间码-尾号两段**——谷仓有 757 个
+  两段 SKU、2468 个四段以上 SKU，取两段会错配。两边必须用同一个函数取 key。
+- US 剩余未命中主要是 listing 侧写法（`-SY` 后缀 239 条、2PC 组合装 56 条、`-AMZUS1` 26 条），
+  谷仓和领星都匹配不上，与换源无关。
 
 US 偏低需在页面上可见：未匹配到库存的 listing 不许静默丢弃，计入「未匹配」并可筛选。
 这条是硬要求 —— 静默丢弃会让库存缺口和超卖判断失真。
@@ -48,13 +76,24 @@ US 偏低需在页面上可见：未匹配到库存的 listing 不许静默丢�
 
 ## 2. 同步策略
 
-eBay 侧改为**日级定时同步**，复用现有 `backend/services/ebay_store_listing_sync_service.py`
-的全量逻辑，**不改该文件**，只新增定时任务入口。
+**2026-11-10 用户决定：eBay 与谷仓都改为每周一次，绑在同一个任务里依次执行。**
+任务 `pythonEbayStoreListingSyncTask.runWeekly()`，cron `0 30 4 ? * MON`（每周一 04:30）：
+拉 eBay listing → 拉谷仓库存（`goodcang_product_inventory_sync`）→ 刷价格分析 DWS。
+
+- listing 失败：整个任务失败，不刷表。
+- 谷仓失败：单独告警，不推翻 listing，**仍刷表**（用上一份谷仓快照），摘要写明「本次谷仓未更新」。
+- 刷表 409：等待后重试一次，仍失败只告警。
+- 新鲜度告警阈值默认 8 天（每周 + 1 天余量）。
+- 谷仓同步单独用锁 `goodcang:product-inventory:replace`，并且**单事务整表替换**；
+  listing 同步按账号分多事务替换，所以刷表必须与它共用 `ebay:store-listing:replace`。
+
+eBay 复用现有 `backend/services/ebay_store_listing_sync_service.py` 的全量逻辑，**不改该文件**。
+（初版曾定为日级，后改为每周。）
 
 规模实测：37 个账号 / 18013 条 listing，每页 100 条 → 一轮约 201 次 ActiveList + 37 次身份
-接口 ≈ **240 次调用**。eBay Trading API 默认 5000 calls/day，占用约 5%，日级安全。
+接口 ≈ **240 次调用**。eBay Trading API 默认 5000 calls/day，每周一次远在额度内。
 
-库存侧沿用现有周快照，不改其节奏。
+谷仓全量约 8246 行、每页 200、42 页，实测约 50 秒，未遇限流。
 
 ## 3. 表设计
 
@@ -218,7 +257,10 @@ Python FastAPI 提供，Java 用 `PythonHttpSupport` 转发（与绩效排名、
 ## 6. 口径说明（页面底部固定文案）
 
 - eBay 售价与库存为在售刊登快照，快照日期见页头
-- 谷仓库存为领星周快照的海外仓可售件数（wid 18699/18700/18701/18702），**不是实时库存**
+- eBay 售价与可售量为在售刊登**每周快照**（每周一更新）
+- 海外仓库存为**谷仓区域仓接口每周快照**（DE / UK / 美东 USEA / 美西 USWE，美国两仓合计；捷克 CZ 暂不纳入），**不是实时库存**
+- 成都中转仓库存仍为**领星周快照**
+- 海外仓按「站点 + 去掉 SKU 第一段（品牌前缀，谷仓侧为 JMH）」匹配
 - 覆盖天数 = 谷仓可售 ÷ 近 7 日日均销量；近 7 日无销量时不计算，显示「—」
 - 售价按站点币种和领星月度汇率折算 USD，汇率缺失时不折算
 - 采购成本取订单文件中的真实采购成本，未参与售价估算
@@ -271,4 +313,4 @@ Python 侧一并做完，避免 service 函数签名与路由层对不上。
 
 - 两个数据源停摆的排查与恢复（另行处理）
 - 组别（Ebay-1 组）筛选 —— 现有数据模型没有店铺到组的映射，先只按站点和店铺筛选
-- 实时库存（谷仓 API 直连）—— 现用周快照
+- 实时库存 —— 谷仓 API 已直连，但按用户决定每周拉一次，不做实时

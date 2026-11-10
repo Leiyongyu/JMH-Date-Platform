@@ -1,4 +1,4 @@
-"""GoodCang V1 warehouse storage API; credentials never enter logs."""
+"""GoodCang V1 open API (warehouse storage, product inventory); credentials never enter logs."""
 from __future__ import annotations
 
 import hashlib
@@ -15,6 +15,8 @@ from backend.config import settings
 
 PATH = "/finance/get_wh_inventory_storage"
 DETAIL_PATH = "/finance/get_wh_inventory_storage_detail"
+INVENTORY_PATH = "/inventory/get_product_inventory"
+INVENTORY_PAGE_SIZE = 200
 PAGE_SIZE = 200
 DETAIL_PAGE_SIZE = 200
 LOG = logging.getLogger(__name__)
@@ -92,6 +94,13 @@ class GoodcangClient:
         bill_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()[:12]
         return self._request_page(DETAIL_PATH, body, page, f" bill_hash={bill_hash}")
 
+    def fetch_product_inventory_page(self, page, warehouse_codes=None):
+        """区域仓维度商品库存（V1）。不传仓库时返回全部区域仓；每页最多 200 条。"""
+        body = {"page": page, "pageSize": INVENTORY_PAGE_SIZE}
+        if warehouse_codes:
+            body["warehouse_code_arr"] = list(warehouse_codes)
+        return self._request_page(INVENTORY_PATH, body, page)
+
     def _request_page(self, path, body, page, context=""):
         for attempt in range(1, self.retries + 2):
             wait = self.next_request_at - time.monotonic()
@@ -114,12 +123,12 @@ class GoodcangClient:
                         for chunk in response.iter_bytes():
                             size += len(chunk)
                             if size > MAX_RESPONSE_BYTES:
-                                raise GoodcangRequestError(f"谷仓仓租响应超过安全大小；接口={path} page={page}{context}")
+                                raise GoodcangRequestError(f"谷仓接口响应超过安全大小；接口={path} page={page}{context}")
                             chunks.append(chunk)
                         result = json.loads(b"".join(chunks).decode("utf-8-sig"),
                                             parse_float=Decimal, parse_constant=_invalid_constant)
                         if not isinstance(result, dict):
-                            raise GoodcangRequestError(f"谷仓仓租响应不是对象；接口={path} page={page}{context}")
+                            raise GoodcangRequestError(f"谷仓接口响应不是对象；接口={path} page={page}{context}")
                         return result
             except GoodcangRequestError:
                 raise
@@ -130,10 +139,10 @@ class GoodcangClient:
                 reason = type(exc).__name__
             if not temporary or attempt > self.retries:
                 raise GoodcangRequestError(
-                    f"谷仓仓租接口失败；接口={path} page={page}{context} "
+                    f"谷仓接口请求失败；接口={path} page={page}{context} "
                     f"attempt={attempt}/{self.retries + 1} reason={reason}"
                 ) from None
-            LOG.warning("谷仓仓租有限重试 path=%s page=%s%s attempt=%s/%s reason=%s delay=%ss",
+            LOG.warning("谷仓接口有限重试 path=%s page=%s%s attempt=%s/%s reason=%s delay=%ss",
                         path, page, context, attempt, self.retries + 1, reason, delay)
             time.sleep(delay)
         raise AssertionError("unreachable")
