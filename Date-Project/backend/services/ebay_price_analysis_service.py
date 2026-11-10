@@ -375,13 +375,30 @@ def _decimal(value: Any) -> Decimal | None:
     return result.quantize(Decimal("0.000001")) if result.is_finite() else None
 
 
+# ---------------------------------------------------------------- 失败提示
+def failure_reason(exc: BaseException) -> str:
+    """接口、导出、刷表共用的失败原因：数据库错误带出具体缺的表/列或错误码，其余只给异常类型。"""
+    return repo.describe_db_error(exc) or f"内部错误（{type(exc).__name__}），请检查服务日志"
+
+
+def _db_step(stage: str, action, *args):
+    """刷表里访问数据库的一步：数据库错误改写成可读原因（保留原异常作为 cause），其余原样抛出。"""
+    try:
+        return action(*args)
+    except Exception as exc:
+        reason = repo.describe_db_error(exc)
+        if reason is None:
+            raise
+        raise RuntimeError(f"eBay价格分析刷表{stage}失败：{reason}") from exc
+
+
 # ---------------------------------------------------------------- 刷表
 def refresh_price_analysis() -> dict[str, Any]:
     """拉最新刊登批次 -> 算状态 -> 整表事务替换。写库操作，只由定时任务通道调用。"""
     # 失败直接抛给定时任务通道（scheduler_task_run 记失败），不在这里吞掉。
     batch_id = str(uuid4())
     refreshed_at = datetime.now(CHINA).replace(tzinfo=None)
-    source = repo.read_source()
+    source = _db_step("读取源数据", repo.read_source)
     batch = source.get("batch") or {}
     if not batch:
         raise ValueError("ods_ebay_store_listing_latest 没有任何在售刊登，未刷表")
@@ -394,7 +411,7 @@ def refresh_price_analysis() -> dict[str, Any]:
     if not goodcang.get("rows"):
         raise ValueError("谷仓库存快照为空（DE/UK/USEA/USWE 合计 0 行），未刷表，看板保持上一次结果")
     rows = build_rows(source, batch_id=batch_id, refreshed_at=refreshed_at)
-    written = repo.replace_rows(rows)
+    written = _db_step("写入看板表", repo.replace_rows, rows)
     result = {
         "status": "success", "sync_batch_id": batch_id,
         "stat_date": _text(batch["stat_date"]), "rows": written["rows"],

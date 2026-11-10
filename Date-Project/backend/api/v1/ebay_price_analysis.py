@@ -22,18 +22,20 @@ router = APIRouter(
 LOG = logging.getLogger(__name__)
 
 
+def _failure(exc: Exception, label: str) -> HTTPException:
+    """统一的失败响应：参数错误 400 原样给；其余 500，带上数据库缺的表/列或错误码，不带 SQL 原文。"""
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    LOG.exception("eBay价格分析%s失败", label)
+    return HTTPException(status_code=500,
+                         detail=f"eBay价格分析{label}失败：{service.failure_reason(exc)}")
+
+
 def _run(request: Request, action, label: str):
     try:
         return success_response(action(), request_id=request.state.request_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        LOG.exception("eBay价格分析%s失败", label)
-        raise HTTPException(
-            status_code=500,
-            detail=f"eBay价格分析{label}失败，请确认 20261110_ebay_price_analysis.sql "
-                   "已执行并检查服务日志",
-        ) from exc
+        raise _failure(exc, label) from exc
 
 
 @router.get("/stores")
@@ -105,11 +107,8 @@ def get_export(
             mid_code_filter=mid_code, sort_by=sort_by, sort_order=sort_order,
             site_oversell=site_oversell, out_of_stock_listed=out_of_stock_listed,
             unmatched=unmatched)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        LOG.exception("eBay价格分析导出失败")
-        raise HTTPException(status_code=500, detail="eBay价格分析导出失败，请检查服务日志") from exc
+        raise _failure(exc, "导出") from exc
     return Response(content, media_type=service.EXCEL_CONTENT_TYPE, headers={
         "Content-Disposition": "attachment; filename=ebay-price-analysis.xlsx; "
                                f"filename*=UTF-8''{quote(filename)}",

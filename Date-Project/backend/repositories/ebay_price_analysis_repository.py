@@ -28,9 +28,12 @@
 """
 from __future__ import annotations
 
+import re
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Sequence
+
+from pymysql.err import MySQLError
 
 from backend.database import db_connection
 
@@ -95,6 +98,52 @@ _DETAIL_COLUMNS = (
     "site_store_count", "site_ebay_available_total", "site_price_usd_min",
     "site_price_usd_max", "price_vs_site_min_pct", "site_oversell", "out_of_stock_listed",
 )
+
+
+_MISSING_COLUMN = re.compile(r"Unknown column '([^']+)'")
+_MISSING_TABLE = re.compile(r"Table '([^']+)' doesn't exist")
+# 数据库原始报错里可能带 SQL 片段（1064 的 near '…'）、主机或账号（1045 的 'root'@'localhost'），
+# 返回给前端前一律截掉 near 之后的内容、抹掉引号里的内容。
+# 开引号前不能是字母，免得把 Can't 里的撇号当成引号开头。
+_QUOTED = re.compile(r"(?<![A-Za-z])'[^']*'|\"[^\"]*\"|`[^`]*`")
+_BRIEF_LIMIT = 120
+
+
+def _mysql_error(exc: BaseException | None) -> MySQLError | None:
+    seen: set[int] = set()
+    current = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, MySQLError) and current.args and isinstance(current.args[0], int):
+            return current
+        current = current.__cause__ or current.__context__
+    return None
+
+
+def describe_db_error(exc: BaseException) -> str | None:
+    """把数据库报错翻成一句能直接定位问题的中文；不是数据库错误时返回 None。
+
+    1054 / 1146 带出缺的列名 / 表名（一眼看出是哪个迁移没跑），其余错误带错误码和简短原因。
+    不含 SQL 原文、连接串或账号。接口、导出、刷表都用这一份，不各写各的。
+    """
+    error = _mysql_error(exc)
+    if error is None:
+        return None
+    code = error.args[0]
+    message = str(error.args[1]) if len(error.args) > 1 else ""
+    if code == 1054:
+        match = _MISSING_COLUMN.search(message)
+        if match:
+            column = match.group(1).split(".")[-1]
+            return f"数据库表缺少列 {column}（MySQL 1054），请确认相关迁移已执行"
+    if code == 1146:
+        match = _MISSING_TABLE.search(message)
+        if match:
+            table = match.group(1).split(".")[-1]
+            return f"数据库缺少表 {table}（MySQL 1146），请确认相关迁移已执行"
+    brief = message.split(" near ", 1)[0].split("; check the manual", 1)[0]
+    brief = " ".join(_QUOTED.sub("…", brief).split())[:_BRIEF_LIMIT]
+    return f"数据库错误（MySQL {code}）" + (f"：{brief}" if brief else "")
 
 
 def _collate(expression: str) -> str:

@@ -571,8 +571,105 @@ def test_api_maps_value_error_to_400_and_failures_to_500(client, monkeypatch):
     monkeypatch.setattr(service, "stores", broken)
     failed = test_client.get("/api/v1/ebay-price-analysis/stores")
     assert failed.status_code == 500
-    assert "20261110_ebay_price_analysis.sql" in failed.json()["detail"]
-    assert "table missing" not in failed.json()["detail"]
+    detail = failed.json()["detail"]
+    assert detail == "eBay价格分析店铺汇总查询失败：内部错误（RuntimeError），请检查服务日志"
+    assert "table missing" not in detail, "非数据库异常不回显原文"
+    assert ".sql" not in detail, "不再写死某个迁移文件名"
+
+
+# ----------------------------------------------------------- 数据库报错提示
+SQL_TEXT = "SELECT seller_account,unmatched_reason FROM dws_ebay_price_analysis v WHERE x=1"
+
+
+def _unknown_column():
+    import pymysql
+    return pymysql.err.OperationalError(1054, "Unknown column 'v.unmatched_reason' in 'field list'")
+
+
+def _missing_table():
+    import pymysql
+    return pymysql.err.ProgrammingError(
+        1146, "Table 'date-project.ods_goodcang_product_inventory_latest' doesn't exist")
+
+
+@pytest.mark.parametrize("make,expected", [
+    (_unknown_column, "数据库表缺少列 unmatched_reason（MySQL 1054），请确认相关迁移已执行"),
+    (_missing_table, "数据库缺少表 ods_goodcang_product_inventory_latest（MySQL 1146），请确认相关迁移已执行"),
+])
+@pytest.mark.parametrize("path,repo_fn,params", [
+    ("/detail", "detail_count", {}),
+    ("/export", "detail_rows", {"columns": "sku"}),
+    ("/stores", "store_rows", {}),
+    ("/sku-listings", "sku_listings", {"sku": "TYT-1-1"}),
+])
+def test_every_endpoint_names_the_missing_column_or_table(client, monkeypatch, make, expected,
+                                                          path, repo_fn, params):
+    test_client, _ = client
+    monkeypatch.setattr(repo, "meta", lambda: {"stat_date": STAT_DATE, "refreshed_at": REFRESHED_AT})
+
+    def fail(*args, **kwargs):
+        # 模拟 pymysql 在执行 SQL 时报错：异常链上还挂着一段 SQL 原文，提示里不能带出来
+        try:
+            raise RuntimeError(SQL_TEXT)
+        except RuntimeError as inner:
+            raise make() from inner
+
+    monkeypatch.setattr(repo, repo_fn, fail)
+    response = test_client.get(f"/api/v1/ebay-price-analysis{path}", params=params)
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert expected in detail, detail
+    assert "SELECT" not in detail and "dws_ebay_price_analysis v" not in detail
+    assert ".sql" not in detail
+
+
+@pytest.mark.parametrize("error,expected,forbidden", [
+    ((1064, "You have an error in your SQL syntax; check the manual that corresponds to your "
+            "MySQL server version for the right syntax to use near 'FROM dws_ebay_price_analysis "
+            "WHERE' at line 1"), "数据库错误（MySQL 1064）：You have an error in your SQL syntax",
+     ("FROM dws", "near")),
+    ((1045, "Access denied for user 'root'@'localhost' (using password: YES)"),
+     "数据库错误（MySQL 1045）：Access denied for user …@…", ("root", "localhost")),
+    ((2003, "Can't connect to MySQL server on '127.0.0.1' ([WinError 10061])"),
+     "数据库错误（MySQL 2003）：Can't connect to MySQL server on …", ("127.0.0.1",)),
+])
+def test_other_database_errors_keep_code_and_brief_reason_without_sql_or_account(error, expected,
+                                                                                 forbidden):
+    import pymysql
+    reason = service.failure_reason(pymysql.err.OperationalError(*error))
+    assert reason.startswith(expected), reason
+    for text in forbidden:
+        assert text not in reason, reason
+    assert len(reason) <= 160
+
+
+def test_non_database_errors_only_report_the_exception_type():
+    assert repo.describe_db_error(RuntimeError("boom")) is None
+    assert service.failure_reason(KeyError("secret")) == "内部错误（KeyError），请检查服务日志"
+
+
+@pytest.mark.parametrize("stage,patch", [("读取源数据", "read_source"), ("写入看板表", "replace_rows")])
+def test_refresh_reports_the_same_missing_column_message(monkeypatch, stage, patch):
+    monkeypatch.setattr(repo, "read_source", lambda: {
+        "batch": {"stat_date": STAT_DATE}, "rates": RATES, "rows": [source()],
+        "goodcang": {"exists": True, "rows": 1}})
+    monkeypatch.setattr(repo, "replace_rows", lambda rows: {"rows": len(rows), "deleted_rows": 0})
+
+    def fail(*args, **kwargs):
+        raise _unknown_column()
+
+    monkeypatch.setattr(repo, patch, fail)
+    with pytest.raises(RuntimeError) as error:
+        service.refresh_price_analysis()
+    assert str(error.value) == (f"eBay价格分析刷表{stage}失败：数据库表缺少列 unmatched_reason"
+                                "（MySQL 1054），请确认相关迁移已执行")
+    assert error.value.__cause__ is not None, "保留原始异常，服务日志仍能看到全部信息"
+
+
+def test_refresh_keeps_its_own_value_errors_unchanged(monkeypatch):
+    monkeypatch.setattr(repo, "read_source", lambda: {"batch": {}, "rows": [], "rates": {}})
+    with pytest.raises(ValueError, match="没有任何在售刊登"):
+        service.refresh_price_analysis()
 
 
 def test_api_export_streams_xlsx(client, monkeypatch):
