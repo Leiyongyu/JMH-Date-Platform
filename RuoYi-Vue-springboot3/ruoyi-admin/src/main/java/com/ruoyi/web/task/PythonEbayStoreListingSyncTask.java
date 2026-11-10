@@ -214,7 +214,8 @@ public class PythonEbayStoreListingSyncTask
                 throw new IllegalStateException("Python未返回价格分析刷表结果，请确认已部署并重启最新Python服务");
             return (retried ? "价格分析刷表首次遇锁冲突(409)，重试后成功" : "价格分析刷表成功")
                     + "：DWS行数=" + details.get("rows") + "，快照日期=" + details.get("stat_date")
-                    + "，未匹配库存=" + unmatched(details);
+                    + "，未匹配库存=" + unmatched(details)
+                    + "，" + rateMonthsText(details.get("rate_months"));
         }
         catch (RuntimeException e)
         {
@@ -237,6 +238,33 @@ public class PythonEbayStoreListingSyncTask
             if (message != null && message.contains("[HTTP 409]")) return true;
         }
         return false;
+    }
+
+    /**
+     * 刷表结果里的 rate_months（币种 → 实际折算用的汇率月份）写进摘要，事后可查这周按哪个月折算。
+     * 当月企业汇率要到月底才定，Python 会按币种回退到不晚于快照月份的最近已出月份，所以各币种可能不同。
+     * 全部同一个月：「汇率月份=2026-10」；不一致：「汇率月份=EUR 2026-10、GBP 2026-09」（按币种排序）；
+     * 字段缺失或为空：「汇率月份=未返回」。只用于摘要，不影响成功/失败判定。
+     */
+    static String rateMonthsText(Object value)
+    {
+        if (!(value instanceof Map<?, ?> months) || months.isEmpty()) return "汇率月份=未返回";
+        java.util.TreeMap<String, String> byCurrency = new java.util.TreeMap<>();
+        months.forEach((currency, month) -> {
+            String code = currency == null ? "" : String.valueOf(currency).trim().toUpperCase();
+            String text = month == null ? "" : String.valueOf(month).trim();
+            if (!code.isEmpty()) byCurrency.put(code, text.isEmpty() ? "未返回" : text);
+        });
+        java.util.Set<String> distinct = new java.util.TreeSet<>(byCurrency.values());
+        if (distinct.isEmpty() || (distinct.size() == 1 && distinct.contains("未返回")))
+            return "汇率月份=未返回";
+        if (distinct.size() == 1) return "汇率月份=" + distinct.iterator().next();
+        StringBuilder text = new StringBuilder("汇率月份=");
+        byCurrency.forEach((code, month) -> {
+            if (text.length() > "汇率月份=".length()) text.append("、");
+            text.append(code).append(' ').append(month);
+        });
+        return text.toString();
     }
 
     private static Object unmatched(Map<?, ?> details)

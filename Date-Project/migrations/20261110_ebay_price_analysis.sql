@@ -4,6 +4,11 @@
 -- 幂等：CREATE TABLE IF NOT EXISTS，重复执行不报错也不丢数据。
 -- 明细表的数据由刷表任务整表事务替换（不留历史批次，与
 -- ods_ebay_store_listing_latest 的发布方式一致），所以本脚本不插入任何业务行。
+--
+-- 开头的 USE / SET NAMES：本机 Windows 的 mysql 客户端默认 gbk，手工执行 UTF-8 脚本会吞掉
+-- 中文字符串的闭合引号（报 1406）；db-migrate 自身用 utf8mb4 连库，这两行对它无副作用。
+USE `date-project`;
+SET NAMES utf8mb4;
 
 CREATE TABLE IF NOT EXISTS dws_ebay_price_analysis (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

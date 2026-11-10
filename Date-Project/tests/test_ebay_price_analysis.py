@@ -309,7 +309,7 @@ def test_sku_listings_reports_every_store_and_one_inventory_per_site(monkeypatch
         {"seller_account": "a", "site": "DE", "site_name": "德国", "item_id": "1",
          "view_item_url": "v", "currency": "EUR", "current_price": Decimal("52.9"),
          "price_usd": Decimal("58.2"), "ebay_quantity_available": 10, "status": "超卖风险",
-         "title": "t", "image_url": "i"},
+         "title": "t", "image_url": "i", "out_of_stock_listed": 1},
         {"seller_account": "b", "site": "DE", "site_name": "德国", "item_id": "2",
          "view_item_url": "v2", "currency": "EUR", "current_price": None, "price_usd": None,
          "ebay_quantity_available": 10, "status": "超卖风险", "title": "t", "image_url": "i"}])
@@ -324,6 +324,8 @@ def test_sku_listings_reports_every_store_and_one_inventory_per_site(monkeypatch
     assert data["stat_date"] == "2026-09-23" and data["refreshed_at"] == "2026-09-23 10:15:11"
     assert [row["seller_account"] for row in data["listings"]] == ["a", "b"]
     assert data["listings"][0]["price_usd"] == 58.2 and data["listings"][1]["price_usd"] is None
+    assert data["listings"][0]["out_of_stock_listed"] is True
+    assert data["listings"][1]["out_of_stock_listed"] is False, "缺字段按 False，不报错"
     assert data["sites"] == [{"site": "DE", "site_name": "德国", "overseas_sellable": 20,
                               "overseas_in_transit": 0, "chengdu_sellable": None,
                               "pending_outbound": 2, "ebay_available_total": 30,
@@ -646,9 +648,14 @@ def strip_comments(statement):
 def test_migration_is_idempotent_and_additive_only():
     sql = MIGRATION.read_text(encoding="utf-8")
     statements = [strip_comments(item) for item in split_sql_statements(sql)]
-    assert len(statements) == 1, "只建 dws_ebay_price_analysis 一张表，别夹带其他语句"
-    for statement in statements:
-        assert statement.upper().startswith("CREATE TABLE IF NOT EXISTS"), statement[:60]
+    statements = [item for item in statements if item]
+    # 约定：第一条语句前只允许 USE `date-project` 与 SET NAMES utf8mb4（防 Windows 客户端按 gbk 执行）
+    preamble = {"USE `DATE-PROJECT`", "SET NAMES UTF8MB4"}
+    head = [item for item in statements[:2] if item.upper().rstrip(";").strip() in preamble]
+    assert {item.upper().rstrip(";").strip() for item in head} == preamble, "开头缺 USE / SET NAMES"
+    body = statements[len(head):]
+    assert len(body) == 1, "只建 dws_ebay_price_analysis 一张表，别夹带其他语句"
+    assert body[0].upper().startswith("CREATE TABLE IF NOT EXISTS"), body[0][:60]
     upper = sql.upper()
     for forbidden in ("DROP ", "ALTER ", "TRUNCATE", "INSERT ", "UPDATE ", "DELETE "):
         assert forbidden not in upper, f"迁移脚本不应包含 {forbidden.strip()}"
@@ -923,3 +930,32 @@ def test_rates_without_any_published_month_stay_missing_so_price_usd_is_null():
     rates, months = repo.rate_lookup(cursor, "2026-11")
     assert rates == {} and months == {}
     assert service.price_usd(Decimal("10"), "EUR", rates) is None
+
+
+def test_sku_listings_flags_out_of_stock_listed_with_the_same_rule_as_detail(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(repo, "_query", lambda sql, params: captured.update(sql=sql) or [])
+    repo.sku_listings("TYT-1-1")
+    assert f"{repo.out_of_stock_listed_sql()} out_of_stock_listed" in captured["sql"]
+    view, _ = repo._listing_view({})
+    assert f"{repo.out_of_stock_listed_sql('d.')} out_of_stock_listed" in view, "与明细同一段判定"
+
+
+@pytest.mark.parametrize("matched,overseas,chengdu,available,expected", [
+    (1, 0, 0, 5, 1),      # 已匹配、仓里 0、eBay 还在卖 -> 断货在售
+    (1, 0, None, 5, 1),   # 成都缺值按 0
+    (1, 0, 3, 5, 0),      # 成都还有货
+    (1, 2, 0, 5, 0),      # 谷仓还有货
+    (1, 0, 0, 0, 0),      # eBay 也不卖了
+    (0, None, None, 5, 0),  # 未匹配不判
+])
+def test_out_of_stock_listed_rule(matched, overseas, chengdu, available, expected):
+    import sqlite3
+
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE t (inventory_matched INT, overseas_sellable INT,"
+                       " chengdu_sellable INT, ebay_quantity_available INT)")
+    connection.execute("INSERT INTO t VALUES (?,?,?,?)", (matched, overseas, chengdu, available))
+    value = connection.execute(f"SELECT {repo.out_of_stock_listed_sql()} FROM t").fetchone()[0]
+    connection.close()
+    assert value == expected

@@ -510,6 +510,16 @@ SITE_AGGREGATES_SQL = f"""
          THEN 1 ELSE 0 END site_oversell"""
 
 
+def out_of_stock_listed_sql(alias: str = "") -> str:
+    """断货在售（每条刊登）：已匹配库存，谷仓可售 + 成都可售 = 0，但 eBay 可售 > 0。
+
+    唯一定义：明细、SKU 汇总、店铺汇总、sku-listings 都用它。alias 是表别名前缀，如 "d."。
+    """
+    return (f"CASE WHEN {alias}inventory_matched=1"
+            f" AND COALESCE({alias}overseas_sellable,0)+COALESCE({alias}chengdu_sellable,0)=0"
+            f" AND COALESCE({alias}ebay_quantity_available,0)>0 THEN 1 ELSE 0 END")
+
+
 def site_sku_sql(source: str = TABLE, where: str = "") -> str:
     """同站点同 SKU 的跨店聚合。source 可换成同结构的派生表（测试用字面量行喂进来，只读）。"""
     joiner = " AND " if where else " WHERE "
@@ -537,10 +547,7 @@ def _listing_view(criteria: dict[str, Any], source: str = TABLE) -> tuple[str, l
                    END price_vs_site_min_pct,
                    CASE WHEN d.inventory_matched=1 THEN COALESCE(s.site_oversell,0) ELSE 0 END
                        site_oversell,
-                   CASE WHEN d.inventory_matched=1
-                         AND COALESCE(d.overseas_sellable,0)+COALESCE(d.chengdu_sellable,0)=0
-                         AND COALESCE(d.ebay_quantity_available,0)>0 THEN 1 ELSE 0 END
-                       out_of_stock_listed
+                   {out_of_stock_listed_sql("d.")} out_of_stock_listed
             FROM {source} d
             LEFT JOIN site_sku s ON s.site<=>d.site AND s.sku=d.sku
         ) v"""
@@ -676,7 +683,8 @@ def sku_listings(sku: str) -> list[dict[str, Any]]:
     """某个完整 SKU 在所有店铺、所有站点的刊登。按 站点、美元价 排序，缺价排最后。"""
     return _query(
         "SELECT seller_account,site,site_name,item_id,view_item_url,currency,current_price,"
-        f"price_usd,ebay_quantity_available,status,title,image_url FROM {TABLE} WHERE sku=%s "
+        "price_usd,ebay_quantity_available,status,title,image_url,"
+        f"{out_of_stock_listed_sql()} out_of_stock_listed FROM {TABLE} WHERE sku=%s "
         "ORDER BY site,(price_usd IS NULL) ASC,price_usd,seller_account,item_id "
         f"LIMIT {MAX_ROWS + 1}", (sku,))
 

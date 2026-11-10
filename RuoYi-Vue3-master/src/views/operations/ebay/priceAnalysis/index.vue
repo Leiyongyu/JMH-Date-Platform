@@ -355,7 +355,7 @@
                         </template>
                       </el-table-column>
                     </el-table>
-                    <div class="compare-title">各店铺刊登（当前站点高亮）</div>
+                    <div class="compare-title">各店铺刊登（当前站点高亮；「最低」= 同站点最低 USD 售价）</div>
                     <el-table
                       :data="skuListing(row.sku).data.listings"
                       size="small"
@@ -383,6 +383,13 @@
                           <el-tag v-else-if="col.format === 'status'" :type="statusTagType(scope.row.status)" size="small">
                             {{ displayValue(scope.row.status) }}
                           </el-tag>
+                          <el-tag
+                            v-else-if="col.format === 'outOfStock' && isTrue(scope.row[col.key])"
+                            type="warning"
+                            effect="dark"
+                            size="small"
+                            class="oversell-tag"
+                          >断货在售</el-tag>
                           <span v-else-if="col.format === 'usd'" class="usd-cell">
                             {{ decimal(scope.row.price_usd) }}
                             <el-tag
@@ -390,7 +397,7 @@
                               type="success"
                               size="small"
                               effect="plain"
-                            >站点最低</el-tag>
+                            >最低</el-tag>
                           </span>
                           <span v-else>{{ cellText(scope.row, col) }}</span>
                         </template>
@@ -546,7 +553,7 @@
             </template>
           </el-table-column>
         </el-table>
-        <div class="compare-title">各店铺刊登（当前店铺高亮）</div>
+        <div class="compare-title">各店铺刊登（当前店铺高亮；「最低」= 同站点最低 USD 售价）</div>
         <el-table
           :data="compareState.data.listings"
           size="small"
@@ -574,6 +581,13 @@
               <el-tag v-else-if="col.format === 'status'" :type="statusTagType(scope.row.status)" size="small">
                 {{ displayValue(scope.row.status) }}
               </el-tag>
+              <el-tag
+                v-else-if="col.format === 'outOfStock' && isTrue(scope.row[col.key])"
+                type="warning"
+                effect="dark"
+                size="small"
+                class="oversell-tag"
+              >断货在售</el-tag>
               <span v-else-if="col.format === 'usd'" class="usd-cell">
                 {{ decimal(scope.row.price_usd) }}
                 <el-tag
@@ -581,7 +595,7 @@
                   type="success"
                   size="small"
                   effect="plain"
-                >站点最低</el-tag>
+                >最低</el-tag>
               </span>
               <span v-else>{{ cellText(scope.row, col) }}</span>
             </template>
@@ -771,13 +785,17 @@ const compareSiteColumns = [
   { key: 'ebay_available_total', label: 'eBay可售合计', minWidth: 115, align: 'right', format: 'integer' },
   { key: 'site_oversell', label: '多店超卖', width: 100, align: 'center', format: 'oversell' }
 ]
+// 抽屉 820px 减去左右各 20px 内边距约 780px 可用；这张表要一眼扫完，列宽合计压在 770px 以内，不出横向滚动。
+// 宽度按小号表格（12px 字、单元格左右各 12px 内边距）的最长内容估：12 位 Item ID、「1,234.56 EUR」、4 字标签。
 const compareListingColumns = [
-  { key: 'seller_account', label: '店铺', minWidth: 140, tooltip: true },
-  { key: 'site_name', label: '站点', width: 70, align: 'center' },
-  { key: 'item_id', label: 'Item ID', minWidth: 130, format: 'itemLink' },
-  { key: 'current_price', label: '原币售价', width: 115, align: 'right', format: 'price' },
-  { key: 'price_usd', label: '售价(USD)', width: 160, align: 'right', format: 'usd' },
-  { key: 'ebay_quantity_available', label: 'eBay可售', width: 90, align: 'right', format: 'integer' },
+  { key: 'seller_account', label: '店铺', minWidth: 110, tooltip: true },
+  { key: 'site_name', label: '站点', width: 60, align: 'center' },
+  { key: 'item_id', label: 'Item ID', minWidth: 105, format: 'itemLink' },
+  { key: 'current_price', label: '原币售价', width: 105, align: 'right', format: 'price' },
+  { key: 'price_usd', label: '售价(USD)', width: 130, align: 'right', format: 'usd' },
+  { key: 'ebay_quantity_available', label: 'eBay可售', width: 80, align: 'right', format: 'integer' },
+  // /sku-listings 的 listings 后加的字段：缺失时 isTrue 判为 false，只显示「—」，后端上线前后都能用。
+  { key: 'out_of_stock_listed', label: '断货在售', width: 90, align: 'center', format: 'outOfStock' },
   { key: 'status', label: '状态', width: 90, align: 'center', format: 'status' }
 ]
 
@@ -1365,6 +1383,7 @@ onMounted(async () => {
 }
 .usd-cell {
   display: inline-flex;
+  white-space: nowrap;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
@@ -1447,6 +1466,7 @@ onMounted(async () => {
 }
 .sku-compare-drawer .usd-cell {
   display: inline-flex;
+  white-space: nowrap;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;

@@ -59,6 +59,53 @@ class PythonEbayStoreListingSyncTaskTest
                 Map.of("rows", 18013, "matched_rows", 18000, "stat_date", "2026-11-10")));
     }
 
+    private static Map<String, Object> refreshedWithRates(Object rateMonths)
+    {
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("rows", 18013);
+        result.put("matched_rows", 18000);
+        result.put("stat_date", "2026-11-10");
+        result.put("rate_months", rateMonths);
+        return Map.of("code", 0, "data", Map.of("status", "completed", "result", result));
+    }
+
+    private String weeklySummaryWithRates(Object rateMonths)
+    {
+        when(scheduler.runEbayPriceAnalysisRefresh(anyString())).thenReturn(refreshedWithRates(rateMonths));
+        task.runWeekly();
+        OperationSyncResult result = finished();
+        assertEquals(OperationSyncResult.STATUS_SUCCESS, result.getStatus());
+        return result.getBusinessSummary();
+    }
+
+    @Test
+    void refreshSummaryShowsSingleRateMonthWhenAllCurrenciesAgree()
+    {
+        String summary = weeklySummaryWithRates(Map.of("EUR", "2026-10", "GBP", "2026-10", "USD", "2026-10"));
+        assertTrue(summary.contains("价格分析刷表成功"), summary);
+        assertTrue(summary.contains("汇率月份=2026-10"), summary);
+        assertFalse(summary.contains("EUR"), summary);
+    }
+
+    @Test
+    void refreshSummaryListsEachCurrencyWhenRateMonthsDiffer()
+    {
+        String summary = weeklySummaryWithRates(Map.of("GBP", "2026-09", "USD", "2026-10", "EUR", "2026-10"));
+        assertTrue(summary.contains("汇率月份=EUR 2026-10、GBP 2026-09、USD 2026-10"), summary);
+    }
+
+    @Test
+    void refreshSummarySaysNotReturnedWhenRateMonthsMissingOrEmptyAndStillSucceeds()
+    {
+        assertTrue(weeklySummaryWithRates(null).contains("汇率月份=未返回"));
+        assertEquals("汇率月份=未返回", PythonEbayStoreListingSyncTask.rateMonthsText(Map.of()));
+        assertEquals("汇率月份=未返回", PythonEbayStoreListingSyncTask.rateMonthsText(Map.of("EUR", " ")));
+        assertEquals("汇率月份=未返回", PythonEbayStoreListingSyncTask.rateMonthsText("2026-10"));
+        // 刷表结果没带 rate_months 也照样成功，不告警
+        verify(alerts, never()).sendAlert(anyString(), eq("ebay_price_analysis_weekly_sync:refresh"),
+                anyString(), anyString(), anyString(), anyString(), any());
+    }
+
     private OperationSyncResult finished()
     {
         ArgumentCaptor<OperationSyncResult> captor = ArgumentCaptor.forClass(OperationSyncResult.class);

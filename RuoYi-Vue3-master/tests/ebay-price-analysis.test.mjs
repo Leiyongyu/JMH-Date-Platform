@@ -293,6 +293,48 @@ test('a listing can be out of stock and multi-store oversold at once, and both m
   assert.match(templateSource, />断货在售<\/el-tag>/)
 })
 
+test('cross-store listing tables show the out-of-stock mark and tolerate the field missing', async () => {
+  // 抽屉和展开行的刊登表各有一个独立分支，样式和明细表一致（实心橙色）。
+  const branch = /<el-tag\s+v-else-if="col\.format === 'outOfStock' && isTrue\(scope\.row\[col\.key\]\)"\s+type="warning"\s+effect="dark"[^>]*>断货在售<\/el-tag>/g
+  assert.equal((templateSource.match(branch) || []).length, 2)
+  assert.match(declaration('compareListingColumns'), /key: 'out_of_stock_listed'[^}]*format: 'outOfStock'/)
+
+  const listings = [
+    { seller_account: 'aplus-shop', site: 'DE', item_id: '1001', price_usd: 58.2, ebay_quantity_available: 36, out_of_stock_listed: true },
+    { seller_account: 'bparts', site: 'DE', item_id: '1002', price_usd: 51.75, ebay_quantity_available: 10, out_of_stock_listed: false },
+    { seller_account: 'cshop', site: 'DE', item_id: '1003', price_usd: 60, ebay_quantity_available: 2 }
+  ]
+  const { page } = createHarness({
+    skuListings: () => Promise.resolve({ data: { ...MOCK_SKU_LISTINGS, listings } })
+  })
+  await page.ensureSkuListings('TYT-90245-0772')
+  const rows = page.skuListing('TYT-90245-0772').data.listings
+  const col = { key: 'out_of_stock_listed', format: 'outOfStock' }
+  assert.equal(page.isTrue(rows[0][col.key]), true)
+  assert.equal(page.cellText(rows[0], col), '断货在售')
+  // 明确为 false 或缺字段（后端上线前）：不显示标记，不报错，格子里是「—」。
+  for (const row of [rows[1], rows[2]]) {
+    assert.equal(page.isTrue(row[col.key]), false)
+    assert.equal(page.cellText(row, col), '—')
+  }
+  // 原来 mock 里的 listings 一条都没有这个字段，也照常渲染。
+  for (const row of MOCK_SKU_LISTINGS.listings) assert.equal(page.cellText(row, col), '—')
+})
+
+test('drawer listing table fits the drawer without sideways scrolling', () => {
+  // 抽屉 820px，内边距左右各 20px；列宽合计超过约 780px 就会出横向滚动条，留 10px 余量。
+  assert.match(templateSource, /<el-drawer[^>]*size="820px"/)
+  const defs = declaration('compareListingColumns')
+  const widths = [...defs.matchAll(/(?:minWidth|width): (\d+)/g)].map(match => Number(match[1]))
+  assert.equal(widths.length, 8)
+  assert.ok(widths.reduce((sum, value) => sum + value, 0) <= 770, `listing columns too wide: ${widths}`)
+  assert.match(defs, /key: 'price_usd', label: '售价\(USD\)', width: 130/)
+  // 价格和「最低」标签不折行，标签写短，免得把列撑回去。
+  assert.match(templateSource, />最低<\/el-tag>/)
+  assert.doesNotMatch(templateSource, /站点最低<\/el-tag>/)
+  assert.match(styleSource, /\.sku-compare-drawer \.usd-cell \{\s*display: inline-flex;\s*white-space: nowrap;/)
+})
+
 test('lowest-price marker follows the backend order and skips missing prices', () => {
   const { page } = createHarness()
   const keys = [...page.lowestListingKeys(MOCK_SKU_LISTINGS.listings)]

@@ -510,6 +510,7 @@ def sku_listings(*, sku: str | None) -> dict[str, Any]:
             "price_usd": _number(row.get("price_usd")),
             "ebay_quantity_available": _int(row.get("ebay_quantity_available")),
             "status": row.get("status"),
+            "out_of_stock_listed": bool(_int(row.get("out_of_stock_listed"))),
         } for row in listings],
         "sites": [{
             "site": row.get("site"),
