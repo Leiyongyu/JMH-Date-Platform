@@ -19,7 +19,7 @@ UI 布局参考 `D:/JMH/项目/个人简历网址/erp-bi/index.html`（只参考
 | 成都待出库 | 同上 | `product_lock_num` | 与海外 `reserved` 相加得 `pending_outbound` |
 | 近 7/30 日销量 | `dwd_ebay_sku_analysis_order` | `purchase_quantity`，按 `payment_time` | 数字酋长订单，手动上传 |
 | 采购成本 | `ods_ebay_sku_analysis_order_raw` | `purchase_cost_cny` | 真实成本，**不用售价 45% 估算** |
-| 汇率 | `dim_lingxing_currency_month` | `my_rate` | 月度，按 `stat_month` 取 |
+| 汇率 | `dim_lingxing_currency_month` | `my_rate` | 月度企业汇率；**按币种取不晚于快照月份的最近一个月**（2026-11-10 改，见第 6 节） |
 
 站点映射（listing 的 site → 库存的 site）：`DE→德国`、`UK→英国`、`US→美国`。
 `FR` 只有 1 条且关联不上，归入「未匹配」，不单独建站点。
@@ -262,7 +262,8 @@ Python FastAPI 提供，Java 用 `PythonHttpSupport` 转发（与绩效排名、
 - 成都中转仓库存仍为**领星周快照**
 - 海外仓按「站点 + 去掉 SKU 第一段（品牌前缀，谷仓侧为 JMH）」匹配
 - 覆盖天数 = 谷仓可售 ÷ 近 7 日日均销量；近 7 日无销量时不计算，显示「—」
-- 售价按站点币种和领星月度汇率折算 USD，汇率缺失时不折算
+- 售价按站点币种和领星月度企业汇率折算 USD；当月汇率未出时，沿用该币种最近一个已出月份的汇率；完全没有汇率时不折算
+  （2026-11-10 改：原定「汇率缺失时不折算」，但月度汇率月底才定、看板每周一刷，一个月大部分时间当月汇率都缺，本机实测 17258 条里 12945 条 USD 价为空。企业汇率月间变化很小，回退比整列空着更合理；刷表结果的 `rate_months` 记录每个币种实际用的月份）
 - 采购成本取订单文件中的真实采购成本，未参与售价估算
 - 未关联到库存的 listing 计入「未匹配」，不计入库存缺口与超卖判断
 

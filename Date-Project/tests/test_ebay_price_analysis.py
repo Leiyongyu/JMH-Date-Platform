@@ -188,6 +188,7 @@ def refresh_repo(monkeypatch):
         "rates": RATES,
         "rows": [source(), source(seller_account="b-shop", item_id="9",
                                   overseas_sellable=None, chengdu_sellable=None)],
+        "rate_months": {"USD": "2026-09", "EUR": "2026-08"},
         "goodcang": {"exists": True, "rows": 4913},
     })
 
@@ -209,6 +210,7 @@ def test_refresh_replaces_the_whole_table_and_reports_per_account(refresh_repo):
     assert result["matched_rows"] == 1
     assert result["status_counts"] == {"健康": 1, "未匹配": 1}
     assert {row["sync_batch_id"] for row in refresh_repo["rows"]} == {result["sync_batch_id"]}
+    assert result["rate_months"] == {"EUR": "2026-08", "USD": "2026-09"}
 
 
 def test_refresh_without_listing_batch_raises_and_writes_nothing(monkeypatch):
@@ -271,128 +273,127 @@ def test_refresh_write_failure_propagates_to_the_scheduler(monkeypatch):
         service.refresh_price_analysis()
 
 
-# ----------------------------------------------------------- 看板聚合
-def point(key, price, overseas, available, statuses, listings=1):
-    return {"group_key": key, "mid_code": key.rsplit("-", 1)[0], "price_sum": price,
-            "price_rows": 1 if price is not None else 0, "overseas_sellable": overseas,
-            "ebay_available": available, "statuses": statuses,
-            "listing_count": listings, "matched_listing_count": listings,
-            "sales_qty_30d": 3}
+# ----------------------------------------------------------- 店铺汇总与 SKU 跨店
+def test_overview_and_its_helpers_are_gone():
+    for name in ("overview", "_kpis", "_point", "_sample", "_median", "SCATTER_LIMIT", "RISKS"):
+        assert not hasattr(service, name), name
+    for name in ("summary", "store_compare", "dimension_points"):
+        assert not hasattr(repo, name), name
 
 
-@pytest.fixture
-def board(monkeypatch):
-    state = {
-        "summary": {
-            "listing_count": 18013, "sku_count": 9821, "ebay_available": Decimal("52140"),
-            "matched_ebay_available": Decimal("50000"), "avg_price_usd": Decimal("42.1812"),
-            "missing_price_usd": 12, "overseas_sellable": Decimal("38920"),
-            "chengdu_sellable": Decimal("100"), "overseas_in_transit": Decimal("5"),
-            "status_counts": {"超卖风险": 412, "未匹配": 1447, "健康": 16000},
-        },
-        "points": [point("AAA-1-1", Decimal("10"), 900, 40, "健康"),
-                   point("BBB-2-2", Decimal("30"), 0, 5, "断货,滞销"),
-                   point("CCC-3-3", Decimal("50"), 100, 20, "健康"),
-                   point("DDD-4-4", None, None, 7, "未匹配")],
-        "stores": [{"seller_account": "aplus-shop", "site": "DE",
-                    "ebay_available": Decimal("2140"), "listing_count": 981,
-                    "overseas_sellable": Decimal("1820")}],
-    }
-    monkeypatch.setattr(repo, "meta", lambda: {
-        "stat_date": STAT_DATE, "refreshed_at": REFRESHED_AT, "rows": 18013})
-    monkeypatch.setattr(repo, "summary", lambda criteria: state["summary"])
-    monkeypatch.setattr(repo, "store_compare", lambda criteria: state["stores"])
-    monkeypatch.setattr(repo, "dimension_points",
-                        lambda criteria, dimension: state["points"])
-    return state
-
-
-def test_overview_kpis_match_the_contract(board):
-    data = service.overview()
-    assert data["stat_date"] == "2026-09-23"
-    assert data["refreshed_at"] == "2026-09-23 10:15:11"
-    kpis = {item["key"]: item for item in data["kpis"]}
-    assert [item["key"] for item in data["kpis"]] == [
-        "listing_count", "sku_count", "ebay_available", "overseas_sellable",
-        "stock_gap", "oversell_count", "unmatched_count", "avg_price_usd"]
-    assert kpis["listing_count"]["value"] == 18013
-    assert kpis["overseas_sellable"]["value"] == 38920
-    # 缺口只对关联上的刊登算：38920 − 50000
-    assert kpis["stock_gap"]["value"] == -11080
-    assert kpis["oversell_count"]["value"] == 412
-    assert kpis["unmatched_count"]["value"] == 1447
-    assert kpis["avg_price_usd"]["value"] == 42.18
-    assert kpis["avg_price_usd"]["unit"] == "USD"
-
-
-def test_overview_scatter_median_and_gap_top(board):
-    data = service.overview()
-    assert data["scatter_sampled"] is False
-    assert [item["sku"] for item in data["scatter"]] == [
-        "AAA-1-1", "BBB-2-2", "CCC-3-3", "DDD-4-4"]
-    assert data["scatter"][0]["price_usd"] == 10.0
-    assert "stock_gap" not in data["scatter"][0]
-    # 中位数只取有值的点：价格 10/30/50 -> 30，库存 0/100/900 -> 100
-    assert data["scatter_median"] == {"price_usd": 30.0, "overseas_sellable": 100.0}
-    # 未匹配的点没有库存，不进缺口榜；按缺口绝对值排序
-    assert [item["sku"] for item in data["stock_gap_top"]] == [
-        "AAA-1-1", "CCC-3-3", "BBB-2-2"]
-    assert data["stock_gap_top"][0]["stock_gap"] == 860
-    assert data["stock_gap_top"][2]["stock_gap"] == -5
-
-
-def test_overview_aggregated_status_takes_the_most_severe(board):
-    data = service.overview()
-    statuses = {item["sku"]: item["status"] for item in data["scatter"]}
-    assert statuses["BBB-2-2"] == "断货", "断货比滞销严重，聚合后取断货"
-    assert statuses["DDD-4-4"] == "未匹配"
-
-
-def test_overview_samples_scatter_above_the_limit(board):
-    board["points"] = [point(f"S-{index}-1", Decimal(index), index, index, "健康")
-                       for index in range(service.SCATTER_LIMIT + 500)]
-    data = service.overview()
-    assert data["scatter_sampled"] is True
-    assert len(data["scatter"]) == service.SCATTER_LIMIT
-    assert data["scatter_total"] == service.SCATTER_LIMIT + 500
-    # 抽样不改参考线：中位数仍按全量点算
-    assert data["scatter_median"]["price_usd"] == pytest.approx(
-        (service.SCATTER_LIMIT + 499) / 2, abs=1)
-
-
-def test_overview_risks_cover_every_non_healthy_status(board):
-    risks = {item["key"]: item for item in service.overview()["risks"]}
-    assert set(risks) == {"oversell", "out_of_stock", "replenish", "unmatched",
-                          "slow_moving"}
-    assert risks["oversell"]["count"] == 412 and risks["oversell"]["impact"] == 1
-    assert risks["oversell"]["filter"] == {"status": "超卖风险"}
-    assert risks["out_of_stock"]["count"] == 0
-    assert [risks[key]["impact"] for key in
-            ("oversell", "out_of_stock", "replenish", "unmatched", "slow_moving")] == [
-        1, 2, 3, 4, 5]
-
-
-def test_overview_rejects_unknown_dimension_and_status(board):
-    with pytest.raises(ValueError, match="dimension"):
-        service.overview(dimension="brand")
-    with pytest.raises(ValueError, match="状态取值无效"):
-        service.overview(status="爆单")
-
-
-def test_filters_are_parsed_into_bound_parameters(board, monkeypatch):
+def test_stores_shapes_rows_and_only_takes_site_and_account_filters(monkeypatch):
     seen = {}
-    monkeypatch.setattr(repo, "summary", lambda criteria: seen.setdefault(
-        "criteria", criteria) or board["summary"])
-    service.overview(stat_date="2026-09-23", sites="de,uk,de", accounts="a,b",
-                     status="未匹配", keyword=" sensor ")
+
+    def rows(criteria):
+        seen["criteria"] = criteria
+        return [{"seller_account": "aplus-shop", "site": "DE", "site_name": "德国",
+                 "listing_count": 981, "sku_count": 960, "ebay_available": Decimal("2140"),
+                 "out_of_stock_listed": Decimal("37"), "site_oversell_sku_count": 12,
+                 "unmatched_count": Decimal("21")}]
+
+    monkeypatch.setattr(repo, "store_rows", rows)
+    monkeypatch.setattr(repo, "meta", lambda: {"stat_date": STAT_DATE, "refreshed_at": REFRESHED_AT})
+    data = service.stores(sites="de,uk,de", accounts="aplus-shop")
+    assert data == {"stat_date": "2026-09-23", "refreshed_at": "2026-09-23 10:15:11", "rows": [{
+        "seller_account": "aplus-shop", "site": "DE", "site_name": "德国",
+        "listing_count": 981, "sku_count": 960, "ebay_available": 2140,
+        "out_of_stock_listed": 37, "site_oversell_sku_count": 12, "unmatched_count": 21}]}
+    assert seen["criteria"]["sites"] == ["DE", "UK"]
+    assert seen["criteria"]["accounts"] == ["aplus-shop"]
+
+
+def test_sku_listings_reports_every_store_and_one_inventory_per_site(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(repo, "meta", lambda: {"stat_date": STAT_DATE, "refreshed_at": REFRESHED_AT})
+    monkeypatch.setattr(repo, "sku_listings", lambda sku: seen.setdefault("sku", sku) and [
+        {"seller_account": "a", "site": "DE", "site_name": "德国", "item_id": "1",
+         "view_item_url": "v", "currency": "EUR", "current_price": Decimal("52.9"),
+         "price_usd": Decimal("58.2"), "ebay_quantity_available": 10, "status": "超卖风险",
+         "title": "t", "image_url": "i"},
+        {"seller_account": "b", "site": "DE", "site_name": "德国", "item_id": "2",
+         "view_item_url": "v2", "currency": "EUR", "current_price": None, "price_usd": None,
+         "ebay_quantity_available": 10, "status": "超卖风险", "title": "t", "image_url": "i"}])
+    monkeypatch.setattr(repo, "sku_sites", lambda sku: [
+        {"site": "DE", "site_name": "德国", "site_overseas_sellable": 20,
+         "site_overseas_in_transit": 0, "site_chengdu_sellable": None,
+         "site_pending_outbound": 2, "site_ebay_available_total": Decimal("30"),
+         "site_store_count": 3, "site_oversell": 1}])
+    data = service.sku_listings(sku="  TYT-90245-0772 ")
+    assert seen["sku"] == "TYT-90245-0772", "TRIM 后精确匹配"
+    assert data["sku"] == "TYT-90245-0772" and data["title"] == "t" and data["image_url"] == "i"
+    assert data["stat_date"] == "2026-09-23" and data["refreshed_at"] == "2026-09-23 10:15:11"
+    assert [row["seller_account"] for row in data["listings"]] == ["a", "b"]
+    assert data["listings"][0]["price_usd"] == 58.2 and data["listings"][1]["price_usd"] is None
+    assert data["sites"] == [{"site": "DE", "site_name": "德国", "overseas_sellable": 20,
+                              "overseas_in_transit": 0, "chengdu_sellable": None,
+                              "pending_outbound": 2, "ebay_available_total": 30,
+                              "store_count": 3, "site_oversell": True}]
+
+
+def test_sku_listings_unknown_sku_returns_empty_arrays_and_requires_sku(monkeypatch):
+    monkeypatch.setattr(repo, "meta", lambda: {"stat_date": None, "refreshed_at": None})
+    monkeypatch.setattr(repo, "sku_listings", lambda sku: [])
+    monkeypatch.setattr(repo, "sku_sites", MagicMock(side_effect=AssertionError("没有刊登就不查站点")))
+    data = service.sku_listings(sku="NOPE-1-1")
+    assert data["listings"] == [] and data["sites"] == [] and data["title"] is None
+    with pytest.raises(ValueError, match="sku 必填"):
+        service.sku_listings(sku="  ")
+
+
+def test_detail_rows_carry_cross_store_comparison(monkeypatch):
+    monkeypatch.setattr(repo, "meta", lambda: {"stat_date": STAT_DATE, "refreshed_at": REFRESHED_AT})
+    seen = {}
+
+    def rows(criteria, **kwargs):
+        seen["criteria"] = criteria
+        return [stored_row(site_store_count=3, site_ebay_available_total=Decimal("30"),
+                           site_price_usd_min=Decimal("50"), site_price_usd_max=Decimal("70"),
+                           price_vs_site_min_pct=Decimal("0.164"), site_oversell=1,
+                           out_of_stock_listed=0)]
+
+    monkeypatch.setattr(repo, "detail_rows", rows)
+    monkeypatch.setattr(repo, "detail_count", lambda criteria: 1)
+    data = service.detail(site_oversell=True, out_of_stock_listed=True)
+    row = data["rows"][0]
+    assert (row["site_store_count"], row["site_ebay_available_total"]) == (3, 30)
+    assert (row["site_price_usd_min"], row["site_price_usd_max"]) == (50.0, 70.0)
+    assert row["price_vs_site_min_pct"] == 0.164
+    assert row["site_oversell"] is True and row["out_of_stock_listed"] is False
+    assert seen["criteria"]["site_oversell"] is True
+    assert seen["criteria"]["out_of_stock_listed"] is True
+
+
+def test_summary_rows_carry_price_range_and_oversell_but_not_per_listing_columns(monkeypatch):
+    monkeypatch.setattr(repo, "meta", lambda: {"stat_date": STAT_DATE, "refreshed_at": REFRESHED_AT})
+    monkeypatch.setattr(repo, "summary_rows", lambda criteria, **kwargs: [stored_row(
+        statuses="健康", listing_count=3, store_count=3, price_usd_min=Decimal("50"),
+        price_usd_max=Decimal("70"), site_oversell=1, site_store_count=3)])
+    monkeypatch.setattr(repo, "summary_count", lambda criteria: 1)
+    row = service.detail(mode="summary")["rows"][0]
+    assert (row["store_count"], row["price_usd_min"], row["price_usd_max"]) == (3, 50.0, 70.0)
+    assert row["site_oversell"] is True
+    for key in ("site_store_count", "site_price_usd_min", "price_vs_site_min_pct"):
+        assert key not in row
+
+
+def test_filters_are_parsed_into_bound_parameters(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(repo, "meta", lambda: {})
+    monkeypatch.setattr(repo, "detail_count", lambda criteria: seen.setdefault("criteria", criteria) and 0)
+    monkeypatch.setattr(repo, "detail_rows", lambda criteria, **kwargs: [])
+    service.detail(stat_date="2026-09-23", sites="de,uk,de", accounts="a,b",
+                   status="未匹配", keyword=" sensor ")
     criteria = seen["criteria"]
     assert criteria["stat_date"] == STAT_DATE
     assert criteria["sites"] == ["DE", "UK"]
     assert criteria["accounts"] == ["a", "b"]
     assert criteria["statuses"] == ["未匹配"]
     assert criteria["keyword"] == "sensor"
+    assert criteria["site_oversell"] is False and criteria["out_of_stock_listed"] is False
     with pytest.raises(ValueError, match="YYYY-MM-DD"):
-        service.overview(stat_date="2026/09/23")
+        service.detail(stat_date="2026/09/23")
+    with pytest.raises(ValueError, match="状态取值无效"):
+        service.detail(status="爆单")
 
 
 # ----------------------------------------------------------- 明细
@@ -414,6 +415,12 @@ def stored_row(**overrides):
     return row
 
 
+@pytest.fixture(autouse=True)
+def snapshot_meta(monkeypatch):
+    monkeypatch.setattr(repo, "meta", lambda: {
+        "stat_date": STAT_DATE, "refreshed_at": REFRESHED_AT, "rows": 18013})
+
+
 def test_detail_paginates_and_keeps_nulls(monkeypatch):
     seen = {}
 
@@ -428,6 +435,8 @@ def test_detail_paginates_and_keeps_nulls(monkeypatch):
     monkeypatch.setattr(repo, "detail_count", lambda criteria: 18013)
     data = service.detail(page=3, page_size=50, sort_by="stock_gap", sort_order="asc")
     assert (data["total"], data["page"], data["page_size"]) == (18013, 3, 50)
+    assert data["stat_date"] == "2026-09-23"
+    assert data["refreshed_at"] == "2026-09-23 10:15:11"
     assert seen == {"sort_by": "stock_gap", "sort_order": "asc", "offset": 100,
                     "limit": 50}
     first, unmatched = data["rows"]
@@ -450,6 +459,7 @@ def test_detail_summary_mode_uses_sku_grain(monkeypatch):
     assert row["status"] == "断货"
     assert (row["listing_count"], row["store_count"]) == (4, 2)
     assert "seller_account" not in row and "item_id" not in row
+    assert data["stat_date"] == "2026-09-23"
 
 
 def test_detail_clamps_page_size_and_rejects_unknown_mode(monkeypatch):
@@ -512,23 +522,33 @@ def client():
         yield test_client, app
 
 
-def test_api_overview_and_detail_pass_filters_through(client, monkeypatch):
+def test_api_stores_sku_listings_and_detail_pass_filters_through(client, monkeypatch):
     test_client, _ = client
     seen = {}
-    monkeypatch.setattr(service, "overview", lambda **kwargs: seen.setdefault(
-        "overview", kwargs) or {"kpis": []})
+    monkeypatch.setattr(service, "stores", lambda **kwargs: seen.setdefault(
+        "stores", kwargs) or {"rows": []})
+    monkeypatch.setattr(service, "sku_listings", lambda **kwargs: seen.setdefault(
+        "sku_listings", kwargs) or {"listings": []})
     monkeypatch.setattr(service, "detail", lambda **kwargs: seen.setdefault(
         "detail", kwargs) or {"total": 0, "rows": []})
-    overview = test_client.get("/api/v1/ebay-price-analysis/overview",
-                               params={"sites": "DE", "dimension": "mid"})
-    assert overview.status_code == 200 and overview.json()["code"] == 0
-    assert seen["overview"]["sites"] == "DE"
-    assert seen["overview"]["dimension"] == "mid"
+    stores = test_client.get("/api/v1/ebay-price-analysis/stores",
+                             params={"sites": "DE", "accounts": "a,b"})
+    assert stores.status_code == 200 and stores.json()["code"] == 0
+    assert seen["stores"] == {"sites": "DE", "accounts": "a,b"}
+    listings = test_client.get("/api/v1/ebay-price-analysis/sku-listings",
+                               params={"sku": "TYT-90245-0772"})
+    assert listings.status_code == 200
+    assert seen["sku_listings"] == {"sku": "TYT-90245-0772"}
+    assert test_client.get("/api/v1/ebay-price-analysis/sku-listings").status_code == 422
     detail = test_client.get("/api/v1/ebay-price-analysis/detail",
-                             params={"mode": "summary", "mid_code": "TYT-90245"})
+                             params={"mode": "summary", "mid_code": "TYT-90245",
+                                     "site_oversell": "true", "out_of_stock_listed": "true"})
     assert detail.status_code == 200
     assert seen["detail"]["mode"] == "summary"
     assert seen["detail"]["mid_code_filter"] == "TYT-90245"
+    assert seen["detail"]["site_oversell"] is True
+    assert seen["detail"]["out_of_stock_listed"] is True
+    assert test_client.get("/api/v1/ebay-price-analysis/overview").status_code == 404
 
 
 def test_api_maps_value_error_to_400_and_failures_to_500(client, monkeypatch):
@@ -537,16 +557,16 @@ def test_api_maps_value_error_to_400_and_failures_to_500(client, monkeypatch):
     def bad(**kwargs):
         raise ValueError("状态取值无效：爆单")
 
-    monkeypatch.setattr(service, "overview", bad)
-    response = test_client.get("/api/v1/ebay-price-analysis/overview")
+    monkeypatch.setattr(service, "stores", bad)
+    response = test_client.get("/api/v1/ebay-price-analysis/stores")
     assert response.status_code == 400
     assert "状态取值无效" in response.json()["detail"]
 
     def broken(**kwargs):
         raise RuntimeError("table missing")
 
-    monkeypatch.setattr(service, "overview", broken)
-    failed = test_client.get("/api/v1/ebay-price-analysis/overview")
+    monkeypatch.setattr(service, "stores", broken)
+    failed = test_client.get("/api/v1/ebay-price-analysis/stores")
     assert failed.status_code == 500
     assert "20261110_ebay_price_analysis.sql" in failed.json()["detail"]
     assert "table missing" not in failed.json()["detail"]
@@ -564,16 +584,55 @@ def test_api_export_streams_xlsx(client, monkeypatch):
     assert response.content == b"PK\x03\x04x"
 
 
+def test_api_export_passes_the_two_flag_filters(client, monkeypatch):
+    test_client, _ = client
+    seen = {}
+    monkeypatch.setattr(service, "export", lambda **kwargs: seen.update(kwargs) or ("a.xlsx", b"PK"))
+    response = test_client.get("/api/v1/ebay-price-analysis/export",
+                               params={"site_oversell": "true", "out_of_stock_listed": "false"})
+    assert response.status_code == 200
+    assert seen["site_oversell"] is True and seen["out_of_stock_listed"] is False
+
+
+@pytest.mark.parametrize("mode,repo_fn", [("detail", "detail_rows"), ("summary", "summary_rows")])
+def test_export_with_site_oversell_matches_detail_filtering(monkeypatch, mode, repo_fn):
+    """勾了「只看多店超卖」再导出：导出与 /detail 走同一套筛选，拿到的是同一批行。"""
+    seen = []
+    flagged = [stored_row(item_id="1", site_oversell=1, statuses="超卖风险"),
+               stored_row(item_id="2", sku="FRD-1-1", site_oversell=1, statuses="超卖风险")]
+
+    def rows(criteria, **kwargs):
+        seen.append(criteria)
+        return flagged if criteria["site_oversell"] else [*flagged, stored_row(item_id="3")]
+
+    monkeypatch.setattr(repo, repo_fn, rows)
+    monkeypatch.setattr(repo, "detail_count", lambda criteria: 2)
+    monkeypatch.setattr(repo, "summary_count", lambda criteria: 2)
+    listed = service.detail(mode=mode, sites="DE", site_oversell=True, page_size=200)
+    _, content = service.export(mode=mode, sites="DE", site_oversell=True, columns="sku")
+    assert seen[0] == seen[1], "导出与明细的筛选条件完全一致"
+    assert seen[1]["site_oversell"] is True and seen[1]["sites"] == ["DE"]
+    exported = [row[0] for row in sheet_values(content)[1:]]
+    assert exported == [row["sku"] for row in listed["rows"]] == ["TYT-90245-0772", "FRD-1-1"]
+
+
+def test_export_columns_are_unchanged_by_the_new_flags():
+    keys = [key for key, _ in service.EXPORT_COLUMNS]
+    for added in ("site_oversell", "out_of_stock_listed", "site_store_count",
+                  "site_price_usd_min", "price_vs_site_min_pct"):
+        assert added not in keys, "导出列不变，否则要改列权限 SQL"
+
+
 def test_api_requires_internal_access(client, monkeypatch):
     test_client, app = client
     reader = MagicMock()
-    monkeypatch.setattr(service, "overview", reader)
+    monkeypatch.setattr(service, "stores", reader)
 
     def deny():
         raise HTTPException(status_code=403, detail="internal access denied")
 
     app.dependency_overrides[require_internal_access] = deny
-    assert test_client.get("/api/v1/ebay-price-analysis/overview").status_code == 403
+    assert test_client.get("/api/v1/ebay-price-analysis/stores").status_code == 403
     reader.assert_not_called()
 
 
@@ -704,3 +763,163 @@ def test_page_refresh_registration_route_is_gone(client):
     # 定时任务的数据生产通道保留
     assert service.TASK_CODE == "ebay_price_analysis_refresh"
     assert callable(service.refresh_price_analysis)
+
+
+# ----------------------------------------------------------- 多店超卖与库存口径
+# 跨店聚合是一段纯标准 SQL（COUNT DISTINCT / SUM / MIN / MAX / CASE / COALESCE），
+# 用内存 sqlite 直接执行同一段 SQL 文本验证口径；单元测试不连真实 MySQL。
+def _site_sku(rows):
+    import sqlite3
+
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.execute(
+        "CREATE TABLE t (seller_account TEXT, site TEXT, sku TEXT, ebay_quantity_available INT,"
+        " price_usd REAL, inventory_matched INT, overseas_sellable INT, chengdu_sellable INT,"
+        " overseas_in_transit INT, pending_outbound INT, stat_date TEXT)")
+    connection.executemany(
+        "INSERT INTO t VALUES (:seller_account,:site,:sku,:ebay_quantity_available,:price_usd,"
+        ":inventory_matched,:overseas_sellable,:chengdu_sellable,:overseas_in_transit,"
+        ":pending_outbound,:stat_date)",
+        [{"overseas_in_transit": 0, "pending_outbound": 0, "stat_date": "2026-11-10",
+          "chengdu_sellable": 0, "price_usd": 50.0, "inventory_matched": 1, **row} for row in rows])
+    result = {(row["site"], row["sku"]): dict(row)
+              for row in connection.execute(repo.site_sku_sql("t"))}
+    connection.close()
+    return result
+
+
+def test_three_stores_with_10_each_on_a_20_unit_warehouse_is_site_oversell():
+    rows = [{"seller_account": store, "site": "DE", "sku": "TYT-1-1",
+             "ebay_quantity_available": 10, "overseas_sellable": 20,
+             "price_usd": price} for store, price in (("a", 50.0), ("b", 55.0), ("c", 60.0))]
+    site = _site_sku(rows)[("DE", "TYT-1-1")]
+    # 库存按站点共享：三条刊登挂的是同一份 20 件，绝不能被加成 60
+    assert site["site_overseas_sellable"] == 20
+    assert site["site_ebay_available_total"] == 30, "eBay 可售各店各自一份，相加"
+    assert site["site_store_count"] == 3
+    assert (site["site_price_usd_min"], site["site_price_usd_max"]) == (50.0, 60.0)
+    assert site["site_oversell"] == 1, "30 > 20 + 0，判多店超卖"
+
+
+def test_chengdu_stock_counts_and_single_store_view_cannot_see_the_oversell():
+    rows = [{"seller_account": store, "site": "DE", "sku": "TYT-1-1",
+             "ebay_quantity_available": 10, "overseas_sellable": 20, "chengdu_sellable": 10}
+            for store in ("a", "b", "c")]
+    assert _site_sku(rows)[("DE", "TYT-1-1")]["site_oversell"] == 0, "30 ≤ 20 + 10，不超卖"
+    # 每家店单看都是 10 ≤ 20，只有按站点合计才看得出来
+    each = [{"seller_account": "a", "site": "DE", "sku": "TYT-1-1",
+             "ebay_quantity_available": 10, "overseas_sellable": 20}]
+    assert _site_sku(each)[("DE", "TYT-1-1")]["site_oversell"] == 0
+
+
+def test_oversell_is_per_site_and_only_for_matched_inventory():
+    rows = [
+        {"seller_account": "a", "site": "DE", "sku": "TYT-1-1", "ebay_quantity_available": 15,
+         "overseas_sellable": 20},
+        {"seller_account": "a", "site": "UK", "sku": "TYT-1-1", "ebay_quantity_available": 15,
+         "overseas_sellable": 20},
+        {"seller_account": "a", "site": "US", "sku": "TYT-2-2", "ebay_quantity_available": 5,
+         "overseas_sellable": None, "chengdu_sellable": None, "inventory_matched": 0},
+    ]
+    result = _site_sku(rows)
+    # DE、UK 各自 15 ≤ 20：跨站点不合并 eBay 可售，也不合并库存
+    assert result[("DE", "TYT-1-1")]["site_oversell"] == 0
+    assert result[("UK", "TYT-1-1")]["site_oversell"] == 0
+    assert result[("US", "TYT-2-2")]["site_oversell"] == 0, "未匹配库存不判超卖"
+    assert result[("US", "TYT-2-2")]["site_overseas_sellable"] is None
+
+
+def test_site_aggregates_never_sum_shared_inventory():
+    sql = repo.SITE_AGGREGATES_SQL
+    for column in ("overseas_sellable", "chengdu_sellable", "overseas_in_transit", "pending_outbound"):
+        assert f"SUM({column})" not in sql and f"THEN {column} END)" in sql
+    assert "SUM(ebay_quantity_available) site_ebay_available_total" in sql
+
+
+def test_listing_view_compares_against_every_store_in_the_site():
+    view, params = repo._listing_view({"stat_date": STAT_DATE, "accounts": ["a"]})
+    assert params == [STAT_DATE], "跨店聚合只受快照日期约束，不受店铺筛选"
+    assert "LEFT JOIN site_sku s ON s.site<=>d.site AND s.sku=d.sku" in view
+    assert "s.site_price_usd_min=0 THEN NULL" in view
+    assert "WHEN d.inventory_matched=1 THEN COALESCE(s.site_oversell,0) ELSE 0 END" in view
+    where, values = repo._filters({"site_oversell": True, "out_of_stock_listed": True})
+    assert where == " WHERE site_oversell=1 AND out_of_stock_listed=1" and values == []
+
+
+def test_summary_applies_flag_filters_after_grouping(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(repo, "_query", lambda sql, params: captured.update(sql=sql, params=list(params)) or [])
+    repo.summary_rows({"accounts": ["a"], "site_oversell": True}, limit=10, offset=0)
+    sql = captured["sql"]
+    grouped, outer = sql.rsplit(") g", 1)
+    assert "seller_account IN (%s)" in grouped and "site_oversell=1" not in grouped.split("GROUP BY")[-1]
+    assert outer.startswith(" WHERE site_oversell=1")
+    # SKU 维度的跨店对比列取自 site_sku（全站点），与明细的同站点对比同一口径
+    assert "MAX(site_price_usd_min) price_usd_min,MAX(site_price_usd_max) price_usd_max" in sql
+    assert "MAX(site_store_count) store_count" in sql
+    assert "COUNT(DISTINCT seller_account) store_count" not in sql
+    assert "MIN(price_usd) price_usd_min" not in sql
+    # 行级汇总列仍按筛选后的刊登算
+    assert "SUM(ebay_quantity_available) ebay_quantity_available" in sql
+    assert "COUNT(*) listing_count" in sql
+    assert captured["params"] == ["a"]
+
+
+def test_store_rows_count_distinct_oversell_skus_and_ignore_status_filters(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(repo, "_query", lambda sql, params: captured.update(sql=sql, params=list(params)) or [])
+    repo.store_rows({"sites": ["DE"], "accounts": ["a"], "statuses": ["健康"], "keyword": "x"})
+    sql = captured["sql"]
+    assert "COUNT(DISTINCT CASE WHEN site_oversell=1 THEN sku END) site_oversell_sku_count" in sql
+    assert "GROUP BY seller_account,site ORDER BY seller_account,site" in sql
+    assert captured["params"] == ["DE", "a"]
+
+
+# ----------------------------------------------------------- 汇率按币种回退
+class _SqliteCursor:
+    """把同一段 rate_lookup SQL 交给内存 sqlite 执行（%s → ?），验证回退口径；不连真实 MySQL。"""
+
+    def __init__(self, rows):
+        import sqlite3
+
+        self.connection = sqlite3.connect(":memory:")
+        self.connection.row_factory = sqlite3.Row
+        self.connection.execute(
+            f"CREATE TABLE {repo.RATE_TABLE} (rate_month TEXT, currency_code TEXT, my_rate REAL)")
+        self.connection.executemany(f"INSERT INTO {repo.RATE_TABLE} VALUES (?,?,?)", rows)
+        self.result = []
+
+    def execute(self, sql, params=()):
+        self.result = [dict(row) for row in self.connection.execute(sql.replace("%s", "?"), params)]
+
+    def fetchall(self):
+        return self.result
+
+
+def test_rates_fall_back_per_currency_to_the_latest_published_month():
+    cursor = _SqliteCursor([
+        ("2026-07", "USD", 7.10), ("2026-07", "EUR", 7.80), ("2026-07", "GBP", 9.00),
+        ("2026-08", "USD", 7.15),                       # 8 月只出了 USD
+        ("2026-12", "EUR", 9.99),                       # 晚于快照月，不能用
+        ("2026-08", "GBP", 0),                          # 无效汇率，跳过
+    ])
+    rates, months = repo.rate_lookup(cursor, "2026-11")
+    # 当月（11 月）缺：USD 用上月最近的 8 月；EUR、GBP 在 8 月缺或无效，各自跳到 7 月
+    assert months == {"USD": "2026-08", "EUR": "2026-07", "GBP": "2026-07"}
+    assert rates["USD"] == Decimal("7.15") and rates["EUR"] == Decimal("7.8")
+    assert repo.rates(cursor, "2026-11") == rates
+
+
+def test_rates_use_the_snapshot_month_when_it_is_published():
+    cursor = _SqliteCursor([("2026-10", "USD", 7.0), ("2026-11", "USD", 7.2), ("2026-11", "EUR", 7.9)])
+    rates, months = repo.rate_lookup(cursor, "2026-11")
+    assert months == {"USD": "2026-11", "EUR": "2026-11"}
+    assert rates["USD"] == Decimal("7.2")
+
+
+def test_rates_without_any_published_month_stay_missing_so_price_usd_is_null():
+    cursor = _SqliteCursor([("2026-12", "USD", 7.3)])
+    rates, months = repo.rate_lookup(cursor, "2026-11")
+    assert rates == {} and months == {}
+    assert service.price_usd(Decimal("10"), "EUR", rates) is None

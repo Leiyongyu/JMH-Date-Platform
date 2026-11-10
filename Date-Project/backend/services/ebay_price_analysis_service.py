@@ -5,7 +5,8 @@
 
 口径要点（与设计文档第 3、6 节一致）：
 - 覆盖天数 = 谷仓海外仓可售 ÷ 近 7 日日均销量；近 7 日无销量时留 NULL，不写 0 也不写极大值
-- price_usd = 原币售价 × my_rate(原币) ÷ my_rate(USD)；汇率缺失留 NULL，不补 0
+- price_usd = 原币售价 × my_rate(原币) ÷ my_rate(USD)；汇率按币种回退到快照月及以前最近已出的
+  月份（月度汇率月底才出），完全没有汇率时留 NULL，不补 0
 - 未关联到库存的刊登保留为「未匹配」，库存列与 stock_gap 留 NULL，不计入缺口与超卖
 """
 from __future__ import annotations
@@ -41,27 +42,18 @@ COVER_DAYS_THRESHOLD = Decimal("15")
 # cover_days 落库是 DECIMAL(10,2)：销量是 DECIMAL(18,4)，理论上会出现 0.0001 这种
 # 日均，算出来的天数能顶爆列宽。封顶而不是改列宽，页面上这已经是「足够久」。
 COVER_DAYS_MAX = Decimal("99999999.99")
-SCATTER_LIMIT = 2000
 MAX_PAGE_SIZE = 200
 MAX_EXPORT_ROWS = repo.MAX_ROWS
 EXCEL_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-# 严重度排序，同时用于三处：风险清单的 impact、SKU 聚合后取哪个状态、明细表默认排序。
+# 严重度排序：SKU 汇总视图里一组刊登取哪个状态。
 # 「未匹配」排在「滞销」前面：不知道库存比卖得慢更需要先处理。
 _SEVERITY = {
     STATUS_OVERSELL: 1, STATUS_OUT_OF_STOCK: 2, STATUS_REPLENISH: 3,
     STATUS_UNMATCHED: 4, STATUS_SLOW_MOVING: 5, STATUS_HEALTHY: 6,
 }
-RISKS = (
-    ("oversell", STATUS_OVERSELL, "eBay 可售超过谷仓+成都可用"),
-    ("out_of_stock", STATUS_OUT_OF_STOCK, "谷仓可售为 0 但 eBay 仍在售"),
-    ("replenish", STATUS_REPLENISH, f"覆盖天数不足 {COVER_DAYS_THRESHOLD} 天"),
-    ("unmatched", STATUS_UNMATCHED, "按站点+去掉品牌前缀的SKU 未关联到谷仓或成都库存"),
-    ("slow_moving", STATUS_SLOW_MOVING, "近 30 日无销量但谷仓仍有可售"),
-)
-
 _PRICE_OK = re.compile(r"^[0-9]+(\.[0-9]+)?$")
 _ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
@@ -117,7 +109,10 @@ def listing_price(value: Any) -> Decimal | None:
 
 def price_usd(price: Decimal | None, currency: str | None,
               rates: dict[str, Decimal]) -> Decimal | None:
-    """原币价 -> 美元价。本币或目标币汇率缺失一律返回 None，绝不补 0 或用旧月汇率。"""
+    """原币价 -> 美元价。本币或目标币汇率缺失一律返回 None，绝不补 0。
+
+    用哪个月的汇率由 repository.rate_lookup 决定（按币种回退到最近已出月份），这里只做换算。
+    """
     if price is None:
         return None
     code = str(currency or "").strip().upper()
@@ -271,6 +266,8 @@ def refresh_price_analysis() -> dict[str, Any]:
         "missing_price_usd": sum(row["price_usd"] is None for row in rows),
         "status_counts": _counter(row["status"] for row in rows),
         "goodcang_rows": goodcang["rows"],
+        # 币种 → 实际折算用的汇率月份（当月未出时按币种回退到最近已出月份）
+        "rate_months": dict(sorted((source.get("rate_months") or {}).items())),
     }
     LOG.info("eBay价格分析刷表完成 batch=%s rows=%s", batch_id, written["rows"])
     return result
@@ -310,7 +307,8 @@ def _csv(value: str | None, *, limit: int = 60, item_length: int = 128) -> list[
 def _criteria(*, stat_date: str | None = None, sites: str | None = None,
               accounts: str | None = None, status: str | None = None,
               keyword: str | None = None, sku: str | None = None,
-              mid_code_filter: str | None = None) -> dict[str, Any]:
+              mid_code_filter: str | None = None, site_oversell: bool | None = None,
+              out_of_stock_listed: bool | None = None) -> dict[str, Any]:
     statuses = _csv(status, limit=len(STATUSES), item_length=16)
     unknown = [item for item in statuses if item not in STATUSES]
     if unknown:
@@ -326,6 +324,8 @@ def _criteria(*, stat_date: str | None = None, sites: str | None = None,
         "keyword": text,
         "sku": (str(sku).strip() or None) if sku else None,
         "mid_code": (str(mid_code_filter).strip() or None) if mid_code_filter else None,
+        "site_oversell": bool(site_oversell),
+        "out_of_stock_listed": bool(out_of_stock_listed),
     }
 
 
@@ -375,122 +375,6 @@ def _worst_status(statuses: Any) -> str | None:
     return min(known, key=lambda item: _SEVERITY[item])
 
 
-def _median(values: list[Decimal]) -> float | None:
-    if not values:
-        return None
-    ordered = sorted(values)
-    middle = len(ordered) // 2
-    if len(ordered) % 2:
-        return _number(ordered[middle])
-    return _number((ordered[middle - 1] + ordered[middle]) / 2)
-
-
-def _kpis(summary: dict[str, Any]) -> list[dict[str, Any]]:
-    counts = summary.get("status_counts") or {}
-    overseas = _int(summary.get("overseas_sellable"))
-    matched_available = _int(summary.get("matched_ebay_available"))
-    gap = None
-    if overseas is not None or matched_available is not None:
-        gap = (overseas or 0) - (matched_available or 0)
-    return [
-        {"key": "listing_count", "label": "在售刊登",
-         "value": _int(summary.get("listing_count")) or 0, "unit": "条"},
-        {"key": "sku_count", "label": "在售SKU",
-         "value": _int(summary.get("sku_count")) or 0, "unit": "个"},
-        {"key": "ebay_available", "label": "eBay可售",
-         "value": _int(summary.get("ebay_available")) or 0, "unit": "件"},
-        {"key": "overseas_sellable", "label": "谷仓可售",
-         "value": overseas or 0, "unit": "件"},
-        {"key": "stock_gap", "label": "库存缺口", "value": gap or 0, "unit": "件"},
-        {"key": "oversell_count", "label": "超卖风险",
-         "value": int(counts.get(STATUS_OVERSELL, 0)), "unit": "条"},
-        {"key": "unmatched_count", "label": "未匹配",
-         "value": int(counts.get(STATUS_UNMATCHED, 0)), "unit": "条"},
-        {"key": "avg_price_usd", "label": "均价",
-         "value": _number(summary.get("avg_price_usd")), "unit": "USD"},
-    ]
-
-
-def _point(row: dict[str, Any]) -> dict[str, Any]:
-    price_rows = _int(row.get("price_rows")) or 0
-    average = (Decimal(str(row["price_sum"])) / price_rows
-               if price_rows and row.get("price_sum") is not None else None)
-    return {
-        "sku": row.get("group_key"),
-        "mid_code": row.get("mid_code"),
-        "price_usd": _number(average),
-        "overseas_sellable": _int(row.get("overseas_sellable")),
-        "ebay_available": _int(row.get("ebay_available")),
-        "status": _worst_status(row.get("statuses")),
-    }
-
-
-def _sample(points: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
-    """点数超限时按价格顺序等距抽样：保留整个价格区间的形状，不只留头部。"""
-    if len(points) <= SCATTER_LIMIT:
-        return points, False
-    step = len(points) / SCATTER_LIMIT
-    sampled = [points[min(len(points) - 1, int(index * step))]
-               for index in range(SCATTER_LIMIT)]
-    return sampled, True
-
-
-def overview(*, stat_date: str | None = None, sites: str | None = None,
-             accounts: str | None = None, status: str | None = None,
-             keyword: str | None = None, dimension: str = "sku") -> dict[str, Any]:
-    if dimension not in ("sku", "mid"):
-        raise ValueError("dimension 只能是 sku 或 mid")
-    criteria = _criteria(stat_date=stat_date, sites=sites, accounts=accounts,
-                         status=status, keyword=keyword)
-    meta = repo.meta()
-    summary = repo.summary(criteria)
-    points = [_point(row) for row in repo.dimension_points(criteria, dimension)]
-    # 中位数取全量点，不取抽样后的点：抽样只影响画多少个点，不该影响参考线。
-    median = {
-        "price_usd": _median([Decimal(str(point["price_usd"])) for point in points
-                              if point["price_usd"] is not None]),
-        "overseas_sellable": _median([Decimal(str(point["overseas_sellable"]))
-                                      for point in points
-                                      if point["overseas_sellable"] is not None]),
-    }
-    gap_rows = [point for point in points if point["overseas_sellable"] is not None]
-    for point in gap_rows:
-        point["stock_gap"] = (point["overseas_sellable"] or 0) - (point["ebay_available"] or 0)
-    top = sorted(gap_rows, key=lambda point: (-abs(point["stock_gap"]),
-                                              str(point["sku"] or "")))[:10]
-    points.sort(key=lambda point: (point["price_usd"] is None, point["price_usd"] or 0,
-                                   str(point["sku"] or "")))
-    scatter, sampled = _sample(points)
-    counts = summary.get("status_counts") or {}
-    return {
-        "stat_date": _text(meta.get("stat_date")),
-        "refreshed_at": _text(meta.get("refreshed_at")),
-        "dimension": dimension,
-        "kpis": _kpis(summary),
-        "store_compare": [{
-            "seller_account": row["seller_account"], "site": row["site"],
-            "ebay_available": _int(row.get("ebay_available")) or 0,
-            "overseas_sellable": _int(row.get("overseas_sellable")) or 0,
-            "listing_count": _int(row.get("listing_count")) or 0,
-        } for row in repo.store_compare(criteria)],
-        "scatter": [{key: value for key, value in point.items() if key != "stock_gap"}
-                    for point in scatter],
-        "scatter_median": median,
-        "scatter_sampled": sampled,
-        "scatter_total": len(points),
-        "stock_gap_top": [{
-            "sku": point["sku"], "mid_code": point["mid_code"],
-            "stock_gap": point["stock_gap"],
-            "overseas_sellable": point["overseas_sellable"],
-            "ebay_available": point["ebay_available"],
-        } for point in top],
-        "risks": [{
-            "key": key, "label": label, "count": int(counts.get(label, 0)),
-            "impact": _SEVERITY[label], "hint": hint, "filter": {"status": label},
-        } for key, label, hint in RISKS],
-    }
-
-
 def _detail_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "seller_account": row.get("seller_account"),
@@ -518,17 +402,38 @@ def _detail_row(row: dict[str, Any]) -> dict[str, Any]:
         "purchase_cost_cny": _number(row.get("purchase_cost_cny")),
         "status": row.get("status"),
         "stat_date": _text(row.get("stat_date")),
+        # 跨店对比：同站点同 SKU 所有店铺（查询时派生，不受店铺筛选影响）
+        "site_store_count": _int(row.get("site_store_count")),
+        "site_ebay_available_total": _int(row.get("site_ebay_available_total")),
+        "site_price_usd_min": _number(row.get("site_price_usd_min")),
+        "site_price_usd_max": _number(row.get("site_price_usd_max")),
+        "price_vs_site_min_pct": _number(row.get("price_vs_site_min_pct"), 4),
+        "site_oversell": bool(_int(row.get("site_oversell"))),
+        "out_of_stock_listed": bool(_int(row.get("out_of_stock_listed"))),
     }
+
+
+_CROSS_STORE_KEYS = ("site_store_count", "site_ebay_available_total", "site_price_usd_min",
+                     "site_price_usd_max", "price_vs_site_min_pct")
 
 
 def _summary_row(row: dict[str, Any]) -> dict[str, Any]:
     result = _detail_row(row)
-    result.pop("seller_account", None)
-    result.pop("item_id", None)
+    for key in ("seller_account", "item_id", *_CROSS_STORE_KEYS):
+        result.pop(key, None)
     result["status"] = _worst_status(row.get("statuses"))
     result["listing_count"] = _int(row.get("listing_count")) or 0
     result["store_count"] = _int(row.get("store_count")) or 0
+    result["price_usd_min"] = _number(row.get("price_usd_min"))
+    result["price_usd_max"] = _number(row.get("price_usd_max"))
     return result
+
+
+def _snapshot() -> dict[str, Any]:
+    """列表接口顶层的快照日期与刷新时间（页头用）。"""
+    current = repo.meta()
+    return {"stat_date": _text(current.get("stat_date")),
+            "refreshed_at": _text(current.get("refreshed_at"))}
 
 
 def _rows(criteria: dict[str, Any], *, mode: str, sort_by: str | None, sort_order: str,
@@ -545,20 +450,79 @@ def detail(*, stat_date: str | None = None, sites: str | None = None,
            keyword: str | None = None, sku: str | None = None,
            mid_code_filter: str | None = None, mode: str = "detail", page: int = 1,
            page_size: int = 50, sort_by: str | None = None,
-           sort_order: str = "desc") -> dict[str, Any]:
+           sort_order: str = "desc", site_oversell: bool | None = None,
+           out_of_stock_listed: bool | None = None) -> dict[str, Any]:
     if mode not in ("detail", "summary"):
         raise ValueError("mode 只能是 detail 或 summary")
     page = max(1, int(page))
     page_size = max(1, min(MAX_PAGE_SIZE, int(page_size)))
     criteria = _criteria(stat_date=stat_date, sites=sites, accounts=accounts,
                          status=status, keyword=keyword, sku=sku,
-                         mid_code_filter=mid_code_filter)
+                         mid_code_filter=mid_code_filter, site_oversell=site_oversell,
+                         out_of_stock_listed=out_of_stock_listed)
     total = (repo.summary_count(criteria) if mode == "summary"
              else repo.detail_count(criteria))
     rows = _rows(criteria, mode=mode, sort_by=sort_by, sort_order=sort_order,
                  offset=(page - 1) * page_size, limit=page_size)
-    return {"total": total, "page": page, "page_size": page_size, "mode": mode,
-            "rows": rows}
+    return {**_snapshot(), "total": total, "page": page, "page_size": page_size,
+            "mode": mode, "rows": rows}
+
+
+def stores(*, sites: str | None = None, accounts: str | None = None) -> dict[str, Any]:
+    """店铺汇总：一行一个 店铺+站点，不分页（店铺几十个）。"""
+    criteria = _criteria(sites=sites, accounts=accounts)
+    return {**_snapshot(), "rows": [{
+        "seller_account": row.get("seller_account"),
+        "site": row.get("site"),
+        "site_name": row.get("site_name"),
+        "listing_count": _int(row.get("listing_count")) or 0,
+        "sku_count": _int(row.get("sku_count")) or 0,
+        "ebay_available": _int(row.get("ebay_available")) or 0,
+        "out_of_stock_listed": _int(row.get("out_of_stock_listed")) or 0,
+        "site_oversell_sku_count": _int(row.get("site_oversell_sku_count")) or 0,
+        "unmatched_count": _int(row.get("unmatched_count")) or 0,
+    } for row in repo.store_rows(criteria)]}
+
+
+def sku_listings(*, sku: str | None) -> dict[str, Any]:
+    """某个完整 SKU 在所有店铺、所有站点的刊登，以及每个站点的库存与跨店合计。
+
+    库存按站点共享：每个站点一行、取 MAX；eBay 可售按店铺相加。SKU 不存在返回空数组。
+    """
+    text = str(sku or "").strip()
+    if not text:
+        raise ValueError("sku 必填")
+    if len(text) > 255:
+        raise ValueError("sku 不能超过255个字符")
+    listings = repo.sku_listings(text)
+    first = listings[0] if listings else {}
+    return {
+        "sku": text, "title": first.get("title"), "image_url": first.get("image_url"),
+        **_snapshot(),
+        "listings": [{
+            "seller_account": row.get("seller_account"),
+            "site": row.get("site"),
+            "site_name": row.get("site_name"),
+            "item_id": row.get("item_id"),
+            "view_item_url": row.get("view_item_url"),
+            "currency": row.get("currency"),
+            "current_price": _number(row.get("current_price")),
+            "price_usd": _number(row.get("price_usd")),
+            "ebay_quantity_available": _int(row.get("ebay_quantity_available")),
+            "status": row.get("status"),
+        } for row in listings],
+        "sites": [{
+            "site": row.get("site"),
+            "site_name": row.get("site_name"),
+            "overseas_sellable": _int(row.get("site_overseas_sellable")),
+            "overseas_in_transit": _int(row.get("site_overseas_in_transit")),
+            "chengdu_sellable": _int(row.get("site_chengdu_sellable")),
+            "pending_outbound": _int(row.get("site_pending_outbound")),
+            "ebay_available_total": _int(row.get("site_ebay_available_total")) or 0,
+            "store_count": _int(row.get("site_store_count")) or 0,
+            "site_oversell": bool(_int(row.get("site_oversell"))),
+        } for row in (repo.sku_sites(text) if listings else [])],
+    }
 
 
 def export(*, columns: str | None = None, mode: str = "detail", **filters) -> tuple[str, bytes]:
@@ -571,7 +535,8 @@ def export(*, columns: str | None = None, mode: str = "detail", **filters) -> tu
         raise ValueError("没有可导出的列，请检查导出列权限配置")
     criteria = _criteria(**{key: value for key, value in filters.items()
                             if key in ("stat_date", "sites", "accounts", "status",
-                                       "keyword", "sku", "mid_code_filter")})
+                                       "keyword", "sku", "mid_code_filter",
+                                       "site_oversell", "out_of_stock_listed")})
     rows = _rows(criteria, mode=mode, sort_by=filters.get("sort_by"),
                  sort_order=filters.get("sort_order") or "desc", offset=None, limit=None)
     if not rows:

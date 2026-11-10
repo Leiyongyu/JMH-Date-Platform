@@ -38,6 +38,8 @@ public class EbayPriceAnalysisController extends BaseController
             "operations:ebayPriceAnalysis:exportColumn:";
 
     private static final int MAX_PAGE_SIZE = 200;
+    /** 与 Python 侧 sku-listings 的 sku 参数限长一致。 */
+    static final int MAX_SKU_LENGTH = 255;
 
     /**
      * 导出列全集，顺序即导出顺序，key 与 Python detail 响应字段名一致。
@@ -57,20 +59,33 @@ public class EbayPriceAnalysisController extends BaseController
         this.client = client;
     }
 
+    /** 店铺维度汇总：每个店铺 + 站点一行，不分页（店铺只有几十个）。 */
     @PreAuthorize("@ss.hasPermi('operations:ebayPriceAnalysis:list')")
-    @GetMapping("/overview")
-    public AjaxResult overview(
-            @RequestParam(required = false) String statDate,
+    @GetMapping("/stores")
+    public AjaxResult stores(
             @RequestParam(required = false) String sites,
             @RequestParam(required = false) String accounts,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) String keyword,
-            @RequestParam(defaultValue = "sku") String dimension,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
-        Map<String, Object> params = filters(statDate, sites, accounts, status, keyword);
-        params.put("dimension", trimToNull(dimension));
-        return success(client.overview(params, requestId).get("data"));
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("sites", trimToNull(sites));
+        params.put("accounts", trimToNull(accounts));
+        return success(client.stores(params, requestId).get("data"));
+    }
+
+    /** 某个 SKU 在各店铺、各站点的在售与库存对比；SKU 必填，精确匹配。 */
+    @PreAuthorize("@ss.hasPermi('operations:ebayPriceAnalysis:list')")
+    @GetMapping("/sku-listings")
+    public AjaxResult skuListings(
+            @RequestParam(required = false) String sku,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        String value = trimToNull(sku);
+        if (value == null)
+            throw new ServiceException("请填写要查看的 SKU", 400);
+        if (value.length() > MAX_SKU_LENGTH)
+            throw new ServiceException("SKU 不能超过 " + MAX_SKU_LENGTH + " 个字符", 400);
+        return success(client.skuListings(Map.of("sku", value), requestId).get("data"));
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayPriceAnalysis:list')")
@@ -86,10 +101,15 @@ public class EbayPriceAnalysisController extends BaseController
             @RequestParam(defaultValue = "50") int pageSize,
             @RequestParam(required = false) String sortBy,
             @RequestParam(required = false) String sortOrder,
+            @RequestParam(required = false) Boolean siteOversell,
+            @RequestParam(required = false) Boolean outOfStockListed,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
         Map<String, Object> params = filters(statDate, sites, accounts, status, keyword);
         params.put("mode", trimToNull(mode));
+        // 不传时为 null，不出现在查询串里，Python 按「不筛选」处理。
+        params.put("site_oversell", siteOversell);
+        params.put("out_of_stock_listed", outOfStockListed);
         params.put("page", Math.max(pageNum, 1));
         params.put("page_size", Math.min(Math.max(pageSize, 1), MAX_PAGE_SIZE));
         params.put("sort_by", trimToNull(sortBy));
@@ -98,7 +118,7 @@ public class EbayPriceAnalysisController extends BaseController
     }
 
     /**
-     * 导出当前筛选下的全部明细，不带分页。
+     * 导出当前筛选下的全部明细，不带分页；多店超卖、断货在售两个筛选与 /detail 一致。
      * GET 与 POST 等价，前端按既有下载方式任选其一。
      */
     @PreAuthorize("@ss.hasPermi('operations:ebayPriceAnalysis:list')"
@@ -114,11 +134,13 @@ public class EbayPriceAnalysisController extends BaseController
             @RequestParam(defaultValue = "detail") String mode,
             @RequestParam(required = false) String sortBy,
             @RequestParam(required = false) String sortOrder,
+            @RequestParam(required = false) Boolean siteOversell,
+            @RequestParam(required = false) Boolean outOfStockListed,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId,
             HttpServletResponse response) throws IOException
     {
         export(statDate, sites, accounts, status, keyword, mode, sortBy, sortOrder,
-                requestId, response);
+                siteOversell, outOfStockListed, requestId, response);
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayPriceAnalysis:list')"
@@ -134,20 +156,26 @@ public class EbayPriceAnalysisController extends BaseController
             @RequestParam(defaultValue = "detail") String mode,
             @RequestParam(required = false) String sortBy,
             @RequestParam(required = false) String sortOrder,
+            @RequestParam(required = false) Boolean siteOversell,
+            @RequestParam(required = false) Boolean outOfStockListed,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId,
             HttpServletResponse response) throws IOException
     {
         export(statDate, sites, accounts, status, keyword, mode, sortBy, sortOrder,
-                requestId, response);
+                siteOversell, outOfStockListed, requestId, response);
     }
 
     private void export(String statDate, String sites, String accounts, String status,
             String keyword, String mode, String sortBy, String sortOrder,
+            Boolean siteOversell, Boolean outOfStockListed,
             String requestId, HttpServletResponse response) throws IOException
     {
         Set<String> permissions = getLoginUser().getPermissions();
         Map<String, Object> params = filters(statDate, sites, accounts, status, keyword);
         params.put("mode", trimToNull(mode));
+        // 与 /detail 相同：导出跟着页面筛选走；不传为 null，查询串里不出现。
+        params.put("site_oversell", siteOversell);
+        params.put("out_of_stock_listed", outOfStockListed);
         params.put("sort_by", trimToNull(sortBy));
         params.put("sort_order", trimToNull(sortOrder));
         params.put("columns", String.join(",", permittedColumns(permissions)));

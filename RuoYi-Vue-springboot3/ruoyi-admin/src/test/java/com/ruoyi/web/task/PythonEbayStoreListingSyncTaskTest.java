@@ -36,8 +36,9 @@ class PythonEbayStoreListingSyncTaskTest
     private final PythonPerformanceSchedulerClient scheduler = mock(PythonPerformanceSchedulerClient.class);
     private final IOperationSyncLogService logs = mock(IOperationSyncLogService.class);
     private final SyncAlertService alerts = mock(SyncAlertService.class);
+    private final EbayPriceAnalysisPythonClient priceAnalysis = mock(EbayPriceAnalysisPythonClient.class);
     private final PythonEbayStoreListingSyncTask task = new PythonEbayStoreListingSyncTask(
-            scheduler, mock(EbayPriceAnalysisPythonClient.class), logs, alerts);
+            scheduler, priceAnalysis, logs, alerts);
 
     PythonEbayStoreListingSyncTaskTest()
     {
@@ -201,6 +202,57 @@ class PythonEbayStoreListingSyncTaskTest
         var field = PythonEbayStoreListingSyncTask.class.getDeclaredField("maxSnapshotAgeDays");
         var value = field.getAnnotation(org.springframework.beans.factory.annotation.Value.class);
         assertEquals("${ebay.price-analysis.stale-alert.max-age-days:8}", value.value());
+    }
+
+    private void enableFreshnessCheck()
+    {
+        // @Value 在单测里不注入；巡检开关默认 false，阈值默认 0（代码里按至少 1 天算）。
+        org.springframework.test.util.ReflectionTestUtils.setField(task, "staleAlertEnabled", true);
+        org.springframework.test.util.ReflectionTestUtils.setField(task, "maxSnapshotAgeDays", 8);
+    }
+
+    @Test
+    void freshnessCheckReadsStatDateFromStoresAndRecoversWhenFresh()
+    {
+        enableFreshnessCheck();
+        when(priceAnalysis.stores(eq(Map.of()), anyString())).thenReturn(Map.of("code", 0,
+                "data", Map.of("stat_date", java.time.LocalDate.now().minusDays(3).toString(),
+                        "rows", java.util.List.of())));
+
+        task.checkSnapshotFreshness();
+
+        verify(priceAnalysis).stores(eq(Map.of()), contains("ebay-price-analysis-freshness-"));
+        verify(alerts).checkAndSendRecovery("ebay", "ebay_price_analysis_snapshot_stale",
+                "eBay价格分析快照新鲜度巡检", null);
+        verify(alerts, never()).sendAlert(anyString(), anyString(), anyString(), anyString(),
+                anyString(), anyString(), any());
+    }
+
+    @Test
+    void freshnessCheckAlertsWhenStoresHasNoStatDate()
+    {
+        enableFreshnessCheck();
+        when(priceAnalysis.stores(any(), anyString())).thenReturn(Map.of("code", 0,
+                "data", Map.of("rows", java.util.List.of())));
+
+        task.checkSnapshotFreshness();
+
+        verify(alerts).sendAlert(eq("ebay"), eq("ebay_price_analysis_snapshot_stale"), anyString(),
+                anyString(), eq("STALE"), contains("读不到快照日期"), isNull());
+        verify(alerts, never()).checkAndSendRecovery(anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    void freshnessCheckAlertsWhenSnapshotIsOlderThanEightDays()
+    {
+        enableFreshnessCheck();
+        when(priceAnalysis.stores(any(), anyString())).thenReturn(Map.of("code", 0,
+                "data", Map.of("stat_date", java.time.LocalDate.now().minusDays(9).toString())));
+
+        task.checkSnapshotFreshness();
+
+        verify(alerts).sendAlert(eq("ebay"), eq("ebay_price_analysis_snapshot_stale"), anyString(),
+                anyString(), eq("STALE"), contains("已落后 9 天"), isNull());
     }
 
     @Test

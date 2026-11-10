@@ -4,7 +4,8 @@
 --       cron 改为每周一 04:30（0 30 4 ? * MON），job_name / remark 同步改。
 -- 依赖：20261110_ebay_price_analysis_menu.sql（建出 runDaily() 那条任务）；
 --       需部署包含 PythonEbayStoreListingSyncTask.runWeekly() 的新版 Java，以及 Python 侧
---       goodcang_product_inventory_sync 任务。Java 新版里 runDaily() 已不存在，请与新版 Java 同批上线，
+--       goodcang_product_inventory_sync 任务。新版 Java 保留了 @Deprecated 的 runDaily()（转调 runWeekly()），
+--       所以本脚本和新版 Java 谁先上线都不会让 04:30 的任务失败，不必卡顺序；
 --       执行后重启 Java（或在定时任务页面暂停再启用该任务）使 Quartz 重新加载。
 -- 幂等：按 invoke_target 定位，不写死 job_id。已改过（只剩 runWeekly()）时更新 0 行；
 --       不改任务启用/暂停状态，不动「单独拉取（排查用）」任务和其他任何任务。

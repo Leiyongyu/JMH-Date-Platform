@@ -264,7 +264,10 @@ public class PythonEbayStoreListingSyncTask
 
     /**
      * 每天 09:20 读看板快照日期，太旧就告警。
-     * 只在成功读到 stat_date 时才发邮件；接口尚未部署或暂时不可用只记日志，不误报。
+     * 快照日期取 /stores 响应顶层的 stat_date（看板已不再有 overview 接口）。
+     * 接口调用本身失败（未部署、暂时不可用）只记日志，不误报；
+     * 但接口有响应却读不到 stat_date（缺失、为空或不可解析）说明看板本身有问题，必须告警，
+     * 不能静默跳过，否则巡检会悄悄失效。
      */
     @Scheduled(cron = "0 20 9 * * *", zone = "Asia/Shanghai")
     public void checkSnapshotFreshness()
@@ -273,18 +276,18 @@ public class PythonEbayStoreListingSyncTask
         LocalDate snapshot;
         try
         {
-            Map<String, Object> response = priceAnalysis.overview(
+            Map<String, Object> response = priceAnalysis.stores(
                     Map.of(), "ebay-price-analysis-freshness-" + UUID.randomUUID());
-            if (!(response.get("data") instanceof Map<?, ?> data))
-            {
-                LOG.warn("eBay价格分析快照巡检跳过：响应没有 data 节点");
-                return;
-            }
-            snapshot = parseDate(data.get("stat_date"));
+            Object rawDate = response != null && response.get("data") instanceof Map<?, ?> data
+                    ? data.get("stat_date") : null;
+            snapshot = parseDate(rawDate);
             if (snapshot == null)
             {
-                LOG.warn("eBay价格分析快照巡检跳过：stat_date 缺失或不可解析={}",
-                        data.get("stat_date"));
+                alerts.sendAlert(ALERT_CHAIN, STALE_CODE, STALE_NAME, PATH, "STALE",
+                        "eBay价格分析看板读不到快照日期（/stores 响应的 stat_date=" + rawDate
+                                + "），看板可能为空或数据异常。请检查定时任务「" + NAME
+                                + "」最近一次执行结果与价格分析刷表。",
+                        null);
                 return;
             }
         }

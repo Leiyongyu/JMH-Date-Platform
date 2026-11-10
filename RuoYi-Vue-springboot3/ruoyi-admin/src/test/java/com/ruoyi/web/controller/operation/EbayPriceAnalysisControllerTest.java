@@ -53,34 +53,81 @@ class EbayPriceAnalysisControllerTest
     }
 
     @Test
-    void overviewForwardsSnakeCaseFiltersAndUnwrapsData() throws Exception
+    void storesForwardsSitesAndAccountsAndUnwrapsData() throws Exception
     {
         var client = mock(EbayPriceAnalysisPythonClient.class);
-        when(client.overview(any(), eq("trace"))).thenReturn(Map.of("code", 0,
-                "data", Map.of("stat_date", "2026-09-23",
-                        "kpis", List.of(Map.of("key", "listing_count", "value", 18013)))));
+        when(client.stores(any(), eq("trace"))).thenReturn(Map.of("code", 0,
+                "data", Map.of("stat_date", "2026-11-10",
+                        "rows", List.of(Map.of("seller_account", "aplus-shop", "site", "DE")))));
         var mvc = MockMvcBuilders.standaloneSetup(
                 new EbayPriceAnalysisController(client)).build();
 
-        mvc.perform(get("/operations/ebay/price-analysis/overview")
-                        .param("statDate", "2026-09-23")
+        mvc.perform(get("/operations/ebay/price-analysis/stores")
                         .param("sites", "DE,UK")
                         .param("accounts", " aplus-shop ")
-                        .param("status", "超卖风险")
-                        .param("keyword", "TYT-90245")
-                        .param("dimension", "mid")
                         .header("X-Request-ID", "trace"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.stat_date").value("2026-09-23"))
-                .andExpect(jsonPath("$.data.kpis[0].value").value(18013));
+                .andExpect(jsonPath("$.data.stat_date").value("2026-11-10"))
+                .andExpect(jsonPath("$.data.rows[0].seller_account").value("aplus-shop"));
 
-        Map<String, ?> params = captureParams(client, true);
-        assertEquals("2026-09-23", params.get("stat_date"));
-        assertEquals("DE,UK", params.get("sites"));
-        assertEquals("aplus-shop", params.get("accounts"));
-        assertEquals("超卖风险", params.get("status"));
-        assertEquals("TYT-90245", params.get("keyword"));
-        assertEquals("mid", params.get("dimension"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, ?>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(client).stores(captor.capture(), eq("trace"));
+        assertEquals("DE,UK", captor.getValue().get("sites"));
+        assertEquals("aplus-shop", captor.getValue().get("accounts"));
+    }
+
+    @Test
+    void storesTurnsBlankFiltersIntoNull()
+    {
+        var client = mock(EbayPriceAnalysisPythonClient.class);
+        when(client.stores(any(), any())).thenReturn(Map.of("code", 0, "data", Map.of()));
+
+        new EbayPriceAnalysisController(client).stores("  ", "", null);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, ?>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(client).stores(captor.capture(), any());
+        assertNull(captor.getValue().get("sites"));
+        assertNull(captor.getValue().get("accounts"));
+    }
+
+    @Test
+    void skuListingsTrimsTheSkuAndForwardsIt() throws Exception
+    {
+        var client = mock(EbayPriceAnalysisPythonClient.class);
+        when(client.skuListings(any(), eq("trace"))).thenReturn(Map.of("code", 0,
+                "data", Map.of("sku", "TYT-90245-0772", "listings", List.of(), "sites", List.of())));
+        var mvc = MockMvcBuilders.standaloneSetup(
+                new EbayPriceAnalysisController(client)).build();
+
+        mvc.perform(get("/operations/ebay/price-analysis/sku-listings")
+                        .param("sku", "  TYT-90245-0772 ")
+                        .header("X-Request-ID", "trace"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.sku").value("TYT-90245-0772"));
+
+        verify(client).skuListings(eq(Map.of("sku", "TYT-90245-0772")), eq("trace"));
+    }
+
+    @Test
+    void skuListingsRejectsBlankOrOverlongSkuBeforeCallingPython()
+    {
+        var client = mock(EbayPriceAnalysisPythonClient.class);
+        var controller = new EbayPriceAnalysisController(client);
+
+        for (String blank : new String[] { null, "", "   " })
+        {
+            var error = assertThrows(ServiceException.class, () -> controller.skuListings(blank, null));
+            assertEquals(400, error.getCode());
+        }
+        String tooLong = "A".repeat(EbayPriceAnalysisController.MAX_SKU_LENGTH + 1);
+        var error = assertThrows(ServiceException.class, () -> controller.skuListings(tooLong, null));
+        assertEquals(400, error.getCode());
+        // 恰好 255 个字符可以通过
+        when(client.skuListings(any(), any())).thenReturn(Map.of("code", 0, "data", Map.of()));
+        controller.skuListings("B".repeat(EbayPriceAnalysisController.MAX_SKU_LENGTH), null);
+        verify(client).skuListings(any(), any());
     }
 
     @Test
@@ -98,16 +145,20 @@ class EbayPriceAnalysisControllerTest
                         .param("pageSize", "5000")
                         .param("sortBy", "stock_gap")
                         .param("sortOrder", "desc")
+                        .param("siteOversell", "true")
                         .param("sites", "   "))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total").value(18013));
 
-        Map<String, ?> params = captureParams(client, false);
+        Map<String, ?> params = captureDetailParams(client);
         assertEquals("summary", params.get("mode"));
         assertEquals(1, params.get("page"));
         assertEquals(200, params.get("page_size"));
         assertEquals("stock_gap", params.get("sort_by"));
         assertEquals("desc", params.get("sort_order"));
+        assertEquals(Boolean.TRUE, params.get("site_oversell"));
+        // 没传的筛选为 null，queryString 会跳过，Python 按「不筛选」处理。
+        assertNull(params.get("out_of_stock_listed"));
         assertNull(params.get("sites"));
         assertTrue(params.containsKey("sites"));
     }
@@ -127,7 +178,7 @@ class EbayPriceAnalysisControllerTest
         var response = new MockHttpServletResponse();
 
         new EbayPriceAnalysisController(client).exportByGet("2026-09-23", "US", null,
-                null, null, "detail", "stock_gap", "asc", "trace", response);
+                null, null, "detail", "stock_gap", "asc", true, null, "trace", response);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, ?>> captor = ArgumentCaptor.forClass(Map.class);
@@ -137,6 +188,9 @@ class EbayPriceAnalysisControllerTest
         assertEquals("US", captor.getValue().get("sites"));
         assertFalse(captor.getValue().containsKey("page"));
         assertFalse(captor.getValue().containsKey("page_size"));
+        // 导出跟着页面筛选走：传了的透传，没传的为 null（查询串里会被跳过）。
+        assertEquals(Boolean.TRUE, captor.getValue().get("site_oversell"));
+        assertNull(captor.getValue().get("out_of_stock_listed"));
         assertEquals(EXCEL_TYPE, response.getContentType());
         assertEquals("attachment; filename=ebay-price-analysis.xlsx",
                 response.getHeader("Content-Disposition"));
@@ -155,7 +209,7 @@ class EbayPriceAnalysisControllerTest
 
         var error = assertThrows(ServiceException.class,
                 () -> new EbayPriceAnalysisController(client).exportByPost(null, null, null,
-                        null, null, "detail", null, null, null,
+                        null, null, "detail", null, null, null, null, null,
                         new MockHttpServletResponse()));
 
         assertEquals(Integer.valueOf(403), error.getCode());
@@ -173,7 +227,7 @@ class EbayPriceAnalysisControllerTest
         login(Set.of(Constants.ALL_PERMISSION));
 
         new EbayPriceAnalysisController(client).exportByPost(null, null, null, null, null,
-                "summary", null, null, null, new MockHttpServletResponse());
+                "summary", null, null, null, null, null, new MockHttpServletResponse());
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, ?>> captor = ArgumentCaptor.forClass(Map.class);
@@ -195,19 +249,21 @@ class EbayPriceAnalysisControllerTest
             var client = context.getBean(EbayPriceAnalysisPythonClient.class);
             var perms = context.getBean(Permissions.class);
 
-            assertThrows(AccessDeniedException.class,
-                    () -> controller.overview(null, null, null, null, null, "sku", null));
+            assertThrows(AccessDeniedException.class, () -> controller.stores(null, null, null));
+            assertThrows(AccessDeniedException.class, () -> controller.skuListings("SKU-1", null));
             // 有查看权限不等于能导出。
             perms.allowed = Set.of("operations:ebayPriceAnalysis:list");
             assertThrows(AccessDeniedException.class,
                     () -> controller.exportByGet(null, null, null, null, null, "detail",
-                            null, null, null, new MockHttpServletResponse()));
+                            null, null, null, null, null, new MockHttpServletResponse()));
             verifyNoInteractions(client);
 
-            when(client.overview(any(), any())).thenReturn(
-                    Map.of("code", 0, "data", Map.of("stat_date", "2026-09-23")));
-            assertNotNull(controller.overview(null, null, null, null, null, "sku", null)
-                    .get("data"));
+            when(client.stores(any(), any())).thenReturn(
+                    Map.of("code", 0, "data", Map.of("stat_date", "2026-11-10")));
+            assertNotNull(controller.stores(null, null, null).get("data"));
+            when(client.skuListings(any(), any())).thenReturn(
+                    Map.of("code", 0, "data", Map.of("sku", "SKU-1")));
+            assertNotNull(controller.skuListings("SKU-1", null).get("data"));
         }
     }
 
@@ -344,11 +400,15 @@ class EbayPriceAnalysisControllerTest
             properties.setInternalToken("test-only-internal-token");
             var client = new EbayPriceAnalysisPythonClient(properties, new ObjectMapper());
 
-            client.overview(Map.of("sites", "DE"), "trace");
-            assertEquals("/api/v1/ebay-price-analysis/overview", seen[0]);
+            client.stores(Map.of("sites", "DE"), "trace");
+            assertEquals("/api/v1/ebay-price-analysis/stores", seen[0]);
             assertEquals("sites=DE", seen[1]);
             assertEquals("test-only-internal-token", seen[2]);
             assertEquals("trace", seen[3]);
+
+            client.skuListings(Map.of("sku", "TYT-90245-0772"), "trace");
+            assertEquals("/api/v1/ebay-price-analysis/sku-listings", seen[0]);
+            assertEquals("sku=TYT-90245-0772", seen[1]);
 
             client.detail(Map.of("page", 2), "trace");
             assertEquals("/api/v1/ebay-price-analysis/detail", seen[0]);
@@ -356,6 +416,15 @@ class EbayPriceAnalysisControllerTest
             var file = client.export(Map.of("columns", "sku,status"), "trace");
             assertEquals("/api/v1/ebay-price-analysis/export", seen[0]);
             assertEquals("columns=sku%2Cstatus", seen[1]);
+
+            // 导出的两个筛选：传了的进查询串，null 的不出现。
+            Map<String, Object> filtered = new java.util.LinkedHashMap<>();
+            filtered.put("columns", "sku");
+            filtered.put("site_oversell", Boolean.TRUE);
+            filtered.put("out_of_stock_listed", null);
+            client.export(filtered, "trace");
+            assertEquals("columns=sku&site_oversell=true", seen[1]);
+            assertFalse(seen[1].contains("out_of_stock_listed"));
             // Python 没给 Content-Disposition 时后端兜一个安全的文件名。
             assertTrue(file.contentDisposition().startsWith(
                     "attachment; filename=ebay-price-analysis.xlsx;"));
@@ -382,12 +451,10 @@ class EbayPriceAnalysisControllerTest
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, ?> captureParams(
-            EbayPriceAnalysisPythonClient client, boolean overview)
+    private static Map<String, ?> captureDetailParams(EbayPriceAnalysisPythonClient client)
     {
         ArgumentCaptor<Map<String, ?>> captor = ArgumentCaptor.forClass(Map.class);
-        if (overview) verify(client).overview(captor.capture(), any());
-        else verify(client).detail(captor.capture(), any());
+        verify(client).detail(captor.capture(), any());
         return captor.getValue();
     }
 

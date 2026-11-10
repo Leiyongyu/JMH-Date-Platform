@@ -8,12 +8,12 @@
           <p class="head-meta">
             <span class="meta-item">
               快照日期
-              <strong>{{ displayValue(overview.stat_date) }}</strong>
+              <strong>{{ displayValue(snapshot.stat_date) }}</strong>
             </span>
             <span class="meta-sep">·</span>
             <span class="meta-item">
               刷新时间
-              <strong>{{ displayValue(overview.refreshed_at) }}</strong>
+              <strong>{{ displayValue(snapshot.refreshed_at) }}</strong>
             </span>
             <span class="meta-sep">·</span>
             <span class="meta-item">eBay 在售刊登 × 谷仓海外仓库存</span>
@@ -25,7 +25,7 @@
             <svg-icon icon-class="jmh-refresh" class="report-icon" :class="{ spinning: loading }" />刷新
           </el-button>
           <el-tooltip
-            content="导出当前筛选下全部记录，仅包含角色授权的导出字段；不受分页或页面隐藏列限制"
+            content="导出当前筛选下全部记录（店铺维度按刊登、SKU 维度按站点 + SKU），仅包含角色授权的导出字段；不受分页或页面隐藏列限制"
             placement="top"
           >
             <el-button
@@ -44,7 +44,7 @@
 
       <el-alert type="info" :closable="false" show-icon class="snapshot-alert">
         <template #title>
-          看板展示 {{ displayValue(overview.stat_date) }} 的快照：eBay 侧为在售刊登每周快照（每周一更新），
+          看板展示 {{ displayValue(snapshot.stat_date) }} 的快照：eBay 侧为在售刊登每周快照（每周一更新），
           海外仓为谷仓区域仓接口每周快照，成都中转仓为领星周快照，均<strong>不是实时库存</strong>。
         </template>
       </el-alert>
@@ -85,7 +85,7 @@
             clearable
             placeholder="全部状态"
             class="filter-control filter-control--status"
-            @change="handleQuery"
+            @change="handleListFilter"
           >
             <el-option v-for="status in statusOptions" :key="status" :label="status" :value="status" />
           </el-select>
@@ -96,9 +96,13 @@
             clearable
             placeholder="SKU / 标题 / Item ID"
             class="filter-control"
-            @clear="handleQuery"
-            @keyup.enter="handleQuery"
+            @clear="handleListFilter"
+            @keyup.enter="handleListFilter"
           />
+        </el-form-item>
+        <el-form-item label-width="0" class="flag-filters">
+          <el-checkbox v-model="query.onlySiteOversell" @change="handleListFilter">只看多店超卖</el-checkbox>
+          <el-checkbox v-model="query.onlyOutOfStockListed" @change="handleListFilter">只看断货在售</el-checkbox>
         </el-form-item>
         <el-form-item label-width="0">
           <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
@@ -107,236 +111,360 @@
       </el-form>
     </el-card>
 
-    <!-- ===== KPI 行 ===== -->
-    <div v-loading="loading" class="kpi-grid">
-      <div
-        v-for="kpi in kpiCards"
-        :key="kpi.key"
-        class="kpi-card"
-        :class="[`kpi-card--${kpiTone(kpi)}`, { 'is-clickable': kpiStatus(kpi), 'is-active': kpiStatus(kpi) && query.status === kpiStatus(kpi) }]"
-        @click="handleKpiClick(kpi)"
-      >
-        <span class="kpi-label">{{ kpi.label }}</span>
-        <strong class="kpi-value">{{ kpiText(kpi) }}</strong>
-        <span class="kpi-unit">{{ kpi.unit || '' }}</span>
-      </div>
-      <el-empty v-if="!kpiCards.length" description="暂无指标数据" class="kpi-empty" />
-    </div>
-
-    <!-- ===== 主图区 ===== -->
-    <div class="chart-grid">
-      <el-card shadow="never" class="chart-card">
-        <template #header>
-          <div class="card-head">
-            <div class="card-head__text">
-              <span class="card-title">店铺库存对比</span>
-              <small>eBay 可售 vs 谷仓可售；点击柱体按该店铺筛选，再点一次取消</small>
-            </div>
-            <el-tag type="info" effect="plain">{{ storeCompare.length }} 组</el-tag>
-          </div>
-        </template>
-        <div ref="storeChartRef" class="chart-box"></div>
-        <el-empty v-if="!storeCompare.length && !loading" description="暂无店铺数据" :image-size="60" />
-      </el-card>
-
-      <el-card shadow="never" class="chart-card">
-        <template #header>
-          <div class="card-head">
-            <div class="card-head__text">
-              <span class="card-title">价格 × 库存象限</span>
-              <small>气泡越大 = eBay 可售越多；虚线为售价与谷仓库存中位数</small>
-            </div>
-            <div class="card-head__acts">
-              <el-tooltip
-                v-if="overview.scatter_sampled"
-                content="点数超过 2000，后端已抽样，图上不是全量数据；明细表仍是全量"
-                placement="top"
-              >
-                <el-tag type="warning" effect="dark">已抽样</el-tag>
-              </el-tooltip>
-              <el-select v-model="query.dimension" class="dimension-select" @change="handleDimensionChange">
-                <el-option label="按完整 SKU" value="sku" />
-                <el-option label="按品牌＋中间码" value="mid" />
-              </el-select>
-            </div>
-          </div>
-        </template>
-        <div ref="scatterChartRef" class="chart-box"></div>
-        <div class="chart-foot">
-          <span v-if="scatterSkipped > 0" class="chart-foot__note">
-            {{ scatterSkipped }} 个点缺少 USD 售价或谷仓库存，未画入图中（汇率缺失不折算）
-          </span>
-        </div>
-        <el-empty v-if="!scatterPoints.length && !loading" description="暂无散点数据" :image-size="60" />
-      </el-card>
-    </div>
-
-    <!-- ===== 次图区 ===== -->
-    <div class="chart-grid">
-      <el-card shadow="never" class="chart-card">
-        <template #header>
-          <div class="card-head">
-            <div class="card-head__text">
-              <span class="card-title">库存缺口 Top 10</span>
-              <small>谷仓可售 − eBay 可售：向右是可补上架的空间，向左是超卖风险</small>
-            </div>
-          </div>
-        </template>
-        <div ref="gapChartRef" class="chart-box"></div>
-        <el-empty v-if="!stockGapTop.length && !loading" description="暂无缺口数据" :image-size="60" />
-      </el-card>
-
-      <el-card shadow="never" class="chart-card risk-card">
-        <template #header>
-          <div class="card-head">
-            <div class="card-head__text">
-              <span class="card-title">待处理事项</span>
-              <small>按影响面排序，点击带上该项筛选跳到明细</small>
-            </div>
-            <el-tag v-if="risks.length" type="danger" effect="plain">{{ risks.length }} 项</el-tag>
-          </div>
-        </template>
-        <ul class="risk-list">
-          <li
-            v-for="risk in risks"
-            :key="risk.key"
-            class="risk-item"
-            :class="{ 'is-active': activeRiskKey === risk.key }"
-            @click="applyRiskFilter(risk)"
-          >
-            <span class="risk-dot" :style="{ backgroundColor: statusColor(risk.label) }"></span>
-            <span class="risk-text">
-              <strong>{{ risk.label }}</strong>
-              <small>{{ displayValue(risk.hint) }}</small>
-            </span>
-            <span class="risk-count">{{ integer(risk.count) }}</span>
-          </li>
-        </ul>
-        <el-empty v-if="!risks.length && !loading" description="没有待处理事项" :image-size="60" />
-      </el-card>
-    </div>
-
-    <!-- ===== 明细表 ===== -->
-    <div ref="detailAnchorRef"></div>
+    <!-- ===== 主体：店铺维度 / SKU 维度 ===== -->
     <el-card shadow="never" class="table-card">
-      <template #header>
-        <div class="table-head">
-          <el-radio-group v-model="query.mode" @change="handleModeChange">
-            <el-radio-button value="detail">按店铺明细</el-radio-button>
-            <el-radio-button value="summary">按 SKU 汇总</el-radio-button>
-          </el-radio-group>
-          <div class="table-tools">
-            <el-input
-              v-model="query.keyword"
-              clearable
-              placeholder="搜索 SKU 或产品名"
-              prefix-icon="Search"
-              class="table-search"
-              @clear="handleQuery"
-              @keyup.enter="handleQuery"
-            />
-            <el-select
-              v-model="query.status"
-              clearable
-              placeholder="全部状态"
-              class="table-status"
-              @change="handleQuery"
-            >
-              <el-option v-for="status in statusOptions" :key="status" :label="status" :value="status" />
-            </el-select>
-            <el-button :type="dense ? 'primary' : 'default'" plain @click="dense = !dense">紧凑</el-button>
-            <el-button icon="Setting" @click="openColumnConfig">自定义列</el-button>
+      <el-tabs v-model="activeTab" class="dimension-tabs" @tab-change="handleTabChange">
+        <!-- 店铺维度：上面选店铺，下面看这个店铺在这个站点的 SKU -->
+        <el-tab-pane label="店铺维度" name="store">
+          <div class="section-head">
+            <div class="section-head__text">
+              <span class="card-title">店铺汇总</span>
+              <small>一行一个「店铺 + 站点」；点一行在下方查看该店铺的 SKU 明细。汇总只受站点、店铺筛选影响</small>
+            </div>
           </div>
-        </div>
-      </template>
+          <el-table
+            v-loading="storesLoading"
+            :data="stores"
+            :size="dense ? 'small' : 'default'"
+            :row-class-name="storeRowClass"
+            border
+            max-height="320"
+            class="store-table"
+            empty-text="没有符合条件的店铺，换个站点或店铺试试"
+            @row-click="selectStore"
+          >
+            <el-table-column prop="seller_account" label="店铺" min-width="150" show-overflow-tooltip />
+            <el-table-column prop="site_name" label="站点" width="90" align="center">
+              <template #default="{ row }">{{ displayValue(row.site_name || row.site) }}</template>
+            </el-table-column>
+            <el-table-column prop="listing_count" label="在售刊登" width="100" align="right">
+              <template #default="{ row }">{{ integer(row.listing_count) }}</template>
+            </el-table-column>
+            <el-table-column prop="sku_count" label="SKU 数" width="90" align="right">
+              <template #default="{ row }">{{ integer(row.sku_count) }}</template>
+            </el-table-column>
+            <el-table-column prop="ebay_available" label="eBay 可售合计" width="120" align="right">
+              <template #default="{ row }">{{ integer(row.ebay_available) }}</template>
+            </el-table-column>
+            <el-table-column prop="out_of_stock_listed" width="110" align="right">
+              <template #header>
+                <span class="column-header">
+                  <span>断货在售</span>
+                  <el-tooltip content="已匹配到库存，谷仓可售 + 成都可售 = 0，但 eBay 可售 > 0 的刊登数；点数字只看这些" placement="top">
+                    <el-icon class="column-tip"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </span>
+              </template>
+              <template #default="{ row }">
+                <el-link
+                  v-if="Number(row.out_of_stock_listed) > 0"
+                  type="warning"
+                  :underline="false"
+                  class="count-link"
+                  @click.stop="focusStore(row, 'outOfStock')"
+                >{{ integer(row.out_of_stock_listed) }}</el-link>
+                <span v-else class="muted">{{ integer(row.out_of_stock_listed) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="site_oversell_sku_count" width="130" align="right">
+              <template #header>
+                <span class="column-header">
+                  <span>多店超卖 SKU</span>
+                  <el-tooltip content="本店在售的 SKU 里，同站点所有店铺 eBay 可售合计超过谷仓可售 + 成都可售的个数；点数字只看这些" placement="top">
+                    <el-icon class="column-tip"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </span>
+              </template>
+              <template #default="{ row }">
+                <el-link
+                  v-if="Number(row.site_oversell_sku_count) > 0"
+                  type="danger"
+                  :underline="false"
+                  class="count-link count-link--danger"
+                  @click.stop="focusStore(row, 'oversell')"
+                >{{ integer(row.site_oversell_sku_count) }}</el-link>
+                <span v-else class="muted">{{ integer(row.site_oversell_sku_count) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="unmatched_count" label="未匹配" width="90" align="right">
+              <template #default="{ row }">{{ integer(row.unmatched_count) }}</template>
+            </el-table-column>
+          </el-table>
 
-      <div v-if="accountOptions.length" class="store-chips">
-        <el-check-tag
-          v-for="account in accountOptions"
-          :key="account"
-          :checked="query.accounts.includes(account)"
-          class="store-chip"
-          @change="toggleAccount(account)"
-        >{{ account }}</el-check-tag>
-      </div>
-
-      <el-table
-        v-if="columnConfigLoaded"
-        :key="columnTableKey"
-        v-loading="detailLoading"
-        :data="rows"
-        :size="dense ? 'small' : 'default'"
-        border
-        stripe
-        height="560"
-        empty-text="没有符合条件的记录，换个站点、店铺、状态或关键词试试"
-        @sort-change="handleSortChange"
-      >
-        <el-table-column
-          v-for="col in tableColumns"
-          :key="col.key"
-          :prop="col.key"
-          :label="col.label"
-          :width="col.width"
-          :min-width="col.minWidth"
-          :align="col.align"
-          :fixed="col.fixed || false"
-          :sortable="col.sortable ? 'custom' : false"
-          :show-overflow-tooltip="col.tooltip"
-        >
-          <template v-if="col.tip" #header>
-            <span class="column-header">
-              <span>{{ col.label }}</span>
-              <el-tooltip :content="col.tip" placement="top">
-                <el-icon class="column-tip"><QuestionFilled /></el-icon>
-              </el-tooltip>
-            </span>
+          <div class="section-head section-head--detail">
+            <div class="section-head__text">
+              <span class="card-title">
+                <template v-if="selectedStore">
+                  {{ selectedStore.seller_account }} · {{ displayValue(selectedStore.site_name || selectedStore.site) }} 的 SKU 明细
+                </template>
+                <template v-else>SKU 明细</template>
+              </span>
+              <small>同站点列是这个 SKU 在同一站点所有店铺的情况；点「其他店铺」看每个店铺的刊登</small>
+            </div>
+            <div class="table-tools">
+              <el-button :type="dense ? 'primary' : 'default'" plain @click="dense = !dense">紧凑</el-button>
+              <el-button icon="Setting" @click="openColumnConfig">自定义列</el-button>
+            </div>
+          </div>
+          <el-empty v-if="!selectedStore" description="在上方店铺汇总里点一个店铺，查看它的 SKU 明细" :image-size="64" />
+          <template v-else>
+            <el-table
+              v-if="columnConfigLoaded"
+              :key="columnTableKey"
+              v-loading="detailLoading"
+              :data="detailRows"
+              :size="dense ? 'small' : 'default'"
+              :row-class-name="oversellRowClass"
+              border
+              height="520"
+              empty-text="这个店铺没有符合条件的刊登，换个状态、关键词或取消「只看」筛选试试"
+              @sort-change="handleDetailSort"
+            >
+              <el-table-column
+                v-for="col in visibleColumns"
+                :key="col.key"
+                :prop="col.key"
+                :label="col.label"
+                :width="col.width"
+                :min-width="col.minWidth"
+                :align="col.align"
+                :fixed="col.fixed || false"
+                :sortable="col.sortable ? 'custom' : false"
+                :show-overflow-tooltip="col.tooltip"
+              >
+                <template v-if="col.tip" #header>
+                  <span class="column-header">
+                    <span>{{ col.label }}</span>
+                    <el-tooltip :content="col.tip" placement="top">
+                      <el-icon class="column-tip"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </span>
+                </template>
+                <template #default="{ row }">
+                  <el-image
+                    v-if="col.format === 'image' && row.image_url"
+                    :src="row.image_url"
+                    fit="cover"
+                    class="row-image"
+                    :preview-src-list="[row.image_url]"
+                    preview-teleported
+                  />
+                  <el-link
+                    v-else-if="col.format === 'skuLink' && row.view_item_url"
+                    :href="row.view_item_url"
+                    target="_blank"
+                    type="primary"
+                    :underline="false"
+                    class="sku-link"
+                  >{{ displayValue(row.sku) }}</el-link>
+                  <el-tag v-else-if="col.format === 'status'" :type="statusTagType(row.status)" effect="light">
+                    {{ displayValue(row.status) }}
+                  </el-tag>
+                  <el-tooltip
+                    v-else-if="col.format === 'oversell' && isTrue(row[col.key])"
+                    :content="oversellTip(row)"
+                    placement="top"
+                  >
+                    <el-tag type="danger" effect="dark" class="oversell-tag">多店超卖</el-tag>
+                  </el-tooltip>
+                  <el-tag
+                    v-else-if="col.format === 'outOfStock' && isTrue(row[col.key])"
+                    type="warning"
+                    effect="dark"
+                    class="oversell-tag"
+                  >断货在售</el-tag>
+                  <span v-else :class="cellClass(row, col)">{{ cellText(row, col) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="对比" width="104" align="center" fixed="right">
+                <template #default="{ row }">
+                  <el-button link type="primary" :disabled="!row.sku" @click="openCompare(row)">其他店铺</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <pagination
+              v-show="detailTotal > 0"
+              :total="detailTotal"
+              v-model:page="detailPage.pageNum"
+              v-model:limit="detailPage.pageSize"
+              @pagination="loadStoreDetail"
+            />
           </template>
-          <template #default="scope">
-            <template v-if="col.format === 'image'">
-              <el-image
-                v-if="scope.row.image_url"
-                :src="scope.row.image_url"
-                fit="cover"
-                class="row-image"
-                :preview-src-list="[scope.row.image_url]"
-                preview-teleported
-              />
-              <span v-else class="muted">—</span>
-            </template>
-            <template v-else-if="col.format === 'skuLink'">
-              <el-link
-                v-if="scope.row.view_item_url"
-                :href="scope.row.view_item_url"
-                target="_blank"
-                type="primary"
-                :underline="false"
-                class="sku-link"
-              >{{ displayValue(scope.row.sku) }}</el-link>
-              <span v-else>{{ displayValue(scope.row.sku) }}</span>
-            </template>
-            <template v-else-if="col.format === 'status'">
-              <el-tag :type="statusTagType(scope.row.status)" effect="light">
-                {{ displayValue(scope.row.status) }}
-              </el-tag>
-            </template>
-            <template v-else-if="col.format === 'integer'">{{ integer(scope.row[col.key]) }}</template>
-            <template v-else-if="col.format === 'gap'">
-              <span :class="gapClass(scope.row[col.key])">{{ integer(scope.row[col.key]) }}</span>
-            </template>
-            <template v-else-if="col.format === 'decimal'">{{ decimal(scope.row[col.key]) }}</template>
-            <template v-else>{{ displayValue(scope.row[col.key]) }}</template>
-          </template>
-        </el-table-column>
-      </el-table>
+        </el-tab-pane>
 
-      <pagination
-        v-show="total > 0"
-        :total="total"
-        v-model:page="query.pageNum"
-        v-model:limit="query.pageSize"
-        @pagination="loadDetail"
-      />
+        <!-- SKU 维度：一行一个「站点 + SKU」，展开看所有店铺和所有站点 -->
+        <el-tab-pane label="SKU 维度" name="sku">
+          <div class="section-head">
+            <div class="section-head__text">
+              <span class="card-title">按站点 + SKU 汇总</span>
+              <small>库存按站点共享取一份，eBay 可售按店铺相加；展开一行查看这个 SKU 在所有店铺、所有站点的刊登和库存</small>
+            </div>
+            <div class="table-tools">
+              <el-button :type="dense ? 'primary' : 'default'" plain @click="dense = !dense">紧凑</el-button>
+            </div>
+          </div>
+          <el-table
+            v-loading="skuLoading"
+            :data="skuRows"
+            :size="dense ? 'small' : 'default'"
+            :row-key="skuRowKey"
+            :row-class-name="oversellRowClass"
+            border
+            height="560"
+            empty-text="没有符合条件的 SKU，换个站点、店铺、状态或关键词试试"
+            @sort-change="handleSkuSort"
+            @expand-change="handleSkuExpand"
+          >
+            <el-table-column type="expand" width="44" fixed>
+              <template #default="{ row }">
+                <div class="expand-box">
+                  <el-skeleton v-if="skuListing(row.sku).loading" :rows="3" animated />
+                  <el-alert
+                    v-else-if="skuListing(row.sku).error"
+                    type="error"
+                    :closable="false"
+                    title="这个 SKU 的跨店数据没取到，收起再展开重试"
+                  />
+                  <template v-else-if="skuListing(row.sku).data">
+                    <p class="shared-hint">谷仓、成都库存按站点共享，同一站点多个店铺显示的是同一份库存，不能相加</p>
+                    <div class="compare-title">各站点库存</div>
+                    <el-table
+                      :data="skuListing(row.sku).data.sites"
+                      size="small"
+                      border
+                      :row-class-name="params => compareSiteRowClass(params, row.site)"
+                      empty-text="没有库存记录"
+                    >
+                      <el-table-column
+                        v-for="col in compareSiteColumns"
+                        :key="col.key"
+                        :label="col.label"
+                        :width="col.width"
+                        :min-width="col.minWidth"
+                        :align="col.align"
+                      >
+                        <template #default="scope">
+                          <el-tooltip
+                            v-if="col.format === 'oversell' && isTrue(scope.row[col.key])"
+                            :content="oversellTip(scope.row)"
+                            placement="top"
+                          >
+                            <el-tag type="danger" effect="dark" size="small" class="oversell-tag">多店超卖</el-tag>
+                          </el-tooltip>
+                          <span v-else>{{ cellText(scope.row, col) }}</span>
+                        </template>
+                      </el-table-column>
+                    </el-table>
+                    <div class="compare-title">各店铺刊登（当前站点高亮）</div>
+                    <el-table
+                      :data="skuListing(row.sku).data.listings"
+                      size="small"
+                      border
+                      :row-class-name="params => compareListingRowClass(params, { site: row.site })"
+                      empty-text="没有在售刊登"
+                    >
+                      <el-table-column
+                        v-for="col in compareListingColumns"
+                        :key="col.key"
+                        :label="col.label"
+                        :width="col.width"
+                        :min-width="col.minWidth"
+                        :align="col.align"
+                        :show-overflow-tooltip="col.tooltip"
+                      >
+                        <template #default="scope">
+                          <el-link
+                            v-if="col.format === 'itemLink' && scope.row.view_item_url"
+                            :href="scope.row.view_item_url"
+                            target="_blank"
+                            type="primary"
+                            :underline="false"
+                          >{{ displayValue(scope.row.item_id) }}</el-link>
+                          <el-tag v-else-if="col.format === 'status'" :type="statusTagType(scope.row.status)" size="small">
+                            {{ displayValue(scope.row.status) }}
+                          </el-tag>
+                          <span v-else-if="col.format === 'usd'" class="usd-cell">
+                            {{ decimal(scope.row.price_usd) }}
+                            <el-tag
+                              v-if="lowestListingKeys(skuListing(row.sku).data.listings).has(listingKey(scope.row))"
+                              type="success"
+                              size="small"
+                              effect="plain"
+                            >站点最低</el-tag>
+                          </span>
+                          <span v-else>{{ cellText(scope.row, col) }}</span>
+                        </template>
+                      </el-table-column>
+                    </el-table>
+                  </template>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column
+              v-for="col in skuColumns"
+              :key="col.key"
+              :prop="col.key"
+              :label="col.label"
+              :width="col.width"
+              :min-width="col.minWidth"
+              :align="col.align"
+              :fixed="col.fixed || false"
+              :sortable="col.sortable ? 'custom' : false"
+              :show-overflow-tooltip="col.tooltip"
+            >
+              <template v-if="col.tip" #header>
+                <span class="column-header">
+                  <span>{{ col.label }}</span>
+                  <el-tooltip :content="col.tip" placement="top">
+                    <el-icon class="column-tip"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </span>
+              </template>
+              <template #default="{ row }">
+                <el-image
+                  v-if="col.format === 'image' && row.image_url"
+                  :src="row.image_url"
+                  fit="cover"
+                  class="row-image"
+                  :preview-src-list="[row.image_url]"
+                  preview-teleported
+                />
+                <span v-else-if="col.format === 'statuses'" class="status-tags">
+                  <el-tag
+                    v-for="status in toArray(row.statuses)"
+                    :key="status"
+                    :type="statusTagType(status)"
+                    effect="light"
+                    size="small"
+                  >{{ status }}</el-tag>
+                  <span v-if="!toArray(row.statuses).length" class="muted">—</span>
+                </span>
+                <el-tooltip
+                  v-else-if="col.format === 'oversell' && isTrue(row[col.key])"
+                  :content="oversellTip(row)"
+                  placement="top"
+                >
+                  <el-tag type="danger" effect="dark" class="oversell-tag">多店超卖</el-tag>
+                </el-tooltip>
+                <el-tag
+                  v-else-if="col.format === 'outOfStock' && isTrue(row[col.key])"
+                  type="warning"
+                  effect="dark"
+                  class="oversell-tag"
+                >断货在售</el-tag>
+                <span v-else :class="cellClass(row, col)">{{ cellText(row, col) }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <pagination
+            v-show="skuTotal > 0"
+            :total="skuTotal"
+            v-model:page="skuPage.pageNum"
+            v-model:limit="skuPage.pageSize"
+            @pagination="loadSkuRows"
+          />
+        </el-tab-pane>
+      </el-tabs>
     </el-card>
 
     <!-- ===== 口径说明 ===== -->
@@ -345,16 +473,122 @@
         <span class="card-title">口径说明</span>
       </template>
       <ul class="note-list">
+        <li class="note-key">谷仓、成都库存按站点共享，同一站点多个店铺显示的是同一份库存，不能相加</li>
         <li>eBay 售价与可售量为在售刊登每周快照（每周一更新），快照日期见页头</li>
         <li>海外仓库存为谷仓区域仓接口每周快照（DE / UK / 美东 USEA / 美西 USWE，美国两仓合计；捷克 CZ 暂不纳入），<strong>不是实时库存</strong></li>
         <li>成都中转仓库存仍为领星周快照</li>
         <li>海外仓按「站点 + 去掉 SKU 第一段（品牌前缀，谷仓侧为 JMH）」匹配</li>
-        <li>覆盖天数 = 谷仓可售 ÷ 近 7 日日均销量；近 7 日无销量时不计算，显示「—」</li>
-        <li>售价按站点币种和领星月度汇率折算 USD，汇率缺失时不折算</li>
+        <li>多店超卖：同站点所有店铺 eBay 可售合计 &gt; 该站点谷仓可售 + 成都可售；多个店铺共用一个仓，单看一个店铺看不出来</li>
+        <li>断货在售：已匹配到库存，谷仓可售 + 成都可售 = 0，但 eBay 可售 &gt; 0；一条刊登可以同时是断货在售和多店超卖，两个标记都会显示</li>
+        <li>比最低价高出 =（本店 USD 售价 − 同站点最低 USD 售价）÷ 同站点最低 USD 售价</li>
+        <li>售价按站点币种和领星月度企业汇率折算 USD；当月汇率未出时，沿用该币种最近一个已出月份的汇率；完全没有汇率时不折算</li>
         <li>采购成本取订单文件中的真实采购成本，未参与售价估算</li>
-        <li>未关联到库存的 listing 计入「未匹配」，不计入库存缺口与超卖判断</li>
+        <li>未关联到库存的 listing 计入「未匹配」，不计入断货在售与多店超卖判断</li>
       </ul>
     </el-card>
+
+    <!-- ===== 这个 SKU 在其他店铺 ===== -->
+    <el-drawer
+      v-model="compareDrawer.visible"
+      size="820px"
+      class="sku-compare-drawer"
+      append-to-body
+      :title="`其他店铺 · ${displayValue(compareDrawer.sku)}`"
+    >
+      <el-skeleton v-if="compareState.loading" :rows="6" animated />
+      <el-alert
+        v-else-if="compareState.error"
+        type="error"
+        :closable="false"
+        title="这个 SKU 的跨店数据没取到，关掉抽屉再点一次重试"
+      />
+      <template v-else-if="compareState.data">
+        <div class="compare-head">
+          <el-image
+            v-if="compareState.data.image_url"
+            :src="compareState.data.image_url"
+            fit="cover"
+            class="compare-image"
+            :preview-src-list="[compareState.data.image_url]"
+            preview-teleported
+          />
+          <div class="compare-head__text">
+            <strong>{{ displayValue(compareState.data.sku || compareDrawer.sku) }}</strong>
+            <span>{{ displayValue(compareState.data.title) }}</span>
+          </div>
+        </div>
+        <p class="shared-hint">谷仓、成都库存按站点共享，同一站点多个店铺显示的是同一份库存，不能相加</p>
+        <div class="compare-title">各站点库存</div>
+        <el-table
+          :data="compareState.data.sites"
+          size="small"
+          border
+          :row-class-name="params => compareSiteRowClass(params, compareDrawer.origin?.site)"
+          empty-text="没有库存记录"
+        >
+          <el-table-column
+            v-for="col in compareSiteColumns"
+            :key="col.key"
+            :label="col.label"
+            :width="col.width"
+            :min-width="col.minWidth"
+            :align="col.align"
+          >
+            <template #default="scope">
+              <el-tooltip
+                v-if="col.format === 'oversell' && isTrue(scope.row[col.key])"
+                :content="oversellTip(scope.row)"
+                placement="top"
+              >
+                <el-tag type="danger" effect="dark" size="small" class="oversell-tag">多店超卖</el-tag>
+              </el-tooltip>
+              <span v-else>{{ cellText(scope.row, col) }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="compare-title">各店铺刊登（当前店铺高亮）</div>
+        <el-table
+          :data="compareState.data.listings"
+          size="small"
+          border
+          :row-class-name="params => compareListingRowClass(params, compareDrawer.origin)"
+          empty-text="没有在售刊登"
+        >
+          <el-table-column
+            v-for="col in compareListingColumns"
+            :key="col.key"
+            :label="col.label"
+            :width="col.width"
+            :min-width="col.minWidth"
+            :align="col.align"
+            :show-overflow-tooltip="col.tooltip"
+          >
+            <template #default="scope">
+              <el-link
+                v-if="col.format === 'itemLink' && scope.row.view_item_url"
+                :href="scope.row.view_item_url"
+                target="_blank"
+                type="primary"
+                :underline="false"
+              >{{ displayValue(scope.row.item_id) }}</el-link>
+              <el-tag v-else-if="col.format === 'status'" :type="statusTagType(scope.row.status)" size="small">
+                {{ displayValue(scope.row.status) }}
+              </el-tag>
+              <span v-else-if="col.format === 'usd'" class="usd-cell">
+                {{ decimal(scope.row.price_usd) }}
+                <el-tag
+                  v-if="compareLowestKeys.has(listingKey(scope.row))"
+                  type="success"
+                  size="small"
+                  effect="plain"
+                >站点最低</el-tag>
+              </span>
+              <span v-else>{{ cellText(scope.row, col) }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+    </el-drawer>
 
     <ColumnConfigDrawer
       v-model="showColumnDrawer"
@@ -368,29 +602,20 @@
 </template>
 
 <script setup name="EbayPriceAnalysis">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import * as echarts from 'echarts'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   exportEbayPriceAnalysis,
-  getEbayPriceAnalysisOverview,
-  listEbayPriceAnalysisDetail
+  getEbayPriceAnalysisSkuListings,
+  listEbayPriceAnalysisDetail,
+  listEbayPriceAnalysisStores
 } from '@/api/operations/ebayPriceAnalysis'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
 import { checkPermi } from '@/utils/permission'
 
-
-// 状态由后端落库算好，前端只按它渲染和筛选，不自己推导。
+// 状态、多店超卖、断货在售、跨店比价都由后端算好，前端只按返回值渲染和筛选，不自己推导。
 const statusOptions = ['未匹配', '超卖风险', '断货', '待补货', '滞销', '健康']
-const STATUS_COLOR = {
-  未匹配: '#909399',
-  超卖风险: '#F56C6C',
-  断货: '#FF7A00',
-  待补货: '#E6A23C',
-  滞销: '#409EFF',
-  健康: '#67C23A'
-}
 const STATUS_TAG_TYPE = {
   未匹配: 'info',
   超卖风险: 'danger',
@@ -399,77 +624,91 @@ const STATUS_TAG_TYPE = {
   滞销: 'primary',
   健康: 'success'
 }
-// KPI 卡只做跳筛选用的静态映射，数值一律取接口返回值。
-const KPI_STATUS = { oversell_count: '超卖风险', unmatched_count: '未匹配' }
-const KPI_TONE = { stock_gap: 'info', oversell_count: 'danger', unmatched_count: 'warning' }
 const SITE_OPTIONS = ['DE', 'UK', 'US', 'FR']
-const EBAY_COLOR = '#409EFF'
-const WAREHOUSE_COLOR = '#67C23A'
+const SHARED_STOCK_TIP = '按站点共享：同一站点多个店铺显示的是同一份库存，不能相加。'
 
-const loading = ref(false)
+const storesLoading = ref(false)
 const detailLoading = ref(false)
+const skuLoading = ref(false)
 const exporting = ref(false)
 const dense = ref(false)
-const overview = ref({})
-const rows = ref([])
-const total = ref(0)
-const activeRiskKey = ref('')
-const storeChartRef = ref()
-const scatterChartRef = ref()
-const gapChartRef = ref()
-const detailAnchorRef = ref()
-let storeChart
-let scatterChart
-let gapChart
+const activeTab = ref('store')
+const snapshot = reactive({ stat_date: undefined, refreshed_at: undefined })
+const stores = ref([])
+const selectedStore = ref(null)
+const detailRows = ref([])
+const detailTotal = ref(0)
+const skuRows = ref([])
+const skuTotal = ref(0)
+const knownAccounts = ref([])
+const skuListings = reactive({})
+const compareDrawer = reactive({ visible: false, sku: '', origin: null })
 
 const query = reactive({
-  statDate: undefined,
   sites: [],
   accounts: [],
   status: undefined,
   keyword: undefined,
-  dimension: 'sku',
-  mode: 'detail',
-  pageNum: 1,
-  pageSize: 50,
-  sortBy: undefined,
-  sortOrder: undefined
+  onlySiteOversell: false,
+  onlyOutOfStockListed: false
 })
+const detailPage = reactive({ pageNum: 1, pageSize: 50, sortBy: undefined, sortOrder: undefined })
+const skuPage = reactive({ pageNum: 1, pageSize: 50, sortBy: undefined, sortOrder: undefined })
 
-const fixedColumnKeys = ['image_url', 'seller_account', 'site_name', 'sku']
+// 筛选每变一次版本号加一；切页签时版本对不上才重新拉，避免另一个页签拿着旧筛选的数据。
+let filterVersion = 0
+const loadedVersion = { store: -1, sku: -1 }
+let storesSeq = 0
+let detailSeq = 0
+let skuSeq = 0
+
+// 店铺维度明细列；页面配置换了新 key，旧看板保存的列顺序不会套到新表上。
+const fixedColumnKeys = ['image_url', 'sku']
 const requiredColumnKeys = ['sku']
 const columnDefs = [
-  { key: 'image_url', label: '图片', width: 76, fixed: true, align: 'center', format: 'image' },
-  { key: 'seller_account', label: '店铺', width: 150, fixed: true, detailOnly: true, tooltip: true },
-  { key: 'site_name', label: '站点', width: 80, fixed: true, align: 'center' },
-  { key: 'sku', label: 'SKU', minWidth: 170, fixed: true, format: 'skuLink' },
-  { key: 'title', label: '产品名称', minWidth: 230, tooltip: true },
-  { key: 'status', label: '状态', width: 108, align: 'center', format: 'status' },
-  { key: 'currency', label: '币种', width: 80, align: 'center' },
-  { key: 'current_price', label: '原币售价', width: 110, align: 'right', format: 'decimal' },
+  { key: 'image_url', label: '图片', width: 70, fixed: true, align: 'center', format: 'image' },
+  { key: 'sku', label: 'SKU', minWidth: 160, fixed: true, format: 'skuLink' },
+  { key: 'title', label: '产品名称', minWidth: 200, tooltip: true },
+  { key: 'current_price', label: '原币售价', width: 120, align: 'right', format: 'price' },
   {
     key: 'price_usd', label: '售价(USD)', width: 115, align: 'right', format: 'decimal', sortable: true,
-    tip: '按站点币种和领星月度汇率折算；汇率缺失时不折算，显示「—」。'
+    tip: '按站点币种和领星月度企业汇率折算；当月汇率未出时沿用该币种最近一个已出月份的汇率，完全没有汇率时显示「—」。'
   },
-  { key: 'ebay_quantity_available', label: 'eBay可售', width: 110, align: 'right', format: 'integer', sortable: true },
+  { key: 'ebay_quantity_available', label: 'eBay可售', width: 105, align: 'right', format: 'integer', sortable: true },
   {
-    key: 'overseas_sellable', label: '谷仓可售', width: 110, align: 'right', format: 'integer', sortable: true,
-    tip: '谷仓区域仓接口每周快照的海外仓可售件数（美国两仓合计），不是实时库存。'
-  },
-  { key: 'overseas_in_transit', label: '海外在途', width: 110, align: 'right', format: 'integer' },
-  { key: 'chengdu_sellable', label: '成都可售', width: 110, align: 'right', format: 'integer' },
-  { key: 'pending_outbound', label: '待出库', width: 100, align: 'right', format: 'integer' },
-  { key: 'sales_qty_7d', label: '近7日销量', width: 110, align: 'right', format: 'integer' },
-  { key: 'sales_qty_30d', label: '近30日销量', width: 115, align: 'right', format: 'integer' },
-  {
-    key: 'cover_days', label: '覆盖天数', width: 110, align: 'right', format: 'decimal', sortable: true,
-    tip: '谷仓可售 ÷ 近 7 日日均销量；近 7 日无销量时不计算，显示「—」。'
+    key: 'overseas_sellable', label: '谷仓可售', width: 105, align: 'right', format: 'integer', sortable: true,
+    tip: `谷仓区域仓接口每周快照（美国两仓合计），不是实时库存。${SHARED_STOCK_TIP}`
   },
   {
-    key: 'stock_gap', label: '库存缺口', width: 110, align: 'right', format: 'gap', sortable: true,
-    tip: '谷仓可售 − eBay 可售：为正是可补上架的空间，为负是超卖风险。'
+    key: 'chengdu_sellable', label: '成都可售', width: 105, align: 'right', format: 'integer', sortable: true,
+    tip: `领星周快照。${SHARED_STOCK_TIP}`
   },
-  { key: 'purchase_cost_cny', label: '采购成本(¥)', width: 125, align: 'right', format: 'decimal' }
+  { key: 'overseas_in_transit', label: '海外在途', width: 100, align: 'right', format: 'integer' },
+  {
+    key: 'site_store_count', label: '同站点店铺数', width: 125, align: 'right', format: 'integer',
+    tip: '同一站点在售这个 SKU 的店铺数。'
+  },
+  {
+    key: 'site_ebay_available_total', label: '同站点eBay可售合计', width: 160, align: 'right', format: 'integer',
+    tip: '同一站点所有店铺这个 SKU 的 eBay 可售相加。eBay 可售是各店铺自己的，可以相加；库存不能。'
+  },
+  {
+    key: 'site_price_range', label: '同站点最低 / 最高价(USD)', width: 190, align: 'right', format: 'range',
+    minKey: 'site_price_usd_min', maxKey: 'site_price_usd_max'
+  },
+  {
+    key: 'price_vs_site_min_pct', label: '比最低价高出', width: 130, align: 'right', format: 'pct',
+    tip: '（本店 USD 售价 − 同站点最低 USD 售价）÷ 同站点最低 USD 售价；任一价格缺失时显示「—」。'
+  },
+  {
+    key: 'site_oversell', label: '多店超卖', width: 105, align: 'center', format: 'oversell',
+    tip: '同站点所有店铺 eBay 可售合计 > 该站点谷仓可售 + 成都可售。'
+  },
+  {
+    key: 'out_of_stock_listed', label: '断货在售', width: 105, align: 'center', format: 'outOfStock',
+    tip: '已匹配到库存，谷仓可售 + 成都可售 = 0，但 eBay 可售 > 0。可以和多店超卖同时出现。'
+  },
+  { key: 'status', label: '状态', width: 100, align: 'center', format: 'status' }
 ]
 const {
   showColumnDrawer,
@@ -481,31 +720,76 @@ const {
   initColumnConfig,
   applyColumnConfig
 } = useColumnConfig(
-  'operations:ebay:priceAnalysis',
+  'operations:ebay:priceAnalysis:store',
   columnDefs,
   fixedColumnKeys,
   requiredColumnKeys
 )
 
-const kpiCards = computed(() => (Array.isArray(overview.value.kpis) ? overview.value.kpis : []))
-const storeCompare = computed(() => (Array.isArray(overview.value.store_compare) ? overview.value.store_compare : []))
-const stockGapTop = computed(() => (Array.isArray(overview.value.stock_gap_top) ? overview.value.stock_gap_top : []))
-const risks = computed(() => (Array.isArray(overview.value.risks) ? overview.value.risks : []))
-const scatterRaw = computed(() => (Array.isArray(overview.value.scatter) ? overview.value.scatter : []))
-const scatterPoints = computed(() => scatterRaw.value.filter(point =>
-  Number.isFinite(Number(point?.price_usd)) && point?.price_usd !== null
-  && Number.isFinite(Number(point?.overseas_sellable)) && point?.overseas_sellable !== null))
-const scatterSkipped = computed(() => scatterRaw.value.length - scatterPoints.value.length)
+// SKU 维度列：库存取同站点的一份（后端 MAX），eBay 可售是各店铺相加。
+const skuColumns = [
+  { key: 'image_url', label: '图片', width: 70, fixed: true, align: 'center', format: 'image' },
+  { key: 'site_name', label: '站点', width: 80, fixed: true, align: 'center' },
+  { key: 'sku', label: 'SKU', minWidth: 160, fixed: true },
+  { key: 'title', label: '产品名称', minWidth: 200, tooltip: true },
+  { key: 'store_count', label: '在售店铺数', width: 115, align: 'right', format: 'integer', sortable: true },
+  {
+    key: 'ebay_quantity_available', label: 'eBay可售合计', width: 125, align: 'right', format: 'integer', sortable: true,
+    tip: '这个站点所有店铺的 eBay 可售相加。'
+  },
+  {
+    key: 'overseas_sellable', label: '谷仓可售', width: 105, align: 'right', format: 'integer', sortable: true,
+    tip: `谷仓区域仓接口每周快照（美国两仓合计）。${SHARED_STOCK_TIP}`
+  },
+  {
+    key: 'chengdu_sellable', label: '成都可售', width: 105, align: 'right', format: 'integer', sortable: true,
+    tip: `领星周快照。${SHARED_STOCK_TIP}`
+  },
+  { key: 'overseas_in_transit', label: '海外在途', width: 100, align: 'right', format: 'integer' },
+  {
+    key: 'price_range', label: '最低 / 最高价(USD)', width: 170, align: 'right', format: 'range',
+    minKey: 'price_usd_min', maxKey: 'price_usd_max'
+  },
+  {
+    key: 'site_oversell', label: '多店超卖', width: 105, align: 'center', format: 'oversell',
+    tip: '这个站点所有店铺 eBay 可售合计 > 谷仓可售 + 成都可售。'
+  },
+  {
+    key: 'out_of_stock_listed', label: '断货在售', width: 105, align: 'center', format: 'outOfStock',
+    tip: '这个站点有店铺在库存为 0 时仍挂着 eBay 可售。可以和多店超卖同时出现。'
+  },
+  { key: 'statuses', label: '状态', minWidth: 130, format: 'statuses' }
+]
+// 抽屉和展开行共用的两张对比表。
+const compareSiteColumns = [
+  { key: 'site_name', label: '站点', width: 80, align: 'center' },
+  { key: 'overseas_sellable', label: '谷仓可售', width: 95, align: 'right', format: 'integer' },
+  { key: 'chengdu_sellable', label: '成都可售', width: 95, align: 'right', format: 'integer' },
+  { key: 'overseas_in_transit', label: '海外在途', width: 95, align: 'right', format: 'integer' },
+  { key: 'pending_outbound', label: '待出库', width: 85, align: 'right', format: 'integer' },
+  { key: 'store_count', label: '在售店铺数', width: 100, align: 'right', format: 'integer' },
+  { key: 'ebay_available_total', label: 'eBay可售合计', minWidth: 115, align: 'right', format: 'integer' },
+  { key: 'site_oversell', label: '多店超卖', width: 100, align: 'center', format: 'oversell' }
+]
+const compareListingColumns = [
+  { key: 'seller_account', label: '店铺', minWidth: 140, tooltip: true },
+  { key: 'site_name', label: '站点', width: 70, align: 'center' },
+  { key: 'item_id', label: 'Item ID', minWidth: 130, format: 'itemLink' },
+  { key: 'current_price', label: '原币售价', width: 115, align: 'right', format: 'price' },
+  { key: 'price_usd', label: '售价(USD)', width: 160, align: 'right', format: 'usd' },
+  { key: 'ebay_quantity_available', label: 'eBay可售', width: 90, align: 'right', format: 'integer' },
+  { key: 'status', label: '状态', width: 90, align: 'center', format: 'status' }
+]
+
+const loading = computed(() => storesLoading.value || detailLoading.value || skuLoading.value)
 const siteOptions = computed(() => {
-  const fromData = storeCompare.value.map(item => item.site).filter(Boolean)
+  const fromData = stores.value.map(item => item.site).filter(Boolean)
   return [...new Set([...SITE_OPTIONS, ...fromData])]
 })
-const accountOptions = computed(() => {
-  const fromData = storeCompare.value.map(item => item.seller_account).filter(Boolean)
-  return [...new Set([...fromData, ...query.accounts])]
-})
-// 汇总视图没有店铺维度，店铺列留着只会是一片空值。
-const tableColumns = computed(() => visibleColumns.value.filter(col => !(col.detailOnly && query.mode === 'summary')))
+// 选了店铺之后汇总表只剩这几家，下拉里的其他店铺不能跟着消失，所以累计记下见过的店铺。
+const accountOptions = computed(() => [...new Set([...knownAccounts.value, ...query.accounts])])
+const compareState = computed(() => skuListing(compareDrawer.sku))
+const compareLowestKeys = computed(() => lowestListingKeys(compareState.value.data?.listings))
 
 function displayValue(value) {
   return value === null || value === undefined || value === '' ? '—' : value
@@ -522,35 +806,69 @@ function decimal(value) {
     ? numeric.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : '—'
 }
-function kpiText(kpi) {
-  const value = kpi?.value
-  if (value === null || value === undefined || value === '') return '—'
+// 后端给的是比例（0.125 = 高 12.5%），只换算成百分比显示，不自己算。
+function percent(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return '—'
   const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return String(value)
-  const fraction = Number.isInteger(numeric) ? 0 : 2
-  return numeric.toLocaleString('zh-CN', { minimumFractionDigits: fraction, maximumFractionDigits: fraction })
+  if (!Number.isFinite(numeric)) return '—'
+  if (numeric === 0) return '最低价'
+  const text = `${(numeric * 100).toFixed(1)}%`
+  return numeric > 0 ? `+${text}` : text
 }
-function kpiTone(kpi) {
-  return KPI_TONE[kpi?.key] || 'normal'
+function pctClass(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return 'muted'
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return 'muted'
+  if (numeric === 0) return 'price-lowest'
+  return numeric >= 0.2 ? 'price-high' : 'price-above'
 }
-function kpiStatus(kpi) {
-  return KPI_STATUS[kpi?.key] || ''
-}
-function statusColor(status) {
-  return STATUS_COLOR[status] || '#909399'
+// MySQL 的布尔列经 Python / Java 转发后可能是 true、1 或 '1'。
+function isTrue(value) {
+  return value === true || value === 1 || value === '1' || value === 'true'
 }
 function statusTagType(status) {
   return STATUS_TAG_TYPE[status] || 'info'
 }
-function gapClass(value) {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return 'muted'
-  return numeric < 0 ? 'gap-negative' : 'gap-positive'
+function cellText(row, col) {
+  const value = row?.[col.key]
+  switch (col.format) {
+    case 'image':
+      return '—'
+    case 'skuLink':
+      return displayValue(row?.sku)
+    case 'integer':
+      return integer(value)
+    case 'decimal':
+      return decimal(value)
+    case 'price': {
+      const price = decimal(row?.current_price)
+      return price === '—' || !row?.currency ? price : `${price} ${row.currency}`
+    }
+    case 'range': {
+      const low = decimal(row?.[col.minKey])
+      const high = decimal(row?.[col.maxKey])
+      if (low === '—' && high === '—') return '—'
+      return low === high ? low : `${low} ~ ${high}`
+    }
+    case 'pct':
+      return percent(value)
+    case 'oversell':
+      return isTrue(value) ? '多店超卖' : '—'
+    case 'outOfStock':
+      return isTrue(value) ? '断货在售' : '—'
+    default:
+      return displayValue(value)
+  }
 }
-function escapeText(value) {
-  return String(value === null || value === undefined ? '' : value)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+function cellClass(row, col) {
+  if (col.format === 'pct') return pctClass(row?.[col.key])
+  return cellText(row, col) === '—' ? 'muted' : ''
+}
+function oversellTip(row) {
+  const storeCount = row?.site_store_count ?? row?.store_count
+  const ebayTotal = row?.site_ebay_available_total ?? row?.ebay_available_total ?? row?.ebay_quantity_available
+  return `同站点 ${integer(storeCount)} 个店铺 eBay 可售合计 ${integer(ebayTotal)}，`
+    + `超过谷仓可售 ${integer(row?.overseas_sellable)} + 成都可售 ${integer(row?.chengdu_sellable)}`
 }
 function toArray(value) {
   if (Array.isArray(value)) return value.map(item => String(item).trim()).filter(Boolean)
@@ -565,114 +883,278 @@ function csv(value) {
   const text = String(value === null || value === undefined ? '' : value).trim()
   return text || undefined
 }
+function flag(value) {
+  return value ? 'true' : undefined
+}
+function storeKey(row) {
+  return `${row?.seller_account ?? ''}|${row?.site ?? ''}`
+}
+function skuRowKey(row) {
+  return `${row?.site ?? ''}|${row?.sku ?? ''}`
+}
+function listingKey(row) {
+  return `${row?.seller_account ?? ''}|${row?.site ?? ''}|${row?.item_id ?? ''}`
+}
+// 接口按 site、price_usd 升序给 listings，每个站点第一条有价格的就是站点最低价，不在前端比价。
+function lowestListingKeys(listings) {
+  const keys = new Set()
+  const seen = new Set()
+  for (const item of Array.isArray(listings) ? listings : []) {
+    if (seen.has(item?.site) || item?.price_usd === null || item?.price_usd === undefined) continue
+    seen.add(item.site)
+    keys.add(listingKey(item))
+  }
+  return keys
+}
 
 function buildFilterParams() {
   return {
-    statDate: csv(query.statDate),
     sites: csv(query.sites),
     accounts: csv(query.accounts),
     status: csv(query.status),
-    keyword: csv(query.keyword)
+    keyword: csv(query.keyword),
+    siteOversell: flag(query.onlySiteOversell),
+    outOfStockListed: flag(query.onlyOutOfStockListed)
   }
 }
-function buildOverviewParams() {
-  return { ...buildFilterParams(), dimension: query.dimension }
+function buildStoreParams() {
+  return { sites: csv(query.sites), accounts: csv(query.accounts) }
 }
-function buildDetailParams() {
+// 选中店铺后明细只看这一个「店铺 + 站点」，页头的站点 / 店铺多选不再叠加。
+function buildStoreDetailParams() {
+  const store = selectedStore.value
   return {
     ...buildFilterParams(),
-    mode: query.mode,
-    sortBy: csv(query.sortBy),
-    sortOrder: csv(query.sortOrder),
-    pageNum: query.pageNum,
-    pageSize: query.pageSize
+    accounts: csv(store?.seller_account),
+    sites: csv(store?.site),
+    mode: 'detail',
+    sortBy: csv(detailPage.sortBy),
+    sortOrder: csv(detailPage.sortOrder),
+    pageNum: detailPage.pageNum,
+    pageSize: detailPage.pageSize
   }
+}
+function buildSkuParams() {
+  return {
+    ...buildFilterParams(),
+    mode: 'summary',
+    sortBy: csv(skuPage.sortBy),
+    sortOrder: csv(skuPage.sortOrder),
+    pageNum: skuPage.pageNum,
+    pageSize: skuPage.pageSize
+  }
+}
+function buildExportParams() {
+  const page = activeTab.value === 'sku' ? skuPage : detailPage
+  return {
+    ...buildFilterParams(),
+    mode: activeTab.value === 'sku' ? 'summary' : 'detail',
+    sortBy: csv(page.sortBy),
+    sortOrder: csv(page.sortOrder)
+  }
+}
+// 页头的快照日期取列表接口顶层的 stat_date / refreshed_at。
+function applySnapshot(data) {
+  if (!data || typeof data !== 'object') return
+  if (data.stat_date) snapshot.stat_date = data.stat_date
+  if (data.refreshed_at) snapshot.refreshed_at = data.refreshed_at
+}
+function rememberAccounts(rows) {
+  const accounts = rows.map(item => item?.seller_account).filter(Boolean)
+  knownAccounts.value = [...new Set([...knownAccounts.value, ...accounts])].sort()
 }
 
-async function loadOverview() {
-  loading.value = true
+async function loadStores() {
+  const seq = ++storesSeq
+  storesLoading.value = true
   try {
-    const response = await getEbayPriceAnalysisOverview(buildOverviewParams())
-    overview.value = response.data || {}
-    await nextTick()
-    renderCharts()
+    const response = await listEbayPriceAnalysisStores(buildStoreParams())
+    if (seq !== storesSeq) return
+    const data = response.data || {}
+    applySnapshot(data)
+    stores.value = Array.isArray(data.rows) ? data.rows : []
+    rememberAccounts(stores.value)
+    // 筛选后原来选中的店铺还在就保持；不在了默认选第一家，免得下半部分空着。
+    const current = selectedStore.value && stores.value.find(item => storeKey(item) === storeKey(selectedStore.value))
+    selectedStore.value = current || stores.value[0] || null
   } finally {
-    loading.value = false
+    if (seq === storesSeq) storesLoading.value = false
   }
 }
-async function loadDetail() {
+async function loadStoreDetail() {
+  const seq = ++detailSeq
+  if (!selectedStore.value) {
+    detailRows.value = []
+    detailTotal.value = 0
+    detailLoading.value = false
+    return
+  }
   detailLoading.value = true
   try {
-    const response = await listEbayPriceAnalysisDetail(buildDetailParams())
+    const response = await listEbayPriceAnalysisDetail(buildStoreDetailParams())
+    if (seq !== detailSeq) return
     const data = response.data || {}
-    rows.value = Array.isArray(data.rows) ? data.rows : []
-    total.value = Number(data.total || 0)
+    applySnapshot(data)
+    detailRows.value = Array.isArray(data.rows) ? data.rows : []
+    detailTotal.value = Number(data.total || 0)
   } finally {
-    detailLoading.value = false
+    if (seq === detailSeq) detailLoading.value = false
   }
 }
+async function loadSkuRows() {
+  const seq = ++skuSeq
+  skuLoading.value = true
+  try {
+    const response = await listEbayPriceAnalysisDetail(buildSkuParams())
+    if (seq !== skuSeq) return
+    const data = response.data || {}
+    applySnapshot(data)
+    skuRows.value = Array.isArray(data.rows) ? data.rows : []
+    skuTotal.value = Number(data.total || 0)
+  } finally {
+    if (seq === skuSeq) skuLoading.value = false
+  }
+}
+async function loadActiveTab() {
+  const tab = activeTab.value
+  const version = filterVersion
+  if (tab === 'sku') await loadSkuRows()
+  else await loadStoreDetail()
+  loadedVersion[tab] = version
+}
+function clearSkuListings() {
+  for (const key of Object.keys(skuListings)) delete skuListings[key]
+}
+function resetPages() {
+  detailPage.pageNum = 1
+  skuPage.pageNum = 1
+}
+// 站点 / 店铺变了：店铺汇总和当前页签都要重拉；「刷新」也走这里，顺带清掉跨店对比的缓存。
 async function handleQuery() {
-  query.pageNum = 1
-  await Promise.all([loadOverview(), loadDetail()])
+  filterVersion += 1
+  resetPages()
+  clearSkuListings()
+  await loadStores()
+  await loadActiveTab()
+}
+// 状态、关键词和两个「只看」只作用于明细，不影响店铺汇总。
+function handleListFilter() {
+  filterVersion += 1
+  resetPages()
+  return loadActiveTab()
 }
 function resetQuery() {
-  query.statDate = undefined
   query.sites = []
   query.accounts = []
   query.status = undefined
   query.keyword = undefined
-  query.dimension = 'sku'
-  query.mode = 'detail'
-  query.sortBy = undefined
-  query.sortOrder = undefined
-  activeRiskKey.value = ''
+  query.onlySiteOversell = false
+  query.onlyOutOfStockListed = false
+  detailPage.sortBy = undefined
+  detailPage.sortOrder = undefined
+  skuPage.sortBy = undefined
+  skuPage.sortOrder = undefined
+  selectedStore.value = null
   return handleQuery()
 }
-function handleModeChange() {
-  query.pageNum = 1
-  return loadDetail()
+function handleTabChange() {
+  if (loadedVersion[activeTab.value] === filterVersion) return undefined
+  return loadActiveTab()
 }
-function handleDimensionChange() {
-  return loadOverview()
+function selectStore(row) {
+  if (!row) return undefined
+  selectedStore.value = { seller_account: row.seller_account, site: row.site, site_name: row.site_name }
+  detailPage.pageNum = 1
+  return loadStoreDetail()
 }
-function handleSortChange({ prop, order }) {
-  query.sortBy = order ? prop : undefined
-  query.sortOrder = order === 'ascending' ? 'asc' : (order === 'descending' ? 'desc' : undefined)
-  query.pageNum = 1
-  return loadDetail()
+// 点汇总表里的「断货在售」「多店超卖 SKU」数字：选中这家店并打开对应的「只看」。
+function focusStore(row, kind) {
+  if (kind === 'oversell') query.onlySiteOversell = true
+  if (kind === 'outOfStock') query.onlyOutOfStockListed = true
+  filterVersion += 1
+  loadedVersion.store = filterVersion
+  return selectStore(row)
 }
-function toggleAccount(account) {
-  const index = query.accounts.indexOf(account)
-  if (index >= 0) query.accounts.splice(index, 1)
-  else query.accounts.push(account)
-  return handleQuery()
-}
-function applyStatusFilter(status) {
-  query.status = query.status === status ? undefined : status
-  return handleQuery()
-}
-function handleKpiClick(kpi) {
-  const status = kpiStatus(kpi)
-  if (!status) return undefined
-  return applyStatusFilter(status)
-}
-// 事项的 filter 由后端给，前端只认识自己的筛选字段，不猜别的键。
-function applyRiskFilter(risk) {
-  const filter = risk && typeof risk.filter === 'object' && risk.filter ? risk.filter : null
-  if (!filter) return undefined
-  if ('status' in filter) query.status = filter.status || undefined
-  if ('sites' in filter) query.sites = toArray(filter.sites)
-  if ('accounts' in filter) query.accounts = toArray(filter.accounts)
-  if ('keyword' in filter) query.keyword = filter.keyword || undefined
-  activeRiskKey.value = risk.key || ''
-  return Promise.resolve(handleQuery()).then(scrollToDetail)
-}
-function scrollToDetail() {
-  const anchor = detailAnchorRef.value
-  if (anchor && typeof anchor.scrollIntoView === 'function') {
-    anchor.scrollIntoView({ behavior: 'smooth', block: 'start' })
+function sortState({ prop, order }) {
+  return {
+    sortBy: order ? prop : undefined,
+    sortOrder: order === 'ascending' ? 'asc' : (order === 'descending' ? 'desc' : undefined)
   }
 }
+function handleDetailSort(event) {
+  Object.assign(detailPage, sortState(event), { pageNum: 1 })
+  return loadStoreDetail()
+}
+function handleSkuSort(event) {
+  Object.assign(skuPage, sortState(event), { pageNum: 1 })
+  return loadSkuRows()
+}
+function storeRowClass({ row }) {
+  return selectedStore.value && storeKey(row) === storeKey(selectedStore.value) ? 'is-selected' : ''
+}
+// 两个标记各自独立：同时满足时两个 class 都挂上，不互相覆盖。
+function oversellRowClass({ row }) {
+  const classes = []
+  if (isTrue(row?.site_oversell)) classes.push('is-oversell')
+  if (isTrue(row?.out_of_stock_listed)) classes.push('is-out-of-stock')
+  return classes.join(' ')
+}
+function compareSiteRowClass({ row }, site) {
+  const classes = []
+  if (site && row?.site === site) classes.push('is-origin')
+  if (isTrue(row?.site_oversell)) classes.push('is-oversell')
+  return classes.join(' ')
+}
+function compareListingRowClass({ row }, origin) {
+  if (!origin) return ''
+  if (origin.seller_account) {
+    return row?.seller_account === origin.seller_account && row?.site === origin.site ? 'is-origin' : ''
+  }
+  return row?.site === origin.site ? 'is-origin' : ''
+}
+
+const EMPTY_LISTING = Object.freeze({ loading: false, error: false, data: null })
+function skuListing(sku) {
+  const key = String(sku === null || sku === undefined ? '' : sku).trim()
+  return (key && skuListings[key]) || EMPTY_LISTING
+}
+// 同一个 SKU 在抽屉和展开行之间共用一份结果；失败的不缓存，再点一次会重试。
+async function ensureSkuListings(sku) {
+  const key = String(sku === null || sku === undefined ? '' : sku).trim()
+  if (!key) return undefined
+  const cached = skuListings[key]
+  if (cached && (cached.loading || cached.data)) return cached
+  skuListings[key] = { loading: true, error: false, data: null }
+  try {
+    const response = await getEbayPriceAnalysisSkuListings(key)
+    const data = response.data || {}
+    skuListings[key] = {
+      loading: false,
+      error: false,
+      data: {
+        ...data,
+        listings: Array.isArray(data.listings) ? data.listings : [],
+        sites: Array.isArray(data.sites) ? data.sites : []
+      }
+    }
+  } catch (error) {
+    skuListings[key] = { loading: false, error: true, data: null }
+  }
+  return skuListings[key]
+}
+function openCompare(row) {
+  if (!row?.sku) return undefined
+  compareDrawer.sku = String(row.sku).trim()
+  compareDrawer.origin = { seller_account: row.seller_account, site: row.site }
+  compareDrawer.visible = true
+  return ensureSkuListings(compareDrawer.sku)
+}
+function handleSkuExpand(row, expanded) {
+  const opened = Array.isArray(expanded) ? expanded.includes(row) : Boolean(expanded)
+  if (!opened) return undefined
+  return ensureSkuListings(row?.sku)
+}
+
 async function handleExport() {
   if (!checkPermi(['operations:ebayPriceAnalysis:export'])) {
     ElMessage.warning('没有价格分析导出权限，请联系管理员授权')
@@ -681,198 +1163,15 @@ async function handleExport() {
   if (exporting.value || loading.value) return
   exporting.value = true
   try {
-    const { pageNum, pageSize, ...params } = buildDetailParams()
-    await exportEbayPriceAnalysis(params)
+    await exportEbayPriceAnalysis(buildExportParams())
   } finally {
     exporting.value = false
   }
 }
 
-function renderCharts() {
-  renderStoreChart()
-  renderScatterChart()
-  renderGapChart()
-}
-function renderStoreChart() {
-  if (!storeChartRef.value) return
-  storeChart ||= echarts.init(storeChartRef.value)
-  const items = storeCompare.value
-  const categories = items.map(item => [item.seller_account, item.site].filter(Boolean).join(' · '))
-  storeChart.setOption({
-    grid: { left: 8, right: 16, top: 34, bottom: 8, containLabel: true },
-    legend: { top: 0, data: ['eBay 可售', '谷仓可售'] },
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-      formatter: params => {
-        const index = params?.[0]?.dataIndex
-        const item = items[index] || {}
-        const lines = [`<b>${escapeText(categories[index])}</b>`]
-        params.forEach(entry => {
-          lines.push(`${entry.marker}${escapeText(entry.seriesName)}：${integer(entry.value)}`)
-        })
-        lines.push(`刊登数：${integer(item.listing_count)}`)
-        return lines.join('<br/>')
-      }
-    },
-    xAxis: { type: 'category', data: categories, axisLabel: { rotate: 32, interval: 0, width: 92, overflow: 'truncate' } },
-    yAxis: { type: 'value', axisLabel: { formatter: value => integer(value) } },
-    series: [
-      {
-        name: 'eBay 可售', type: 'bar', barMaxWidth: 22,
-        itemStyle: { color: EBAY_COLOR, borderRadius: [4, 4, 0, 0] },
-        data: items.map(item => item.ebay_available)
-      },
-      {
-        name: '谷仓可售', type: 'bar', barMaxWidth: 22,
-        itemStyle: { color: WAREHOUSE_COLOR, borderRadius: [4, 4, 0, 0] },
-        data: items.map(item => item.overseas_sellable)
-      }
-    ]
-  }, true)
-  storeChart.off('click')
-  storeChart.on('click', params => {
-    const item = items[params?.dataIndex]
-    if (item?.seller_account) toggleAccount(item.seller_account)
-  })
-}
-function renderScatterChart() {
-  if (!scatterChartRef.value) return
-  scatterChart ||= echarts.init(scatterChartRef.value)
-  const grouped = new Map()
-  scatterPoints.value.forEach(point => {
-    const status = point.status || '未匹配'
-    if (!grouped.has(status)) grouped.set(status, [])
-    grouped.get(status).push([
-      Number(point.price_usd),
-      Number(point.overseas_sellable),
-      Number(point.ebay_available || 0),
-      point.sku || point.mid_code || '',
-      status
-    ])
-  })
-  const median = overview.value.scatter_median || {}
-  const medianPrice = Number(median.price_usd)
-  const medianStock = Number(median.overseas_sellable)
-  const series = statusOptions.filter(status => grouped.has(status)).map(status => ({
-    name: status,
-    type: 'scatter',
-    symbolSize: item => {
-      const size = 6 + Math.sqrt(Math.max(Number(item[2]) || 0, 0)) * 1.5
-      return Math.max(6, Math.min(size, 32))
-    },
-    itemStyle: { color: STATUS_COLOR[status], opacity: 0.68, borderColor: '#fff', borderWidth: 1 },
-    data: grouped.get(status)
-  }))
-  if (series.length && Number.isFinite(medianPrice) && Number.isFinite(medianStock)) {
-    series[0].markLine = {
-      silent: true,
-      symbol: 'none',
-      lineStyle: { type: 'dashed', color: '#c0c4cc' },
-      label: { formatter: params => params.name, color: '#909399', fontSize: 11 },
-      data: [
-        { xAxis: medianPrice, name: `售价中位数 $${decimal(medianPrice)}` },
-        { yAxis: medianStock, name: `库存中位数 ${integer(medianStock)}` }
-      ]
-    }
-    series[0].markArea = {
-      silent: true,
-      itemStyle: { color: 'transparent' },
-      label: { color: '#a8abb2', fontSize: 11 },
-      data: [
-        [{ xAxis: 'min', yAxis: medianStock, label: { position: 'insideTopLeft', formatter: '低价 · 高库存（占资金）' } },
-          { xAxis: medianPrice, yAxis: 'max' }],
-        [{ xAxis: medianPrice, yAxis: medianStock, label: { position: 'insideTopRight', formatter: '高价 · 高库存' } },
-          { xAxis: 'max', yAxis: 'max' }],
-        [{ xAxis: 'min', yAxis: 'min', label: { position: 'insideBottomLeft', formatter: '低价 · 低库存' } },
-          { xAxis: medianPrice, yAxis: medianStock }],
-        [{ xAxis: medianPrice, yAxis: 'min', label: { position: 'insideBottomRight', formatter: '高价 · 低库存（补货优先）' } },
-          { xAxis: 'max', yAxis: medianStock }]
-      ]
-    }
-  }
-  scatterChart.setOption({
-    grid: { left: 8, right: 18, top: 34, bottom: 8, containLabel: true },
-    legend: { top: 0, data: series.map(item => item.name) },
-    tooltip: {
-      trigger: 'item',
-      formatter: params => {
-        const [price, stock, ebay, label, status] = params.value
-        return [
-          `<b>${escapeText(label)}</b>`,
-          `售价：$${decimal(price)}`,
-          `谷仓可售：${integer(stock)}`,
-          `eBay 可售：${integer(ebay)}`,
-          `状态：${escapeText(status)}`
-        ].join('<br/>')
-      }
-    },
-    xAxis: { type: 'value', name: '售价 (USD)', nameLocation: 'end', nameTextStyle: { color: '#909399' }, axisLabel: { formatter: value => `$${value}` } },
-    yAxis: { type: 'value', name: '谷仓可售', nameTextStyle: { color: '#909399' }, axisLabel: { formatter: value => integer(value) } },
-    series
-  }, true)
-}
-function renderGapChart() {
-  if (!gapChartRef.value) return
-  gapChart ||= echarts.init(gapChartRef.value)
-  const items = stockGapTop.value
-  const labels = items.map(item => item.sku || item.mid_code || '')
-  gapChart.setOption({
-    grid: { left: 8, right: 24, top: 16, bottom: 8, containLabel: true },
-    tooltip: {
-      trigger: 'item',
-      formatter: params => {
-        const item = items[params.dataIndex] || {}
-        return [
-          `<b>${escapeText(labels[params.dataIndex])}</b>`,
-          `库存缺口：${integer(item.stock_gap)}`,
-          `谷仓可售：${integer(item.overseas_sellable)}`,
-          `eBay 可售：${integer(item.ebay_available)}`
-        ].join('<br/>')
-      }
-    },
-    xAxis: { type: 'value', axisLabel: { formatter: value => integer(value) }, splitLine: { lineStyle: { type: 'dashed' } } },
-    yAxis: { type: 'category', inverse: true, data: labels, axisLabel: { width: 118, overflow: 'truncate' } },
-    series: [{
-      type: 'bar',
-      barMaxWidth: 18,
-      data: items.map((item, index) => {
-        const value = Number(item.stock_gap)
-        const negative = Number.isFinite(value) && value < 0
-        return {
-          value: item.stock_gap,
-          itemStyle: {
-            color: negative ? STATUS_COLOR['超卖风险'] : WAREHOUSE_COLOR,
-            borderRadius: negative ? [4, 0, 0, 4] : [0, 4, 4, 0]
-          },
-          label: {
-            show: true,
-            position: negative ? 'left' : 'right',
-            color: '#606266',
-            fontSize: 11,
-            formatter: () => integer(items[index]?.stock_gap)
-          }
-        }
-      })
-    }]
-  }, true)
-}
-function resizeCharts() {
-  storeChart?.resize()
-  scatterChart?.resize()
-  gapChart?.resize()
-}
-
 onMounted(async () => {
   await initColumnConfig()
-  await Promise.all([loadOverview(), loadDetail()])
-  window.addEventListener('resize', resizeCharts)
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', resizeCharts)
-  storeChart?.dispose()
-  scatterChart?.dispose()
-  gapChart?.dispose()
+  await handleQuery()
 })
 </script>
 
@@ -886,7 +1185,6 @@ onBeforeUnmount(() => {
   border-radius: 10px;
 }
 .head-card,
-.chart-card,
 .table-card,
 .note-card {
   margin-bottom: 14px;
@@ -953,156 +1251,35 @@ onBeforeUnmount(() => {
 .filter-control--status {
   width: 150px;
 }
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-  margin-bottom: 14px;
+.dimension-tabs :deep(.el-tabs__header) {
+  margin-bottom: 12px;
 }
-.kpi-card {
-  background: #fff;
-  border-radius: 10px;
-  padding: 14px 16px;
-  border-left: 4px solid #409eff;
-}
-.kpi-card--danger {
-  border-left-color: #f56c6c;
-}
-.kpi-card--warning {
-  border-left-color: #e6a23c;
-}
-.kpi-card--info {
-  border-left-color: #909399;
-}
-.kpi-card.is-clickable {
-  cursor: pointer;
-}
-.kpi-card.is-active {
-  box-shadow: 0 0 0 1px #409eff inset;
-}
-.kpi-label {
-  display: block;
-  font-size: 13px;
-  color: #909399;
-}
-.kpi-value {
-  display: block;
-  margin-top: 6px;
-  font-size: 22px;
-  line-height: 1.2;
-  color: #303133;
-  word-break: break-all;
-}
-.kpi-unit {
-  font-size: 12px;
-  color: #a8abb2;
-}
-.kpi-empty {
-  grid-column: 1 / -1;
-  background: #fff;
-  border-radius: 10px;
-}
-.chart-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 14px;
-}
-.chart-grid > .chart-card {
-  min-width: 0;
-}
-.card-head {
+.section-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 8px;
+  margin-bottom: 10px;
 }
-.card-head__text {
+.section-head--detail {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed #e4e7ed;
+}
+.section-head__text {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
-.card-head__acts {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.card-title {
-  font-weight: 600;
-  color: #303133;
-}
-.card-head__text small {
+.section-head__text small {
   margin-top: 2px;
   font-size: 12px;
   color: #909399;
 }
-.dimension-select {
-  width: 160px;
-}
-.chart-box {
-  height: 330px;
-}
-.chart-foot {
-  min-height: 18px;
-}
-.chart-foot__note {
-  font-size: 12px;
-  color: #e6a23c;
-}
-.risk-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  max-height: 330px;
-  overflow-y: auto;
-}
-.risk-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  border-bottom: 1px solid #f2f6fc;
-}
-.risk-item:hover {
-  background: #f5f7fa;
-}
-.risk-item.is-active {
-  background: #ecf5ff;
-}
-.risk-dot {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-.risk-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-.risk-text strong {
-  font-size: 14px;
-  color: #303133;
-}
-.risk-text small {
-  font-size: 12px;
-  color: #909399;
-}
-.risk-count {
-  flex: 0 0 auto;
-  font-size: 18px;
+.card-title {
   font-weight: 600;
   color: #303133;
-}
-.table-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
 }
 .table-tools {
   display: flex;
@@ -1110,20 +1287,43 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
 }
-.table-search {
-  width: 220px;
-}
-.table-status {
-  width: 140px;
-}
-.store-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-.store-chip {
+.store-table :deep(.el-table__row) {
   cursor: pointer;
+}
+.store-table :deep(.el-table__row.is-selected > td.el-table__cell) {
+  background: #ecf5ff;
+}
+.store-table :deep(.el-table__row.is-selected > td.el-table__cell:first-child) {
+  box-shadow: inset 3px 0 0 #409eff;
+}
+.count-link {
+  font-weight: 600;
+}
+.count-link--danger {
+  font-size: 15px;
+}
+/* 多店超卖要一眼看到：整行浅红底 + 实心红标签 */
+.ebay-price-analysis :deep(.el-table__row.is-oversell > td.el-table__cell) {
+  background: #fef0f0;
+}
+.oversell-tag {
+  font-weight: 600;
+}
+.price-lowest {
+  color: #67c23a;
+}
+.price-above {
+  color: #e6a23c;
+  font-weight: 600;
+}
+.price-high {
+  color: #f56c6c;
+  font-weight: 600;
+}
+.status-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 .column-header {
   display: inline-flex;
@@ -1146,11 +1346,31 @@ onBeforeUnmount(() => {
 .muted {
   color: #c0c4cc;
 }
-.gap-positive {
-  color: #67c23a;
+.expand-box {
+  padding: 8px 16px 12px 52px;
 }
-.gap-negative {
-  color: #f56c6c;
+.shared-hint {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #fdf6ec;
+  color: #b88230;
+  font-size: 13px;
+}
+.compare-title {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+}
+.usd-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.ebay-price-analysis :deep(.el-table__row.is-origin > td.el-table__cell) {
+  background: #ecf5ff;
 }
 .note-list {
   margin: 0;
@@ -1159,13 +1379,9 @@ onBeforeUnmount(() => {
   font-size: 13px;
   line-height: 2;
 }
-@media (max-width: 992px) {
-  .kpi-grid {
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  }
-  .chart-grid {
-    grid-template-columns: 1fr;
-  }
+.note-key {
+  color: #b88230;
+  font-weight: 600;
 }
 @media (max-width: 768px) {
   .head-acts,
@@ -1173,18 +1389,72 @@ onBeforeUnmount(() => {
     width: 100%;
   }
   .filter-control,
-  .filter-control--status,
-  .table-search,
-  .table-status,
-  .dimension-select {
+  .filter-control--status {
     width: 100%;
   }
   .filter-form :deep(.el-form-item) {
     display: block;
     margin-right: 0;
   }
-  .chart-box {
-    height: 280px;
+  .expand-box {
+    padding: 8px 4px 12px;
   }
+}
+</style>
+
+<style>
+/* 抽屉挂在 body 上，scoped 样式够不到；只在这个类名下生效。手机上不超出屏幕宽度 */
+.sku-compare-drawer {
+  max-width: 100vw;
+}
+.sku-compare-drawer .compare-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.sku-compare-drawer .compare-image {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+}
+.sku-compare-drawer .compare-head__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: #606266;
+  font-size: 13px;
+}
+.sku-compare-drawer .compare-head__text strong {
+  color: #303133;
+  font-size: 15px;
+}
+.sku-compare-drawer .shared-hint {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #fdf6ec;
+  color: #b88230;
+  font-size: 13px;
+}
+.sku-compare-drawer .compare-title {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+}
+.sku-compare-drawer .usd-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.sku-compare-drawer .el-table__row.is-origin > td.el-table__cell {
+  background: #ecf5ff;
+}
+.sku-compare-drawer .el-table__row.is-oversell > td.el-table__cell {
+  background: #fef0f0;
 }
 </style>

@@ -49,12 +49,26 @@ public class EbayPriceAnalysisPythonClient extends PythonHttpSupport
                 : value;
     }
 
-    /** 看板 KPI、店铺对比、散点、缺口 Top、待处理事项。 */
-    public Map<String, Object> overview(Map<String, ?> params, String requestId)
+    /** 店铺维度汇总：每个店铺 + 站点一行。 */
+    public Map<String, Object> stores(Map<String, ?> params, String requestId)
     {
         try
         {
-            return sendJson(baseRequest(PREFIX + "/overview" + queryString(params), requestId)
+            return sendJson(baseRequest(PREFIX + "/stores" + queryString(params), requestId)
+                    .GET().build());
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    /** 单个 SKU 在其他店铺、各站点的在售与库存对比。 */
+    public Map<String, Object> skuListings(Map<String, ?> params, String requestId)
+    {
+        try
+        {
+            return sendJson(baseRequest(PREFIX + "/sku-listings" + queryString(params), requestId)
                     .GET().build());
         }
         catch (Exception e)

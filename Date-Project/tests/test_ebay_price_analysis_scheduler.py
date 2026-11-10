@@ -38,7 +38,9 @@ def test_refresh_result_gets_scheduler_row_counts(monkeypatch):
 
 def test_price_analysis_routes_are_mounted():
     paths = {route.path for route in api_router.routes}
-    for suffix in ("overview", "detail", "export"):
+    for suffix in ("stores", "detail", "sku-listings", "export"):
         assert f"/api/v1/ebay-price-analysis/{suffix}" in paths
+    # 看板简化后 overview（KPI / 图表）已删
+    assert "/api/v1/ebay-price-analysis/overview" not in paths
     # 页面「刷新数据源」登记接口已删；刷表只走上面的 TaskSpec。
     assert "/api/v1/ebay-price-analysis/refresh" not in paths

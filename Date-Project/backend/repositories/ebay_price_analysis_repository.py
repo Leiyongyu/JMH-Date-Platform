@@ -68,6 +68,8 @@ SORTABLE = {
     "ebay_quantity_sold", "watch_count", "overseas_sellable", "overseas_in_transit",
     "chengdu_sellable", "pending_outbound", "sales_qty_7d", "sales_qty_30d",
     "cover_days", "stock_gap", "purchase_cost_cny", "status", "item_id",
+    "site_store_count", "site_ebay_available_total", "site_price_usd_min",
+    "site_price_usd_max", "price_vs_site_min_pct", "site_oversell",
 }
 
 # 汇总视图的可排序列：聚合后才有的列（店铺数、刊登数）也在内。
@@ -76,6 +78,7 @@ SUMMARY_SORTABLE = {
     "overseas_sellable", "overseas_in_transit", "chengdu_sellable", "pending_outbound",
     "sales_qty_7d", "sales_qty_30d", "cover_days", "stock_gap", "price_usd",
     "current_price", "purchase_cost_cny", "listing_count", "store_count",
+    "price_usd_min", "price_usd_max", "site_oversell",
 }
 
 _DETAIL_COLUMNS = (
@@ -85,6 +88,9 @@ _DETAIL_COLUMNS = (
     "overseas_sellable", "overseas_in_transit", "chengdu_sellable", "pending_outbound",
     "inventory_matched", "sales_qty_7d", "sales_qty_30d", "cover_days", "stock_gap",
     "purchase_cost_cny", "status", "stat_date",
+    # 以下为查询时派生的跨店对比列（见 _listing_view），不在 DWS 表里。
+    "site_store_count", "site_ebay_available_total", "site_price_usd_min",
+    "site_price_usd_max", "price_vs_site_min_pct", "site_oversell", "out_of_stock_listed",
 )
 
 
@@ -232,16 +238,30 @@ def latest_listing_batch(cursor, stat_month: str | None = None) -> dict[str, Any
     }
 
 
-def rates(cursor, rate_month: str) -> dict[str, Decimal]:
-    """指定月份的企业汇率（my_rate，人民币/1单位外币）。不回退到其他月份。
+def rate_lookup(cursor, rate_month: str) -> tuple[dict[str, Decimal], dict[str, str]]:
+    """企业汇率（my_rate，人民币/1单位外币）：**每个币种**各取 rate_month 及以前最近一个有效月份。
 
-    缺这个月的汇率就是缺：价格分析把 price_usd 留 NULL，不拿旧月份汇率冒充当月。
+    返回 (币种 → 汇率, 币种 → 实际用的月份)。
+
+    为什么回退：领星月度企业汇率要到月底才定，而价格分析每周一刷表，一个月里大部分时间
+    当月汇率都还没出；只认当月会让绝大多数刊登的 price_usd 为 NULL，跨店比价基本用不了。
+    为什么按币种各自回退：各币种出汇率的月份并不整齐（本机 2026-08 只有 1 个币种），
+    统一取一个月份会把其他币种整体丢掉。完全没有可用汇率的币种仍然缺，price_usd 留 NULL。
+    实际用到的月份写进刷表结果的 rate_months，事后可查是按哪个月折算的。
     """
     cursor.execute(
-        f"SELECT currency_code,my_rate FROM {RATE_TABLE} WHERE rate_month=%s",
+        f"""SELECT r.currency_code,r.my_rate,r.rate_month
+            FROM {RATE_TABLE} r
+            JOIN (SELECT UPPER(TRIM(currency_code)) code,MAX(rate_month) rate_month
+                  FROM {RATE_TABLE}
+                  WHERE rate_month<=%s AND my_rate>0
+                  GROUP BY UPPER(TRIM(currency_code))) latest
+              ON UPPER(TRIM(r.currency_code))=latest.code AND r.rate_month=latest.rate_month
+            WHERE r.my_rate>0""",
         (rate_month,),
     )
     result: dict[str, Decimal] = {}
+    months: dict[str, str] = {}
     for row in cursor.fetchall():
         code = str(row.get("currency_code") or "").strip().upper()
         if not code:
@@ -252,7 +272,13 @@ def rates(cursor, rate_month: str) -> dict[str, Decimal]:
             continue
         if rate.is_finite() and rate > 0:
             result[code] = rate
-    return result
+            months[code] = str(row.get("rate_month") or "")
+    return result, months
+
+
+def rates(cursor, rate_month: str) -> dict[str, Decimal]:
+    """只要汇率不要月份时用；回退规则见 rate_lookup。"""
+    return rate_lookup(cursor, rate_month)[0]
 
 
 def sales_windows(stat_date: date) -> dict[str, tuple[date, date]]:
@@ -388,9 +414,10 @@ def read_source(stat_month: str | None = None) -> dict[str, Any]:
                             "goodcang": goodcang}
                 stat_date = batch["stat_date"]
                 rows = _source_rows(cursor, batch["stat_month"], stat_date)
-                month_rates = rates(cursor, stat_date.strftime("%Y-%m"))
+                month_rates, rate_months = rate_lookup(cursor, stat_date.strftime("%Y-%m"))
             connection.commit()
             return {"batch": batch, "rows": rows, "rates": month_rates,
+                    "rate_months": rate_months,
                     "windows": sales_windows(stat_date), "goodcang": goodcang}
         except Exception:
             connection.rollback()
@@ -430,7 +457,7 @@ def replace_rows(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
             raise
 
 
-def _filters(criteria: dict[str, Any]) -> tuple[str, list[Any]]:
+def _filters(criteria: dict[str, Any], *, flags: bool = True) -> tuple[str, list[Any]]:
     clauses: list[str] = []
     params: list[Any] = []
     if criteria.get("stat_date"):
@@ -451,7 +478,73 @@ def _filters(criteria: dict[str, Any]) -> tuple[str, list[Any]]:
         like = f"%{keyword}%"
         clauses.append("(sku LIKE %s OR title LIKE %s OR mid_code LIKE %s OR item_id=%s)")
         params.extend([like, like, like, keyword])
+    if flags:
+        clauses.extend(_flag_clauses(criteria))
     return (" WHERE " + " AND ".join(clauses) if clauses else ""), params
+
+
+def _flag_clauses(criteria: dict[str, Any]) -> list[str]:
+    """多店超卖 / 断货在售两个标记筛选；列是 _listing_view 派生的 0/1。"""
+    return [f"{flag}=1" for flag in ("site_oversell", "out_of_stock_listed") if criteria.get(flag)]
+
+
+# ------------------------------------------------------------ 跨店对比（查询时派生）
+# 库存口径：谷仓、成都库存按「站点 + SKU」共享 —— 同站点同 SKU 的多个店铺挂的是同一份库存，
+# 聚合时一律取 MAX，绝不相加；eBay 可售是每个店铺各自的，可以相加。
+# 多店超卖 = 同站点所有店铺 eBay 可售合计 > 该站点谷仓可售 + 成都可售（只对已匹配库存的 SKU 判定）。
+# 这一段是唯一定义：明细、SKU 汇总、店铺汇总、SKU 跨店详情都从它取，不各写一份。
+_SITE_OVERSEAS = "MAX(CASE WHEN inventory_matched=1 THEN overseas_sellable END)"
+_SITE_CHENGDU = "MAX(CASE WHEN inventory_matched=1 THEN chengdu_sellable END)"
+SITE_AGGREGATES_SQL = f"""
+    COUNT(DISTINCT seller_account) site_store_count,
+    SUM(ebay_quantity_available) site_ebay_available_total,
+    MIN(price_usd) site_price_usd_min,
+    MAX(price_usd) site_price_usd_max,
+    {_SITE_OVERSEAS} site_overseas_sellable,
+    {_SITE_CHENGDU} site_chengdu_sellable,
+    MAX(CASE WHEN inventory_matched=1 THEN overseas_in_transit END) site_overseas_in_transit,
+    MAX(CASE WHEN inventory_matched=1 THEN pending_outbound END) site_pending_outbound,
+    CASE WHEN MAX(inventory_matched)=1
+          AND COALESCE(SUM(ebay_quantity_available),0)
+              > COALESCE({_SITE_OVERSEAS},0)+COALESCE({_SITE_CHENGDU},0)
+         THEN 1 ELSE 0 END site_oversell"""
+
+
+def site_sku_sql(source: str = TABLE, where: str = "") -> str:
+    """同站点同 SKU 的跨店聚合。source 可换成同结构的派生表（测试用字面量行喂进来，只读）。"""
+    joiner = " AND " if where else " WHERE "
+    return (f"SELECT site,sku,{SITE_AGGREGATES_SQL} FROM {source}{where}{joiner}sku IS NOT NULL "
+            "GROUP BY site,sku")
+
+
+def _listing_view(criteria: dict[str, Any], source: str = TABLE) -> tuple[str, list[Any]]:
+    """一行一条刊登 + 同站点同 SKU 的跨店对比列。返回带 {columns} 占位的 SQL 与参数。
+
+    跨店聚合算在**全部店铺**上，只受快照日期约束：按店铺筛选时，对比的仍是该站点所有店铺。
+    """
+    where, params = "", []
+    if criteria.get("stat_date"):
+        where, params = " WHERE stat_date=%s", [criteria["stat_date"]]
+    view = f"""
+        WITH site_sku AS ({site_sku_sql(source, where)})
+        SELECT {{columns}} FROM (
+            SELECT d.*,
+                   s.site_store_count,s.site_ebay_available_total,
+                   s.site_price_usd_min,s.site_price_usd_max,
+                   CASE WHEN d.price_usd IS NULL OR s.site_price_usd_min IS NULL
+                             OR s.site_price_usd_min=0 THEN NULL
+                        ELSE (d.price_usd-s.site_price_usd_min)/s.site_price_usd_min
+                   END price_vs_site_min_pct,
+                   CASE WHEN d.inventory_matched=1 THEN COALESCE(s.site_oversell,0) ELSE 0 END
+                       site_oversell,
+                   CASE WHEN d.inventory_matched=1
+                         AND COALESCE(d.overseas_sellable,0)+COALESCE(d.chengdu_sellable,0)=0
+                         AND COALESCE(d.ebay_quantity_available,0)>0 THEN 1 ELSE 0 END
+                       out_of_stock_listed
+            FROM {source} d
+            LEFT JOIN site_sku s ON s.site<=>d.site AND s.sku=d.sku
+        ) v"""
+    return view, params
 
 
 def _query(sql: str, params: Iterable[Any]) -> list[dict[str, Any]]:
@@ -470,98 +563,10 @@ def meta() -> dict[str, Any]:
             "sync_batch_id": row.get("sync_batch_id"), "rows": int(row.get("rows_") or 0)}
 
 
-def summary(criteria: dict[str, Any]) -> dict[str, Any]:
-    """KPI 的三段取数：刊登行汇总、按 站点+SKU 去重后的库存、各状态条数。
-
-    库存是「站点+SKU」粒度，同一个 SKU 挂了 N 条刊登就会在 N 行里重复出现；
-    直接 SUM 会把谷仓可售放大 N 倍，所以去重后再加。
-    """
-    where, params = _filters(criteria)
-    listing = _query(f"""
-        SELECT COUNT(*) listing_count,COUNT(DISTINCT sku) sku_count,
-               SUM(ebay_quantity_available) ebay_available,
-               SUM(CASE WHEN inventory_matched=1 THEN ebay_quantity_available END)
-                   matched_ebay_available,
-               AVG(price_usd) avg_price_usd,
-               SUM(price_usd IS NULL) missing_price_usd
-        FROM {TABLE}{where}
-    """, params)[0]
-    matched_where = where + (" AND " if where else " WHERE ") + "inventory_matched=1"
-    inventory = _query(f"""
-        SELECT SUM(overseas_sellable) overseas_sellable,
-               SUM(chengdu_sellable) chengdu_sellable,
-               SUM(overseas_in_transit) overseas_in_transit
-        FROM (SELECT site,sku,MAX(overseas_sellable) overseas_sellable,
-                     MAX(chengdu_sellable) chengdu_sellable,
-                     MAX(overseas_in_transit) overseas_in_transit
-              FROM {TABLE}{matched_where} GROUP BY site,sku) distinct_sku
-    """, params)[0]
-    statuses = _query(
-        f"SELECT status,COUNT(*) n FROM {TABLE}{where} GROUP BY status", params)
-    return {**listing, **inventory,
-            "status_counts": {row["status"]: int(row["n"]) for row in statuses}}
-
-
-def store_compare(criteria: dict[str, Any]) -> list[dict[str, Any]]:
-    """店铺 × 站点的 eBay 可售与谷仓可售。先按 SKU 去重再汇总到店铺。
-
-    两个店铺卖同一个 SKU 时，两边各看到同一份谷仓库存 —— 这是店铺对比本身的含义，
-    不是重复计数，页面口径说明里写明。
-    """
-    where, params = _filters(criteria)
-    return _query(f"""
-        SELECT seller_account,site,SUM(ebay_available) ebay_available,
-               SUM(listing_count) listing_count,SUM(overseas_sellable) overseas_sellable
-        FROM (SELECT seller_account,site,sku,
-                     SUM(ebay_quantity_available) ebay_available,COUNT(*) listing_count,
-                     MAX(CASE WHEN inventory_matched=1 THEN overseas_sellable END)
-                         overseas_sellable
-              FROM {TABLE}{where} GROUP BY seller_account,site,sku) by_sku
-        GROUP BY seller_account,site
-        ORDER BY ebay_available DESC,seller_account
-        LIMIT 200
-    """, params)
-
-
-def dimension_points(criteria: dict[str, Any], dimension: str) -> list[dict[str, Any]]:
-    """散点与缺口榜的共同底数：按完整 SKU 或 品牌-中间码 聚合，跨店合计。
-
-    库存同样先按 站点+SKU 去重再相加；状态在服务层按严重度取最严重的那个。
-    """
-    key = "mid_code" if dimension == "mid" else "sku"
-    where, params = _filters(criteria)
-    joiner = " AND " if where else " WHERE "
-    rows = _query(f"""
-        SELECT grouped.group_key,MAX(grouped.mid_code) mid_code,
-               SUM(grouped.ebay_available) ebay_available,
-               SUM(grouped.overseas_sellable) overseas_sellable,
-               SUM(grouped.listing_count) listing_count,
-               SUM(grouped.matched_listing_count) matched_listing_count,
-               SUM(grouped.price_sum) price_sum,SUM(grouped.price_rows) price_rows,
-               SUM(grouped.sales_qty_30d) sales_qty_30d,
-               GROUP_CONCAT(DISTINCT grouped.statuses) statuses
-        FROM (SELECT {key} group_key,MAX(mid_code) mid_code,
-                     SUM(ebay_quantity_available) ebay_available,
-                     MAX(CASE WHEN inventory_matched=1 THEN overseas_sellable END)
-                         overseas_sellable,
-                     COUNT(*) listing_count,
-                     SUM(inventory_matched=1) matched_listing_count,
-                     SUM(price_usd) price_sum,SUM(price_usd IS NOT NULL) price_rows,
-                     MAX(sales_qty_30d) sales_qty_30d,
-                     GROUP_CONCAT(DISTINCT status) statuses
-              FROM {TABLE}{where}{joiner}{key} IS NOT NULL
-              GROUP BY {key},site) grouped
-        GROUP BY grouped.group_key
-        LIMIT {MAX_ROWS + 1}
-    """, params)
-    if len(rows) > MAX_ROWS:
-        raise ValueError(f"聚合维度超过{MAX_ROWS}组，未截断数据；请先收窄筛选条件")
-    return rows
-
-
 def detail_rows(criteria: dict[str, Any], *, sort_by: str | None = None,
                 sort_order: str = "desc", offset: int | None = None,
                 limit: int | None = None) -> list[dict[str, Any]]:
+    view, view_params = _listing_view(criteria)
     where, params = _filters(criteria)
     column = sort_by if sort_by in SORTABLE else "stock_gap"
     direction = "ASC" if str(sort_order).lower() == "asc" else "DESC"
@@ -570,17 +575,53 @@ def detail_rows(criteria: dict[str, Any], *, sort_by: str | None = None,
     # 排序列可能为 NULL（未匹配行的库存列、缺汇率的美元价）：NULL 一律排在最后，
     # 不让它们顶在第一页冒充极值。seller_account+item_id 兜底保证分页稳定。
     rows = _query(
-        f"SELECT {','.join(_DETAIL_COLUMNS)} FROM {TABLE}{where} "
+        view.format(columns=",".join(_DETAIL_COLUMNS)) + f"{where} "
         f"ORDER BY ({column} IS NULL) ASC,{column} {direction},seller_account,item_id"
-        f"{bound}", params)
+        f"{bound}", [*view_params, *params])
     if limit is None and len(rows) > MAX_ROWS:
         raise ValueError(f"导出行数超过{MAX_ROWS}行，未截断数据；请先收窄筛选条件")
     return rows
 
 
 def detail_count(criteria: dict[str, Any]) -> int:
+    view, view_params = _listing_view(criteria)
     where, params = _filters(criteria)
-    return int(_query(f"SELECT COUNT(*) n FROM {TABLE}{where}", params)[0]["n"])
+    return int(_query(view.format(columns="COUNT(*) n") + where,
+                      [*view_params, *params])[0]["n"])
+
+
+def _summary_grouped(criteria: dict[str, Any], select: str) -> tuple[str, list[Any]]:
+    """按 站点+SKU 分组的子查询。行级筛选在分组前，两个标记筛选在分组后（标记是 站点+SKU 级的）。"""
+    view, view_params = _listing_view(criteria)
+    where, params = _filters(criteria, flags=False)
+    joiner = " AND " if where else " WHERE "
+    grouped = (view.format(columns=select) + f"{where}{joiner}sku IS NOT NULL "
+               "GROUP BY site,site_name,sku")
+    flags = _flag_clauses(criteria)
+    outer = (" WHERE " + " AND ".join(flags)) if flags else ""
+    return f"SELECT * FROM ({grouped}) g{outer}", [*view_params, *params]
+
+
+_SUMMARY_SELECT = """
+        site,site_name,sku,MAX(mid_code) mid_code,MAX(brand_code) brand_code,
+        MAX(title) title,MAX(image_url) image_url,MAX(view_item_url) view_item_url,
+        MAX(currency) currency,MIN(current_price) current_price,
+        AVG(price_usd) price_usd,
+        MAX(site_price_usd_min) price_usd_min,MAX(site_price_usd_max) price_usd_max,
+        SUM(ebay_quantity_available) ebay_quantity_available,
+        MAX(overseas_sellable) overseas_sellable,
+        MAX(overseas_in_transit) overseas_in_transit,
+        MAX(chengdu_sellable) chengdu_sellable,
+        MAX(pending_outbound) pending_outbound,
+        MAX(sales_qty_7d) sales_qty_7d,MAX(sales_qty_30d) sales_qty_30d,
+        MAX(cover_days) cover_days,
+        MAX(CASE WHEN inventory_matched=1 THEN overseas_sellable END)
+            -SUM(ebay_quantity_available) stock_gap,
+        MAX(purchase_cost_cny) purchase_cost_cny,
+        GROUP_CONCAT(DISTINCT status) statuses,
+        COUNT(*) listing_count,MAX(site_store_count) store_count,
+        MAX(site_oversell) site_oversell,MAX(out_of_stock_listed) out_of_stock_listed,
+        MAX(stat_date) stat_date"""
 
 
 def summary_rows(criteria: dict[str, Any], *, sort_by: str | None = None,
@@ -589,44 +630,58 @@ def summary_rows(criteria: dict[str, Any], *, sort_by: str | None = None,
     """明细表的「按 SKU 汇总」视图：一行一个 站点+完整SKU，跨店合并。
 
     库存列取 MAX 而不是 SUM：同一 站点+SKU 的每条刊登上挂的是同一份库存。
+    跨店对比列（store_count、price_usd_min / max、site_oversell）取自 site_sku，按该站点
+    全部店铺算，不受店铺、状态、关键词筛选影响，与明细里的同站点对比同一口径；
+    其余汇总列（刊登数、eBay 可售合计、均价等）按筛选后的刊登算。
     """
-    where, params = _filters(criteria)
     column = sort_by if sort_by in SUMMARY_SORTABLE else "stock_gap"
     direction = "ASC" if str(sort_order).lower() == "asc" else "DESC"
     bound = (f" LIMIT {int(limit)} OFFSET {int(offset or 0)}" if limit is not None
              else f" LIMIT {MAX_ROWS + 1}")
-    joiner = " AND " if where else " WHERE "
-    rows = _query(f"""
-        SELECT site,site_name,sku,MAX(mid_code) mid_code,MAX(brand_code) brand_code,
-               MAX(title) title,MAX(image_url) image_url,MAX(view_item_url) view_item_url,
-               MAX(currency) currency,MIN(current_price) current_price,
-               AVG(price_usd) price_usd,
-               SUM(ebay_quantity_available) ebay_quantity_available,
-               MAX(overseas_sellable) overseas_sellable,
-               MAX(overseas_in_transit) overseas_in_transit,
-               MAX(chengdu_sellable) chengdu_sellable,
-               MAX(pending_outbound) pending_outbound,
-               MAX(sales_qty_7d) sales_qty_7d,MAX(sales_qty_30d) sales_qty_30d,
-               MAX(cover_days) cover_days,
-               MAX(CASE WHEN inventory_matched=1 THEN overseas_sellable END)
-                   -SUM(ebay_quantity_available) stock_gap,
-               MAX(purchase_cost_cny) purchase_cost_cny,
-               GROUP_CONCAT(DISTINCT status) statuses,
-               COUNT(*) listing_count,COUNT(DISTINCT seller_account) store_count,
-               MAX(stat_date) stat_date
-        FROM {TABLE}{where}{joiner}sku IS NOT NULL
-        GROUP BY site,site_name,sku
-        ORDER BY ({column} IS NULL) ASC,{column} {direction},site,sku
-        {bound}
-    """, params)
+    sql, params = _summary_grouped(criteria, _SUMMARY_SELECT)
+    rows = _query(f"{sql} ORDER BY ({column} IS NULL) ASC,{column} {direction},site,sku{bound}",
+                  params)
     if limit is None and len(rows) > MAX_ROWS:
         raise ValueError(f"导出行数超过{MAX_ROWS}行，未截断数据；请先收窄筛选条件")
     return rows
 
 
 def summary_count(criteria: dict[str, Any]) -> int:
-    where, params = _filters(criteria)
-    joiner = " AND " if where else " WHERE "
-    return int(_query(
-        f"SELECT COUNT(DISTINCT site,sku) n FROM {TABLE}{where}{joiner}sku IS NOT NULL",
-        params)[0]["n"])
+    sql, params = _summary_grouped(
+        criteria, "site,sku,MAX(site_oversell) site_oversell,"
+                  "MAX(out_of_stock_listed) out_of_stock_listed")
+    return int(_query(f"SELECT COUNT(*) n FROM ({sql}) c", params)[0]["n"])
+
+
+STORE_SELECT = """
+        seller_account,site,MAX(site_name) site_name,
+        COUNT(*) listing_count,COUNT(DISTINCT sku) sku_count,
+        COALESCE(SUM(ebay_quantity_available),0) ebay_available,
+        SUM(out_of_stock_listed) out_of_stock_listed,
+        COUNT(DISTINCT CASE WHEN site_oversell=1 THEN sku END) site_oversell_sku_count,
+        SUM(inventory_matched=0) unmatched_count"""
+
+
+def store_rows(criteria: dict[str, Any]) -> list[dict[str, Any]]:
+    """店铺汇总：一行一个 店铺+站点。只受站点、店铺筛选；多店超卖按该站点全部店铺判定。"""
+    view, view_params = _listing_view(criteria)
+    where, params = _filters({key: criteria.get(key)
+                              for key in ("stat_date", "sites", "accounts")})
+    return _query(view.format(columns=STORE_SELECT)
+                  + f"{where} GROUP BY seller_account,site ORDER BY seller_account,site LIMIT 1000",
+                  [*view_params, *params])
+
+
+def sku_listings(sku: str) -> list[dict[str, Any]]:
+    """某个完整 SKU 在所有店铺、所有站点的刊登。按 站点、美元价 排序，缺价排最后。"""
+    return _query(
+        "SELECT seller_account,site,site_name,item_id,view_item_url,currency,current_price,"
+        f"price_usd,ebay_quantity_available,status,title,image_url FROM {TABLE} WHERE sku=%s "
+        "ORDER BY site,(price_usd IS NULL) ASC,price_usd,seller_account,item_id "
+        f"LIMIT {MAX_ROWS + 1}", (sku,))
+
+
+def sku_sites(sku: str) -> list[dict[str, Any]]:
+    """某个 SKU 每个站点的库存与跨店合计：库存取 MAX（站点共享一份），eBay 可售相加。"""
+    return _query(f"SELECT site,MAX(site_name) site_name,{SITE_AGGREGATES_SQL} FROM {TABLE} "
+                  "WHERE sku=%s GROUP BY site ORDER BY site", (sku,))
