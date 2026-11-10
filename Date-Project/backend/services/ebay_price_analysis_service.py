@@ -163,9 +163,144 @@ def resolve_status(*, inventory_matched: bool, ebay_quantity_available: int | No
     return STATUS_HEALTHY
 
 
+# ---------------------------------------------------------------- 未匹配原因
+# 分类按 2026-11-10 真实数据校准（本机 17258 条刊登里 761 条未匹配，谷仓用调研时的全量）：
+# 组合装 238、带后缀且去掉后哪里都没有 266（其中 -SY 239）、套装 235、仓里确实没有 13、
+# 后缀去掉后本站有 5、只有别的站点有 3、站点没仓 1。候选里的「刊登未填 SKU」实测 0 条，
+# 不单列：空 SKU 落「仓里没有」，文案写明没填 SKU。
+# 判定顺序自上而下、命中即止；只在刷表时做（要查谷仓与成都全部 SKU），不放进查询。
+REASON_SITE_UNMAPPED = "SITE_UNMAPPED"
+REASON_SKU_BUNDLE = "SKU_BUNDLE"
+REASON_SKU_COMBO = "SKU_COMBO"
+REASON_SKU_SUFFIX = "SKU_SUFFIX"
+REASON_OTHER_SITE_ONLY = "OTHER_SITE_ONLY"
+REASON_SUFFIX_NOT_STOCKED = "SUFFIX_NOT_STOCKED"
+REASON_NOT_IN_WAREHOUSE = "NOT_IN_WAREHOUSE"
+UNMATCHED_REASONS = (
+    REASON_SITE_UNMAPPED, REASON_SKU_BUNDLE, REASON_SKU_COMBO, REASON_SKU_SUFFIX,
+    REASON_OTHER_SITE_ONLY, REASON_SUFFIX_NOT_STOCKED, REASON_NOT_IN_WAREHOUSE,
+)
+# 站点 → 看板纳入的谷仓区域仓；不在这里的仓（CZ 等）只用来提示「别的仓有」。
+SITE_WAREHOUSES = {"DE": ("DE",), "UK": ("UK",), "US": ("USEA", "USWE")}
+_WAREHOUSE_ORDER = ("DE", "UK", "USEA", "USWE", "CZ", "IT", "FRVI", "ES", "USCE")
+_COMBO_PREFIX = re.compile(r"^(\d+)\s*PCS?\s*-\s*(.+)$", re.I)      # 2PC-DAS-10757-0557
+_COMBO_TIMES = re.compile(r"^(.+?)\s*\*\s*(\d+)$")                    # POR-180010-0205*2
+_SUFFIX = re.compile(r"^(.*\d)-([A-Z][A-Z0-9]*)$", re.I)              # YP-50699955-SY
+_TEXT_LIMIT = 255
+
+
+def _site_name(site: str) -> str:
+    return repo.SITE_NAME_BY_SITE.get(site, site)
+
+
+def _found_here(sku: str, site: str, index: dict[str, Any]) -> list[str]:
+    """本站点哪里有这个 SKU：谷仓按去前缀 key，成都按完整 SKU。"""
+    key = repo.inventory_key(sku)
+    goodcang = index.get("goodcang") or {}
+    codes = [code for code in SITE_WAREHOUSES.get(site, ()) if key and key in goodcang.get(code, ())]
+    places = [f"谷仓 {'、'.join(codes)}"] if codes else []
+    if sku.strip().upper() in (index.get("chengdu") or {}).get(_site_name(site), ()):
+        places.append("成都仓")
+    return places
+
+
+def _found_elsewhere(sku: str, site: str, index: dict[str, Any]) -> list[str]:
+    """本站点以外哪里有：别的谷仓区域仓（含 CZ 等）、别的站点的成都仓。"""
+    key = repo.inventory_key(sku)
+    goodcang = index.get("goodcang") or {}
+    own = SITE_WAREHOUSES.get(site, ())
+    codes = sorted((code for code, keys in goodcang.items() if code not in own and key in keys),
+                   key=lambda code: (_WAREHOUSE_ORDER.index(code)
+                                     if code in _WAREHOUSE_ORDER else len(_WAREHOUSE_ORDER), code))
+    places = [f"谷仓 {'、'.join(codes)}"] if key and codes else []
+    chengdu = index.get("chengdu") or {}
+    for other, name in repo.SITE_NAME_BY_SITE.items():
+        if other != site and sku.strip().upper() in chengdu.get(name, ()):
+            places.append(f"成都仓（{other} 站）")
+    return places
+
+
+def _combo(sku: str, site: str, index: dict[str, Any]) -> tuple[str, str] | None:
+    """组合装 / 多件装：2PC- 前缀、*N 结尾，或中间夹件数段（GM-40419-10-1224 = 40419-1224 的 10 件装）。"""
+    match = _COMBO_PREFIX.match(sku)
+    if match:
+        return f"{match.group(1)} 件装", match.group(2).strip()
+    match = _COMBO_TIMES.match(sku)
+    if match:
+        return f"{match.group(2)} 件装", match.group(1).strip()
+    parts = sku.split("-")
+    # 中间段是小数字时才可能是件数；JMH-30020-2-0018 这类本身就是合法四段 SKU，
+    # 所以只有去掉这段后确实在仓里找得到，才认作多件装。
+    for position in range(2, len(parts) - 1):
+        segment = parts[position].strip()
+        if segment.isdigit() and 1 < int(segment) <= 50:
+            single = "-".join(parts[:position] + parts[position + 1:])
+            if _found_here(single, site, index) or _found_elsewhere(single, site, index):
+                return f"{segment} 件装", single
+    return None
+
+
+def _join(places: list[str]) -> str:
+    """「谷仓 DE、成都仓」；以仓库代码结尾时补一个空格，免得和后面的「有」粘在一起。"""
+    text = "、".join(places)
+    return text + " " if text and text[-1].isascii() else text
+
+
+def unmatched_reason(sku: str | None, site: str | None,
+                     index: dict[str, Any] | None) -> tuple[str, str]:
+    """未匹配刊登 -> (原因代码, 页面文案)。文案要让人看了就知道下一步该做什么。"""
+    index = index or {}
+    site = str(site or "").strip().upper()
+    text = str(sku or "").strip()
+    if site not in SITE_WAREHOUSES:
+        return REASON_SITE_UNMAPPED, f"{site or '未知'} 站没有对应仓库，看板不关联库存"
+    if not text:
+        return REASON_NOT_IN_WAREHOUSE, "刊登没有填写 SKU，无法到仓库查找"
+    if "+" in text:
+        count = len([part for part in text.split("+") if part.strip()])
+        return REASON_SKU_BUNDLE, (f"套装 SKU：用「+」拼了 {count} 个商品，"
+                                   "仓库按单个商品登记，需要拆开对应")
+    combo = _combo(text, site, index)
+    if combo:
+        label, single = combo
+        here = _found_here(single, site, index)
+        if here:
+            return REASON_SKU_COMBO, f"组合装（{label}），单件 SKU {single} 在{_join(here)}有，库存需按单件折算"
+        elsewhere = _found_elsewhere(single, site, index)
+        if elsewhere:
+            return REASON_SKU_COMBO, (f"组合装（{label}），单件 SKU {single} 本站点仓库没有，"
+                                      f"{_join(elsewhere)}有")
+        return REASON_SKU_COMBO, f"组合装（{label}），单件 SKU {single} 在谷仓和成都都找不到"
+    suffix = _SUFFIX.match(text)
+    if suffix:
+        base, tag = suffix.group(1), suffix.group(2).upper()
+        here = _found_here(base, site, index)
+        if here:
+            return REASON_SKU_SUFFIX, f"SKU 带后缀「-{tag}」，去掉后 {base} 在{_join(here)}有"
+    elsewhere = _found_elsewhere(text, site, index)
+    if elsewhere:
+        return REASON_OTHER_SITE_ONLY, f"{site} 站仓库没有此商品，{_join(elsewhere)}有"
+    if suffix:
+        elsewhere = _found_elsewhere(base, site, index)
+        if elsewhere:
+            return REASON_OTHER_SITE_ONLY, (f"SKU 带后缀「-{tag}」，去掉后 {base} {site} 站仓库也没有，"
+                                            f"{_join(elsewhere)}有")
+        return REASON_SUFFIX_NOT_STOCKED, f"SKU 带后缀「-{tag}」，去掉后缀在谷仓和成都也都找不到此商品"
+    return REASON_NOT_IN_WAREHOUSE, "谷仓和成都都没有此 SKU"
+
+
+def _reason_fields(matched: bool, sku: str | None, site: str | None,
+                   index: dict[str, Any] | None) -> dict[str, str | None]:
+    if matched:
+        return {"unmatched_reason": None, "unmatched_reason_text": None}
+    code, text = unmatched_reason(sku, site, index)
+    return {"unmatched_reason": code, "unmatched_reason_text": text[:_TEXT_LIMIT]}
+
+
 def build_row(source: dict[str, Any], *, stat_date: date, rates: dict[str, Decimal],
-              batch_id: str, refreshed_at: datetime) -> dict[str, Any]:
-    """一条源记录 -> 一条落库行。未关联到库存的行照样返回，库存列留 NULL。"""
+              batch_id: str, refreshed_at: datetime,
+              index: dict[str, Any] | None = None) -> dict[str, Any]:
+    """一条源记录 -> 一条落库行。未关联到库存的行照样返回，库存列留 NULL，并写明未匹配原因。"""
     sku = (str(source.get("sku")).strip() if source.get("sku") else None) or None
     matched = source.get("overseas_sellable") is not None
     overseas = quantity(source.get("overseas_sellable")) if matched else None
@@ -204,6 +339,7 @@ def build_row(source: dict[str, Any], *, stat_date: date, rates: dict[str, Decim
         "chengdu_sellable": chengdu,
         "pending_outbound": quantity(source.get("pending_outbound")) if matched else None,
         "inventory_matched": 1 if matched else 0,
+        **_reason_fields(matched, sku, site, index),
         "sales_qty_7d": sales_7d,
         "sales_qty_30d": sales_30d,
         "cover_days": days,
@@ -223,8 +359,9 @@ def build_rows(source: dict[str, Any], *, batch_id: str,
     batch = source.get("batch") or {}
     if not batch:
         return []
+    index = source.get("inventory_index") or {}
     return [build_row(row, stat_date=batch["stat_date"], rates=source.get("rates") or {},
-                      batch_id=batch_id, refreshed_at=refreshed_at)
+                      batch_id=batch_id, refreshed_at=refreshed_at, index=index)
             for row in source.get("rows") or []]
 
 
@@ -265,6 +402,8 @@ def refresh_price_analysis() -> dict[str, Any]:
         "matched_rows": sum(row["inventory_matched"] for row in rows),
         "missing_price_usd": sum(row["price_usd"] is None for row in rows),
         "status_counts": _counter(row["status"] for row in rows),
+        "unmatched_reason_counts": _counter(row["unmatched_reason"] for row in rows
+                                            if row["unmatched_reason"]),
         "goodcang_rows": goodcang["rows"],
         # 币种 → 实际折算用的汇率月份（当月未出时按币种回退到最近已出月份）
         "rate_months": dict(sorted((source.get("rate_months") or {}).items())),
@@ -308,7 +447,8 @@ def _criteria(*, stat_date: str | None = None, sites: str | None = None,
               accounts: str | None = None, status: str | None = None,
               keyword: str | None = None, sku: str | None = None,
               mid_code_filter: str | None = None, site_oversell: bool | None = None,
-              out_of_stock_listed: bool | None = None) -> dict[str, Any]:
+              out_of_stock_listed: bool | None = None,
+              unmatched: bool | None = None) -> dict[str, Any]:
     statuses = _csv(status, limit=len(STATUSES), item_length=16)
     unknown = [item for item in statuses if item not in STATUSES]
     if unknown:
@@ -326,6 +466,7 @@ def _criteria(*, stat_date: str | None = None, sites: str | None = None,
         "mid_code": (str(mid_code_filter).strip() or None) if mid_code_filter else None,
         "site_oversell": bool(site_oversell),
         "out_of_stock_listed": bool(out_of_stock_listed),
+        "unmatched": bool(unmatched),
     }
 
 
@@ -410,6 +551,8 @@ def _detail_row(row: dict[str, Any]) -> dict[str, Any]:
         "price_vs_site_min_pct": _number(row.get("price_vs_site_min_pct"), 4),
         "site_oversell": bool(_int(row.get("site_oversell"))),
         "out_of_stock_listed": bool(_int(row.get("out_of_stock_listed"))),
+        "unmatched_reason": row.get("unmatched_reason"),
+        "unmatched_reason_text": row.get("unmatched_reason_text"),
     }
 
 
@@ -451,7 +594,8 @@ def detail(*, stat_date: str | None = None, sites: str | None = None,
            mid_code_filter: str | None = None, mode: str = "detail", page: int = 1,
            page_size: int = 50, sort_by: str | None = None,
            sort_order: str = "desc", site_oversell: bool | None = None,
-           out_of_stock_listed: bool | None = None) -> dict[str, Any]:
+           out_of_stock_listed: bool | None = None,
+           unmatched: bool | None = None) -> dict[str, Any]:
     if mode not in ("detail", "summary"):
         raise ValueError("mode 只能是 detail 或 summary")
     page = max(1, int(page))
@@ -459,7 +603,7 @@ def detail(*, stat_date: str | None = None, sites: str | None = None,
     criteria = _criteria(stat_date=stat_date, sites=sites, accounts=accounts,
                          status=status, keyword=keyword, sku=sku,
                          mid_code_filter=mid_code_filter, site_oversell=site_oversell,
-                         out_of_stock_listed=out_of_stock_listed)
+                         out_of_stock_listed=out_of_stock_listed, unmatched=unmatched)
     total = (repo.summary_count(criteria) if mode == "summary"
              else repo.detail_count(criteria))
     rows = _rows(criteria, mode=mode, sort_by=sort_by, sort_order=sort_order,
@@ -511,6 +655,8 @@ def sku_listings(*, sku: str | None) -> dict[str, Any]:
             "ebay_quantity_available": _int(row.get("ebay_quantity_available")),
             "status": row.get("status"),
             "out_of_stock_listed": bool(_int(row.get("out_of_stock_listed"))),
+            "unmatched_reason": row.get("unmatched_reason"),
+            "unmatched_reason_text": row.get("unmatched_reason_text"),
         } for row in listings],
         "sites": [{
             "site": row.get("site"),
@@ -537,7 +683,8 @@ def export(*, columns: str | None = None, mode: str = "detail", **filters) -> tu
     criteria = _criteria(**{key: value for key, value in filters.items()
                             if key in ("stat_date", "sites", "accounts", "status",
                                        "keyword", "sku", "mid_code_filter",
-                                       "site_oversell", "out_of_stock_listed")})
+                                       "site_oversell", "out_of_stock_listed",
+                                       "unmatched")})
     rows = _rows(criteria, mode=mode, sort_by=filters.get("sort_by"),
                  sort_order=filters.get("sort_order") or "desc", offset=None, limit=None)
     if not rows:

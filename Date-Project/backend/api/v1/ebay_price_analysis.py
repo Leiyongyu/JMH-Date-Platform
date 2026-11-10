@@ -67,12 +67,14 @@ def get_detail(
     sort_order: str = Query("desc", max_length=8),
     site_oversell: bool | None = Query(None),
     out_of_stock_listed: bool | None = Query(None),
+    unmatched: bool | None = Query(None),
 ):
     return _run(request, lambda: service.detail(
         stat_date=stat_date, sites=sites, accounts=accounts, status=status,
         keyword=keyword, sku=sku, mid_code_filter=mid_code, mode=mode, page=page,
         page_size=page_size, sort_by=sort_by, sort_order=sort_order,
-        site_oversell=site_oversell, out_of_stock_listed=out_of_stock_listed), "明细查询")
+        site_oversell=site_oversell, out_of_stock_listed=out_of_stock_listed,
+        unmatched=unmatched), "明细查询")
 
 
 @router.get("/export")
@@ -90,6 +92,7 @@ def get_export(
     columns: str | None = Query(None, max_length=2000),
     site_oversell: bool | None = Query(None),
     out_of_stock_listed: bool | None = Query(None),
+    unmatched: bool | None = Query(None),
 ):
     """返回 xlsx 流。columns 是 Java 按 exportColumn:* 过滤后的列，不传导全部。
 
@@ -100,7 +103,8 @@ def get_export(
             columns=columns, mode=mode, stat_date=stat_date, sites=sites,
             accounts=accounts, status=status, keyword=keyword, sku=sku,
             mid_code_filter=mid_code, sort_by=sort_by, sort_order=sort_order,
-            site_oversell=site_oversell, out_of_stock_listed=out_of_stock_listed)
+            site_oversell=site_oversell, out_of_stock_listed=out_of_stock_listed,
+            unmatched=unmatched)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

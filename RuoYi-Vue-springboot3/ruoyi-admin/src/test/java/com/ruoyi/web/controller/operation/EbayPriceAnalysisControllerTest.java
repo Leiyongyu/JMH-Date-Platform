@@ -146,6 +146,7 @@ class EbayPriceAnalysisControllerTest
                         .param("sortBy", "stock_gap")
                         .param("sortOrder", "desc")
                         .param("siteOversell", "true")
+                        .param("unmatched", "true")
                         .param("sites", "   "))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total").value(18013));
@@ -157,6 +158,7 @@ class EbayPriceAnalysisControllerTest
         assertEquals("stock_gap", params.get("sort_by"));
         assertEquals("desc", params.get("sort_order"));
         assertEquals(Boolean.TRUE, params.get("site_oversell"));
+        assertEquals(Boolean.TRUE, params.get("unmatched"));
         // 没传的筛选为 null，queryString 会跳过，Python 按「不筛选」处理。
         assertNull(params.get("out_of_stock_listed"));
         assertNull(params.get("sites"));
@@ -178,7 +180,7 @@ class EbayPriceAnalysisControllerTest
         var response = new MockHttpServletResponse();
 
         new EbayPriceAnalysisController(client).exportByGet("2026-09-23", "US", null,
-                null, null, "detail", "stock_gap", "asc", true, null, "trace", response);
+                null, null, "detail", "stock_gap", "asc", true, null, true, "trace", response);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, ?>> captor = ArgumentCaptor.forClass(Map.class);
@@ -191,6 +193,7 @@ class EbayPriceAnalysisControllerTest
         // 导出跟着页面筛选走：传了的透传，没传的为 null（查询串里会被跳过）。
         assertEquals(Boolean.TRUE, captor.getValue().get("site_oversell"));
         assertNull(captor.getValue().get("out_of_stock_listed"));
+        assertEquals(Boolean.TRUE, captor.getValue().get("unmatched"));
         assertEquals(EXCEL_TYPE, response.getContentType());
         assertEquals("attachment; filename=ebay-price-analysis.xlsx",
                 response.getHeader("Content-Disposition"));
@@ -209,7 +212,7 @@ class EbayPriceAnalysisControllerTest
 
         var error = assertThrows(ServiceException.class,
                 () -> new EbayPriceAnalysisController(client).exportByPost(null, null, null,
-                        null, null, "detail", null, null, null, null, null,
+                        null, null, "detail", null, null, null, null, null, null,
                         new MockHttpServletResponse()));
 
         assertEquals(Integer.valueOf(403), error.getCode());
@@ -227,12 +230,14 @@ class EbayPriceAnalysisControllerTest
         login(Set.of(Constants.ALL_PERMISSION));
 
         new EbayPriceAnalysisController(client).exportByPost(null, null, null, null, null,
-                "summary", null, null, null, null, null, new MockHttpServletResponse());
+                "summary", null, null, null, null, null, null, new MockHttpServletResponse());
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, ?>> captor = ArgumentCaptor.forClass(Map.class);
         verify(client).export(captor.capture(), any());
         String columns = String.valueOf(captor.getValue().get("columns"));
+        // 不传「只看未匹配」时为 null，查询串里会被跳过。
+        assertNull(captor.getValue().get("unmatched"));
         assertEquals(19, columns.split(",").length);
         assertTrue(columns.startsWith("seller_account,site_name,sku,title,currency,"));
         assertTrue(columns.endsWith("purchase_cost_cny,status,view_item_url"));
@@ -255,7 +260,7 @@ class EbayPriceAnalysisControllerTest
             perms.allowed = Set.of("operations:ebayPriceAnalysis:list");
             assertThrows(AccessDeniedException.class,
                     () -> controller.exportByGet(null, null, null, null, null, "detail",
-                            null, null, null, null, null, new MockHttpServletResponse()));
+                            null, null, null, null, null, null, new MockHttpServletResponse()));
             verifyNoInteractions(client);
 
             when(client.stores(any(), any())).thenReturn(
@@ -413,6 +418,16 @@ class EbayPriceAnalysisControllerTest
             client.detail(Map.of("page", 2), "trace");
             assertEquals("/api/v1/ebay-price-analysis/detail", seen[0]);
 
+            // 「只看未匹配」：传了进查询串，null 不出现。
+            Map<String, Object> unmatchedOnly = new java.util.LinkedHashMap<>();
+            unmatchedOnly.put("page", 1);
+            unmatchedOnly.put("unmatched", Boolean.TRUE);
+            client.detail(unmatchedOnly, "trace");
+            assertEquals("page=1&unmatched=true", seen[1]);
+            unmatchedOnly.put("unmatched", null);
+            client.detail(unmatchedOnly, "trace");
+            assertEquals("page=1", seen[1]);
+
             var file = client.export(Map.of("columns", "sku,status"), "trace");
             assertEquals("/api/v1/ebay-price-analysis/export", seen[0]);
             assertEquals("columns=sku%2Cstatus", seen[1]);
@@ -422,9 +437,14 @@ class EbayPriceAnalysisControllerTest
             filtered.put("columns", "sku");
             filtered.put("site_oversell", Boolean.TRUE);
             filtered.put("out_of_stock_listed", null);
+            filtered.put("unmatched", null);
             client.export(filtered, "trace");
             assertEquals("columns=sku&site_oversell=true", seen[1]);
             assertFalse(seen[1].contains("out_of_stock_listed"));
+            assertFalse(seen[1].contains("unmatched"));
+            filtered.put("unmatched", Boolean.TRUE);
+            client.export(filtered, "trace");
+            assertEquals("columns=sku&site_oversell=true&unmatched=true", seen[1]);
             // Python 没给 Content-Disposition 时后端兜一个安全的文件名。
             assertTrue(file.contentDisposition().startsWith(
                     "attachment; filename=ebay-price-analysis.xlsx;"));

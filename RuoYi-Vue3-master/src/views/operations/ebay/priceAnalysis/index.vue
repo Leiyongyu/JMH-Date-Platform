@@ -79,17 +79,6 @@
             <el-option v-for="account in accountOptions" :key="account" :label="account" :value="account" />
           </el-select>
         </el-form-item>
-        <el-form-item label="状态">
-          <el-select
-            v-model="query.status"
-            clearable
-            placeholder="全部状态"
-            class="filter-control filter-control--status"
-            @change="handleListFilter"
-          >
-            <el-option v-for="status in statusOptions" :key="status" :label="status" :value="status" />
-          </el-select>
-        </el-form-item>
         <el-form-item label="关键词">
           <el-input
             v-model="query.keyword"
@@ -101,8 +90,7 @@
           />
         </el-form-item>
         <el-form-item label-width="0" class="flag-filters">
-          <el-checkbox v-model="query.onlySiteOversell" @change="handleListFilter">只看多店超卖</el-checkbox>
-          <el-checkbox v-model="query.onlyOutOfStockListed" @change="handleListFilter">只看断货在售</el-checkbox>
+          <el-checkbox v-model="query.onlyUnmatched" @change="handleListFilter">只看未匹配</el-checkbox>
         </el-form-item>
         <el-form-item label-width="0">
           <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
@@ -146,48 +134,25 @@
             <el-table-column prop="ebay_available" label="eBay 可售合计" width="120" align="right">
               <template #default="{ row }">{{ integer(row.ebay_available) }}</template>
             </el-table-column>
-            <el-table-column prop="out_of_stock_listed" width="110" align="right">
+            <el-table-column prop="unmatched_count" width="100" align="right">
               <template #header>
                 <span class="column-header">
-                  <span>断货在售</span>
-                  <el-tooltip content="已匹配到库存，谷仓可售 + 成都可售 = 0，但 eBay 可售 > 0 的刊登数；点数字只看这些" placement="top">
+                  <span>未匹配</span>
+                  <el-tooltip content="这家店在本站点的谷仓和成都仓都找不到对应 SKU 的刊登数；点数字只看这些，原因见明细的「未匹配原因」列" placement="top">
                     <el-icon class="column-tip"><QuestionFilled /></el-icon>
                   </el-tooltip>
                 </span>
               </template>
               <template #default="{ row }">
                 <el-link
-                  v-if="Number(row.out_of_stock_listed) > 0"
+                  v-if="Number(row.unmatched_count) > 0"
                   type="warning"
                   :underline="false"
                   class="count-link"
-                  @click.stop="focusStore(row, 'outOfStock')"
-                >{{ integer(row.out_of_stock_listed) }}</el-link>
-                <span v-else class="muted">{{ integer(row.out_of_stock_listed) }}</span>
+                  @click.stop="focusStore(row)"
+                >{{ integer(row.unmatched_count) }}</el-link>
+                <span v-else class="muted">{{ integer(row.unmatched_count) }}</span>
               </template>
-            </el-table-column>
-            <el-table-column prop="site_oversell_sku_count" width="130" align="right">
-              <template #header>
-                <span class="column-header">
-                  <span>多店超卖 SKU</span>
-                  <el-tooltip content="本店在售的 SKU 里，同站点所有店铺 eBay 可售合计超过谷仓可售 + 成都可售的个数；点数字只看这些" placement="top">
-                    <el-icon class="column-tip"><QuestionFilled /></el-icon>
-                  </el-tooltip>
-                </span>
-              </template>
-              <template #default="{ row }">
-                <el-link
-                  v-if="Number(row.site_oversell_sku_count) > 0"
-                  type="danger"
-                  :underline="false"
-                  class="count-link count-link--danger"
-                  @click.stop="focusStore(row, 'oversell')"
-                >{{ integer(row.site_oversell_sku_count) }}</el-link>
-                <span v-else class="muted">{{ integer(row.site_oversell_sku_count) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="unmatched_count" label="未匹配" width="90" align="right">
-              <template #default="{ row }">{{ integer(row.unmatched_count) }}</template>
             </el-table-column>
           </el-table>
 
@@ -214,10 +179,9 @@
               v-loading="detailLoading"
               :data="detailRows"
               :size="dense ? 'small' : 'default'"
-              :row-class-name="oversellRowClass"
               border
               height="520"
-              empty-text="这个店铺没有符合条件的刊登，换个状态、关键词或取消「只看」筛选试试"
+              empty-text="这个店铺没有符合条件的刊登，换个关键词或取消「只看未匹配」试试"
               @sort-change="handleDetailSort"
             >
               <el-table-column
@@ -257,22 +221,7 @@
                     :underline="false"
                     class="sku-link"
                   >{{ displayValue(row.sku) }}</el-link>
-                  <el-tag v-else-if="col.format === 'status'" :type="statusTagType(row.status)" effect="light">
-                    {{ displayValue(row.status) }}
-                  </el-tag>
-                  <el-tooltip
-                    v-else-if="col.format === 'oversell' && isTrue(row[col.key])"
-                    :content="oversellTip(row)"
-                    placement="top"
-                  >
-                    <el-tag type="danger" effect="dark" class="oversell-tag">多店超卖</el-tag>
-                  </el-tooltip>
-                  <el-tag
-                    v-else-if="col.format === 'outOfStock' && isTrue(row[col.key])"
-                    type="warning"
-                    effect="dark"
-                    class="oversell-tag"
-                  >断货在售</el-tag>
+                  <span v-else-if="col.format === 'reason'" class="unmatched-reason">{{ unmatchedReason(row) }}</span>
                   <span v-else :class="cellClass(row, col)">{{ cellText(row, col) }}</span>
                 </template>
               </el-table-column>
@@ -308,10 +257,9 @@
             :data="skuRows"
             :size="dense ? 'small' : 'default'"
             :row-key="skuRowKey"
-            :row-class-name="oversellRowClass"
             border
             height="560"
-            empty-text="没有符合条件的 SKU，换个站点、店铺、状态或关键词试试"
+            empty-text="没有符合条件的 SKU，换个站点、店铺、关键词或取消「只看未匹配」试试"
             @sort-change="handleSkuSort"
             @expand-change="handleSkuExpand"
           >
@@ -343,19 +291,10 @@
                         :min-width="col.minWidth"
                         :align="col.align"
                       >
-                        <template #default="scope">
-                          <el-tooltip
-                            v-if="col.format === 'oversell' && isTrue(scope.row[col.key])"
-                            :content="oversellTip(scope.row)"
-                            placement="top"
-                          >
-                            <el-tag type="danger" effect="dark" size="small" class="oversell-tag">多店超卖</el-tag>
-                          </el-tooltip>
-                          <span v-else>{{ cellText(scope.row, col) }}</span>
-                        </template>
+                        <template #default="scope">{{ cellText(scope.row, col) }}</template>
                       </el-table-column>
                     </el-table>
-                    <div class="compare-title">各店铺刊登（当前站点高亮；「最低」= 同站点最低 USD 售价）</div>
+                    <div class="compare-title">各店铺刊登（当前站点高亮）</div>
                     <el-table
                       :data="skuListing(row.sku).data.listings"
                       size="small"
@@ -380,25 +319,7 @@
                             type="primary"
                             :underline="false"
                           >{{ displayValue(scope.row.item_id) }}</el-link>
-                          <el-tag v-else-if="col.format === 'status'" :type="statusTagType(scope.row.status)" size="small">
-                            {{ displayValue(scope.row.status) }}
-                          </el-tag>
-                          <el-tag
-                            v-else-if="col.format === 'outOfStock' && isTrue(scope.row[col.key])"
-                            type="warning"
-                            effect="dark"
-                            size="small"
-                            class="oversell-tag"
-                          >断货在售</el-tag>
-                          <span v-else-if="col.format === 'usd'" class="usd-cell">
-                            {{ decimal(scope.row.price_usd) }}
-                            <el-tag
-                              v-if="lowestListingKeys(skuListing(row.sku).data.listings).has(listingKey(scope.row))"
-                              type="success"
-                              size="small"
-                              effect="plain"
-                            >最低</el-tag>
-                          </span>
+                          <span v-else-if="col.format === 'reason'" class="unmatched-reason">{{ unmatchedReason(scope.row) }}</span>
                           <span v-else>{{ cellText(scope.row, col) }}</span>
                         </template>
                       </el-table-column>
@@ -436,29 +357,7 @@
                   :preview-src-list="[row.image_url]"
                   preview-teleported
                 />
-                <span v-else-if="col.format === 'statuses'" class="status-tags">
-                  <el-tag
-                    v-for="status in toArray(row.statuses)"
-                    :key="status"
-                    :type="statusTagType(status)"
-                    effect="light"
-                    size="small"
-                  >{{ status }}</el-tag>
-                  <span v-if="!toArray(row.statuses).length" class="muted">—</span>
-                </span>
-                <el-tooltip
-                  v-else-if="col.format === 'oversell' && isTrue(row[col.key])"
-                  :content="oversellTip(row)"
-                  placement="top"
-                >
-                  <el-tag type="danger" effect="dark" class="oversell-tag">多店超卖</el-tag>
-                </el-tooltip>
-                <el-tag
-                  v-else-if="col.format === 'outOfStock' && isTrue(row[col.key])"
-                  type="warning"
-                  effect="dark"
-                  class="oversell-tag"
-                >断货在售</el-tag>
+                <span v-else-if="col.format === 'reason'" class="unmatched-reason">{{ unmatchedReason(row) }}</span>
                 <span v-else :class="cellClass(row, col)">{{ cellText(row, col) }}</span>
               </template>
             </el-table-column>
@@ -485,12 +384,9 @@
         <li>海外仓库存为谷仓区域仓接口每周快照（DE / UK / 美东 USEA / 美西 USWE，美国两仓合计；捷克 CZ 暂不纳入），<strong>不是实时库存</strong></li>
         <li>成都中转仓库存仍为领星周快照</li>
         <li>海外仓按「站点 + 去掉 SKU 第一段（品牌前缀，谷仓侧为 JMH）」匹配</li>
-        <li>多店超卖：同站点所有店铺 eBay 可售合计 &gt; 该站点谷仓可售 + 成都可售；多个店铺共用一个仓，单看一个店铺看不出来</li>
-        <li>断货在售：已匹配到库存，谷仓可售 + 成都可售 = 0，但 eBay 可售 &gt; 0；一条刊登可以同时是断货在售和多店超卖，两个标记都会显示</li>
-        <li>比最低价高出 =（本店 USD 售价 − 同站点最低 USD 售价）÷ 同站点最低 USD 售价</li>
+        <li>未匹配：这条刊登在所在站点的谷仓和成都仓都找不到对应 SKU，原因见『未匹配原因』列</li>
         <li>售价按站点币种和领星月度企业汇率折算 USD；当月汇率未出时，沿用该币种最近一个已出月份的汇率；完全没有汇率时不折算</li>
         <li>采购成本取订单文件中的真实采购成本，未参与售价估算</li>
-        <li>未关联到库存的 listing 计入「未匹配」，不计入断货在售与多店超卖判断</li>
       </ul>
     </el-card>
 
@@ -541,19 +437,10 @@
             :min-width="col.minWidth"
             :align="col.align"
           >
-            <template #default="scope">
-              <el-tooltip
-                v-if="col.format === 'oversell' && isTrue(scope.row[col.key])"
-                :content="oversellTip(scope.row)"
-                placement="top"
-              >
-                <el-tag type="danger" effect="dark" size="small" class="oversell-tag">多店超卖</el-tag>
-              </el-tooltip>
-              <span v-else>{{ cellText(scope.row, col) }}</span>
-            </template>
+            <template #default="scope">{{ cellText(scope.row, col) }}</template>
           </el-table-column>
         </el-table>
-        <div class="compare-title">各店铺刊登（当前店铺高亮；「最低」= 同站点最低 USD 售价）</div>
+        <div class="compare-title">各店铺刊登（当前店铺高亮）</div>
         <el-table
           :data="compareState.data.listings"
           size="small"
@@ -578,25 +465,7 @@
                 type="primary"
                 :underline="false"
               >{{ displayValue(scope.row.item_id) }}</el-link>
-              <el-tag v-else-if="col.format === 'status'" :type="statusTagType(scope.row.status)" size="small">
-                {{ displayValue(scope.row.status) }}
-              </el-tag>
-              <el-tag
-                v-else-if="col.format === 'outOfStock' && isTrue(scope.row[col.key])"
-                type="warning"
-                effect="dark"
-                size="small"
-                class="oversell-tag"
-              >断货在售</el-tag>
-              <span v-else-if="col.format === 'usd'" class="usd-cell">
-                {{ decimal(scope.row.price_usd) }}
-                <el-tag
-                  v-if="compareLowestKeys.has(listingKey(scope.row))"
-                  type="success"
-                  size="small"
-                  effect="plain"
-                >最低</el-tag>
-              </span>
+              <span v-else-if="col.format === 'reason'" class="unmatched-reason">{{ unmatchedReason(scope.row) }}</span>
               <span v-else>{{ cellText(scope.row, col) }}</span>
             </template>
           </el-table-column>
@@ -628,16 +497,7 @@ import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
 import { checkPermi } from '@/utils/permission'
 
-// 状态、多店超卖、断货在售、跨店比价都由后端算好，前端只按返回值渲染和筛选，不自己推导。
-const statusOptions = ['未匹配', '超卖风险', '断货', '待补货', '滞销', '健康']
-const STATUS_TAG_TYPE = {
-  未匹配: 'info',
-  超卖风险: 'danger',
-  断货: 'danger',
-  待补货: 'warning',
-  滞销: 'primary',
-  健康: 'success'
-}
+// 库存、同站点汇总、未匹配原因都由后端算好（原因在刷表时判定），前端只按返回值渲染和筛选，不自己推导。
 const SITE_OPTIONS = ['DE', 'UK', 'US', 'FR']
 const SHARED_STOCK_TIP = '按站点共享：同一站点多个店铺显示的是同一份库存，不能相加。'
 
@@ -661,10 +521,8 @@ const compareDrawer = reactive({ visible: false, sku: '', origin: null })
 const query = reactive({
   sites: [],
   accounts: [],
-  status: undefined,
   keyword: undefined,
-  onlySiteOversell: false,
-  onlyOutOfStockListed: false
+  onlyUnmatched: false
 })
 const detailPage = reactive({ pageNum: 1, pageSize: 50, sortBy: undefined, sortOrder: undefined })
 const skuPage = reactive({ pageNum: 1, pageSize: 50, sortBy: undefined, sortOrder: undefined })
@@ -707,22 +565,9 @@ const columnDefs = [
     tip: '同一站点所有店铺这个 SKU 的 eBay 可售相加。eBay 可售是各店铺自己的，可以相加；库存不能。'
   },
   {
-    key: 'site_price_range', label: '同站点最低 / 最高价(USD)', width: 190, align: 'right', format: 'range',
-    minKey: 'site_price_usd_min', maxKey: 'site_price_usd_max'
-  },
-  {
-    key: 'price_vs_site_min_pct', label: '比最低价高出', width: 130, align: 'right', format: 'pct',
-    tip: '（本店 USD 售价 − 同站点最低 USD 售价）÷ 同站点最低 USD 售价；任一价格缺失时显示「—」。'
-  },
-  {
-    key: 'site_oversell', label: '多店超卖', width: 105, align: 'center', format: 'oversell',
-    tip: '同站点所有店铺 eBay 可售合计 > 该站点谷仓可售 + 成都可售。'
-  },
-  {
-    key: 'out_of_stock_listed', label: '断货在售', width: 105, align: 'center', format: 'outOfStock',
-    tip: '已匹配到库存，谷仓可售 + 成都可售 = 0，但 eBay 可售 > 0。可以和多店超卖同时出现。'
-  },
-  { key: 'status', label: '状态', width: 100, align: 'center', format: 'status' }
+    key: 'unmatched_reason_text', label: '未匹配原因', minWidth: 220, format: 'reason', tooltip: true,
+    tip: '只在这条刊登未匹配到库存时显示原因；已匹配留空。'
+  }
 ]
 const {
   showColumnDrawer,
@@ -761,18 +606,9 @@ const skuColumns = [
   },
   { key: 'overseas_in_transit', label: '海外在途', width: 100, align: 'right', format: 'integer' },
   {
-    key: 'price_range', label: '最低 / 最高价(USD)', width: 170, align: 'right', format: 'range',
-    minKey: 'price_usd_min', maxKey: 'price_usd_max'
-  },
-  {
-    key: 'site_oversell', label: '多店超卖', width: 105, align: 'center', format: 'oversell',
-    tip: '这个站点所有店铺 eBay 可售合计 > 谷仓可售 + 成都可售。'
-  },
-  {
-    key: 'out_of_stock_listed', label: '断货在售', width: 105, align: 'center', format: 'outOfStock',
-    tip: '这个站点有店铺在库存为 0 时仍挂着 eBay 可售。可以和多店超卖同时出现。'
-  },
-  { key: 'statuses', label: '状态', minWidth: 130, format: 'statuses' }
+    key: 'unmatched_reason_text', label: '未匹配原因', minWidth: 220, format: 'reason', tooltip: true,
+    tip: '这个站点 + SKU 下出现最多的未匹配原因；已匹配留空。'
+  }
 ]
 // 抽屉和展开行共用的两张对比表。
 const compareSiteColumns = [
@@ -782,21 +618,18 @@ const compareSiteColumns = [
   { key: 'overseas_in_transit', label: '海外在途', width: 95, align: 'right', format: 'integer' },
   { key: 'pending_outbound', label: '待出库', width: 85, align: 'right', format: 'integer' },
   { key: 'store_count', label: '在售店铺数', width: 100, align: 'right', format: 'integer' },
-  { key: 'ebay_available_total', label: 'eBay可售合计', minWidth: 115, align: 'right', format: 'integer' },
-  { key: 'site_oversell', label: '多店超卖', width: 100, align: 'center', format: 'oversell' }
+  { key: 'ebay_available_total', label: 'eBay可售合计', minWidth: 115, align: 'right', format: 'integer' }
 ]
 // 抽屉 820px 减去左右各 20px 内边距约 780px 可用；这张表要一眼扫完，列宽合计压在 770px 以内，不出横向滚动。
-// 宽度按小号表格（12px 字、单元格左右各 12px 内边距）的最长内容估：12 位 Item ID、「1,234.56 EUR」、4 字标签。
+// 精简掉两列和售价旁的标签后，前几列放回宽松的宽度；未匹配原因是长句，超出部分悬停看全文。
 const compareListingColumns = [
-  { key: 'seller_account', label: '店铺', minWidth: 110, tooltip: true },
-  { key: 'site_name', label: '站点', width: 60, align: 'center' },
-  { key: 'item_id', label: 'Item ID', minWidth: 105, format: 'itemLink' },
-  { key: 'current_price', label: '原币售价', width: 105, align: 'right', format: 'price' },
-  { key: 'price_usd', label: '售价(USD)', width: 130, align: 'right', format: 'usd' },
-  { key: 'ebay_quantity_available', label: 'eBay可售', width: 80, align: 'right', format: 'integer' },
-  // /sku-listings 的 listings 后加的字段：缺失时 isTrue 判为 false，只显示「—」，后端上线前后都能用。
-  { key: 'out_of_stock_listed', label: '断货在售', width: 90, align: 'center', format: 'outOfStock' },
-  { key: 'status', label: '状态', width: 90, align: 'center', format: 'status' }
+  { key: 'seller_account', label: '店铺', minWidth: 130, tooltip: true },
+  { key: 'site_name', label: '站点', width: 70, align: 'center' },
+  { key: 'item_id', label: 'Item ID', minWidth: 125, format: 'itemLink' },
+  { key: 'current_price', label: '原币售价', width: 115, align: 'right', format: 'price' },
+  { key: 'price_usd', label: '售价(USD)', width: 105, align: 'right', format: 'decimal' },
+  { key: 'ebay_quantity_available', label: 'eBay可售', width: 85, align: 'right', format: 'integer' },
+  { key: 'unmatched_reason_text', label: '未匹配原因', minWidth: 135, format: 'reason', tooltip: true }
 ]
 
 const loading = computed(() => storesLoading.value || detailLoading.value || skuLoading.value)
@@ -807,7 +640,6 @@ const siteOptions = computed(() => {
 // 选了店铺之后汇总表只剩这几家，下拉里的其他店铺不能跟着消失，所以累计记下见过的店铺。
 const accountOptions = computed(() => [...new Set([...knownAccounts.value, ...query.accounts])])
 const compareState = computed(() => skuListing(compareDrawer.sku))
-const compareLowestKeys = computed(() => lowestListingKeys(compareState.value.data?.listings))
 
 function displayValue(value) {
   return value === null || value === undefined || value === '' ? '—' : value
@@ -824,28 +656,18 @@ function decimal(value) {
     ? numeric.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : '—'
 }
-// 后端给的是比例（0.125 = 高 12.5%），只换算成百分比显示，不自己算。
-function percent(value) {
-  if (value === null || value === undefined || String(value).trim() === '') return '—'
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return '—'
-  if (numeric === 0) return '最低价'
-  const text = `${(numeric * 100).toFixed(1)}%`
-  return numeric > 0 ? `+${text}` : text
-}
-function pctClass(value) {
-  if (value === null || value === undefined || String(value).trim() === '') return 'muted'
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return 'muted'
-  if (numeric === 0) return 'price-lowest'
-  return numeric >= 0.2 ? 'price-high' : 'price-above'
-}
 // MySQL 的布尔列经 Python / Java 转发后可能是 true、1 或 '1'。
 function isTrue(value) {
   return value === true || value === 1 || value === '1' || value === 'true'
 }
-function statusTagType(status) {
-  return STATUS_TAG_TYPE[status] || 'info'
+// 未匹配原因只在未匹配时显示，已匹配留空。原因文案由后端刷表时写入 unmatched_reason_text，前端不判定；
+// 后端上线前没有这个字段时，明细里 inventory_matched=0 的行先显示「未匹配」，不会整列空白。
+function unmatchedReason(row) {
+  const matched = row?.inventory_matched
+  if (isTrue(matched)) return ''
+  const text = String(row?.unmatched_reason_text ?? '').trim()
+  if (text) return text
+  return matched === 0 || matched === '0' || matched === false ? '未匹配' : ''
 }
 function cellText(row, col) {
   const value = row?.[col.key]
@@ -862,36 +684,14 @@ function cellText(row, col) {
       const price = decimal(row?.current_price)
       return price === '—' || !row?.currency ? price : `${price} ${row.currency}`
     }
-    case 'range': {
-      const low = decimal(row?.[col.minKey])
-      const high = decimal(row?.[col.maxKey])
-      if (low === '—' && high === '—') return '—'
-      return low === high ? low : `${low} ~ ${high}`
-    }
-    case 'pct':
-      return percent(value)
-    case 'oversell':
-      return isTrue(value) ? '多店超卖' : '—'
-    case 'outOfStock':
-      return isTrue(value) ? '断货在售' : '—'
+    case 'reason':
+      return unmatchedReason(row)
     default:
       return displayValue(value)
   }
 }
 function cellClass(row, col) {
-  if (col.format === 'pct') return pctClass(row?.[col.key])
   return cellText(row, col) === '—' ? 'muted' : ''
-}
-function oversellTip(row) {
-  const storeCount = row?.site_store_count ?? row?.store_count
-  const ebayTotal = row?.site_ebay_available_total ?? row?.ebay_available_total ?? row?.ebay_quantity_available
-  return `同站点 ${integer(storeCount)} 个店铺 eBay 可售合计 ${integer(ebayTotal)}，`
-    + `超过谷仓可售 ${integer(row?.overseas_sellable)} + 成都可售 ${integer(row?.chengdu_sellable)}`
-}
-function toArray(value) {
-  if (Array.isArray(value)) return value.map(item => String(item).trim()).filter(Boolean)
-  const text = String(value === null || value === undefined ? '' : value).trim()
-  return text ? text.split(',').map(item => item.trim()).filter(Boolean) : []
 }
 function csv(value) {
   if (Array.isArray(value)) {
@@ -910,29 +710,13 @@ function storeKey(row) {
 function skuRowKey(row) {
   return `${row?.site ?? ''}|${row?.sku ?? ''}`
 }
-function listingKey(row) {
-  return `${row?.seller_account ?? ''}|${row?.site ?? ''}|${row?.item_id ?? ''}`
-}
-// 接口按 site、price_usd 升序给 listings，每个站点第一条有价格的就是站点最低价，不在前端比价。
-function lowestListingKeys(listings) {
-  const keys = new Set()
-  const seen = new Set()
-  for (const item of Array.isArray(listings) ? listings : []) {
-    if (seen.has(item?.site) || item?.price_usd === null || item?.price_usd === undefined) continue
-    seen.add(item.site)
-    keys.add(listingKey(item))
-  }
-  return keys
-}
 
 function buildFilterParams() {
   return {
     sites: csv(query.sites),
     accounts: csv(query.accounts),
-    status: csv(query.status),
     keyword: csv(query.keyword),
-    siteOversell: flag(query.onlySiteOversell),
-    outOfStockListed: flag(query.onlyOutOfStockListed)
+    unmatched: flag(query.onlyUnmatched)
   }
 }
 function buildStoreParams() {
@@ -1055,7 +839,7 @@ async function handleQuery() {
   await loadStores()
   await loadActiveTab()
 }
-// 状态、关键词和两个「只看」只作用于明细，不影响店铺汇总。
+// 关键词和「只看未匹配」只作用于明细，不影响店铺汇总。
 function handleListFilter() {
   filterVersion += 1
   resetPages()
@@ -1064,10 +848,8 @@ function handleListFilter() {
 function resetQuery() {
   query.sites = []
   query.accounts = []
-  query.status = undefined
   query.keyword = undefined
-  query.onlySiteOversell = false
-  query.onlyOutOfStockListed = false
+  query.onlyUnmatched = false
   detailPage.sortBy = undefined
   detailPage.sortOrder = undefined
   skuPage.sortBy = undefined
@@ -1085,10 +867,9 @@ function selectStore(row) {
   detailPage.pageNum = 1
   return loadStoreDetail()
 }
-// 点汇总表里的「断货在售」「多店超卖 SKU」数字：选中这家店并打开对应的「只看」。
-function focusStore(row, kind) {
-  if (kind === 'oversell') query.onlySiteOversell = true
-  if (kind === 'outOfStock') query.onlyOutOfStockListed = true
+// 点汇总表里的「未匹配」数字：选中这家店并打开「只看未匹配」。
+function focusStore(row) {
+  query.onlyUnmatched = true
   filterVersion += 1
   loadedVersion.store = filterVersion
   return selectStore(row)
@@ -1110,18 +891,8 @@ function handleSkuSort(event) {
 function storeRowClass({ row }) {
   return selectedStore.value && storeKey(row) === storeKey(selectedStore.value) ? 'is-selected' : ''
 }
-// 两个标记各自独立：同时满足时两个 class 都挂上，不互相覆盖。
-function oversellRowClass({ row }) {
-  const classes = []
-  if (isTrue(row?.site_oversell)) classes.push('is-oversell')
-  if (isTrue(row?.out_of_stock_listed)) classes.push('is-out-of-stock')
-  return classes.join(' ')
-}
 function compareSiteRowClass({ row }, site) {
-  const classes = []
-  if (site && row?.site === site) classes.push('is-origin')
-  if (isTrue(row?.site_oversell)) classes.push('is-oversell')
-  return classes.join(' ')
+  return site && row?.site === site ? 'is-origin' : ''
 }
 function compareListingRowClass({ row }, origin) {
   if (!origin) return ''
@@ -1266,9 +1037,6 @@ onMounted(async () => {
 .filter-control {
   width: 220px;
 }
-.filter-control--status {
-  width: 150px;
-}
 .dimension-tabs :deep(.el-tabs__header) {
   margin-bottom: 12px;
 }
@@ -1317,31 +1085,8 @@ onMounted(async () => {
 .count-link {
   font-weight: 600;
 }
-.count-link--danger {
-  font-size: 15px;
-}
-/* 多店超卖要一眼看到：整行浅红底 + 实心红标签 */
-.ebay-price-analysis :deep(.el-table__row.is-oversell > td.el-table__cell) {
-  background: #fef0f0;
-}
-.oversell-tag {
-  font-weight: 600;
-}
-.price-lowest {
-  color: #67c23a;
-}
-.price-above {
-  color: #e6a23c;
-  font-weight: 600;
-}
-.price-high {
-  color: #f56c6c;
-  font-weight: 600;
-}
-.status-tags {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px;
+.unmatched-reason {
+  color: #b88230;
 }
 .column-header {
   display: inline-flex;
@@ -1381,13 +1126,6 @@ onMounted(async () => {
   font-weight: 600;
   color: #303133;
 }
-.usd-cell {
-  display: inline-flex;
-  white-space: nowrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-}
 .ebay-price-analysis :deep(.el-table__row.is-origin > td.el-table__cell) {
   background: #ecf5ff;
 }
@@ -1407,8 +1145,7 @@ onMounted(async () => {
   .table-tools {
     width: 100%;
   }
-  .filter-control,
-  .filter-control--status {
+  .filter-control {
     width: 100%;
   }
   .filter-form :deep(.el-form-item) {
@@ -1464,17 +1201,10 @@ onMounted(async () => {
   font-weight: 600;
   color: #303133;
 }
-.sku-compare-drawer .usd-cell {
-  display: inline-flex;
-  white-space: nowrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
+.sku-compare-drawer .unmatched-reason {
+  color: #b88230;
 }
 .sku-compare-drawer .el-table__row.is-origin > td.el-table__cell {
   background: #ecf5ff;
-}
-.sku-compare-drawer .el-table__row.is-oversell > td.el-table__cell {
-  background: #fef0f0;
 }
 </style>

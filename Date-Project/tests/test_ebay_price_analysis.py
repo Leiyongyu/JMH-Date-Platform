@@ -22,6 +22,7 @@ from backend.services import ebay_price_analysis_service as service
 from backend.sql_statements import split_sql_statements
 
 MIGRATION = PROJECT_ROOT / "migrations" / "20261110_ebay_price_analysis.sql"
+REASON_MIGRATION = PROJECT_ROOT / "migrations" / "20261110_ebay_price_analysis_unmatched_reason.sql"
 STAT_DATE = date(2026, 9, 23)
 REFRESHED_AT = datetime(2026, 9, 23, 10, 15, 11)
 RATES = {"USD": Decimal("6.523541"), "EUR": Decimal("7.308659"),
@@ -666,7 +667,11 @@ def test_migration_is_idempotent_and_additive_only():
 
 def test_migration_declares_every_column_the_loader_writes():
     sql = MIGRATION.read_text(encoding="utf-8")
+    added = REASON_MIGRATION.read_text(encoding="utf-8")
     for column in repo.COLUMNS:
+        if column in ("unmatched_reason", "unmatched_reason_text"):
+            assert f"ADD COLUMN `{column}`" in added, f"加列迁移缺少 {column}"
+            continue
         assert f"\n  {column} " in sql, f"迁移脚本缺少列 {column}"
 
 
@@ -959,3 +964,165 @@ def test_out_of_stock_listed_rule(matched, overseas, chengdu, available, expecte
     value = connection.execute(f"SELECT {repo.out_of_stock_listed_sql()} FROM t").fetchone()[0]
     connection.close()
     assert value == expected
+
+
+# ----------------------------------------------------------- 未匹配原因
+INDEX = {
+    "goodcang": {
+        "DE": {"20137-0058", "10147-0114", "30180-0606"},
+        "UK": {"60015-0108", "30180-0606"},
+        "USEA": {"40419-1224", "30489-0686"},
+        "USWE": {"40419-1224"},
+        "CZ": {"30180-0606", "77777-0001"},
+    },
+    "chengdu": {"德国": {"MCD-20137-0058"}, "英国": set(), "美国": set()},
+}
+
+
+@pytest.mark.parametrize("sku,site,code,text", [
+    ("MCD-20011-0022", "FR", "SITE_UNMAPPED", "FR 站没有对应仓库"),
+    ("BMW-30533-0740+BMW-30534-0740", "DE", "SKU_BUNDLE", "用「+」拼了 2 个商品"),
+    ("2PC-MCD-20137-0058", "DE", "SKU_COMBO", "组合装（2 件装），单件 SKU MCD-20137-0058 在谷仓 DE、成都仓有"),
+    ("GM-40419-10-1224", "US", "SKU_COMBO", "组合装（10 件装），单件 SKU GM-40419-1224 在谷仓 USEA、USWE 有"),
+    ("POR-77777-0001*2", "DE", "SKU_COMBO", "单件 SKU POR-77777-0001 本站点仓库没有，谷仓 CZ 有"),
+    ("4PC-XYZ-99999-0001", "UK", "SKU_COMBO", "单件 SKU XYZ-99999-0001 在谷仓和成都都找不到"),
+    ("BMW-30489-0686-AMZUS1", "US", "SKU_SUFFIX", "SKU 带后缀「-AMZUS1」，去掉后 BMW-30489-0686 在谷仓 USEA 有"),
+    ("PSA-60015-0108-YXR", "UK", "SKU_SUFFIX", "去掉后 PSA-60015-0108 在谷仓 UK 有"),
+    ("OTH-77777-0001", "US", "OTHER_SITE_ONLY", "US 站仓库没有此商品，谷仓 CZ 有"),
+    ("BMW-30180-0606-AMZUS1", "US", "OTHER_SITE_ONLY", "US 站仓库也没有，谷仓 DE、UK、CZ 有"),
+    ("YP-50699955-SY", "US", "SUFFIX_NOT_STOCKED", "SKU 带后缀「-SY」，去掉后缀在谷仓和成都也都找不到"),
+    ("BMW-30522", "DE", "NOT_IN_WAREHOUSE", "谷仓和成都都没有此 SKU"),
+    ("", "DE", "NOT_IN_WAREHOUSE", "没有填写 SKU"),
+])
+def test_unmatched_reason_names_the_cause_and_where_the_goods_are(sku, site, code, text):
+    reason, message = service.unmatched_reason(sku, site, INDEX)
+    assert reason == code
+    assert text in message, message
+    assert reason in service.UNMATCHED_REASONS
+
+
+def test_legit_four_segment_sku_is_not_mistaken_for_a_multi_pack():
+    # JMH-30020-2-0018 这类中间带小数字的是合法 SKU；去掉中间段在仓里找不到时，不能认作多件装
+    reason, _ = service.unmatched_reason("BMW-30020-2-0018", "DE", INDEX)
+    assert reason == "NOT_IN_WAREHOUSE"
+
+
+def test_build_row_writes_reason_only_for_unmatched_rows():
+    matched = build()
+    assert matched["inventory_matched"] == 1
+    assert matched["unmatched_reason"] is None and matched["unmatched_reason_text"] is None
+    row = service.build_row(source(sku="YP-50699955-SY", site="US", overseas_sellable=None,
+                                   chengdu_sellable=None),
+                            stat_date=STAT_DATE, rates=RATES, batch_id="b", refreshed_at=REFRESHED_AT,
+                            index=INDEX)
+    assert row["inventory_matched"] == 0 and row["status"] == "未匹配"
+    assert row["unmatched_reason"] == "SUFFIX_NOT_STOCKED"
+    assert row["unmatched_reason_text"].startswith("SKU 带后缀「-SY」")
+    long = service.build_row(source(sku="+".join(f"BMW-{n}-0740" for n in range(40)), overseas_sellable=None),
+                             stat_date=STAT_DATE, rates=RATES, batch_id="b", refreshed_at=REFRESHED_AT)
+    assert len(long["unmatched_reason_text"]) <= 255
+
+
+def test_build_rows_pass_the_inventory_index_and_refresh_counts_reasons(monkeypatch):
+    monkeypatch.setattr(repo, "read_source", lambda: {
+        "batch": {"stat_date": STAT_DATE}, "rates": RATES, "goodcang": {"exists": True, "rows": 9},
+        "inventory_index": INDEX,
+        "rows": [source(), source(item_id="2", sku="2PC-MCD-20137-0058", overseas_sellable=None,
+                                  chengdu_sellable=None),
+                 source(item_id="3", sku="YP-1-SY", site="US", overseas_sellable=None,
+                        chengdu_sellable=None)]})
+    captured = {}
+    monkeypatch.setattr(repo, "replace_rows", lambda rows: captured.setdefault("rows", rows) and
+                        {"rows": len(rows), "deleted_rows": 0})
+    result = service.refresh_price_analysis()
+    assert [row["unmatched_reason"] for row in captured["rows"]] == [None, "SKU_COMBO", "SUFFIX_NOT_STOCKED"]
+    assert result["unmatched_reason_counts"] == {"SKU_COMBO": 1, "SUFFIX_NOT_STOCKED": 1}
+
+
+def test_inventory_index_reads_goodcang_keys_and_chengdu_skus():
+    class Cursor:
+        def __init__(self):
+            self.sql = []
+            self.answers = [
+                [{"warehouse_code": "de", "product_sku": "JMH-10437-0774"},
+                 {"warehouse_code": "CZ", "product_sku": "JMH-30180-0606"},
+                 {"warehouse_code": "UK", "product_sku": "NOPREFIX"}],
+                [{"site_name": "德国", "sku": " das-10437-0774 "}],
+            ]
+
+        def execute(self, sql, params=()):
+            self.sql.append(sql)
+
+        def fetchall(self):
+            return self.answers.pop(0)
+
+    cursor = Cursor()
+    index = repo.inventory_index(cursor)
+    assert index == {"goodcang": {"DE": {"10437-0774"}, "CZ": {"30180-0606"}},
+                     "chengdu": {"德国": {"DAS-10437-0774"}}}
+    assert repo.GOODCANG_TABLE in cursor.sql[0] and "chengdu_inventory" in cursor.sql[1]
+
+
+def test_unmatched_filter_and_reason_columns_reach_every_listing_view(monkeypatch):
+    where, params = repo._filters({"unmatched": True, "sites": ["US"]})
+    assert "inventory_matched=0" in where and params == ["US"]
+    for column in ("unmatched_reason", "unmatched_reason_text"):
+        assert column in repo.COLUMNS and column in repo._DETAIL_COLUMNS
+    assert "MAX(unmatched_reason) unmatched_reason,MAX(unmatched_reason_text) unmatched_reason_text" \
+        in repo._SUMMARY_SELECT
+    captured = {}
+    monkeypatch.setattr(repo, "_query", lambda sql, params: captured.update(sql=sql) or [])
+    repo.sku_listings("YP-1-SY")
+    assert "unmatched_reason,unmatched_reason_text" in captured["sql"]
+
+
+def test_detail_export_and_sku_listings_return_the_reason(monkeypatch):
+    monkeypatch.setattr(repo, "meta", lambda: {"stat_date": STAT_DATE, "refreshed_at": REFRESHED_AT})
+    seen = []
+    unmatched = stored_row(inventory_matched=0, status="未匹配", overseas_sellable=None,
+                           unmatched_reason="SKU_BUNDLE", unmatched_reason_text="套装 SKU：…")
+
+    def rows(criteria, **kwargs):
+        seen.append(criteria)
+        return [unmatched]
+
+    monkeypatch.setattr(repo, "detail_rows", rows)
+    monkeypatch.setattr(repo, "detail_count", lambda criteria: 1)
+    data = service.detail(unmatched=True)
+    assert data["rows"][0]["unmatched_reason"] == "SKU_BUNDLE"
+    assert data["rows"][0]["unmatched_reason_text"] == "套装 SKU：…"
+    service.export(unmatched=True, columns="sku")
+    assert seen[0]["unmatched"] is True and seen[0] == seen[-1], "导出与明细同一套筛选"
+    monkeypatch.setattr(repo, "sku_listings", lambda sku: [{
+        "seller_account": "a", "site": "US", "sku": sku, "unmatched_reason": "SUFFIX_NOT_STOCKED",
+        "unmatched_reason_text": "SKU 带后缀「-SY」…"}])
+    monkeypatch.setattr(repo, "sku_sites", lambda sku: [])
+    listing = service.sku_listings(sku="YP-1-SY")["listings"][0]
+    assert listing["unmatched_reason"] == "SUFFIX_NOT_STOCKED"
+    assert listing["unmatched_reason_text"].startswith("SKU 带后缀")
+
+
+def test_api_detail_and_export_pass_unmatched(client, monkeypatch):
+    test_client, _ = client
+    seen = {}
+    monkeypatch.setattr(service, "detail", lambda **kwargs: seen.setdefault("detail", kwargs) or {})
+    monkeypatch.setattr(service, "export", lambda **kwargs: seen.setdefault("export", kwargs) and ("a.xlsx", b"PK"))
+    assert test_client.get("/api/v1/ebay-price-analysis/detail", params={"unmatched": "true"}).status_code == 200
+    assert test_client.get("/api/v1/ebay-price-analysis/export", params={"unmatched": "true"}).status_code == 200
+    assert seen["detail"]["unmatched"] is True and seen["export"]["unmatched"] is True
+
+
+def test_reason_migration_is_idempotent_ascii_and_only_adds_two_columns():
+    raw = REASON_MIGRATION.read_bytes()
+    raw.decode("ascii")  # 纯 ASCII：Windows mysql 客户端默认 gbk
+    sql = raw.decode("ascii")
+    statements = [strip_comments(item) for item in split_sql_statements(sql)]
+    statements = [item for item in statements if item]
+    assert statements[0] == "USE `date-project`" and statements[1] == "SET NAMES utf8mb4"
+    upper = " ".join(statements).upper()
+    assert upper.count("ADD COLUMN") == 2
+    assert upper.count("INFORMATION_SCHEMA.COLUMNS") == 2, "每列先查 information_schema 再加，幂等"
+    for forbidden in ("DROP ", "MODIFY ", "CHANGE ", "TRUNCATE", "INSERT ", "UPDATE ", "DELETE "):
+        assert forbidden not in upper
+    assert "`unmatched_reason` VARCHAR(32) NULL" in sql
+    assert "`unmatched_reason_text` VARCHAR(255) NULL" in sql

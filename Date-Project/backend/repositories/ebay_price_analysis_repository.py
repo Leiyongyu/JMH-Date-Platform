@@ -17,7 +17,8 @@
 - 成都中转仓（领星 wid 18674/18675/18676）：站点 + **完整 SKU**，与原口径一致。
 - 谷仓或成都任一关联上即算匹配；其余站点（实测只有 1 条 FR）落在「未匹配」。
 
-未关联到库存的刊登**必须保留**（inventory_matched=0、状态「未匹配」）：静默丢掉会让
+未关联到库存的刊登**必须保留**（inventory_matched=0、状态「未匹配」），并在刷表时写明原因
+（unmatched_reason / unmatched_reason_text，判定见 service.unmatched_reason）：静默丢掉会让
 库存缺口和超卖判断失真。这类行的库存列、cover_days、stock_gap 一律留 NULL，不写 0 ——
 0 会被当成「有数据且为零」，进而被算进缺口和超卖。
 
@@ -56,7 +57,8 @@ COLUMNS = (
     "mid_code", "title", "image_url", "view_item_url", "currency", "current_price",
     "price_usd", "ebay_quantity", "ebay_quantity_available", "ebay_quantity_sold",
     "watch_count", "overseas_sellable", "overseas_in_transit", "chengdu_sellable",
-    "pending_outbound", "inventory_matched", "sales_qty_7d", "sales_qty_30d",
+    "pending_outbound", "inventory_matched", "unmatched_reason", "unmatched_reason_text",
+    "sales_qty_7d", "sales_qty_30d",
     "cover_days", "stock_gap", "purchase_cost_cny", "status", "sync_batch_id",
     "refreshed_at",
 )
@@ -86,7 +88,8 @@ _DETAIL_COLUMNS = (
     "title", "image_url", "view_item_url", "currency", "current_price", "price_usd",
     "ebay_quantity", "ebay_quantity_available", "ebay_quantity_sold", "watch_count",
     "overseas_sellable", "overseas_in_transit", "chengdu_sellable", "pending_outbound",
-    "inventory_matched", "sales_qty_7d", "sales_qty_30d", "cover_days", "stock_gap",
+    "inventory_matched", "unmatched_reason", "unmatched_reason_text",
+    "sales_qty_7d", "sales_qty_30d", "cover_days", "stock_gap",
     "purchase_cost_cny", "status", "stat_date",
     # 以下为查询时派生的跨店对比列（见 _listing_view），不在 DWS 表里。
     "site_store_count", "site_ebay_available_total", "site_price_usd_min",
@@ -395,6 +398,27 @@ def goodcang_snapshot(cursor) -> dict[str, Any]:
     return {"exists": True, "rows": int((cursor.fetchone() or {}).get("n") or 0)}
 
 
+def inventory_index(cursor) -> dict[str, Any]:
+    """判未匹配原因用的库存索引，只在刷表时取一次：
+
+    - goodcang：区域仓 → 该仓全部去前缀 key（含 CZ 等不纳入看板的仓，用来提示「别的仓有」）
+    - chengdu：站点名 → 成都中转仓完整 SKU（大写）
+    """
+    cursor.execute(f"SELECT warehouse_code,product_sku FROM {GOODCANG_TABLE}")
+    goodcang: dict[str, set[str]] = {}
+    for row in cursor.fetchall():
+        key = inventory_key(row.get("product_sku"))
+        code = str(row.get("warehouse_code") or "").strip().upper()
+        if key and code:
+            goodcang.setdefault(code, set()).add(key)
+    cursor.execute(f"WITH {_inventory_ctes()} SELECT site_name,sku FROM chengdu_inventory")
+    chengdu: dict[str, set[str]] = {}
+    for row in cursor.fetchall():
+        if row.get("site_name") and row.get("sku"):
+            chengdu.setdefault(row["site_name"], set()).add(str(row["sku"]).strip().upper())
+    return {"goodcang": goodcang, "chengdu": chengdu}
+
+
 def read_source(stat_month: str | None = None) -> dict[str, Any]:
     """同一一致性读事务里取刊登、库存、销量、成本与汇率，避免混用替换前后的批次。"""
     with db_connection() as connection:
@@ -415,9 +439,10 @@ def read_source(stat_month: str | None = None) -> dict[str, Any]:
                 stat_date = batch["stat_date"]
                 rows = _source_rows(cursor, batch["stat_month"], stat_date)
                 month_rates, rate_months = rate_lookup(cursor, stat_date.strftime("%Y-%m"))
+                index = inventory_index(cursor)
             connection.commit()
             return {"batch": batch, "rows": rows, "rates": month_rates,
-                    "rate_months": rate_months,
+                    "rate_months": rate_months, "inventory_index": index,
                     "windows": sales_windows(stat_date), "goodcang": goodcang}
         except Exception:
             connection.rollback()
@@ -473,6 +498,8 @@ def _filters(criteria: dict[str, Any], *, flags: bool = True) -> tuple[str, list
         if criteria.get(key):
             clauses.append(f"{column}=%s")
             params.append(criteria[key])
+    if criteria.get("unmatched"):
+        clauses.append("inventory_matched=0")
     keyword = str(criteria.get("keyword") or "").strip()
     if keyword:
         like = f"%{keyword}%"
@@ -628,6 +655,7 @@ _SUMMARY_SELECT = """
         GROUP_CONCAT(DISTINCT status) statuses,
         COUNT(*) listing_count,MAX(site_store_count) store_count,
         MAX(site_oversell) site_oversell,MAX(out_of_stock_listed) out_of_stock_listed,
+        MAX(unmatched_reason) unmatched_reason,MAX(unmatched_reason_text) unmatched_reason_text,
         MAX(stat_date) stat_date"""
 
 
@@ -684,6 +712,7 @@ def sku_listings(sku: str) -> list[dict[str, Any]]:
     return _query(
         "SELECT seller_account,site,site_name,item_id,view_item_url,currency,current_price,"
         "price_usd,ebay_quantity_available,status,title,image_url,"
+        "unmatched_reason,unmatched_reason_text,"
         f"{out_of_stock_listed_sql()} out_of_stock_listed FROM {TABLE} WHERE sku=%s "
         "ORDER BY site,(price_usd IS NULL) ASC,price_usd,seller_account,item_id "
         f"LIMIT {MAX_ROWS + 1}", (sku,))

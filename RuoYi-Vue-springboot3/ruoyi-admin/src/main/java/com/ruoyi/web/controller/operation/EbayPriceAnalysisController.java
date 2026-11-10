@@ -103,6 +103,7 @@ public class EbayPriceAnalysisController extends BaseController
             @RequestParam(required = false) String sortOrder,
             @RequestParam(required = false) Boolean siteOversell,
             @RequestParam(required = false) Boolean outOfStockListed,
+            @RequestParam(required = false) Boolean unmatched,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
         Map<String, Object> params = filters(statDate, sites, accounts, status, keyword);
@@ -110,6 +111,7 @@ public class EbayPriceAnalysisController extends BaseController
         // 不传时为 null，不出现在查询串里，Python 按「不筛选」处理。
         params.put("site_oversell", siteOversell);
         params.put("out_of_stock_listed", outOfStockListed);
+        params.put("unmatched", unmatched);
         params.put("page", Math.max(pageNum, 1));
         params.put("page_size", Math.min(Math.max(pageSize, 1), MAX_PAGE_SIZE));
         params.put("sort_by", trimToNull(sortBy));
@@ -118,7 +120,7 @@ public class EbayPriceAnalysisController extends BaseController
     }
 
     /**
-     * 导出当前筛选下的全部明细，不带分页；多店超卖、断货在售两个筛选与 /detail 一致。
+     * 导出当前筛选下的全部明细，不带分页；多店超卖、断货在售、只看未匹配三个筛选与 /detail 一致。
      * GET 与 POST 等价，前端按既有下载方式任选其一。
      */
     @PreAuthorize("@ss.hasPermi('operations:ebayPriceAnalysis:list')"
@@ -136,11 +138,12 @@ public class EbayPriceAnalysisController extends BaseController
             @RequestParam(required = false) String sortOrder,
             @RequestParam(required = false) Boolean siteOversell,
             @RequestParam(required = false) Boolean outOfStockListed,
+            @RequestParam(required = false) Boolean unmatched,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId,
             HttpServletResponse response) throws IOException
     {
         export(statDate, sites, accounts, status, keyword, mode, sortBy, sortOrder,
-                siteOversell, outOfStockListed, requestId, response);
+                siteOversell, outOfStockListed, unmatched, requestId, response);
     }
 
     @PreAuthorize("@ss.hasPermi('operations:ebayPriceAnalysis:list')"
@@ -158,16 +161,17 @@ public class EbayPriceAnalysisController extends BaseController
             @RequestParam(required = false) String sortOrder,
             @RequestParam(required = false) Boolean siteOversell,
             @RequestParam(required = false) Boolean outOfStockListed,
+            @RequestParam(required = false) Boolean unmatched,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId,
             HttpServletResponse response) throws IOException
     {
         export(statDate, sites, accounts, status, keyword, mode, sortBy, sortOrder,
-                siteOversell, outOfStockListed, requestId, response);
+                siteOversell, outOfStockListed, unmatched, requestId, response);
     }
 
     private void export(String statDate, String sites, String accounts, String status,
             String keyword, String mode, String sortBy, String sortOrder,
-            Boolean siteOversell, Boolean outOfStockListed,
+            Boolean siteOversell, Boolean outOfStockListed, Boolean unmatched,
             String requestId, HttpServletResponse response) throws IOException
     {
         Set<String> permissions = getLoginUser().getPermissions();
@@ -176,6 +180,7 @@ public class EbayPriceAnalysisController extends BaseController
         // 与 /detail 相同：导出跟着页面筛选走；不传为 null，查询串里不出现。
         params.put("site_oversell", siteOversell);
         params.put("out_of_stock_listed", outOfStockListed);
+        params.put("unmatched", unmatched);
         params.put("sort_by", trimToNull(sortBy));
         params.put("sort_order", trimToNull(sortOrder));
         params.put("columns", String.join(",", permittedColumns(permissions)));
