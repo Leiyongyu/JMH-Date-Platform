@@ -20,6 +20,7 @@ from backend.api.v1 import amz_price_tier
 from backend.api.v1 import home_product_nature_snapshot
 from backend.api.v1 import sales_dashboard
 from backend.api.v1 import amz_profit_report
+from backend.api.v1 import ebay_price_analysis
 
 
 api_router = APIRouter()
@@ -46,3 +47,4 @@ api_router.include_router(amz_price_tier.router)
 api_router.include_router(home_product_nature_snapshot.router)
 api_router.include_router(sales_dashboard.router)
 api_router.include_router(amz_profit_report.router)
+api_router.include_router(ebay_price_analysis.router)

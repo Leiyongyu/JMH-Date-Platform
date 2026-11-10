@@ -23,6 +23,11 @@ from backend.services.ebay_store_listing_sync_service import (
     EbayStoreListingSyncError,
     sync_ebay_store_listings,
 )
+from backend.services.ebay_price_analysis_service import (
+    TASK_CODE as EBAY_PRICE_ANALYSIS_TASK_CODE,
+    TASK_NAME as EBAY_PRICE_ANALYSIS_TASK_NAME,
+    refresh_price_analysis,
+)
 from backend.services.owner_rule_feishu_sync_service import (
     TASK_CODE as OWNER_RULE_FEISHU_TASK_CODE,
     TASK_NAME as OWNER_RULE_FEISHU_TASK_NAME,
@@ -172,6 +177,15 @@ TASK_SPECS: dict[str, TaskSpec] = {
             execute=lambda ctx: sync_ebay_store_listings(),
         ),
         TaskSpec(
+            code=EBAY_PRICE_ANALYSIS_TASK_CODE,
+            name=EBAY_PRICE_ANALYSIS_TASK_NAME,
+            period_args_error="eBay价格分析刷表只读当前在售刊登快照，不接受历史月份或日期",
+            # 刷表整表读 ods_ebay_store_listing_latest，而该表由 listing 同步整表事务替换；
+            # 共用同一把锁，避免读到替换一半的快照。日级任务是先同步后刷表，串行不会自锁。
+            lock_name=lambda ctx: "ebay:store-listing:replace",
+            execute=lambda ctx: _refresh_ebay_price_analysis(),
+        ),
+        TaskSpec(
             code=OWNER_RULE_FEISHU_TASK_CODE,
             name=OWNER_RULE_FEISHU_TASK_NAME,
             period_args_error="负责人映射表按飞书当前内容整表同步（含全部月份列），不接受月份或日期参数",
@@ -279,6 +293,13 @@ TASK_SPECS: dict[str, TaskSpec] = {
 }
 
 TASK_CODES = frozenset(TASK_SPECS)
+
+
+def _refresh_ebay_price_analysis() -> dict:
+    """刷表结果补上调度记录要的通用字段：读入的刊登行数即抽取量，写入 DWS 的行数即入库量。"""
+    result = refresh_price_analysis()
+    rows = int(result.get("rows") or 0)
+    return {**result, "extract_rows": rows, "ods_rows": rows}
 
 # 这些异常自带 stage/metrics，失败运行记录据此还原阶段和已处理行数。
 _STAGED_ERRORS = (

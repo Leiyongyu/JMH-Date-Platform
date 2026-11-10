@@ -78,6 +78,12 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run("ebay_store_listing_sync", null, requestId);
     }
 
+    /** eBay价格分析刷表：整表读当前在售刊登快照，重算 DWS 并事务替换。 */
+    public Map<String, Object> runEbayPriceAnalysisRefresh(String requestId)
+    {
+        return run("ebay_price_analysis_refresh", null, requestId);
+    }
+
     public Map<String, Object> runEbayTokenHealth(String requestId)
     {
         return run("ebay_token_health_check", null, requestId);

@@ -25,6 +25,6 @@
 |---|---|---|---|---|---|
 | `jmh-trend-up` | trend-up.svg | 上升 / 比上期增加 | jichu_shangsheng.svg | 红色 `#d9524b`（底色 `#fdf1f1`） | AMZ利润报表涨跌 |
 | `jmh-trend-down` | trend-down.svg | 下降 / 比上期减少 | shangsheng1.svg（形状为向下箭头） | 绿色 `#0d8f70`（底色 `#ecfaf4`） | AMZ利润报表涨跌 |
-| `jmh-export` | export.svg | 导出 Excel / 下载文件 | daochu.svg | 蓝色 `#1296db` | AMZ利润报表导出按钮 |
-| `jmh-refresh` | refresh.svg | 刷新 / 重新加载 | shuaxin.svg（2026-11-05 替换旧版 shuaxinanniu.svg） | 蓝色 `#1296db` | AMZ利润报表刷新按钮 |
+| `jmh-export` | export.svg | 导出 Excel / 下载文件 | daochu.svg | AMZ利润报表：蓝色 `#1296db`（纯图标按钮）；eBay价格分析：不设颜色，跟随按钮文字色（warning 橙色） | AMZ利润报表导出按钮、eBay价格分析导出明细按钮 |
+| `jmh-refresh` | refresh.svg | 刷新 / 重新加载 | shuaxin.svg（2026-11-05 替换旧版 shuaxinanniu.svg） | AMZ利润报表：蓝色 `#1296db`（纯图标按钮）；eBay价格分析：不设颜色，跟随按钮文字色（默认按钮） | AMZ利润报表刷新按钮、eBay价格分析刷新按钮 |
 | `jmh-expand` | expand.svg | 展开选项 / 更多设置菜单 | zhankai.svg（原为蓝绿双色，已改为单色） | 蓝色 `#0085D0` | AI助手输入框「数据来源」按钮 |
