@@ -36,14 +36,6 @@ public class ManualSyncController extends BaseController
         return submitted(sid, "eBay全量同步");
     }
 
-    @PreAuthorize("@ss.hasPermi('operations:ebayReplenishment:sync')")
-    @PostMapping("/ebay/refresh-only")
-    public AjaxResult refreshEbayOnly()
-    {
-        String sid = asyncSyncService.submitEbay("MANUAL", getUsername(), "refresh");
-        return submitted(sid, "eBay快照刷新");
-    }
-
     @PreAuthorize("@ss.hasPermi('operations:amzReplenishment:sync')")
     @PostMapping("/amz")
     public AjaxResult syncAmz()

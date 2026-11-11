@@ -4,14 +4,9 @@ import request from '@/utils/request'
 // Poll GET /operations/sync/manual/status/{submissionId} until terminal state.
 // Once terminal, the response includes the real { parentLogId, parentStatus, ...steps }.
 
-/** eBay 全量同步：拉源数据 + 刷新补货/跟价快照 (异步) */
+/** eBay 全量同步：拉领星 / 谷仓源数据 (异步) */
 export function syncEbayAll() {
   return request({ url: '/operations/sync/manual/ebay', method: 'post' })
-}
-
-/** eBay 仅刷新快照（不拉源数据） (异步) */
-export function refreshEbayOnly() {
-  return request({ url: '/operations/sync/manual/ebay/refresh-only', method: 'post' })
 }
 
 /** AMZ 全量同步 (异步) */

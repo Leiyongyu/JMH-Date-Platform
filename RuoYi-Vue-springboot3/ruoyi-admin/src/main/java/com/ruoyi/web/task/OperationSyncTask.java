@@ -86,14 +86,6 @@ public class OperationSyncTask
     public void syncLingxingPurchasePlan() { exec("purchase_plan", "领星-采购计划", "erp/sc/routing/data/local_inventory/getPurchasePlans", LOCK_LINGXING_EBAY,
             () -> SpringUtils.getBean(LingxingPurchasePlanSyncService.class).sync()); }
 
-    // ==================== 快照刷新 ====================
-    public void refreshEbayReplenishmentSnapshot() { exec("ebay_replenish_snapshot", "刷新eBay补货快照", "compute/ebayReplenishment", LOCK_LINGXING_EBAY,
-            () -> { int rows = SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService.class).refreshSnapshot();
-                    return OperationSyncResult.success("ebay_replenish_snapshot", "刷新eBay补货快照", "compute/ebayReplenishment", rows, rows, 0); }); }
-    public void refreshEbayPriceTrackingSnapshot() { exec("ebay_price_tracking_snapshot", "刷新eBay跟价表", "compute/ebayPriceTracking", LOCK_LINGXING_EBAY,
-            () -> { int rows = SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayPriceTrackingService.class).refreshSnapshot();
-                    return OperationSyncResult.success("ebay_price_tracking_snapshot", "刷新eBay跟价表", "compute/ebayPriceTracking", rows, rows, 0); }); }
-
     // ==================== Amazon 同步 ====================
     public void syncAmzOrderProfit() { exec("amz_order_profit", "领星-Amazon订单利润", "basicOpen/finance/mreport/OrderProfit", LOCK_LINGXING_AMZ,
             () -> SpringUtils.getBean(AmzOrderProfitSyncService.class).syncAll()); }

@@ -27,9 +27,8 @@ public class SyncTaskRunner
         try
         {
             EbayUnifiedSyncService svc = SpringUtils.getBean(EbayUnifiedSyncService.class);
-            Map<String, Object> result = "refresh".equals(scope)
-                    ? svc.refreshOnly(triggerType, operator)
-                    : svc.syncAll(triggerType, operator);
+            // eBay 已无本地快照需要刷新（跟价与旧补货1.0已下线），只有全量拉取。
+            Map<String, Object> result = svc.syncAll(triggerType, operator);
             sub.completeFrom(result);
         }
         catch (Exception e)

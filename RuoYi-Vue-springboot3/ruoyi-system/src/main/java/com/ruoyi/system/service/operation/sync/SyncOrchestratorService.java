@@ -122,15 +122,7 @@ public class SyncOrchestratorService
                 () -> SpringUtils.getBean(LingxingInventorySyncService.class).syncAll()),
             new StepDef("statement", "领星-库存流水", "erp/sc/routing/inventoryLog/WareHouseInventory/wareHouseCenterStatement",
                 false, false, true,
-                () -> SpringUtils.getBean(LingxingStatementSyncService.class).sync()),
-            new StepDef("ebay_replenish", "刷新eBay补货快照", "compute/ebayReplenishment",
-                false, true, false,
-                () -> { int rows = SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService.class).refreshSnapshot();
-                        return OperationSyncResult.success("ebay_replenish", "刷新eBay补货快照", "compute/ebayReplenishment", rows, rows, 0); }),
-            new StepDef("ebay_tracking", "刷新eBay跟价快照", "compute/ebayPriceTracking",
-                false, true, false,
-                () -> { int rows = SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayPriceTrackingService.class).refreshSnapshot();
-                        return OperationSyncResult.success("ebay_tracking", "刷新eBay跟价快照", "compute/ebayPriceTracking", rows, rows, 0); })
+                () -> SpringUtils.getBean(LingxingStatementSyncService.class).sync())
         )),
         AMZ("amz", "AMZ补货数据同步", Arrays.asList(
             new StepDef("amz_listing", "领星-Amazon商品刊登", "erp/sc/data/mws/listing",

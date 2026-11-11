@@ -116,12 +116,10 @@ public class OperationCalibrationSyncService
                 SpringUtils.getBean(AmzWarehouseInventorySyncService.class).syncAll());
         }
 
-        // 16-18 刷新快照
-        for (String[] snap : new String[][]{{"ebay_replenish","刷新eBay补货快照"},{"ebay_tracking","刷新eBay跟价快照"},{"amz_replenish","刷新Amazon补货快照"}}) {
+        // 刷新快照（eBay 跟价与旧补货1.0 已下线，只剩 Amazon 补货快照）
+        for (String[] snap : new String[][]{{"amz_replenish","刷新Amazon补货快照"}}) {
             runStep(logSvc, parentId, results, snap[0], snap[1], () -> {
                 switch (snap[0]) {
-                    case "ebay_replenish": SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService.class).refreshSnapshot(); break;
-                    case "ebay_tracking": SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayPriceTrackingService.class).refreshSnapshot(); break;
                     case "amz_replenish": SpringUtils.getBean(com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService.class).refreshSnapshot(); break;
                 }
                 return OperationSyncResult.success(snap[0], snap[1], "compute", 1, 1, 0);

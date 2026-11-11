@@ -34,26 +34,13 @@ public class EbayUnifiedSyncService
         new StepDef("gc_product", "谷仓-商品信息", "/product/get_product_sku_list"),
         new StepDef("gc_grn_list", "谷仓-入库单", "/inbound_order/get_grn_list"),
         new StepDef("gc_grn_detail", "谷仓-入库单详情", "/inbound_order/get_grn_detail"),
-        new StepDef("statement", "领星-库存流水", "erp/sc/routing/inventoryLog/WareHouseInventory/wareHouseCenterStatement"),
-        new StepDef("ebay_replenish", "刷新eBay补货快照", "compute/ebayReplenishment"),
-        new StepDef("ebay_tracking", "刷新eBay跟价快照", "compute/ebayPriceTracking")
-    };
-
-    private static final StepDef[] REFRESH_ONLY_STEPS = {
-        new StepDef("ebay_replenish", "刷新eBay补货快照", "compute/ebayReplenishment"),
-        new StepDef("ebay_tracking", "刷新eBay跟价快照", "compute/ebayPriceTracking")
+        new StepDef("statement", "领星-库存流水", "erp/sc/routing/inventoryLog/WareHouseInventory/wareHouseCenterStatement")
     };
 
     public Map<String, Object> syncAll(String triggerType, String operator)
     {
         return withLock(STEPS, "eBay-手动拉取最新数据", triggerType, operator,
                 "eBay数据同步正在执行中，请稍后再试");
-    }
-
-    public Map<String, Object> refreshOnly(String triggerType, String operator)
-    {
-        return withLock(REFRESH_ONLY_STEPS, "eBay-仅刷新快照", triggerType, operator,
-                "eBay快照刷新正在执行中，请稍后再试");
     }
 
     private Map<String, Object> withLock(StepDef[] steps, String parentName, String triggerType,
@@ -180,16 +167,6 @@ public class EbayUnifiedSyncService
                 return SpringUtils.getBean(GoodcangGrnSyncService.class).syncAllGrnDetails();
             case "statement":
                 return SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.LingxingStatementSyncService.class).sync();
-            case "ebay_replenish":
-                int replenishRows = SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayReplenishmentSnapshotService.class)
-                        .refreshSnapshot();
-                return OperationSyncResult.success("ebay_replenish", "刷新eBay补货快照",
-                        "compute/ebayReplenishment", replenishRows, replenishRows, 0);
-            case "ebay_tracking":
-                int trackingRows = SpringUtils.getBean(com.ruoyi.system.service.operation.IEbayPriceTrackingService.class)
-                        .refreshSnapshot();
-                return OperationSyncResult.success("ebay_tracking", "刷新eBay跟价快照",
-                        "compute/ebayPriceTracking", trackingRows, trackingRows, 0);
             default:
                 LOG.info("eBay步骤 [{}] 未实现", step.name);
                 return OperationSyncResult.success(step.key, step.name, step.apiPath, 0, 0, 0);

@@ -17,20 +17,8 @@ import com.ruoyi.system.mapper.operation.*;
 @Service
 public class UnifiedExportService
 {
-    @Autowired private EbayPriceTrackingSnapshotMapper ebayPriceTrackingMapper;
     @Autowired private AmzReplenishmentSnapshotMapper amzReplenishmentMapper;
     @Autowired private com.ruoyi.system.service.operation.scope.BusinessDataScopeService dataScope;
-
-    public void exportEbayPriceTracking(ExportRequest req, HttpServletResponse response) throws Exception
-    {
-        List<String> allowed = Arrays.asList("site","sku","productName","skuLevel","ourLowestPrice","trackingPrice",
-            "trackingProfitMargin","floorPrice","returnRate","sales3d","sales7d","sales30d","sales90d","maxMonthlySales",
-            "overseasStock","overseasStockAgeDays","stockSalesRatio","estimatedReplenishQty","brandCode","operatorName",
-            "oeNumber","presaleUrl","soldUrl","remark","calcTime");
-        List<String> keys = resolveKeys(req, allowed);
-        List<Map<String, Object>> data = fetchEbayPriceTrackingData(req, keys);
-        writeExcel(response, "eBay每日跟价数据", data, resolveColumns(req, keys, allowed, ebayPriceTrackingTitles()));
-    }
 
     public void exportAmzReplenishment(ExportRequest req, HttpServletResponse response) throws Exception
     {
@@ -52,20 +40,6 @@ public class UnifiedExportService
     }
 
     // ========== 数据查询 ==========
-
-    private List<Map<String, Object>> fetchEbayPriceTrackingData(ExportRequest req, List<String> keys)
-    {
-        Map<String, Object> params = buildEbayPriceTrackingParams(req, 1, 0);
-        List<EbayPriceTrackingSnapshot> list = ebayPriceTrackingMapper.search(params);
-        List<Map<String, Object>> all = new ArrayList<>();
-        Set<String> selected = "SELECTED".equals(req.getScope()) && req.getRowKeys() != null
-                ? new HashSet<>(req.getRowKeys()) : null;
-        for (EbayPriceTrackingSnapshot s : list) {
-            if (selected != null && !selected.contains(s.getSite() + "|" + s.getSku())) continue;
-            all.add(toMap(s, keys));
-        }
-        return all;
-    }
 
     private List<Map<String, Object>> fetchAmzReplenishmentData(ExportRequest req, List<String> keys)
     {
@@ -130,16 +104,6 @@ public class UnifiedExportService
 
     // ========== 参数构建 ==========
 
-    private Map<String, Object> buildEbayPriceTrackingParams(ExportRequest req, int page, int size)
-    {
-        Map<String, Object> p = buildFilterParams(req);
-        p.put("sortField", req.getSortField());
-        p.put("sortOrder", req.getSortOrder());
-        if ("SELECTED".equals(req.getScope()) && req.getRowKeys() != null)
-            p.put("rowKeys", req.getRowKeys());
-        return p;
-    }
-
     private Map<String, Object> buildAmzReplenishmentParams(ExportRequest req, int page, int size)
     {
         Map<String, Object> p = buildFilterParams(req);
@@ -187,23 +151,6 @@ public class UnifiedExportService
     }
 
     // ========== 对象转 Map ==========
-
-    private Map<String, Object> toMap(EbayPriceTrackingSnapshot s, List<String> keys)
-    {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("site", s.getSite()); m.put("sku", s.getSku()); m.put("productName", s.getProductName());
-        m.put("skuLevel", s.getSkuLevel()); m.put("ourLowestPrice", s.getOurLowestPrice());
-        m.put("trackingPrice", s.getTrackingPrice()); m.put("trackingProfitMargin", s.getTrackingProfitMargin());
-        m.put("floorPrice", s.getFloorPrice()); m.put("returnRate", s.getReturnRate());
-        m.put("sales3d", s.getSales3d()); m.put("sales7d", s.getSales7d()); m.put("sales30d", s.getSales30d());
-        m.put("sales90d", s.getSales90d()); m.put("maxMonthlySales", s.getMaxMonthlySales());
-        m.put("overseasStock", s.getOverseasStock()); m.put("overseasStockAgeDays", s.getOverseasStockAgeDays());
-        m.put("stockSalesRatio", s.getStockSalesRatio()); m.put("estimatedReplenishQty", s.getEstimatedReplenishQty());
-        m.put("brandCode", s.getBrandCode()); m.put("operatorName", s.getOperatorName());
-        m.put("oeNumber", s.getOeNumber()); m.put("presaleUrl", s.getPresaleUrl()); m.put("soldUrl", s.getSoldUrl());
-        m.put("remark", s.getRemark()); m.put("calcTime", s.getCalcTime());
-        return filterMap(m, keys);
-    }
 
     private Map<String, Object> toMap(AmzReplenishmentSnapshot s, List<String> keys)
     {
@@ -262,21 +209,6 @@ public class UnifiedExportService
     }
 
     // ========== 中文标题映射 ==========
-
-    private Map<String, String> ebayPriceTrackingTitles()
-    {
-        Map<String, String> t = new LinkedHashMap<>();
-        t.put("site","站点"); t.put("sku","SKU"); t.put("productName","产品名称"); t.put("skuLevel","等级");
-        t.put("ourLowestPrice","最低价"); t.put("trackingPrice","跟卖价"); t.put("trackingProfitMargin","跟卖利润率");
-        t.put("floorPrice","底线价"); t.put("returnRate","退货率"); t.put("sales3d","近3天销量");
-        t.put("sales7d","近7天销量"); t.put("sales15d","近15天销量"); t.put("sales30d","近30天销量"); t.put("sales90d","近90天销量");
-        t.put("maxMonthlySales","历史最大月销"); t.put("overseasStock","海外仓库存");
-        t.put("overseasStockAgeDays","海外仓库龄"); t.put("stockSalesRatio","库销比");
-        t.put("estimatedReplenishQty","预估补货量"); t.put("brandCode","品牌"); t.put("operatorName","操作员");
-        t.put("oeNumber","OE号"); t.put("presaleUrl","售前链接"); t.put("soldUrl","售后链接");
-        t.put("remark","备注"); t.put("calcTime","计算时间");
-        return t;
-    }
 
     private Map<String, String> amzReplenishmentTitles()
     {
