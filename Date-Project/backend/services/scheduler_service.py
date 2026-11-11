@@ -51,6 +51,12 @@ from backend.services.amz_profit_report_sync_service import (
     AmzProfitReportSyncError,
     sync_amz_profit_report,
 )
+from backend.services.amz_monthly_profit_sync_service import (
+    TASK_CODE as AMZ_MONTHLY_PROFIT_TASK_CODE,
+    TASK_NAME as AMZ_MONTHLY_PROFIT_TASK_NAME,
+    AmzMonthlyProfitSyncError,
+    sync_amz_monthly_profit,
+)
 from backend.services.amazon_profit_sync_service import (
     AmazonProfitEtlError,
     previous_natural_month,
@@ -262,6 +268,13 @@ TASK_SPECS: dict[str, TaskSpec] = {
             execute=lambda ctx: sync_amz_profit_report(ctx.month),
         ),
         TaskSpec(
+            code=AMZ_MONTHLY_PROFIT_TASK_CODE,
+            name=AMZ_MONTHLY_PROFIT_TASK_NAME,
+            default_previous_month=True,
+            lock_name=lambda ctx: f"lingxing:amz-monthly-profit:{ctx.month}",
+            execute=lambda ctx: sync_amz_monthly_profit(ctx.month),
+        ),
+        TaskSpec(
             code=CLEARANCE_TASK_CODE,
             name="AMZ FBA与eBay海外仓库存库龄同步",
             resolve_month=lambda value: resolve_fba_inventory_pull_month(value),
@@ -324,6 +337,7 @@ _STAGED_ERRORS = (
     AmzListingRawSyncError,
     AmazonProfitEtlError,
     AmzProfitReportSyncError,
+    AmzMonthlyProfitSyncError,
     InventoryReportSourceSyncError,
     GoodcangStorageSyncError,
     GoodcangProductInventorySyncError,

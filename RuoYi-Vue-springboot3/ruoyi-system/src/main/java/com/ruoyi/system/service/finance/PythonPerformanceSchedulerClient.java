@@ -140,6 +140,12 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run("amz_profit_report_sync", statMonth, requestId);
     }
 
+    /** AMZ月度利润表：领星利润报表（MSKU + 店铺，结算，人民币），statMonth 为空时 Python 取上一个自然月。 */
+    public Map<String, Object> runAmzMonthlyProfit(String statMonth, String requestId)
+    {
+        return run("amz_monthly_profit_sync", statMonth, requestId);
+    }
+
     public Map<String, Object> run(String statMonth, String requestId)
     {
         return run(PERFORMANCE_TASK, statMonth, requestId);
