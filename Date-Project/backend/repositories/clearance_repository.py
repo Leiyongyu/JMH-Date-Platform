@@ -463,17 +463,22 @@ def ctu_over_30_costs(pull_month: str) -> dict[str, Decimal]:
     return {code: row['ctu_over_30_cost'] for code, row in ctu_group_metrics(pull_month).items() if code != '_TOTAL'}
 
 
-def ctu_ebay_owner_cost_rows(pull_month: str) -> list[dict[str, Any]]:
-    """仅eBay成都仓成本明细；空快照返回[]，有快照但无成本返回NULL占位行。"""
+# 个人维度能按 SKU 归属负责人的成都仓组别：eBay 按 eBay 规则；EU 按品牌 / OTH 规则（与本地仓同口径）。
+# US 各组的负责人规则按店铺，成都仓库龄没有店铺信息，不参与个人维度。
+CTU_OWNER_GROUPS = ("EBAY-1", "EU")
+
+
+def ctu_owner_cost_rows(pull_month: str) -> list[dict[str, Any]]:
+    """eBay、EU 成都仓成本明细（带 group_code）；组别没有快照时不返回，有快照但无成本返回 NULL 占位行。"""
     with db_connection() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT d.sku,d.over_30_cost
+            SELECT g.group_code,d.sku,d.over_30_cost
             FROM dws_ctu_inventory_age_group g
             LEFT JOIN ods_lingxing_ctu_inventory_detail d
               ON d.pull_month=g.pull_month AND d.group_code=g.group_code
              AND d.over_30_cost<>0
-            WHERE g.pull_month=%s AND g.group_code='EBAY-1'
+            WHERE g.pull_month=%s AND g.group_code IN ('EBAY-1','EU')
             """,
             (pull_month,),
         )

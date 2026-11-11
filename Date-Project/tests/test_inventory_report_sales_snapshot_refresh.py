@@ -112,7 +112,7 @@ class World:
         mp.setattr(service, "_inventory_health_maps", lambda *_a, **_k: ({}, {}, {}, set()))
         mp.setattr(service, "_inventory_owner_context", lambda *_a, **_k: ({}, {}, {}))
         mp.setattr(service, "_inventory_age_cost_by_owner", lambda *_a, **_k: ({}, {}))
-        mp.setattr(service, "_ctu_ebay_cost_by_owner", lambda *_a, **_k: ({}, False))
+        mp.setattr(service, "_ctu_cost_by_owner", lambda *_a, **_k: ({}, set()))
         mp.setattr(repo, "owner_rules", lambda *_a: [])
         mp.setattr(service, "_ebay_product_sku_map", lambda *_a, **_k: {})
         mp.setattr(service, "_ebay_assignment", lambda sku, *_a: (

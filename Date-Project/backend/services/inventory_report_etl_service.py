@@ -998,7 +998,7 @@ def get_dimension_summary(
 
     age_cost_departments: set[str] = set()
     owner_90_180, owner_180_plus = {}, {}
-    ctu_owner_costs, ctu_available = {}, False
+    ctu_owner_costs, ctu_available = {}, set()
     if dimension == "OWNER" and report_month:
         # Historical rows without a saved rule month keep their original
         # source-month attribution until that report month is recalculated.
@@ -1019,7 +1019,7 @@ def get_dimension_summary(
         owner_90_180, owner_180_plus = _inventory_age_cost_by_owner(
             report_month, owner_context=owner_context,
         )
-        ctu_owner_costs, ctu_available = _ctu_ebay_cost_by_owner(
+        ctu_owner_costs, ctu_available = _ctu_cost_by_owner(
             report_month, owner_context=owner_context,
         )
     else:
@@ -2176,21 +2176,41 @@ def _inventory_owner_context(pull_month: str, *, rule_month: str | None = None):
     )
 
 
-def _ctu_ebay_cost_by_owner(pull_month: str, *, owner_context):
-    """按本报表保存的eBay负责人规则归属成本；保留所有批次及未分配。"""
-    rows = clearance_repo.ctu_ebay_owner_cost_rows(pull_month)
+# 成都仓组别 → 个人维度的 (平台, 部门)。
+CTU_OWNER_KEYS = {"EBAY-1": ("EBAY", "EBAY-1"), "EU": ("AMZ", "AMZ-EU")}
+
+
+def _ctu_cost_by_owner(pull_month: str, *, owner_context):
+    """按本报表保存的负责人规则归属成都仓30天以上成本；保留所有批次及未分配。
+
+    eBay 按 eBay 规则；EU 没有店铺信息，按品牌 / OTH 规则（_amazon_local_assignment，与本地仓同口径，
+    UK 中转仓的货同样按品牌，不套 UK 店铺固定负责人）。返回 (成本, 有快照的(平台, 部门)集合)。
+    """
+    rows = clearance_repo.ctu_owner_cost_rows(pull_month)
     costs = defaultdict(lambda: ZERO)
-    _, ebay_rules, ebay_sku_map = owner_context
+    available = set()
+    amazon_rules, ebay_rules, ebay_sku_map = owner_context
     for row in rows:
+        group = normalize_text(row.get("group_code")).upper() or "EBAY-1"
+        key = CTU_OWNER_KEYS.get(group)
+        if key is None:
+            continue
+        available.add(key)
         if row.get("over_30_cost") is None:
             continue  # LEFT JOIN占位仅证明快照存在，不是无SKU的真实成本。
-        principal, _ = _ebay_assignment(row.get("sku"), ebay_rules, ebay_sku_map)
-        costs[("EBAY", "EBAY-1", _principal(principal))] += _num(row["over_30_cost"])
-    return costs, bool(rows)
+        if group == "EU":
+            principal, _source, _group = _amazon_local_assignment("", row.get("sku"), "EU", amazon_rules)
+        else:
+            principal, _ = _ebay_assignment(row.get("sku"), ebay_rules, ebay_sku_map)
+        costs[(*key, _principal(principal))] += _num(row["over_30_cost"])
+    return costs, available
 
 
 def _attach_owner_ctu_costs(items, total, stat_month, cost_month, costs, available):
-    """仅eBay个人展示成都仓货值；独立合计，不污染原库存/销量合计。"""
+    """eBay、EU 个人展示成都仓货值（US 不参与，显示 --）；独立合计，不污染原库存/销量合计。
+
+    available 是有成都仓快照的 (平台, 部门) 集合；某组没有快照时该组显示 --，不当 0。
+    """
     keys = {
         (normalize_text(row.get("platform_code")).upper(),
          normalize_text(row.get("department_code")).upper(),
@@ -2207,9 +2227,7 @@ def _attach_owner_ctu_costs(items, total, stat_month, cost_month, costs, availab
         key = (normalize_text(item.get("platform_code")).upper(),
                normalize_text(item.get("department_code")).upper(),
                _principal(item.get("dimension_value")))
-        item["ctu_over_30_cost"] = (
-            costs.get(key, ZERO) if available and key[:2] == ("EBAY", "EBAY-1") else None
-        )
+        item["ctu_over_30_cost"] = costs.get(key, ZERO) if key[:2] in available else None
         item["ctu_cost_month"] = cost_month
     if items:
         if total is None:

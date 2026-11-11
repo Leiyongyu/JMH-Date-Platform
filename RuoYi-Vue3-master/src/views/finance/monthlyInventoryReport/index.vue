@@ -413,8 +413,8 @@
         <template v-if="activeDimension === 'owner'">
           <el-table-column prop="ctu_over_30_cost" min-width="220" align="right">
             <template #header>
-              <el-tooltip content="仅eBay成都仓31天及以上货值，使用与组别相同的快照月，按本报表已保存的负责人规则月份归属；包含未分配，合计仅eBay。Amazon不参与；快照缺失显示--" placement="top">
-                <span class="report-column-tip">成都仓30天以上货值（仅eBay）</span>
+              <el-tooltip content="eBay、EU成都仓31天及以上货值，使用与组别相同的快照月，按本报表已保存的负责人规则月份归属：eBay按eBay规则，EU按品牌/OTH规则（与本地仓同口径，UK中转仓的货也按品牌）；包含未分配，合计为eBay+EU。US各组负责人规则按店铺、成都仓无店铺信息，不参与，显示--；快照缺失显示--" placement="top">
+                <span class="report-column-tip">成都仓30天以上货值（eBay、EU）</span>
               </el-tooltip>
             </template>
             <template #default="{ row }">{{ row.ctu_over_30_cost == null ? '--' : optionalMoney(row.ctu_over_30_cost) }}</template>

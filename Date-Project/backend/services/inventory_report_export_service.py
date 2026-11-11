@@ -132,7 +132,7 @@ def _dimension_headers(dimension: str) -> list[Header]:
             ("本地仓-期末库存总成本", _field("local_end_inventory_total_cost"), "money"),
         ]
         headers.extend([
-            ("成都仓30天以上货值（仅eBay）", _field("ctu_over_30_cost"), "money"),
+            ("成都仓30天以上货值（eBay、EU）", _field("ctu_over_30_cost"), "money"),
             ("90-180库龄成本", _field("inventory_age_90_180_cost"), "money"),
             ("180+库龄成本", _field("inventory_age_180_plus_cost"), "money"),
             ("所属组别销售目标（USD）", _field("group_sales_target_usd"), "money"),
