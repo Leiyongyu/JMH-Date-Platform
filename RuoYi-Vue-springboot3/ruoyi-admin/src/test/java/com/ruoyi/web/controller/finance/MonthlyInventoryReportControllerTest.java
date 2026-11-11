@@ -124,6 +124,27 @@ class MonthlyInventoryReportControllerTest
     }
 
     @Test
+    void ownerTrendRequiresOwnerViewPermission() throws Exception
+    {
+        var client = mock(PerformancePythonClient.class);
+        var permissions = mock(PermissionService.class);
+        var controller = new MonthlyInventoryReportController(client, permissions);
+
+        assertThrows(AccessDeniedException.class,
+                () -> controller.ownerTrend("2026-06", "2026-09", null));
+        verifyNoInteractions(client);
+
+        when(permissions.hasPermi("finance:monthlyInventoryReport:viewOwner")).thenReturn(true);
+        when(client.monthlyInventoryReportOwnerTrend("2026-06", "2026-09", "req-1"))
+                .thenReturn(Map.of("data", Map.of("months", List.of("2026-06"))));
+        assertEquals(Map.of("months", List.of("2026-06")),
+                controller.ownerTrend("2026-06", "2026-09", "req-1").get("data"));
+        assertTrue(MonthlyInventoryReportController.class
+                .getMethod("ownerTrend", String.class, String.class, String.class)
+                .getAnnotation(PreAuthorize.class).value().contains("monthlyInventoryReport:viewOwner"));
+    }
+
+    @Test
     void exportWithOnePermissionNeverRequestsOtherSheets()
     {
         var client = mock(PerformancePythonClient.class);

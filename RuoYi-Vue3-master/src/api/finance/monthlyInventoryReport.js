@@ -105,3 +105,12 @@ export function importMonthlyInventoryHistory(file, fileSha256) {
     timeout: 600000
   })
 }
+
+/** 个人维度趋势：每个负责人逐月销售额、毛利、周转天数（货值）、181天以上库龄成本 */
+export function getMonthlyInventoryOwnerTrend(startMonth, endMonth) {
+  return request({
+    url: '/finance/monthly-inventory-report/owner-trend',
+    method: 'get',
+    params: { startMonth, endMonth }
+  })
+}

@@ -1227,3 +1227,29 @@ def _source_database() -> str:
     return (settings.shop_source_database.strip() or "jmh_data_platform").replace(
         "`", "``"
     )
+
+
+def owner_view_snapshots(start_stat_month: str, end_stat_month: str) -> list[dict[str, Any]]:
+    """个人维度趋势：读取区间内已渲染的 OWNER 视图快照（按计算月）。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT stat_month,payload_json FROM monthly_inventory_report_view_snapshot "
+            "WHERE dimension_type='OWNER' AND stat_month BETWEEN %s AND %s "
+            "ORDER BY stat_month",
+            (start_stat_month, end_stat_month),
+        )
+        return [
+            {"stat_month": row["stat_month"], "payload": json.loads(row["payload_json"])}
+            for row in cursor.fetchall()
+        ]
+
+
+def owner_performance_rows(start_month: str, end_month: str) -> list[dict[str, Any]]:
+    """个人维度趋势：绩效排名（AMZ+eBay 合并）每月每个负责人的净销售额与毛利润，CNY。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT stat_month,principal_name,net_sales_amount,gross_profit "
+            "FROM dws_combined_performance_ranking WHERE stat_month BETWEEN %s AND %s",
+            (start_month, end_month),
+        )
+        return list(cursor.fetchall())

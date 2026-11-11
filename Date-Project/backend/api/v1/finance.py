@@ -39,6 +39,7 @@ from backend.services.inventory_report_etl_service import (
     list_months as list_inventory_report_months,
     rebuild_monthly_inventory_report,
 )
+from backend.services.inventory_report_owner_trend_service import owner_trend
 from backend.services.inventory_report_export_service import (
     export_monthly_inventory_report,
 )
@@ -144,6 +145,19 @@ def get_monthly_inventory_report_dimension_summary(
 ):
     try:
         data = get_dimension_summary(dimension_type, stat_month)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success_response(data, request_id=request.state.request_id)
+
+
+@router.get("/monthly-inventory-report/owner-trend")
+def get_monthly_inventory_report_owner_trend(
+    request: Request,
+    start_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+    end_month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+):
+    try:
+        data = owner_trend(start_month, end_month)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return success_response(data, request_id=request.state.request_id)

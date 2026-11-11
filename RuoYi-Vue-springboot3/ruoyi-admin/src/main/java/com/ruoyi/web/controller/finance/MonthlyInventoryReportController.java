@@ -106,6 +106,30 @@ public class MonthlyInventoryReportController extends BaseController
         }
     }
 
+    @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list') and @ss.hasPermi('finance:monthlyInventoryReport:viewOwner')")
+    @GetMapping("/owner-trend")
+    public AjaxResult ownerTrend(
+            @RequestParam String startMonth,
+            @RequestParam String endMonth,
+            @RequestHeader(value = "X-Request-ID", required = false)
+            String requestId)
+    {
+        try
+        {
+            requireDimensionPermission("OWNER");
+            return success(data(pythonClient.monthlyInventoryReportOwnerTrend(
+                    startMonth, endMonth, requestId)));
+        }
+        catch (AccessDeniedException e)
+        {
+            throw e;
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
     @Log(title = "月度库存报表导出", businessType = BusinessType.EXPORT)
     @PreAuthorize("@ss.hasPermi('finance:monthlyInventoryReport:list')")
     @GetMapping("/export")

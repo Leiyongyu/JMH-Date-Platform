@@ -321,6 +321,16 @@ public class PerformancePythonClient extends PythonHttpSupport
                 params, requestId);
     }
 
+    /** 月度库存个人维度趋势：每个负责人逐月销售额、毛利、周转天数、181天以上库龄成本。 */
+    public Map<String, Object> monthlyInventoryReportOwnerTrend(
+            String startMonth, String endMonth, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("start_month", startMonth);
+        params.put("end_month", endMonth);
+        return get("/monthly-inventory-report/owner-trend", params, requestId);
+    }
+
     public byte[] exportMonthlyInventoryReport(
             String statMonth,
             String dimensionType,

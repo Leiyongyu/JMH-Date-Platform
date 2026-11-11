@@ -147,6 +147,16 @@
           <el-radio-button v-if="canViewOwner" value="owner">个人</el-radio-button>
         </el-radio-group>
         <span v-if="!allowedDimensions.length">暂无可查看的月度库存维度，请联系管理员分配权限。</span>
+        <el-button
+          v-if="activeDimension === 'owner' && canViewOwner"
+          class="owner-trend-button"
+          type="primary"
+          plain
+          icon="TrendCharts"
+          @click="ownerTrendVisible = true"
+        >
+          趋势分析
+        </el-button>
       </div>
 
       <el-table
@@ -436,6 +446,7 @@
         </template>
       </el-table>
     </el-card>
+    <owner-trend-dialog v-if="canViewOwner" v-model="ownerTrendVisible" :end-month="statMonth" />
     <el-dialog v-model="historyPreviewVisible" title="确认组别历史数据补录" width="900px">
       <p>只补录组别维度。已存在的月份不会覆盖；空白或公式错误保留为空，AMZ-US3 每月独立保留。</p>
       <el-table :data="historyPreview.sheets || []" border max-height="430">
@@ -467,6 +478,7 @@ import { computed, getCurrentInstance, onMounted, onBeforeUnmount, ref } from 'v
 import { checkPermi, checkRole } from '@/utils/permission'
 import useUserStore from '@/store/modules/user'
 import purchaseOrderFormatGuide from '@/assets/images/monthly-inventory/purchase-order-pending-arrival-export-fields.png'
+import OwnerTrendDialog from './OwnerTrendDialog.vue'
 import {
   exportMonthlyInventoryReport,
   getMonthlyInventoryDimensionSummary,
@@ -491,6 +503,7 @@ const availablePeriods = ref([])
 const selectedYear = ref('')
 const selectedMonth = ref('')
 const activeDimension = ref('group')
+const ownerTrendVisible = ref(false)
 const canViewGroup = computed(() => checkPermi(['finance:monthlyInventoryReport:viewGroup']))
 const canViewStore = computed(() => checkPermi(['finance:monthlyInventoryReport:viewStore']))
 const canViewOwner = computed(() => checkPermi(['finance:monthlyInventoryReport:viewOwner']))
@@ -1087,7 +1100,14 @@ onBeforeUnmount(() => {
 }
 
 .dimension-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin: 4px 0 16px;
+}
+
+.owner-trend-button {
+  margin-left: auto;
 }
 
 .dimension-summary-table {
