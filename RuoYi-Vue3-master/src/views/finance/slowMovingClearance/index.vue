@@ -140,7 +140,11 @@
 
     <el-dialog v-model="drilldown.visible" :title="drilldown.title" width="94%" destroy-on-close @close="closeDrilldown">
       <p class="drilldown-hint">
-        快照月份：{{ drilldown.month }}。仅拆分海外仓/FBA库龄；成都仓仍按组别展示。
+        快照月份：{{ drilldown.month }}。{{ drilldown.dimension === 'OWNER'
+          ? (drilldown.ctuByOwner
+            ? '成都仓30天以上按负责人拆分：eBay 按 eBay 规则、EU 按品牌 / OTH 规则，与月度库存个人维度同口径；未匹配计入未分配。'
+            : 'US 各组负责人按店铺划分，成都仓明细没有店铺信息，成都仓30天以上不按个人拆分，显示 --（组别合计见主表）。')
+          : '仅拆分海外仓/FBA库龄；成都仓仍按组别展示。' }}
         {{ drilldown.isEbay ? '美国东西仓合并 US，捷克仓归 DE；个人按各自快照月份的负责人规则匹配，未匹配计入未分配。' : '按中文店铺主体合并各国家站点，不按 SID 拆分；可识别同名店铺的共享仓一并汇总，不重复分摊。' }}
         个人按快照当月规则归属；仅上月存在的站点/店铺/负责人仍保留用于核对，当前数量及成本为 0；差值＝上月成本－本月成本。
       </p>
@@ -151,6 +155,19 @@
       <el-table v-loading="drilldown.loading" :data="drilldown.rows" border stripe show-summary :summary-method="drilldownSummary" max-height="65vh" class="age-table">
         <el-table-column prop="dimension_name" :label="drilldown.dimension === 'OWNER' ? '负责人' : drilldown.isEbay ? '站点' : '中文店铺名称'" min-width="240" fixed show-overflow-tooltip />
         <el-table-column prop="source_row_count" label="本月明细行数" width="120" align="right" />
+        <el-table-column v-if="drilldown.dimension === 'OWNER'" align="center">
+          <template #header>
+            <el-tooltip content="成都中转仓31天及以上库龄；eBay、EU 按负责人拆分，US 无法按人归属显示 --" placement="top">
+              <span>30天以上成都仓</span>
+            </el-tooltip>
+          </template>
+          <el-table-column prop="ctu_over_30_qty" label="库存数量" min-width="120" align="right">
+            <template #default="{ row }">{{ numberOrDash(row.ctu_over_30_qty) }}</template>
+          </el-table-column>
+          <el-table-column prop="ctu_over_30_cost" label="库龄成本" min-width="130" align="right">
+            <template #default="{ row }">{{ moneyOrDash(row.ctu_over_30_cost) }}</template>
+          </el-table-column>
+        </el-table-column>
         <el-table-column v-for="bucket in drilldownBuckets" :key="bucket.key" :label="bucket.label" align="center">
           <el-table-column :prop="`${bucket.key}_sku_count`" label="去重SKU数（中间码）" min-width="165" align="right">
             <template #default="{ row }">{{ number(row[`${bucket.key}_sku_count`]) }}</template>
@@ -208,7 +225,7 @@ const query = reactive({
   pageSize: 20,
   pullMonth: undefined
 })
-const drilldown = reactive({ visible: false, loading: false, title: '', month: '', isEbay: false, rows: [], error: '', dimension: '', warnings: [], summary: {} })
+const drilldown = reactive({ visible: false, loading: false, title: '', month: '', isEbay: false, ctuByOwner: false, rows: [], error: '', dimension: '', warnings: [], summary: {} })
 let drilldownRequest = 0
 const drilldownBuckets = [
   ['0_90', '0–90天（健康）', ''], ['91_180', '91–180天（关注）', 'warning'],
@@ -249,6 +266,7 @@ async function openDrilldown(row, dimension) {
   Object.assign(drilldown, {
     visible: true, loading: true, rows: [], error: '', month, warnings: [], summary: {},
     dimension: isOwner ? 'OWNER' : row.group_code === 'EBAY-1' ? 'SITE' : 'STORE',
+    ctuByOwner: ['EBAY-1', 'EU'].includes(row.group_code),
     isEbay: row.group_code === 'EBAY-1',
     title: `${row.group_name} · ${month} · ${isOwner ? (row.group_code === 'EBAY-1' ? '个人库龄明细（全部站点）' : '个人库龄明细（全部店铺）') : row.group_code === 'EBAY-1' ? '站点库龄明细' : '店铺库龄明细'}`
   })

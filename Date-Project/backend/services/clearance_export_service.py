@@ -82,14 +82,24 @@ def export_monthly_summary(pull_month: str) -> tuple[str, str]:
                                     ("站点", "eBay站点", sites)]:
         headers = month_header + [("组别", "group_code", "text"),
                                   (identity, "dimension_name", "text"),
-                                  ("本月明细行数", "source_row_count", "qty")] + SUMMARY_METRICS
+                                  ("本月明细行数", "source_row_count", "qty")]
+        if label == "个人":
+            # eBay、EU 按负责人拆成都仓30天以上；US 无法按人归属，留空。
+            headers += [("成都仓30天以上库存数量", "ctu_over_30_qty", "qty"),
+                        ("成都仓30天以上库龄成本", "ctu_over_30_cost", "money")]
+        headers += SUMMARY_METRICS
         output = [{**item, "pull_month": pull_month,
                    "group_code": item.get("group_code", "EBAY-1")} for item in items]
         selected = [row for row in source if label == '个人' or
                     row['platform_code'] == ('AMZ' if label == '店铺' else 'EBAY')]
         if items:
-            output.append({**total_metrics(selected, pull_month), 'pull_month':pull_month,
-                           'dimension_name':'合计', 'is_total':1})
+            total = {**total_metrics(selected, pull_month), 'pull_month':pull_month,
+                     'dimension_name':'合计', 'is_total':1}
+            if label == "个人":
+                for field in ("ctu_over_30_qty", "ctu_over_30_cost"):
+                    values = [item[field] for item in items if item.get(field) is not None]
+                    total[field] = sum(values) if values else None
+            output.append(total)
         _append_sheet(workbook, f"{label}-{pull_month}", headers, output,
                       [24] * len(headers), "2563EB")
     export_dir = Path(settings.export_output_dir)

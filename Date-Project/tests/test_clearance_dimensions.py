@@ -397,3 +397,64 @@ def test_owner_page_api_defaults_to_all_sites_and_keeps_permissions(monkeypatch)
 ])
 def test_chinese_store_name_normalization(raw, expected):
     assert service._shop_identity({'sid': '1', 'store_name': raw}) == ('STORE:' + expected, expected)
+
+
+def test_owner_drilldown_splits_ctu_over_30_for_ebay_and_eu_only(snapshots, monkeypatch):
+    """个人下钻带成都仓30天以上：eBay 按 eBay 规则、EU 按品牌规则，与组别合计一致；US 显示 --。"""
+    snapshots(EBAY, pull_month='2026-10', warehouse_code='UK', sku='FRD-1-2',
+              inventory_age_bucket='181_PLUS', inventory_quantity=1, inventory_age_cost=10)
+    snapshots('dws_ctu_inventory_age_group', pull_month='2026-10', group_code='EBAY-1')
+    for sku, qty, cost in [('FRD-1-2', 2, 20), ('HME-3-4', 3, 30), ('ZZZ-5-6', 1, 5), ('FRD-9-9', 0, 0)]:
+        snapshots('ods_lingxing_ctu_inventory_detail', pull_month='2026-10', group_code='EBAY-1',
+                  sku=sku, over_30_qty=qty, over_30_cost=cost)
+    monkeypatch.setattr(service.owners, 'owner_rules', lambda month, platform: [
+        {'rule_type': 'EBAY_BRAND', 'match_key': 'FRD', 'principal_name': '甲'},
+        {'rule_type': 'EBAY_BRAND', 'match_key': 'HME', 'principal_name': '乙'},
+    ] if platform == 'ebay' else [
+        {'group_code': 'EU', 'rule_type': 'BRAND', 'match_key': 'ABC', 'principal_name': '欧'},
+    ])
+    monkeypatch.setattr(service.owners, 'ebay_product_sku_map', lambda month: {})
+
+    ebay = service.list_dimensions('2026-10', 'EBAY-1', dimension='OWNER')
+    rows = {r['dimension_name']: r for r in ebay['items']}
+    assert (rows['甲']['ctu_over_30_qty'], rows['甲']['ctu_over_30_cost']) == (2, 20)
+    # 只在成都仓有货的负责人补一行，海外仓指标为 0
+    assert (rows['乙']['ctu_over_30_cost'], rows['乙']['total_inventory_cost']) == (30, 0)
+    assert rows['未分配']['ctu_over_30_cost'] == 5
+    assert ebay['summary']['ctu_over_30_cost'] == 55 == repo.ctu_over_30_costs('2026-10')['EBAY-1']
+    assert ebay['summary']['ctu_over_30_qty'] == 6
+    assert [r['dimension_key'] for r in ebay['items']] == sorted(r['dimension_key'] for r in ebay['items'])
+    # 按站点筛选时成都仓不属于任何站点，显示 --
+    site = service.list_dimensions('2026-10', 'EBAY-1', 'UK', dimension='OWNER')
+    assert site['summary']['ctu_over_30_cost'] is None
+    assert all(r['ctu_over_30_cost'] is None for r in site['items'])
+
+    snapshots(AMZ, pull_month='2026-10', group_code='EU', sid='1', store_name='EU-店铺-DE', sku='ABC-1-2',
+              inventory_181_270_qty=1, inventory_181_270_cost=9)
+    # EU 当月没有成都仓快照：显示 --，不当 0
+    eu = service.list_dimensions('2026-10', 'EU', dimension='OWNER')
+    assert eu['summary']['ctu_over_30_cost'] is None
+    snapshots('dws_ctu_inventory_age_group', pull_month='2026-10', group_code='EU')
+    eu = service.list_dimensions('2026-10', 'EU', dimension='OWNER')
+    assert eu['summary']['ctu_over_30_cost'] == 0, '有快照但无30天以上库存显示 0'
+    snapshots('ods_lingxing_ctu_inventory_detail', pull_month='2026-10', group_code='EU',
+              sku='ABC-7-8', over_30_qty=4, over_30_cost=8)
+    eu = {r['dimension_name']: r for r in service.list_dimensions('2026-10', 'EU', dimension='OWNER')['items']}
+    assert eu['欧']['ctu_over_30_cost'] == 8
+
+    snapshots(AMZ, pull_month='2026-10', group_code='US1', sid='2', store_name='US1-店铺-US', sku='ABC-1-2',
+              inventory_181_270_qty=1, inventory_181_270_cost=9)
+    snapshots('dws_ctu_inventory_age_group', pull_month='2026-10', group_code='US1')
+    snapshots('ods_lingxing_ctu_inventory_detail', pull_month='2026-10', group_code='US1',
+              sku='ABC-1-2', over_30_qty=1, over_30_cost=3)
+    us = service.list_dimensions('2026-10', 'US1', dimension='OWNER')
+    assert us['summary']['ctu_over_30_cost'] is None
+    assert all(r['ctu_over_30_cost'] is None for r in us['items'])
+
+
+def test_store_and_site_drilldowns_do_not_get_ctu_fields(snapshots):
+    snapshots(AMZ, pull_month='2026-10', group_code='US1', sid='1', store_name='US1-店铺-US', sku='ABC-1-2',
+              inventory_181_270_qty=1, inventory_181_270_cost=9)
+    stores = service.list_dimensions('2026-10', 'US1')
+    assert 'ctu_over_30_cost' not in stores['summary']
+    assert all('ctu_over_30_cost' not in r for r in stores['items'])

@@ -176,3 +176,17 @@ test('both export commands use shared selected month, and JSON failures are not 
   assert.deepEqual(errors, ['没有权限'])
   assert.equal(state.costExporting.value, false)
 })
+
+test('owner drilldown shows CTU over-30 columns; only eBay and EU split it by owner', async () => {
+  const columns = view.split('<el-dialog v-model="drilldown.visible"', 2)[1]
+  assert.match(columns, /<el-table-column v-if="drilldown\.dimension === 'OWNER'" align="center">[\s\S]{0,400}30天以上成都仓[\s\S]{0,300}prop="ctu_over_30_qty"[\s\S]{0,200}numberOrDash\(row\.ctu_over_30_qty\)[\s\S]{0,200}prop="ctu_over_30_cost"[\s\S]{0,200}moneyOrDash\(row\.ctu_over_30_cost\)/)
+  const state = setup(async () => ({ data: { items: [] } }), async () => ({ data: { items: [], summary: { ctu_over_30_cost: 5 } } }))
+  state.query.pullMonth = '2026-10'
+  for (const [group, expected] of [['EBAY-1', true], ['EU', true], ['US1', false], ['US2-MJ', false]]) {
+    await state.openDrilldown({ pull_month: '2026-10', group_code: group, group_name: group }, 'OWNER')
+    assert.equal(state.drilldown.dimension, 'OWNER')
+    assert.equal(state.drilldown.ctuByOwner, expected, group)
+  }
+  assert.equal(state.drilldown.summary.ctu_over_30_cost, 5)
+  assert.match(view, /drilldown\.ctuByOwner[\s\S]{0,200}与月度库存个人维度同口径[\s\S]{0,200}成都仓30天以上不按个人拆分，显示 --/)
+})

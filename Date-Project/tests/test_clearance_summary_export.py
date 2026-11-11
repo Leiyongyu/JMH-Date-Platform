@@ -62,6 +62,10 @@ def test_four_sheets_share_selected_month_and_page_data(monkeypatch, tmp_path):
         assert group_sheet["F7"].value is None  # US3 shared value appears once.
         assert wb.worksheets[1].max_row == 7  # Five Amazon groups plus total.
         assert wb.worksheets[2].max_row == 8  # Owners in all six groups plus total.
+        owner_headers = [c.value for c in wb.worksheets[2][1]]
+        assert owner_headers[4:6] == ["成都仓30天以上库存数量", "成都仓30天以上库龄成本"]
+        assert "成都仓30天以上库龄成本" not in [c.value for c in wb.worksheets[1][1]]
+        assert "成都仓30天以上库龄成本" not in [c.value for c in wb.worksheets[3][1]]
         wb.close()
     assert groups[-1]["ctu_over_30_cost"] == 50  # No mutation of source data.
     assert len(calls) == 12
@@ -128,3 +132,28 @@ def test_export_api_permission_validation_download_and_cleanup(monkeypatch, tmp_
         assert "2026-09" in response.headers["content-disposition"]
         assert not output.exists()
     assert calls == ["2026-08", "2026-09"]
+
+
+def test_owner_sheet_total_sums_ctu_and_keeps_dash_when_no_group_has_it(monkeypatch, tmp_path):
+    groups = [{"group_code": code, "total_inventory_cost": 1} for code in ("EBAY-1", "EU", "US1")]
+    ctu = {"EBAY-1": (2, Decimal("20")), "EU": (1, Decimal("5")), "US1": (None, None)}
+
+    def dimensions(month, group, *, dimension=None):
+        item = {"dimension_name": "甲", "total_inventory_cost": 1}
+        if dimension == "OWNER":
+            item.update(ctu_over_30_qty=ctu[group][0], ctu_over_30_cost=ctu[group][1])
+        return {"items": [item]}
+
+    monkeypatch.setattr(service.repo, "list_groups", lambda month: {"items": groups, "summary": {}})
+    monkeypatch.setattr(service.repo, "metric_source_rows", lambda month: [])
+    monkeypatch.setattr(service, "list_dimensions", dimensions)
+    monkeypatch.setattr(service, "settings", SimpleNamespace(export_output_dir=str(tmp_path)))
+    path, _ = service.export_monthly_summary("2026-09")
+    with Path(path).open("rb") as source:
+        wb = load_workbook(source)
+        sheet = wb.worksheets[2]
+        headers = [c.value for c in sheet[1]]
+        rows = [dict(zip(headers, row)) for row in sheet.iter_rows(min_row=2, values_only=True)]
+        assert [row["成都仓30天以上库龄成本"] for row in rows] == [20, 5, None, 25]
+        assert rows[-1]["成都仓30天以上库存数量"] == 3
+        wb.close()

@@ -630,6 +630,30 @@ def _group_metric_rows(month: str) -> list[dict]:
         return list(cur.fetchall())
 
 
+def ctu_owner_detail_rows(pull_month: str, group_code: str) -> list[dict[str, Any]] | None:
+    """滞销清货个人下钻：某组成都仓30天以上明细（SKU、数量、成本）。
+
+    该组当月没有成都仓快照返回 None（页面显示 --）；有快照但没有30天以上库存返回空列表（显示 0）。
+    """
+    with db_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT g.group_code,d.sku,d.over_30_qty,d.over_30_cost
+            FROM dws_ctu_inventory_age_group g
+            LEFT JOIN ods_lingxing_ctu_inventory_detail d
+              ON d.pull_month=g.pull_month AND d.group_code=g.group_code
+             AND (d.over_30_qty<>0 OR d.over_30_cost<>0)
+            WHERE g.pull_month=%s AND g.group_code=%s
+            """,
+            (pull_month, group_code),
+        )
+        rows = list(cur.fetchall())
+    if not rows:
+        return None
+    # LEFT JOIN 占位行只证明该组有快照，不是真实库存。
+    return [row for row in rows if row['over_30_qty'] is not None or row['over_30_cost'] is not None]
+
+
 def ctu_group_metrics(month: str) -> dict[str, dict]:
     """Sum original CTU detail once per group, keeping zero-stock snapshot groups."""
     if not month:
