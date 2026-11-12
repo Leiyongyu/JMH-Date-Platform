@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from backend.parsers.performance_common import normalize_text, parse_brand_code_from_sku
+from backend.parsers.performance_common import normalize_text
 from backend.repositories import ebay_owner_sku_repository as repo
 from backend.services.inventory_report_etl_service import _ebay_assignment
 from backend.services.performance_service import UNASSIGNED
@@ -10,7 +10,7 @@ from backend.services.owner_sku_common import include_configured_owners, is_pc_s
 
 
 def summarize(rows: list[dict], rules: dict) -> dict:
-    # Reuse performance matching except CL: this dashboard uses its monthly rule.
+    # Same matching as performance (CL follows the monthly rule everywhere since 2026-11-12).
     # Do not supply a warehouse SKU map: listing MSKU is the original sales SKU.
     brands = {}
     for (_, rule_type, key), principal in rules.items():
@@ -31,11 +31,7 @@ def summarize(rows: list[dict], rules: dict) -> dict:
         if not sku:
             missing_rows += 1
             continue
-        if parse_brand_code_from_sku(sku) == 'CL':
-            # Dashboard-only exception removal; shared reports remain unchanged.
-            principal = brands.get('CL', UNASSIGNED)
-        else:
-            principal, _ = _ebay_assignment(sku, brands)
+        principal, _ = _ebay_assignment(sku, brands)
         # One full MSKU per owner, regardless of how many shops list it.
         owners[principal].add(sku)
     items = sorted([{'principal_name': name, 'sku_count': len(keys), 'unassigned': name == UNASSIGNED}

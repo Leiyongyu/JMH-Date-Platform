@@ -308,7 +308,8 @@ def build(platform, source, instant):
     changed = []
     if platform=='ebay':
         for r in facts:
-            if parse_brand_code_from_sku(r['sku'])=='CL':
+            # 首页旧卡片与统一口径现在对 CL 都按当月规则，只把仍不一致的 CL SKU 列出来核对。
+            if parse_brand_code_from_sku(r['sku'])=='CL' and context[1].get('CL',UNASSIGNED)!=r['principal_name']:
                 changed.append(dict(sku=r['sku'],legacy_owner=context[1].get('CL',UNASSIGNED),performance_owner=r['principal_name']))
         changed = list({(r['sku'],r['legacy_owner'],r['performance_owner']):r for r in changed}.values())
         # Population exclusions are intentional. Only validate attribution on

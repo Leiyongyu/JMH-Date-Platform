@@ -1260,7 +1260,7 @@ def test_owner_resolver_uses_ebay_brand_rules_and_fixed_brands(monkeypatch):
     owner_of = service.owner_resolver("2026-11", "2026-11")
     assert owner_of("DAS-10178-0576") == "方黎力"
     assert owner_of("TYT-90245-0772") == "杨萍"
-    assert owner_of("CL-1-2") == "陈丽", "固定品牌优先，与绩效、月度库存一致"
+    assert owner_of("CL-1-2") == "未分配", "CL 不再固定归陈丽，当月无规则即未分配"
     assert owner_of("ZZZ-1-2") == "未分配"
     assert owner_of(None) is None
     assert calls == [("2026-11", "ebay"), ("sku_map", "2026-11")], "规则只读一次"

@@ -17,14 +17,15 @@ def test_ebay_cost_matches_group_sum_and_keeps_other_metrics(env):
                   dict(sku="BMW-20078-0297", over_30_cost=D("2")),
                   dict(sku="", over_30_cost=D("4")),
                   dict(sku="UNKNOWN-001", over_30_cost=D("-1")),
-                  dict(sku="CL-123", over_30_cost=D("5"))]
+                  dict(sku="FLL-123", over_30_cost=D("5"))]
     actual = service.get_dimension_summary("OWNER", "2026-08")
     rows = by_key(actual)
     assert D(rows[("EBAY", "EBAY-1", "eBay负责人")]["ctu_over_30_cost"]) == D("14.3456")
     assert D(rows[("EBAY", "EBAY-1", "未分配")]["ctu_over_30_cost"]) == 3
-    assert D(rows[("EBAY", "EBAY-1", "陈丽")]["ctu_over_30_cost"]) == 5
-    assert rows[("EBAY", "EBAY-1", "陈丽")]["is_age_cost_only"] == 1
-    assert rows[("EBAY", "EBAY-1", "陈丽")].get("total_goods_value") is None
+    # 只有成都仓 30 天以上成本、没有其他指标的负责人（固定品牌 FLL → 方黎力）单独补一行
+    assert D(rows[("EBAY", "EBAY-1", "方黎力")]["ctu_over_30_cost"]) == 5
+    assert rows[("EBAY", "EBAY-1", "方黎力")]["is_age_cost_only"] == 1
+    assert rows[("EBAY", "EBAY-1", "方黎力")].get("total_goods_value") is None
     expected = sum((row["over_30_cost"] for row in env["ctu"]), D(0))
     assert D(actual["total"]["ctu_over_30_cost"]) == expected
     assert sum((D(row["ctu_over_30_cost"]) for row in actual["items"]

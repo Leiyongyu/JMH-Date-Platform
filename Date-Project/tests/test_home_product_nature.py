@@ -115,12 +115,15 @@ def test_same_grain_different_local_sku_and_date_preserves_variants():
     assert report['sku_count']==1
 
 
-def test_ebay_cl_difference_is_reported_legacy_unchanged():
+def test_ebay_cl_follows_monthly_rule_so_legacy_card_matches():
     rows=[row('CL-1'),row('CL-2'),row('FLL-1'),row('JMH-1')]
     report,facts=s.build('ebay',source(rows,EBAY),NOW)
-    assert {f['principal_name'] for f in facts if f['sku'].startswith('CL')}=={'陈丽'}
+    # CL 不再固定归陈丽：统一口径与首页旧卡片都按当月规则，不再有 CL 差异
+    assert {f['principal_name'] for f in facts if f['sku'].startswith('CL')}=={'任雅婷'}
+    assert next(f for f in facts if f['sku']=='FLL-1')['principal_name']=='方黎力'
     assert report['reconciliation']['legacy_card_changed'] is False
-    assert {d['principal_name']:d['delta'] for d in report['reconciliation']['owner_differences']}=={'任雅婷':-2,'陈丽':2}
+    assert report['reconciliation']['owner_differences']==[]
+    assert report['reconciliation']['cl_skus']==[]
     assert next(f for f in facts if f['sku']=='JMH-1')['principal_name']=='未分配'
     assert s.ebay_owner_sku_service.summarize(rows,EBAY)['items']!=[]
 

@@ -114,8 +114,9 @@ def test_missing_cost_and_unknown_owner_are_not_silently_dropped_or_zero_filled(
 
 def test_zero_total_has_undefined_ratios_and_fixed_performance_owners():
     rows = cleaned(make_source(sku="FLL-1", inventory_quantity=0), make_source(sku="CL-1", inventory_quantity=0))
-    data = service.aggregate(rows, {}, {}, "2026-09-29")
-    assert {r["name"] for r in data["owners"]} == {"方黎力", "陈丽"}
+    data = service.aggregate(rows, {"CL": "任雅婷"}, {}, "2026-09-29")
+    # FLL 固定归方黎力；CL 按当月规则
+    assert {r["name"] for r in data["owners"]} == {"方黎力", "任雅婷"}
     assert all(r["total_value"] == "0.000000" for r in data["owners"])
     assert all(r[b + "_ratio"] is None for r in data["owners"] for b in service.BUCKETS)
 

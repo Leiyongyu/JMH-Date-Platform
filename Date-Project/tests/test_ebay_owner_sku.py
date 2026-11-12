@@ -40,8 +40,12 @@ def test_cl_uses_current_rule_and_pc_prefix_is_excluded():
     assert service.summarize([row('2PC-CL-2')], RULES)['unassigned_count'] == 0
 
 
-def test_shared_performance_assignment_keeps_existing_cl_override():
-    assert service._ebay_assignment('CL-1', {'CL': '当月负责人'})[0] == '陈丽'
+def test_shared_performance_assignment_follows_the_monthly_rule_for_cl():
+    # CL 已去掉固定归属（2026-11-12）：共享匹配与首页一致，按当月规则；FLL/LEJ 仍固定归方黎力
+    assert service._ebay_assignment('CL-1', {'CL': '当月负责人'}) == ('当月负责人', 'EBAY_BRAND')
+    assert service._ebay_assignment('CL-1', {})[0] == '未分配'
+    assert service._ebay_assignment('FLL-1', {'FLL': '别人'}) == ('方黎力', 'EBAY_FIXED_BRAND')
+    assert service._ebay_assignment('LEJ-1', {}) == ('方黎力', 'EBAY_FIXED_BRAND')
 
 
 def test_fixed_rules_pack_prefix_and_unassigned():
@@ -160,3 +164,15 @@ def test_api_token_guard_and_error_redaction(monkeypatch):
         response = client.get(url, headers=headers)
         assert response.status_code == 500
         assert 'private-database-detail' not in response.text
+
+
+def test_performance_ranking_sql_keeps_only_fll_lej_fixed():
+    # 绩效排名的 SQL 与 _ebay_assignment 同口径：CL 不再写死归陈丽，走当月规则 join
+    import inspect
+    from backend.repositories import performance_repository
+    from backend.services.inventory_report_etl_service import EBAY_FIXED_BRAND_OWNERS
+    ranking = inspect.getsource(performance_repository.refresh_ebay_ranking_sql)
+    assert "WHEN p.brand_code IN ('FLL', 'LEJ') THEN '方黎力'" in ranking
+    assert "'CL'" not in ranking and '陈丽' not in ranking
+    assert "'CL'" not in inspect.getsource(performance_repository)
+    assert EBAY_FIXED_BRAND_OWNERS == {"FLL": "方黎力", "LEJ": "方黎力"}

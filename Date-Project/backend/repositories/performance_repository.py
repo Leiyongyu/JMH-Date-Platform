@@ -261,7 +261,7 @@ def ebay_unmatched_breakdown(
                 AND r.rule_type = 'EBAY_BRAND'
                 AND r.match_key = p.brand_code
             WHERE p.stat_month = %s
-              AND p.brand_code NOT IN ('FLL', 'LEJ', 'CL')
+              AND p.brand_code NOT IN ('FLL', 'LEJ')
               AND (
                     r.principal_name IS NULL
                     OR LOWER(TRIM(r.principal_name)) IN
@@ -358,22 +358,22 @@ def refresh_ebay_ranking_sql(connection: Connection, stat_month: str) -> dict[st
                     p.refund_amount,
                     p.net_sales_amount,
                     CASE
+                        -- 只有 FLL/LEJ 固定归方黎力；CL 按当月规则（与 _ebay_assignment 一致）
                         WHEN p.brand_code IN ('FLL', 'LEJ') THEN '方黎力'
-                        WHEN p.brand_code = 'CL' THEN '陈丽'
                         WHEN r.principal_name IS NULL
                              OR LOWER(TRIM(r.principal_name)) IN ('', '待定', '待到', 'nan', 'nat', '<na>', 'none', 'null')
                         THEN '未分配'
                         ELSE TRIM(r.principal_name)
                     END AS principal_name,
                     CASE
-                        WHEN p.brand_code IN ('FLL', 'LEJ', 'CL') THEN 1
+                        WHEN p.brand_code IN ('FLL', 'LEJ') THEN 1
                         WHEN r.principal_name IS NOT NULL
                              AND LOWER(TRIM(r.principal_name)) NOT IN ('', '待定', '待到', 'nan', 'nat', '<na>', 'none', 'null')
                         THEN 1
                         ELSE 0
                     END AS matched_flag,
                     CASE
-                        WHEN p.brand_code IN ('FLL', 'LEJ', 'CL') THEN 0
+                        WHEN p.brand_code IN ('FLL', 'LEJ') THEN 0
                         WHEN r.principal_name IS NULL
                              OR LOWER(TRIM(r.principal_name)) IN ('', '待定', '待到', 'nan', 'nat', '<na>', 'none', 'null')
                         THEN 1

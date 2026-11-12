@@ -155,7 +155,7 @@ def test_owner_uses_current_month_including_first_day_without_previous_month_fal
     data = service.list_replenishment(include_level_summary=True)
     assert data["owner_rule_month"] == "2026-10"
     assert [r["principal_name"] for r in data["items"][:7]] == [
-        "当月负责人", "当月负责人", "未分配", "未分配", "方黎力", "方黎力", "陈丽"]
+        "当月负责人", "当月负责人", "未分配", "未分配", "方黎力", "方黎力", "未分配"]  # CL 当月无规则
     rule_calls = [(sql, params) for sql, params in calls if "FROM dwd_performance_owner_rule" in sql]
     assert len(rule_calls) == 1
     assert rule_calls[0][1] == ("2026-10",)

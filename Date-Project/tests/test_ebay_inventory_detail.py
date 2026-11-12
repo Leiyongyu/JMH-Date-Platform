@@ -146,13 +146,14 @@ def test_owner_uses_only_previous_natural_month_when_current_brand_missing(isola
         "2026-10": [
             {"rule_type": "EBAY_BRAND", "match_key": "FRD", "principal_name": "本月负责人"},
             {"rule_type": "EBAY_BRAND", "match_key": "EPM", "principal_name": "未分配"},
+            {"rule_type": "EBAY_BRAND", "match_key": "FLL", "principal_name": "不应覆盖固定负责人"},
         ],
         "2026-09": [
             {"rule_type": "EBAY_BRAND", "match_key": "FRD", "principal_name": "上月旧负责人"},
             {"rule_type": "EBAY_BRAND", "match_key": "BMW", "principal_name": "上月负责人"},
             {"rule_type": "EBAY_BRAND", "match_key": "ABC", "principal_name": "映射后上月负责人"},
             {"rule_type": "EBAY_BRAND", "match_key": "EPM", "principal_name": "不应覆盖明确未分配"},
-            {"rule_type": "EBAY_BRAND", "match_key": "CL", "principal_name": "不应覆盖固定负责人"},
+            {"rule_type": "EBAY_BRAND", "match_key": "CL", "principal_name": "CL上月负责人"},
         ],
     }
     isolated.owner_rules.side_effect = lambda month, platform: rules_by_month.get(month, [])
@@ -163,6 +164,7 @@ def test_owner_uses_only_previous_natural_month_when_current_brand_missing(isola
         source(sku="EPM-50000-0001"),
         source(sku="XYZ-60000-0001"),
         source(sku="CL-70000-0001"),
+        source(sku="FLL-80000-0001"),
     ])
 
     items, metadata, _, _ = service.load_calculated_inventory()
@@ -174,7 +176,10 @@ def test_owner_uses_only_previous_natural_month_when_current_brand_missing(isola
     assert by_sku["JMH-40000-0001"]["owner_match_source"] == "EBAY_PRODUCT_SKU_BRAND_PREVIOUS_MONTH"
     assert by_sku["EPM-50000-0001"]["owner"] == "未分配"
     assert by_sku["XYZ-60000-0001"]["owner"] == "未分配"
-    assert by_sku["CL-70000-0001"]["owner"] == "陈丽"
+    # CL 不再固定归陈丽：当月无规则时与其他品牌一样回退上一个自然月；FLL 仍固定
+    assert by_sku["CL-70000-0001"]["owner"] == "CL上月负责人"
+    assert by_sku["CL-70000-0001"]["owner_match_source"] == "EBAY_BRAND_PREVIOUS_MONTH"
+    assert by_sku["FLL-80000-0001"]["owner"] == "方黎力"
     assert [call.args for call in isolated.owner_rules.call_args_list] == [
         ("2026-10", "ebay"), ("2026-09", "ebay")]
     assert metadata["owner_rule_month"] == "2026-10"

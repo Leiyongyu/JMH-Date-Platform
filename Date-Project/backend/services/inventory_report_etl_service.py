@@ -2492,14 +2492,18 @@ def _resolve_ebay_sku(sku, sku_map=None) -> str:
     return original
 
 
+# eBay 固定归属的品牌（不看月度规则）。绩效排名的 SQL（performance_repository）与此保持一致。
+EBAY_FIXED_BRAND_OWNERS = {"FLL": "方黎力", "LEJ": "方黎力"}
+
+
 def _ebay_assignment(sku, rules, sku_map=None, fallback_rules=None):
     original_sku = normalize_text(sku).upper()
     resolved_sku = _resolve_ebay_sku(original_sku, sku_map)
     brand_code = parse_brand_code_from_sku(resolved_sku)
-    if brand_code in {"FLL", "LEJ"}:
-        return "方黎力", "EBAY_FIXED_BRAND"
-    if brand_code == "CL":
-        return "陈丽", "EBAY_FIXED_BRAND"
+    # 只有 FLL/LEJ 固定归方黎力。CL 曾固定归陈丽，但规则表自 2026-08 起已改为其他负责人，
+    # 写死会让当月规则失效，现与其他品牌一样按当月 EBAY_BRAND 规则匹配（2026-11-12 用户确认）。
+    if brand_code in EBAY_FIXED_BRAND_OWNERS:
+        return EBAY_FIXED_BRAND_OWNERS[brand_code], "EBAY_FIXED_BRAND"
     # Only this caller-supplied month may be used as a fallback. An explicit
     # current-month assignment (including 未分配) must not be overwritten.
     if brand_code not in rules and fallback_rules and brand_code in fallback_rules:

@@ -19,7 +19,7 @@ def test_duplicate_amz_listings_audit_rows_separate_from_unique_skus():
     report,_=s.build('ebay',source(rows,EBAY),NOW)
     assert report['audit']['excluded_amz_rows']==2
     assert report['reconciliation']['excluded_amz_sku_count']==1
-    assert report['sku_count']==1 and report['reconciliation']['cl_skus']
+    assert report['sku_count']==1 and report['reconciliation']['cl_skus']==[]
 
 
 def test_exclusion_does_not_touch_amz_platform():

@@ -347,14 +347,16 @@ def test_monthly_owner_view_merges_all_sites_by_brand(snapshots, monkeypatch):
         snapshots(EBAY, pull_month='2026-10', warehouse_code=warehouse, sku=sku,
                   inventory_age_bucket='181_PLUS', inventory_quantity=1, inventory_age_cost=amount)
     monkeypatch.setattr(service.owners, 'owner_rules', lambda *args: [
-        {'rule_type': 'EBAY_BRAND', 'match_key': brand, 'principal_name': '同一负责人'} for brand in ['FRD', 'HME']])
+        {'rule_type': 'EBAY_BRAND', 'match_key': brand, 'principal_name': '同一负责人'} for brand in ['FRD', 'HME']]
+        + [{'rule_type': 'EBAY_BRAND', 'match_key': 'CL', 'principal_name': '任雅婷'}])
     monkeypatch.setattr(service.owners, 'ebay_product_sku_map', lambda month: {})
     all_sites = service.list_dimensions('2026-10', 'EBAY-1', dimension='OWNER')
     rows = {r['dimension_name']: r for r in all_sites['items']}
     assert rows['同一负责人']['total_inventory_cost'] == 150
     assert rows['同一负责人']['total_inventory_qty'] == 5
     assert rows['同一负责人']['brands'] == ['FRD', 'HME']
-    assert rows['陈丽']['total_inventory_cost'] == 60
+    # CL 不再固定归陈丽，按当月规则
+    assert rows['任雅婷']['total_inventory_cost'] == 60 and '陈丽' not in rows
     assert all_sites['site_code'] is None
     assert set(all_sites['site_options']) == {'DE', 'UK', 'US', '未识别仓库：OTHER'}
     selected = service.list_dimensions('2026-10', 'EBAY-1', 'US', dimension='OWNER')
