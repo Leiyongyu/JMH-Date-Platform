@@ -9,6 +9,11 @@ export function listEbayPriceAnalysisStores(params) {
   return request({ url: `${base}/stores`, method: 'get', params, timeout: LONG_TIMEOUT })
 }
 
+/** 个人维度上半部分：一行一个负责人，库存、货值按「站点 + SKU」只算一份后相加，不分页 */
+export function listEbayPriceAnalysisOwners(params) {
+  return request({ url: `${base}/owners`, method: 'get', params, timeout: LONG_TIMEOUT })
+}
+
 /** 明细表，mode=detail 一行一条刊登，mode=summary 一行一个「站点 + SKU」 */
 export function listEbayPriceAnalysisDetail(params) {
   return request({ url: `${base}/detail`, method: 'get', params, timeout: LONG_TIMEOUT })

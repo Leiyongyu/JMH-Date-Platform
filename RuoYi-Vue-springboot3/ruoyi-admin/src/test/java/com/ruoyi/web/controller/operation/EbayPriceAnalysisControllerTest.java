@@ -78,6 +78,49 @@ class EbayPriceAnalysisControllerTest
     }
 
     @Test
+    void ownersForwardsSitesAndAccountsAndUnwrapsData() throws Exception
+    {
+        var client = mock(EbayPriceAnalysisPythonClient.class);
+        when(client.owners(any(), eq("trace"))).thenReturn(Map.of("code", 0,
+                "data", Map.of("rows", List.of(Map.of("owner_name", "方黎力", "sku_count", 722)))));
+        var mvc = MockMvcBuilders.standaloneSetup(
+                new EbayPriceAnalysisController(client)).build();
+
+        mvc.perform(get("/operations/ebay/price-analysis/owners")
+                        .param("sites", "DE")
+                        .param("accounts", " ")
+                        .header("X-Request-ID", "trace"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.rows[0].owner_name").value("方黎力"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, ?>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(client).owners(captor.capture(), eq("trace"));
+        assertEquals("DE", captor.getValue().get("sites"));
+        assertNull(captor.getValue().get("accounts"));
+    }
+
+    @Test
+    void detailForwardsTheOwnerFilter() throws Exception
+    {
+        var client = mock(EbayPriceAnalysisPythonClient.class);
+        when(client.detail(any(), any())).thenReturn(Map.of("code", 0, "data", Map.of()));
+        var mvc = MockMvcBuilders.standaloneSetup(
+                new EbayPriceAnalysisController(client)).build();
+
+        mvc.perform(get("/operations/ebay/price-analysis/detail")
+                        .param("mode", "summary")
+                        .param("owners", " 方黎力 "))
+                .andExpect(status().isOk());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, ?>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(client).detail(captor.capture(), any());
+        assertEquals("方黎力", captor.getValue().get("owners"));
+        assertEquals("summary", captor.getValue().get("mode"));
+    }
+
+    @Test
     void storesTurnsBlankFiltersIntoNull()
     {
         var client = mock(EbayPriceAnalysisPythonClient.class);
@@ -180,7 +223,7 @@ class EbayPriceAnalysisControllerTest
         var response = new MockHttpServletResponse();
 
         new EbayPriceAnalysisController(client).exportByGet("2026-09-23", "US", null,
-                null, null, "detail", "stock_gap", "asc", true, null, true, "trace", response);
+                null, null, null, "detail", "stock_gap", "asc", true, null, true, "trace", response);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, ?>> captor = ArgumentCaptor.forClass(Map.class);
@@ -212,7 +255,7 @@ class EbayPriceAnalysisControllerTest
 
         var error = assertThrows(ServiceException.class,
                 () -> new EbayPriceAnalysisController(client).exportByPost(null, null, null,
-                        null, null, "detail", null, null, null, null, null, null,
+                        null, null, null, "detail", null, null, null, null, null, null,
                         new MockHttpServletResponse()));
 
         assertEquals(Integer.valueOf(403), error.getCode());
@@ -229,7 +272,7 @@ class EbayPriceAnalysisControllerTest
                         "attachment; filename=all.xlsx"));
         login(Set.of(Constants.ALL_PERMISSION));
 
-        new EbayPriceAnalysisController(client).exportByPost(null, null, null, null, null,
+        new EbayPriceAnalysisController(client).exportByPost(null, null, null, null, null, null,
                 "summary", null, null, null, null, null, null, new MockHttpServletResponse());
 
         @SuppressWarnings("unchecked")
@@ -238,9 +281,9 @@ class EbayPriceAnalysisControllerTest
         String columns = String.valueOf(captor.getValue().get("columns"));
         // 不传「只看未匹配」时为 null，查询串里会被跳过。
         assertNull(captor.getValue().get("unmatched"));
-        assertEquals(21, columns.split(",").length);
+        assertEquals(24, columns.split(",").length);
         assertTrue(columns.startsWith("seller_account,site_name,sku,owner_name,title,listing_start_time,currency,"));
-        assertTrue(columns.endsWith("purchase_cost_cny,status,view_item_url"));
+        assertTrue(columns.endsWith("purchase_cost_cny,inventory_qty,unit_price_tax,inventory_value_cny,status,view_item_url"));
     }
 
     @Test
@@ -255,17 +298,21 @@ class EbayPriceAnalysisControllerTest
             var perms = context.getBean(Permissions.class);
 
             assertThrows(AccessDeniedException.class, () -> controller.stores(null, null, null));
+            assertThrows(AccessDeniedException.class, () -> controller.owners(null, null, null));
             assertThrows(AccessDeniedException.class, () -> controller.skuListings("SKU-1", null));
             // 有查看权限不等于能导出。
             perms.allowed = Set.of("operations:ebayPriceAnalysis:list");
             assertThrows(AccessDeniedException.class,
-                    () -> controller.exportByGet(null, null, null, null, null, "detail",
+                    () -> controller.exportByGet(null, null, null, null, null, null, "detail",
                             null, null, null, null, null, null, new MockHttpServletResponse()));
             verifyNoInteractions(client);
 
             when(client.stores(any(), any())).thenReturn(
                     Map.of("code", 0, "data", Map.of("stat_date", "2026-11-10")));
             assertNotNull(controller.stores(null, null, null).get("data"));
+            when(client.owners(any(), any())).thenReturn(
+                    Map.of("code", 0, "data", Map.of("rows", List.of())));
+            assertNotNull(controller.owners(null, null, null).get("data"));
             when(client.skuListings(any(), any())).thenReturn(
                     Map.of("code", 0, "data", Map.of("sku", "SKU-1")));
             assertNotNull(controller.skuListings("SKU-1", null).get("data"));

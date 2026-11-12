@@ -63,6 +63,20 @@ public class EbayPriceAnalysisPythonClient extends PythonHttpSupport
         }
     }
 
+    /** 负责人维度汇总：每个负责人一行。 */
+    public Map<String, Object> owners(Map<String, ?> params, String requestId)
+    {
+        try
+        {
+            return sendJson(baseRequest(PREFIX + "/owners" + queryString(params), requestId)
+                    .GET().build());
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
     /** 单个 SKU 在其他店铺、各站点的在售与库存对比。 */
     public Map<String, Object> skuListings(Map<String, ?> params, String requestId)
     {

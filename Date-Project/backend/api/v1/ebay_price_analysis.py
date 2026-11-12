@@ -1,6 +1,6 @@
 """eBay 价格分析 BI 的内部接口；终端用户的菜单与导出列权限由 Java 侧控制。
 
-stores / detail / sku-listings / export 只读 dws_ebay_price_analysis，状态列是刷表时算好的，
+stores / owners / detail / sku-listings / export 只读 dws_ebay_price_analysis，状态列是刷表时算好的，
 跨店对比列（同站点同 SKU 的店铺数、可售合计、最低最高价、多店超卖）在查询时派生。
 刷表只由定时任务 ebay_price_analysis_refresh 执行，不提供页面触发接口。
 """
@@ -47,6 +47,15 @@ def get_stores(
     return _run(request, lambda: service.stores(sites=sites, accounts=accounts), "店铺汇总查询")
 
 
+@router.get("/owners")
+def get_owners(
+    request: Request,
+    sites: str | None = Query(None, max_length=200),
+    accounts: str | None = Query(None, max_length=4000),
+):
+    return _run(request, lambda: service.owners(sites=sites, accounts=accounts), "负责人汇总查询")
+
+
 @router.get("/sku-listings")
 def get_sku_listings(request: Request, sku: str = Query(..., min_length=1, max_length=255)):
     return _run(request, lambda: service.sku_listings(sku=sku), "SKU跨店查询")
@@ -58,6 +67,7 @@ def get_detail(
     stat_date: str | None = Query(None, max_length=10),
     sites: str | None = Query(None, max_length=200),
     accounts: str | None = Query(None, max_length=4000),
+    owners: str | None = Query(None, max_length=2000),
     status: str | None = Query(None, max_length=200),
     keyword: str | None = Query(None, max_length=128),
     sku: str | None = Query(None, max_length=255),
@@ -76,7 +86,7 @@ def get_detail(
         keyword=keyword, sku=sku, mid_code_filter=mid_code, mode=mode, page=page,
         page_size=page_size, sort_by=sort_by, sort_order=sort_order,
         site_oversell=site_oversell, out_of_stock_listed=out_of_stock_listed,
-        unmatched=unmatched), "明细查询")
+        unmatched=unmatched, owners=owners), "明细查询")
 
 
 @router.get("/export")
@@ -84,6 +94,7 @@ def get_export(
     stat_date: str | None = Query(None, max_length=10),
     sites: str | None = Query(None, max_length=200),
     accounts: str | None = Query(None, max_length=4000),
+    owners: str | None = Query(None, max_length=2000),
     status: str | None = Query(None, max_length=200),
     keyword: str | None = Query(None, max_length=128),
     sku: str | None = Query(None, max_length=255),
@@ -106,7 +117,7 @@ def get_export(
             accounts=accounts, status=status, keyword=keyword, sku=sku,
             mid_code_filter=mid_code, sort_by=sort_by, sort_order=sort_order,
             site_oversell=site_oversell, out_of_stock_listed=out_of_stock_listed,
-            unmatched=unmatched)
+            unmatched=unmatched, owners=owners)
     except Exception as exc:
         raise _failure(exc, "导出") from exc
     return Response(content, media_type=service.EXCEL_CONTENT_TYPE, headers={

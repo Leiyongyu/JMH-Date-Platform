@@ -84,6 +84,22 @@ const MOCK_SUMMARY = {
     site_oversell: true, statuses: '超卖风险,健康', unmatched_reason_text: null
   }]
 }
+const MOCK_OWNERS = {
+  stat_date: '2026-11-10',
+  refreshed_at: '2026-11-10 04:41:02',
+  rows: [
+    {
+      owner_name: '方黎力', sku_count: 722, listing_count: 5101, store_count: 37, ebay_available: 109316,
+      inventory_qty: 10742, inventory_value_cny: 960394.47, value_missing_sku_count: 119, unmatched_sku_count: 168,
+      sales_qty_7d: 0, sales_qty_30d: 0
+    },
+    {
+      owner_name: '杨萍', sku_count: 605, listing_count: 5820, store_count: 36, ebay_available: 73800,
+      inventory_qty: 6335, inventory_value_cny: 852731.17, value_missing_sku_count: 0, unmatched_sku_count: 0,
+      sales_qty_7d: 3, sales_qty_30d: 12
+    }
+  ]
+}
 const MOCK_SKU_LISTINGS = {
   sku: 'TYT-90245-0772',
   title: 'Brake pad',
@@ -112,7 +128,8 @@ const PAGE_FUNCTIONS = [
   'resetPages', 'handleQuery', 'handleListFilter', 'resetQuery', 'handleTabChange', 'selectStore',
   'focusStore', 'sortState', 'handleDetailSort', 'handleSkuSort', 'storeRowClass', 'compareSiteRowClass',
   'compareListingRowClass', 'EMPTY_LISTING', 'skuListing', 'ensureSkuListings', 'openCompare',
-  'handleSkuExpand', 'handleExport'
+  'handleSkuExpand', 'handleExport', 'OWNER_SKU_SORT', 'ownersSeq', 'ownerSkuSeq', 'buildOwnerSkuParams',
+  'loadOwners', 'loadOwnerSkus', 'selectOwner', 'focusOwner', 'handleOwnerSkuSort', 'ownerRowClass'
 ]
 
 function createHarness(api = {}) {
@@ -120,6 +137,13 @@ function createHarness(api = {}) {
     query: reactive({ sites: [], accounts: [], keyword: undefined, onlyUnmatched: false }),
     detailPage: reactive({ pageNum: 3, pageSize: 50, sortBy: undefined, sortOrder: undefined }),
     skuPage: reactive({ pageNum: 2, pageSize: 50, sortBy: undefined, sortOrder: undefined }),
+    ownerSkuPage: reactive({ pageNum: 4, pageSize: 50, sortBy: 'inventory_value_cny', sortOrder: 'desc' }),
+    ownerRows: ref([]),
+    selectedOwner: ref(null),
+    ownerSkuRows: ref([]),
+    ownerSkuTotal: ref(0),
+    ownersLoading: ref(false),
+    ownerSkuLoading: ref(false),
     snapshot: reactive({ stat_date: undefined, refreshed_at: undefined }),
     stores: ref([]),
     selectedStore: ref(null),
@@ -136,9 +160,9 @@ function createHarness(api = {}) {
     skuLoading: ref(false),
     exporting: ref(false),
     loading: ref(false),
-    loadedVersion: { store: -1, sku: -1 }
+    loadedVersion: { store: -1, sku: -1, owner: -1 }
   }
-  const calls = { stores: [], detail: [], skuListings: [], exported: [], warned: 0 }
+  const calls = { stores: [], owners: [], detail: [], skuListings: [], exported: [], warned: 0 }
   const context = vm.createContext({
     ...state,
     checkPermi: api.checkPermi || (() => true),
@@ -146,6 +170,10 @@ function createHarness(api = {}) {
     listEbayPriceAnalysisStores: params => {
       calls.stores.push(plain(params))
       return Promise.resolve(api.stores ? api.stores(params) : { data: MOCK_STORES })
+    },
+    listEbayPriceAnalysisOwners: params => {
+      calls.owners.push(plain(params))
+      return Promise.resolve(api.owners ? api.owners(params) : { data: MOCK_OWNERS })
     },
     listEbayPriceAnalysisDetail: params => {
       calls.detail.push(plain(params))
@@ -188,10 +216,12 @@ test('charts, kpi cards and the overview call are gone', () => {
   assert.doesNotMatch(apiSource, /overview/i)
 })
 
-test('body is two tabs: store dimension and sku dimension', () => {
+test('body is three tabs: store, sku and owner dimension', () => {
   assert.match(templateSource, /<el-tabs v-model="activeTab"[^>]*@tab-change="handleTabChange"/)
   assert.match(templateSource, /<el-tab-pane label="店铺维度" name="store">/)
   assert.match(templateSource, /<el-tab-pane label="SKU 维度" name="sku">/)
+  assert.match(templateSource, /<el-tab-pane label="个人维度" name="owner">/)
+  assert.equal((templateSource.match(/<el-tab-pane /g) || []).length, 3)
   assert.match(templateSource, /:data="stores"[^]*?@row-click="selectStore"/)
   assert.match(templateSource, /@click="openCompare\(row\)">其他店铺</)
   assert.match(templateSource, /<el-drawer\s+v-model="compareDrawer\.visible"/)
@@ -296,9 +326,9 @@ test('unmatched reason shows only for unmatched listings', () => {
 })
 
 test('every table renders the unmatched reason through the same branch', () => {
-  // 店铺维度明细、SKU 维度、展开行刊登表、抽屉刊登表，四处都有。
+  // 店铺维度明细、SKU 维度、个人维度 SKU 表、展开行刊登表、抽屉刊登表，五处都有。
   const branches = templateSource.match(/v-else-if="col\.format === 'reason'" class="unmatched-reason">\{\{ unmatchedReason\((row|scope\.row)\) \}\}/g) || []
-  assert.equal(branches.length, 4)
+  assert.equal(branches.length, 5)
   assert.match(styleSource, /\.unmatched-reason \{\s*color: #b88230;/)
   assert.match(styleSource, /\.sku-compare-drawer \.unmatched-reason \{\s*color: #b88230;/)
 })
@@ -552,7 +582,8 @@ test('page keeps the fixed wording of the data-definition footer', () => {
     '海外仓按「站点 + 去掉 SKU 第一段（品牌前缀，谷仓侧为 JMH）」匹配',
     '未匹配：这条刊登在所在站点的谷仓和成都仓都找不到对应 SKU，原因见『未匹配原因』列',
     '售价按站点币种和领星月度企业汇率折算 USD；当月汇率未出时，沿用该币种最近一个已出月份的汇率；完全没有汇率时不折算',
-    '采购成本取订单文件中的真实采购成本，未参与售价估算'
+    '采购成本优先取订单文件中最近一笔真实采购成本，没有订单时用领星商品资料的采购价；未参与售价估算',
+    '货值 = 实际库存（谷仓可售 + 成都可售）× 单价（含税，取 eBay 库存明细导入的产品单价，按中间码取最低价），同一站点 + SKU 只算一份，不用 eBay 可售（多店挂同一份货会重复）；没有单价的留空'
   ]) {
     assert.ok(pageSource.includes(line), `missing data-definition line: ${line}`)
   }
@@ -560,7 +591,7 @@ test('page keeps the fixed wording of the data-definition footer', () => {
   assert.match(pageSource, /不是实时库存/)
   // 多店超卖、断货在售、比最低价高出三条定义一起删掉。
   const notes = templateSource.match(/<ul class="note-list">[^]*?<\/ul>/)[0]
-  assert.equal((notes.match(/<li/g) || []).length, 8)
+  assert.equal((notes.match(/<li/g) || []).length, 9)
 })
 
 test('shared inventory warning sits in the footer and next to every cross-store view', () => {
@@ -607,7 +638,8 @@ test('api calls the erp proxy routes with a timeout fit for the aggregation', ()
   assert.match(apiSource, /export function exportEbayPriceAnalysis[^]*?download\(`\$\{base\}\/export`/)
   assert.match(apiSource, /LONG_TIMEOUT = 120000/)
   assert.doesNotMatch(apiSource, /refreshEbayPriceAnalysis|\/refresh`/)
-  assert.equal((apiSource.match(/^export function /gm) || []).length, 4)
+  assert.match(apiSource, /export function listEbayPriceAnalysisOwners[^]*?\$\{base\}\/owners`, method: 'get'/)
+  assert.equal((apiSource.match(/^export function /gm) || []).length, 5)
 })
 
 
@@ -630,4 +662,93 @@ test('store summary table is width-capped so the store column does not swallow t
     .matchAll(/<el-table-column[^>]*min-width="(\d+)"/g)].map(m => Number(m[1]))
   // 店铺是唯一弹性列；200 + 其余 5 个固定列 500 = 700，留 60px 给店铺列伸展
   assert.deepEqual(flexible, [200])
+})
+
+// ===== 个人维度 =====
+test('owner summary shows stock and value per owner without any status columns', () => {
+  // columnKeys 只认小写字母和下划线，这两张表有 sales_qty_7d 这类带数字的 key，单独取
+  const keys = name => [...declaration(name).matchAll(/key: '([a-z0-9_]+)'/g)].map(match => match[1])
+  assert.deepEqual(keys('ownerColumns'), [
+    'owner_name', 'sku_count', 'listing_count', 'store_count', 'ebay_available', 'inventory_qty',
+    'inventory_value_cny', 'sales_qty_7d', 'sales_qty_30d', 'unmatched_sku_count'
+  ])
+  assert.deepEqual(keys('ownerSkuColumns'), [
+    'image_url', 'site_name', 'sku', 'title', 'store_count', 'ebay_quantity_available', 'overseas_sellable',
+    'chengdu_sellable', 'inventory_qty', 'purchase_cost_cny', 'unit_price_tax', 'inventory_value_cny', 'sales_qty_7d',
+    'sales_qty_30d', 'cover_days', 'unmatched_reason_text'
+  ])
+  // 状态列按需求下线，个人维度也不放回来；货值的提示写明不用 eBay 可售
+  assert.doesNotMatch(declaration('ownerColumns') + declaration('ownerSkuColumns'), /status|超卖|断货|滞销|待补货/)
+  assert.match(setupSource, /VALUE_TIP = '实际库存（谷仓可售 \+ 成都可售）× 单价（含税），同一站点 \+ SKU 只算一份；没有单价的留空/)
+  const owner = templateSource.match(/:data="ownerRows"[^]*?<\/el-table>/)[0]
+  assert.match(owner, /@row-click="selectOwner"/)
+  assert.match(owner, /v-if="Number\(row\.unmatched_sku_count\) > 0"[^]*?@click\.stop="focusOwner\(row\)"/)
+  assert.match(owner, /v-if="Number\(row\.value_missing_sku_count\) > 0"/)
+  const table = templateSource.match(/<el-table[^>]*class="store-table owner-table"[^>]*>/s)?.[0] || ''
+  assert.match(table, /max-width:\s*1040px/)
+  const widths = [...declaration('ownerColumns').matchAll(/(?:minWidth|width): (\d+)/g)].map(match => Number(match[1]))
+  assert.ok(widths.reduce((sum, value) => sum + value, 0) <= 1040, `owner columns wider than the cap: ${widths}`)
+})
+
+test('owner tab loads owners with site and account only, then the owner skus by value', async () => {
+  const { query, activeTab, selectedOwner, ownerRows, ownerSkuRows, calls, page } = createHarness()
+  query.sites = ['DE']
+  query.accounts = ['aplus-shop']
+  query.keyword = 'brake'
+  query.onlyUnmatched = true
+  activeTab.value = 'owner'
+  await page.loadActiveTab()
+  assert.deepEqual(calls.owners, [{ sites: 'DE', accounts: 'aplus-shop' }])
+  assert.equal(ownerRows.value.length, 2)
+  assert.equal(selectedOwner.value, '方黎力', '默认选第一位')
+  assert.deepEqual(calls.detail.at(-1), {
+    sites: 'DE', accounts: 'aplus-shop', keyword: 'brake', unmatched: 'true', owners: '方黎力',
+    mode: 'summary', sortBy: 'inventory_value_cny', sortOrder: 'desc', pageNum: 4, pageSize: 50
+  })
+  assert.equal(ownerSkuRows.value.length, 1)
+  assert.equal(calls.stores.length, 0, '个人维度不拉店铺汇总')
+})
+
+test('picking an owner keeps the selection across reloads and the unmatched count turns the filter on', async () => {
+  const { query, activeTab, selectedOwner, ownerSkuPage, calls, page } = createHarness()
+  activeTab.value = 'owner'
+  await page.loadActiveTab()
+  await page.selectOwner(MOCK_OWNERS.rows[1])
+  assert.equal(selectedOwner.value, '杨萍')
+  assert.equal(ownerSkuPage.pageNum, 1)
+  assert.equal(calls.detail.at(-1).owners, '杨萍')
+  await page.loadOwners()
+  assert.equal(selectedOwner.value, '杨萍', '筛选后人还在就保持选中')
+  assert.equal(page.ownerRowClass({ row: MOCK_OWNERS.rows[1] }), 'is-selected')
+  await page.focusOwner(MOCK_OWNERS.rows[0])
+  assert.equal(query.onlyUnmatched, true)
+  assert.equal(selectedOwner.value, '方黎力')
+  assert.equal(calls.detail.at(-1).unmatched, 'true')
+  await page.handleOwnerSkuSort({ prop: 'purchase_cost_cny', order: 'ascending' })
+  assert.deepEqual([calls.detail.at(-1).sortBy, calls.detail.at(-1).sortOrder], ['purchase_cost_cny', 'asc'])
+})
+
+test('no owner means no sku request, and export on the owner tab sends that owner in summary mode', async () => {
+  const { activeTab, selectedOwner, ownerSkuRows, calls, page } = createHarness({ owners: () => ({ data: { rows: [] } }) })
+  activeTab.value = 'owner'
+  await page.loadActiveTab()
+  assert.equal(selectedOwner.value, null)
+  assert.equal(calls.detail.length, 0)
+  assert.deepEqual(plain(ownerSkuRows.value), [])
+  selectedOwner.value = '杨萍'
+  await page.handleExport()
+  assert.deepEqual(calls.exported.at(-1), {
+    owners: '杨萍', mode: 'summary', sortBy: 'inventory_value_cny', sortOrder: 'desc'
+  })
+})
+
+test('owner value cell shows the yuan amount and reset restores the value sort', async () => {
+  const { selectedOwner, ownerSkuPage, page } = createHarness()
+  assert.equal(page.cellText(MOCK_OWNERS.rows[0], { key: 'inventory_value_cny', format: 'value' }), '960,394.47')
+  assert.equal(page.cellText({ inventory_value_cny: null }, { key: 'inventory_value_cny', format: 'value' }), '—')
+  selectedOwner.value = '杨萍'
+  Object.assign(ownerSkuPage, { sortBy: 'cover_days', sortOrder: 'asc', pageNum: 3 })
+  await page.resetQuery()
+  assert.equal(selectedOwner.value, null)
+  assert.deepEqual([ownerSkuPage.sortBy, ownerSkuPage.sortOrder, ownerSkuPage.pageNum], ['inventory_value_cny', 'desc', 1])
 })

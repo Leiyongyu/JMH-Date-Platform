@@ -4,7 +4,9 @@
     ods_goodcang_product_inventory_latest  谷仓区域仓库存（海外仓可售、海外在途、待出库）
     ods_lingxing_inventory_detail_weekly   领星周快照（只取成都中转仓可售、锁定）
     dwd_ebay_sku_analysis_order            近 7/30 日销量
-    ods_ebay_sku_analysis_order_raw        真实采购成本
+    ods_ebay_sku_analysis_order_raw        真实采购成本（最近一笔订单）
+    {SHOP_SOURCE_DATABASE}.ods_lingxing_product_procurement_monthly
+                                           领星采购价：订单里没有成本时按完整 SKU 补
     dim_lingxing_currency_month            月度汇率（my_rate）
                  │  定时任务 ebay_price_analysis_refresh（整表事务替换，不留历史批次）
                  ▼
@@ -35,6 +37,7 @@ from typing import Any, Iterable, Sequence
 
 from pymysql.err import MySQLError
 
+from backend.config import settings
 from backend.database import db_connection
 
 TABLE = "dws_ebay_price_analysis"
@@ -45,6 +48,13 @@ ORDER_TABLE = "dwd_ebay_sku_analysis_order"
 ORDER_RAW_TABLE = "ods_ebay_sku_analysis_order_raw"
 RATE_TABLE = "dim_lingxing_currency_month"
 EXPORT_FILE_TABLE = "ops_weekly_export_file"
+# 领星商品采购价在 ERP 库（与库龄占比、滞销清货同一张月表）。
+PROCUREMENT_TABLE = "ods_lingxing_product_procurement_monthly"
+# 负责人维度里没匹配到负责人的 SKU 归到这一组，筛选和汇总用同一个名字。
+UNASSIGNED_OWNER = "未分配"
+# eBay 库存明细「导入产品单价」写入的表（含税人民币，按中间码取最低价）。货值只用这个单价，
+# 与库存明细页的货值同一口径；没有单价就留空，不回退订单成本或领星采购价。
+UNIT_PRICE_TABLE = "ebay_inventory_detail_price"
 
 # 海外仓取谷仓区域仓库存：区域仓 → 站点；美东、美西合计为美国，CZ 等没有站点归属的仓不纳入。
 GOODCANG_SITE_BY_WAREHOUSE = {"DE": "德国", "UK": "英国", "USEA": "美国", "USWE": "美国"}
@@ -84,6 +94,7 @@ SUMMARY_SORTABLE = {
     "sales_qty_7d", "sales_qty_30d", "cover_days", "stock_gap", "price_usd",
     "current_price", "purchase_cost_cny", "listing_count", "store_count",
     "price_usd_min", "price_usd_max", "site_oversell", "owner_name",
+    "inventory_qty", "inventory_value_cny", "unit_price_tax",
 }
 
 _DETAIL_COLUMNS = (
@@ -356,8 +367,14 @@ def sales_windows(stat_date: date) -> dict[str, tuple[date, date]]:
     }
 
 
+def _product_database() -> str:
+    """领星商品资料所在库（SHOP_SOURCE_DATABASE，部署机为 ERP 库）。反引号转义，防拼接。"""
+    return (settings.shop_source_database.strip() or "jmh_data_platform").replace("`", "``")
+
+
 def _source_rows(cursor, stat_month: str, stat_date: date) -> list[dict[str, Any]]:
     windows = sales_windows(stat_date)
+    procurement = f"`{_product_database()}`.{PROCUREMENT_TABLE}"
     site_name = _collate("listing.site_name")
     sku = _collate("listing.sku")
     query = f"""
@@ -390,6 +407,17 @@ def _source_rows(cursor, stat_month: str, stat_date: date) -> list[dict[str, Any
                   AND COALESCE(shipping_status,'') NOT LIKE '%%已作废%%'
             ) latest
             WHERE rn=1
+        ),
+        lingxing_cost AS (
+            -- 订单里没有成本的 SKU 用领星采购价兜底：取刊登批次月及以前最近一个快照月，按完整 SKU。
+            SELECT sku,MAX(cg_price) cg_price
+            FROM {procurement} p
+            WHERE cg_price>0
+              AND p.snapshot_month=(
+                  SELECT MAX(snapshot_month) FROM {procurement}
+                  WHERE {_collate('snapshot_month')}
+                        <= (SELECT {_collate('stat_month')} FROM listing_batch))
+            GROUP BY sku
         )
         SELECT listing.seller_account,listing.item_id,listing.sku,listing.site,
                listing.site_name,listing.title,listing.image_url,listing.view_item_url,
@@ -407,7 +435,7 @@ def _source_rows(cursor, stat_month: str, stat_date: date) -> list[dict[str, Any
                     ELSE COALESCE(overseas.overseas_pending_outbound,0)
                          + COALESCE(chengdu.chengdu_pending_outbound,0) END pending_outbound,
                sales7.qty sales_qty_7d,sales30.qty sales_qty_30d,
-               cost.unit_cost purchase_cost_cny
+               COALESCE(cost.unit_cost,lingxing.cg_price) purchase_cost_cny
         FROM listing
         LEFT JOIN overseas_inventory overseas
           ON {_collate('overseas.site_name')} = {site_name}
@@ -424,6 +452,8 @@ def _source_rows(cursor, stat_month: str, stat_date: date) -> list[dict[str, Any
         LEFT JOIN purchase_cost cost
           ON {_collate('cost.site_name')} = {site_name}
          AND {_collate('cost.inventory_sku')} = {sku}
+        LEFT JOIN lingxing_cost lingxing
+          ON {_collate('lingxing.sku')} = {sku}
         ORDER BY listing.seller_account,listing.item_id
         LIMIT {MAX_ROWS + 1}
     """
@@ -557,6 +587,11 @@ def _filters(criteria: dict[str, Any], *, flags: bool = True) -> tuple[str, list
         if values:
             clauses.append(f"{column} IN (" + ",".join(["%s"] * len(values)) + ")")
             params.extend(values)
+    owners = [value for value in (criteria.get("owners") or []) if value]
+    if owners:
+        clauses.append(f"COALESCE(owner_name,'{UNASSIGNED_OWNER}') IN ("
+                       + ",".join(["%s"] * len(owners)) + ")")
+        params.extend(owners)
     for column, key in (("mid_code", "mid_code"), ("sku", "sku")):
         if criteria.get(key):
             clauses.append(f"{column}=%s")
@@ -687,8 +722,45 @@ def detail_count(criteria: dict[str, Any]) -> int:
                       [*view_params, *params])[0]["n"])
 
 
-def _summary_grouped(criteria: dict[str, Any], select: str) -> tuple[str, list[Any]]:
-    """按 站点+SKU 分组的子查询。行级筛选在分组前，两个标记筛选在分组后（标记是 站点+SKU 级的）。"""
+def middle_code_sql(expression: str) -> str:
+    """SKU 第二段（中间码），去首尾空白。与 ebay_inventory_detail_repository 匹配单价的写法一致。"""
+    return ("REGEXP_REPLACE(SUBSTRING_INDEX(SUBSTRING_INDEX("
+            f"{expression},'-',2),'-',-1),'^[[:space:]]+|[[:space:]]+$','')")
+
+
+def unit_price_join_sql(alias: str = "g") -> str:
+    """按中间码关联库存明细导入的单价（含税）。匹配条件与库存明细页逐条一致：
+    SKU 带「-」、中间码只含字母数字且至少一个数字；同一中间码多条取最低价，0 价有效。
+    先聚合再关联，不会让一行 SKU 因多条单价而翻倍。"""
+    middle = middle_code_sql(f"{alias}.sku")
+    return f"""
+        LEFT JOIN (
+            SELECT middle_code,MIN(unit_price) unit_price_tax
+            FROM {UNIT_PRICE_TABLE}
+            WHERE middle_code IS NOT NULL AND middle_code<>''
+            GROUP BY middle_code
+        ) price
+          ON LOCATE('-',{alias}.sku)>0
+         AND {middle} REGEXP '^[a-zA-Z0-9]{{1,64}}$'
+         AND {middle} REGEXP '[0-9]'
+         AND {_collate('price.middle_code')} = {_collate(middle)}"""
+
+
+# 实际库存 = 谷仓可售 + 成都可售（站点共享一份，取 MAX 不相加）；货值 = 实际库存 × 单价（含税）。
+# 不用 eBay 可售：同一份库存挂在多家店铺上，按刊登相加会成倍放大。没有单价时货值留 NULL，不当 0。
+INVENTORY_SQL = ("MAX(CASE WHEN inventory_matched=1"
+                 " THEN COALESCE(overseas_sellable,0)+COALESCE(chengdu_sellable,0) END)")
+INVENTORY_VALUE_SQL = ("CASE WHEN g.inventory_qty IS NOT NULL AND price.unit_price_tax IS NOT NULL"
+                       " THEN g.inventory_qty*price.unit_price_tax END")
+
+
+def _summary_grouped(criteria: dict[str, Any], select: str, *,
+                     priced: bool = False) -> tuple[str, list[Any]]:
+    """按 站点+SKU 分组的子查询。行级筛选在分组前，两个标记筛选在分组后（标记是 站点+SKU 级的）。
+
+    priced=True 时在分组之后按中间码挂上单价（含税）并算货值：单价跟着库存明细的导入实时生效，
+    不需要等刷表。select 里必须带 inventory_qty。
+    """
     view, view_params = _listing_view(criteria)
     where, params = _filters(criteria, flags=False)
     joiner = " AND " if where else " WHERE "
@@ -696,10 +768,13 @@ def _summary_grouped(criteria: dict[str, Any], select: str) -> tuple[str, list[A
                "GROUP BY site,site_name,sku")
     flags = _flag_clauses(criteria)
     outer = (" WHERE " + " AND ".join(flags)) if flags else ""
+    if priced:
+        return (f"SELECT g.*,price.unit_price_tax,{INVENTORY_VALUE_SQL} inventory_value_cny "
+                f"FROM ({grouped}) g{unit_price_join_sql('g')}{outer}",
+                [*view_params, *params])
     return f"SELECT * FROM ({grouped}) g{outer}", [*view_params, *params]
 
-
-_SUMMARY_SELECT = """
+_SUMMARY_SELECT = f"""
         site,site_name,sku,MAX(mid_code) mid_code,MAX(brand_code) brand_code,
         MAX(title) title,MAX(image_url) image_url,MAX(view_item_url) view_item_url,
         MAX(currency) currency,MIN(current_price) current_price,
@@ -715,6 +790,7 @@ _SUMMARY_SELECT = """
         MAX(CASE WHEN inventory_matched=1 THEN overseas_sellable END)
             -SUM(ebay_quantity_available) stock_gap,
         MAX(purchase_cost_cny) purchase_cost_cny,
+        {INVENTORY_SQL} inventory_qty,
         GROUP_CONCAT(DISTINCT status) statuses,
         COUNT(*) listing_count,MAX(site_store_count) store_count,
         MAX(site_oversell) site_oversell,MAX(out_of_stock_listed) out_of_stock_listed,
@@ -737,7 +813,7 @@ def summary_rows(criteria: dict[str, Any], *, sort_by: str | None = None,
     direction = "ASC" if str(sort_order).lower() == "asc" else "DESC"
     bound = (f" LIMIT {int(limit)} OFFSET {int(offset or 0)}" if limit is not None
              else f" LIMIT {MAX_ROWS + 1}")
-    sql, params = _summary_grouped(criteria, _SUMMARY_SELECT)
+    sql, params = _summary_grouped(criteria, _SUMMARY_SELECT, priced=True)
     rows = _query(f"{sql} ORDER BY ({column} IS NULL) ASC,{column} {direction},site,sku{bound}",
                   params)
     if limit is None and len(rows) > MAX_ROWS:
@@ -768,6 +844,23 @@ def store_rows(criteria: dict[str, Any]) -> list[dict[str, Any]]:
                               for key in ("stat_date", "sites", "accounts")})
     return _query(view.format(columns=STORE_SELECT)
                   + f"{where} GROUP BY seller_account,site ORDER BY seller_account,site LIMIT 1000",
+                  [*view_params, *params])
+
+
+def owner_listing_rows(criteria: dict[str, Any]) -> list[dict[str, Any]]:
+    """负责人维度的刊登级计数：刊登数、店铺数。只受站点、店铺筛选（与店铺汇总一致）。
+
+    SKU 级的库存、货值、状态由 service 用 summary_rows 按「站点 + SKU」汇总后再按人相加；
+    这里只补 summary 里拿不到的去重店铺数。没有 SKU 的刊登不归任何人，与 SKU 汇总一致地排除。
+    """
+    view, view_params = _listing_view(criteria)
+    where, params = _filters({key: criteria.get(key)
+                              for key in ("stat_date", "sites", "accounts")})
+    joiner = " AND " if where else " WHERE "
+    owner = f"COALESCE(owner_name,'{UNASSIGNED_OWNER}')"
+    return _query(view.format(columns=f"{owner} owner_name,COUNT(*) listing_count,"
+                                      "COUNT(DISTINCT seller_account) store_count")
+                  + f"{where}{joiner}sku IS NOT NULL GROUP BY {owner} LIMIT 1000",
                   [*view_params, *params])
 
 

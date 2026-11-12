@@ -25,7 +25,7 @@
             <app-icon name="refresh" :size="15" class="report-icon" :spin="loading" />刷新
           </el-button>
           <el-tooltip
-            content="导出当前筛选下全部记录（店铺维度按刊登、SKU 维度按站点 + SKU），仅包含角色授权的导出字段；不受分页或页面隐藏列限制"
+            content="导出当前筛选下全部记录（店铺维度按刊登；SKU 维度、个人维度按站点 + SKU，个人维度只导出选中的负责人），仅包含角色授权的导出字段；不受分页或页面隐藏列限制"
             placement="top"
           >
             <el-button
@@ -99,7 +99,7 @@
       </el-form>
     </el-card>
 
-    <!-- ===== 主体：店铺维度 / SKU 维度 ===== -->
+    <!-- ===== 主体：店铺维度 / SKU 维度 / 个人维度 ===== -->
     <el-card shadow="never" class="table-card">
       <el-tabs v-model="activeTab" class="dimension-tabs" @tab-change="handleTabChange">
         <!-- 店铺维度：上面选店铺，下面看这个店铺在这个站点的 SKU -->
@@ -372,6 +372,144 @@
             @pagination="loadSkuRows"
           />
         </el-tab-pane>
+
+        <!-- 个人维度：上面一行一个负责人，下面看这个人名下每个「站点 + SKU」 -->
+        <el-tab-pane label="个人维度" name="owner">
+          <div class="section-head">
+            <div class="section-head__text">
+              <span class="card-title">负责人汇总</span>
+              <small>一行一个负责人；点一行在下方查看他名下每个「站点 + SKU」。库存、货值按站点 + SKU 只算一份，不随店铺数重复；汇总只受站点、店铺筛选影响</small>
+            </div>
+          </div>
+          <el-table
+            v-loading="ownersLoading"
+            :data="ownerRows"
+            :size="dense ? 'small' : 'default'"
+            :row-class-name="ownerRowClass"
+            border
+            max-height="320"
+            class="store-table owner-table"
+            style="max-width: 1040px"
+            empty-text="没有符合条件的负责人，换个站点或店铺试试"
+            @row-click="selectOwner"
+          >
+            <el-table-column
+              v-for="col in ownerColumns"
+              :key="col.key"
+              :label="col.label"
+              :width="col.width"
+              :min-width="col.minWidth"
+              :align="col.align"
+            >
+              <template v-if="col.tip" #header>
+                <span class="column-header">
+                  <span>{{ col.label }}</span>
+                  <el-tooltip :content="col.tip" placement="top">
+                    <app-icon name="help" :size="13" class="column-tip" />
+                  </el-tooltip>
+                </span>
+              </template>
+              <template #default="{ row }">
+                <template v-if="col.format === 'value'">
+                  <span :class="cellClass(row, col)">{{ cellText(row, col) }}</span>
+                  <el-tooltip
+                    v-if="Number(row.value_missing_sku_count) > 0"
+                    :content="`${integer(row.value_missing_sku_count)} 个有库存的站点 + SKU 没有单价（含税），未计入货值；请到 eBay 库存明细导入产品单价`"
+                    placement="top"
+                  >
+                    <span class="value-missing">缺 {{ integer(row.value_missing_sku_count) }}</span>
+                  </el-tooltip>
+                </template>
+                <template v-else-if="col.format === 'unmatchedCount'">
+                  <el-link
+                    v-if="Number(row.unmatched_sku_count) > 0"
+                    type="warning"
+                    :underline="false"
+                    class="count-link"
+                    @click.stop="focusOwner(row)"
+                  >{{ integer(row.unmatched_sku_count) }}</el-link>
+                  <span v-else class="muted">{{ integer(row.unmatched_sku_count) }}</span>
+                </template>
+                <span v-else :class="cellClass(row, col)">{{ cellText(row, col) }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <div class="section-head section-head--detail">
+            <div class="section-head__text">
+              <span class="card-title">
+                <template v-if="selectedOwner">{{ selectedOwner }} 名下的 SKU</template>
+                <template v-else>负责人 SKU 明细</template>
+              </span>
+              <small>一行一个「站点 + SKU」，默认按货值从高到低；点 SKU 查看各店铺的刊登和各站点库存</small>
+            </div>
+            <div class="table-tools">
+              <el-button :type="dense ? 'primary' : 'default'" plain @click="dense = !dense">紧凑</el-button>
+            </div>
+          </div>
+          <el-empty v-if="!selectedOwner" description="在上方负责人汇总里点一个人，查看他名下的 SKU" :image-size="64" />
+          <template v-else>
+            <el-table
+              v-loading="ownerSkuLoading"
+              :data="ownerSkuRows"
+              :size="dense ? 'small' : 'default'"
+              :row-key="skuRowKey"
+              :default-sort="{ prop: 'inventory_value_cny', order: 'descending' }"
+              border
+              height="520"
+              empty-text="这个人名下没有符合条件的 SKU，换个站点、店铺、关键词或取消「只看未匹配」试试"
+              @sort-change="handleOwnerSkuSort"
+            >
+              <el-table-column
+                v-for="col in ownerSkuColumns"
+                :key="col.key"
+                :prop="col.key"
+                :label="col.label"
+                :width="col.width"
+                :min-width="col.minWidth"
+                :align="col.align"
+                :fixed="col.fixed || false"
+                :sortable="col.sortable ? 'custom' : false"
+                :show-overflow-tooltip="col.tooltip"
+              >
+                <template v-if="col.tip" #header>
+                  <span class="column-header">
+                    <span>{{ col.label }}</span>
+                    <el-tooltip :content="col.tip" placement="top">
+                      <app-icon name="help" :size="13" class="column-tip" />
+                    </el-tooltip>
+                  </span>
+                </template>
+                <template #default="{ row }">
+                  <el-image
+                    v-if="col.format === 'image' && row.image_url"
+                    :src="row.image_url"
+                    fit="cover"
+                    class="row-image"
+                    :preview-src-list="[row.image_url]"
+                    preview-teleported
+                  />
+                  <el-link
+                    v-else-if="col.format === 'compareLink' && row.sku"
+                    type="primary"
+                    :underline="false"
+                    class="sku-link"
+                    @click="openCompare(row)"
+                  >{{ displayValue(row.sku) }}</el-link>
+                  <span v-else-if="col.format === 'reason'" class="unmatched-reason">{{ unmatchedReason(row) }}</span>
+                  <span v-else :class="cellClass(row, col)">{{ cellText(row, col) }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+            <pagination
+              v-show="ownerSkuTotal > 0"
+              :total="ownerSkuTotal"
+              v-model:page="ownerSkuPage.pageNum"
+              v-model:limit="ownerSkuPage.pageSize"
+              @pagination="loadOwnerSkus"
+            />
+          </template>
+        </el-tab-pane>
       </el-tabs>
     </el-card>
 
@@ -388,7 +526,8 @@
         <li>海外仓按「站点 + 去掉 SKU 第一段（品牌前缀，谷仓侧为 JMH）」匹配</li>
         <li>未匹配：这条刊登在所在站点的谷仓和成都仓都找不到对应 SKU，原因见『未匹配原因』列</li>
         <li>售价按站点币种和领星月度企业汇率折算 USD；当月汇率未出时，沿用该币种最近一个已出月份的汇率；完全没有汇率时不折算</li>
-        <li>采购成本取订单文件中的真实采购成本，未参与售价估算</li>
+        <li>采购成本优先取订单文件中最近一笔真实采购成本，没有订单时用领星商品资料的采购价；未参与售价估算</li>
+        <li>货值 = 实际库存（谷仓可售 + 成都可售）× 单价（含税，取 eBay 库存明细导入的产品单价，按中间码取最低价），同一站点 + SKU 只算一份，不用 eBay 可售（多店挂同一份货会重复）；没有单价的留空</li>
       </ul>
     </el-card>
 
@@ -493,6 +632,7 @@ import {
   exportEbayPriceAnalysis,
   getEbayPriceAnalysisSkuListings,
   listEbayPriceAnalysisDetail,
+  listEbayPriceAnalysisOwners,
   listEbayPriceAnalysisStores
 } from '@/api/operations/ebayPriceAnalysis'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
@@ -506,6 +646,8 @@ const SHARED_STOCK_TIP = '按站点共享：同一站点多个店铺显示的是
 const storesLoading = ref(false)
 const detailLoading = ref(false)
 const skuLoading = ref(false)
+const ownersLoading = ref(false)
+const ownerSkuLoading = ref(false)
 const exporting = ref(false)
 const dense = ref(false)
 const activeTab = ref('store')
@@ -516,6 +658,10 @@ const detailRows = ref([])
 const detailTotal = ref(0)
 const skuRows = ref([])
 const skuTotal = ref(0)
+const ownerRows = ref([])
+const selectedOwner = ref(null)
+const ownerSkuRows = ref([])
+const ownerSkuTotal = ref(0)
 const knownAccounts = ref([])
 const skuListings = reactive({})
 const compareDrawer = reactive({ visible: false, sku: '', origin: null })
@@ -528,13 +674,18 @@ const query = reactive({
 })
 const detailPage = reactive({ pageNum: 1, pageSize: 50, sortBy: undefined, sortOrder: undefined })
 const skuPage = reactive({ pageNum: 1, pageSize: 50, sortBy: undefined, sortOrder: undefined })
+// 个人维度默认按货值从高到低：先看这个人压钱最多的货。
+const OWNER_SKU_SORT = Object.freeze({ sortBy: 'inventory_value_cny', sortOrder: 'desc' })
+const ownerSkuPage = reactive({ pageNum: 1, pageSize: 50, ...OWNER_SKU_SORT })
 
 // 筛选每变一次版本号加一；切页签时版本对不上才重新拉，避免另一个页签拿着旧筛选的数据。
 let filterVersion = 0
-const loadedVersion = { store: -1, sku: -1 }
+const loadedVersion = { store: -1, sku: -1, owner: -1 }
 let storesSeq = 0
 let detailSeq = 0
 let skuSeq = 0
+let ownersSeq = 0
+let ownerSkuSeq = 0
 
 // 店铺维度明细列；页面配置换了新 key，旧看板保存的列顺序不会套到新表上。
 const fixedColumnKeys = ['image_url', 'sku']
@@ -617,6 +768,66 @@ const skuColumns = [
     tip: '这个站点 + SKU 下出现最多的未匹配原因；已匹配留空。'
   }
 ]
+// 个人维度上半部分：一行一个负责人。不放状态类列（与店铺、SKU 维度一致，状态列已按需求下线）。
+const VALUE_TIP = '实际库存（谷仓可售 + 成都可售）× 单价（含税），同一站点 + SKU 只算一份；没有单价的留空，不用采购成本代替。'
+const ownerColumns = [
+  { key: 'owner_name', label: '负责人', minWidth: 100, tip: '按 eBay 品牌负责人规则匹配，与绩效排名、月度库存同一口径；规则里没有的品牌显示「未分配」。' },
+  { key: 'sku_count', label: 'SKU 数', width: 85, align: 'right', format: 'integer', tip: '按「站点 + SKU」计数，同一 SKU 在两个站点算 2 个。' },
+  { key: 'listing_count', label: '在售刊登', width: 90, align: 'right', format: 'integer' },
+  { key: 'store_count', label: '店铺数', width: 80, align: 'right', format: 'integer' },
+  {
+    key: 'ebay_available', label: 'eBay 可售合计', width: 120, align: 'right', format: 'integer',
+    tip: '所有刊登的 eBay 可售相加；同一份库存挂在多家店铺上会被重复计入，不代表实际库存。'
+  },
+  {
+    key: 'inventory_qty', label: '实际库存', width: 100, align: 'right', format: 'integer',
+    tip: `谷仓可售 + 成都可售。${SHARED_STOCK_TIP}这里按站点 + SKU 只算一份后再相加。`
+  },
+  { key: 'inventory_value_cny', label: '货值(¥)', width: 165, align: 'right', format: 'value', tip: VALUE_TIP },
+  { key: 'sales_qty_7d', label: '近7日销量', width: 95, align: 'right', format: 'integer' },
+  { key: 'sales_qty_30d', label: '近30日销量', width: 100, align: 'right', format: 'integer' },
+  {
+    key: 'unmatched_sku_count', label: '未匹配', width: 90, align: 'right', format: 'unmatchedCount',
+    tip: '谷仓和成都仓都找不到库存的「站点 + SKU」数；点数字只看这些，原因见下方「未匹配原因」列'
+  }
+]
+// 个人维度下半部分：这个人名下每个「站点 + SKU」，默认按货值从高到低。
+const ownerSkuColumns = [
+  { key: 'image_url', label: '图片', width: 70, fixed: true, align: 'center', format: 'image' },
+  { key: 'site_name', label: '站点', width: 80, fixed: true, align: 'center' },
+  { key: 'sku', label: 'SKU', minWidth: 160, fixed: true, format: 'compareLink' },
+  { key: 'title', label: '产品名称', minWidth: 200, tooltip: true },
+  { key: 'store_count', label: '在售店铺数', width: 110, align: 'right', format: 'integer', sortable: true },
+  {
+    key: 'ebay_quantity_available', label: 'eBay可售合计', width: 125, align: 'right', format: 'integer', sortable: true,
+    tip: '这个站点所有店铺的 eBay 可售相加。'
+  },
+  {
+    key: 'overseas_sellable', label: '谷仓可售', width: 105, align: 'right', format: 'integer', sortable: true,
+    tip: `谷仓区域仓接口每周快照（美国两仓合计）。${SHARED_STOCK_TIP}`
+  },
+  {
+    key: 'chengdu_sellable', label: '成都可售', width: 105, align: 'right', format: 'integer', sortable: true,
+    tip: `领星周快照。${SHARED_STOCK_TIP}`
+  },
+  { key: 'inventory_qty', label: '实际库存', width: 105, align: 'right', format: 'integer', sortable: true, tip: '谷仓可售 + 成都可售。' },
+  {
+    key: 'purchase_cost_cny', label: '采购成本(¥)', width: 120, align: 'right', format: 'decimal', sortable: true,
+    tip: '优先取订单文件中最近一笔真实采购成本，没有订单时用领星商品资料的采购价。仅供参考，不参与货值。'
+  },
+  {
+    key: 'unit_price_tax', label: '单价(含税¥)', width: 125, align: 'right', format: 'decimal', sortable: true,
+    tip: '取 eBay 库存明细「导入产品单价」，按中间码取最低价，与库存明细页同一个单价；没有导入的显示「—」。'
+  },
+  { key: 'inventory_value_cny', label: '货值(¥)', width: 120, align: 'right', format: 'decimal', sortable: true, tip: VALUE_TIP },
+  { key: 'sales_qty_7d', label: '近7日销量', width: 105, align: 'right', format: 'integer', sortable: true },
+  { key: 'sales_qty_30d', label: '近30日销量', width: 110, align: 'right', format: 'integer', sortable: true },
+  {
+    key: 'cover_days', label: '覆盖天数', width: 100, align: 'right', format: 'decimal', sortable: true,
+    tip: '谷仓可售 ÷ 近 7 日日均销量；近 7 日没有销量时显示「—」。'
+  },
+  { key: 'unmatched_reason_text', label: '未匹配原因', minWidth: 200, format: 'reason', tooltip: true }
+]
 // 抽屉和展开行共用的两张对比表。
 const compareSiteColumns = [
   { key: 'site_name', label: '站点', width: 80, align: 'center' },
@@ -640,7 +851,8 @@ const compareListingColumns = [
   { key: 'unmatched_reason_text', label: '未匹配原因', minWidth: 135, format: 'reason', tooltip: true }
 ]
 
-const loading = computed(() => storesLoading.value || detailLoading.value || skuLoading.value)
+const loading = computed(() => storesLoading.value || detailLoading.value || skuLoading.value
+  || ownersLoading.value || ownerSkuLoading.value)
 const siteOptions = computed(() => {
   const fromData = stores.value.map(item => item.site).filter(Boolean)
   return [...new Set([...SITE_OPTIONS, ...fromData])]
@@ -696,6 +908,8 @@ function cellText(row, col) {
       return unmatchedReason(row)
     case 'date':
       return value ? String(value).slice(0, 10) : '—'
+    case 'value':
+      return decimal(row?.inventory_value_cny)
     default:
       return displayValue(value)
   }
@@ -756,7 +970,28 @@ function buildSkuParams() {
     pageSize: skuPage.pageSize
   }
 }
+// 个人维度：选中负责人名下的「站点 + SKU」，其余筛选与 SKU 维度一致。
+function buildOwnerSkuParams() {
+  return {
+    ...buildFilterParams(),
+    owners: csv(selectedOwner.value),
+    mode: 'summary',
+    sortBy: csv(ownerSkuPage.sortBy),
+    sortOrder: csv(ownerSkuPage.sortOrder),
+    pageNum: ownerSkuPage.pageNum,
+    pageSize: ownerSkuPage.pageSize
+  }
+}
 function buildExportParams() {
+  if (activeTab.value === 'owner') {
+    return {
+      ...buildFilterParams(),
+      owners: csv(selectedOwner.value),
+      mode: 'summary',
+      sortBy: csv(ownerSkuPage.sortBy),
+      sortOrder: csv(ownerSkuPage.sortOrder)
+    }
+  }
   const page = activeTab.value === 'sku' ? skuPage : detailPage
   return {
     ...buildFilterParams(),
@@ -827,11 +1062,50 @@ async function loadSkuRows() {
     if (seq === skuSeq) skuLoading.value = false
   }
 }
+async function loadOwners() {
+  const seq = ++ownersSeq
+  ownersLoading.value = true
+  try {
+    const response = await listEbayPriceAnalysisOwners(buildStoreParams())
+    if (seq !== ownersSeq) return
+    const data = response.data || {}
+    applySnapshot(data)
+    ownerRows.value = Array.isArray(data.rows) ? data.rows : []
+    // 筛选后原来选中的人还在就保持；不在了默认选第一位，免得下半部分空着。
+    const current = ownerRows.value.find(item => item.owner_name === selectedOwner.value)
+    selectedOwner.value = (current || ownerRows.value[0])?.owner_name || null
+  } finally {
+    if (seq === ownersSeq) ownersLoading.value = false
+  }
+}
+async function loadOwnerSkus() {
+  const seq = ++ownerSkuSeq
+  if (!selectedOwner.value) {
+    ownerSkuRows.value = []
+    ownerSkuTotal.value = 0
+    ownerSkuLoading.value = false
+    return
+  }
+  ownerSkuLoading.value = true
+  try {
+    const response = await listEbayPriceAnalysisDetail(buildOwnerSkuParams())
+    if (seq !== ownerSkuSeq) return
+    const data = response.data || {}
+    applySnapshot(data)
+    ownerSkuRows.value = Array.isArray(data.rows) ? data.rows : []
+    ownerSkuTotal.value = Number(data.total || 0)
+  } finally {
+    if (seq === ownerSkuSeq) ownerSkuLoading.value = false
+  }
+}
 async function loadActiveTab() {
   const tab = activeTab.value
   const version = filterVersion
   if (tab === 'sku') await loadSkuRows()
-  else await loadStoreDetail()
+  else if (tab === 'owner') {
+    await loadOwners()
+    await loadOwnerSkus()
+  } else await loadStoreDetail()
   loadedVersion[tab] = version
 }
 function clearSkuListings() {
@@ -840,6 +1114,7 @@ function clearSkuListings() {
 function resetPages() {
   detailPage.pageNum = 1
   skuPage.pageNum = 1
+  ownerSkuPage.pageNum = 1
 }
 // 站点 / 店铺变了：店铺汇总和当前页签都要重拉；「刷新」也走这里，顺带清掉跨店对比的缓存。
 async function handleQuery() {
@@ -864,7 +1139,9 @@ function resetQuery() {
   detailPage.sortOrder = undefined
   skuPage.sortBy = undefined
   skuPage.sortOrder = undefined
+  Object.assign(ownerSkuPage, OWNER_SKU_SORT)
   selectedStore.value = null
+  selectedOwner.value = null
   return handleQuery()
 }
 function handleTabChange() {
@@ -884,6 +1161,19 @@ function focusStore(row) {
   loadedVersion.store = filterVersion
   return selectStore(row)
 }
+function selectOwner(row) {
+  if (!row?.owner_name) return undefined
+  selectedOwner.value = row.owner_name
+  ownerSkuPage.pageNum = 1
+  return loadOwnerSkus()
+}
+// 点负责人汇总里的「未匹配」数字：选中这个人并打开「只看未匹配」。
+function focusOwner(row) {
+  query.onlyUnmatched = true
+  filterVersion += 1
+  loadedVersion.owner = filterVersion
+  return selectOwner(row)
+}
 function sortState({ prop, order }) {
   return {
     sortBy: order ? prop : undefined,
@@ -897,6 +1187,13 @@ function handleDetailSort(event) {
 function handleSkuSort(event) {
   Object.assign(skuPage, sortState(event), { pageNum: 1 })
   return loadSkuRows()
+}
+function handleOwnerSkuSort(event) {
+  Object.assign(ownerSkuPage, sortState(event), { pageNum: 1 })
+  return loadOwnerSkus()
+}
+function ownerRowClass({ row }) {
+  return selectedOwner.value && row?.owner_name === selectedOwner.value ? 'is-selected' : ''
 }
 function storeRowClass({ row }) {
   return selectedStore.value && storeKey(row) === storeKey(selectedStore.value) ? 'is-selected' : ''
@@ -1110,6 +1407,12 @@ onMounted(async () => {
 }
 .count-link {
   font-weight: 600;
+}
+.value-missing {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--el-color-warning, #e6a23c);
+  cursor: help;
 }
 .unmatched-reason {
   color: var(--jb-warn, #b88230);

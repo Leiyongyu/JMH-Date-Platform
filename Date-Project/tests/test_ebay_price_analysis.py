@@ -497,7 +497,9 @@ def test_export_respects_the_allowed_column_list(monkeypatch):
 def test_export_without_columns_exports_everything_and_refuses_empty(monkeypatch):
     monkeypatch.setattr(repo, "detail_rows", lambda criteria, **kwargs: [stored_row()])
     _, content = service.export()
-    assert sheet_values(content)[0] == [label for _, label in service.EXPORT_COLUMNS]
+    # 按刊登导出不出「实际库存」「货值」：库存按站点共享，单条刊登上算货值会被误加
+    assert sheet_values(content)[0] == [label for key, label in service.EXPORT_COLUMNS
+                                        if key not in service.SUMMARY_ONLY_EXPORT_COLUMNS]
     monkeypatch.setattr(repo, "detail_rows", lambda criteria, **kwargs: [])
     with pytest.raises(ValueError, match="没有可导出的数据"):
         service.export()
@@ -968,7 +970,8 @@ def test_summary_applies_flag_filters_after_grouping(monkeypatch):
     sql = captured["sql"]
     grouped, outer = sql.rsplit(") g", 1)
     assert "seller_account IN (%s)" in grouped and "site_oversell=1" not in grouped.split("GROUP BY")[-1]
-    assert outer.startswith(" WHERE site_oversell=1")
+    # 分组之后先挂单价（含税），标记筛选在最外层
+    assert outer.startswith("\n        LEFT JOIN (") and " WHERE site_oversell=1" in outer.split(") price")[-1]
     # SKU 维度的跨店对比列取自 site_sku（全站点），与明细的同站点对比同一口径
     assert "MAX(site_price_usd_min) price_usd_min,MAX(site_price_usd_max) price_usd_max" in sql
     assert "MAX(site_store_count) store_count" in sql
@@ -1301,3 +1304,238 @@ def test_owner_and_start_time_flow_to_detail_summary_listings_and_export():
     assert detail["owner_name"] == "张三" and detail["listing_start_time"] == "2026-11-10 10:09:54"
     summary = service._summary_row({"owner_name": "张三", "statuses": "健康"})
     assert summary["owner_name"] == "张三" and "listing_start_time" not in summary
+
+
+
+# ----------------------------------------------------------- 个人维度与货值
+def test_source_query_falls_back_to_lingxing_purchase_price(monkeypatch):
+    from dataclasses import replace
+
+    captured = {}
+
+    class Cursor:
+        def execute(self, sql, params=()):
+            captured.update(sql=sql, params=params)
+
+        def fetchall(self):
+            return []
+
+    monkeypatch.setattr(repo, "settings", replace(repo.settings, shop_source_database="erp"))
+    repo._source_rows(Cursor(), "2026-11", date(2026, 11, 10))
+    sql = captured["sql"]
+    # 订单成本优先，缺了才用领星采购价；领星价按完整 SKU、取批次月及以前最近一个快照月
+    assert "COALESCE(cost.unit_cost,lingxing.cg_price) purchase_cost_cny" in sql
+    assert "FROM `erp`.ods_lingxing_product_procurement_monthly p" in sql
+    assert "SELECT MAX(snapshot_month) FROM `erp`.ods_lingxing_product_procurement_monthly" in sql
+    assert "(SELECT " + repo._collate("stat_month") + " FROM listing_batch)" in sql
+    assert "ON " + repo._collate("lingxing.sku") + " = " + repo._collate("listing.sku") in sql
+    # 新 CTE 不带参数，原有参数个数不变
+    assert sql.count("%s") == len(captured["params"])
+
+
+def test_product_database_name_is_backtick_escaped(monkeypatch):
+    from dataclasses import replace
+
+    monkeypatch.setattr(repo, "settings", replace(repo.settings, shop_source_database="a`b"))
+    assert repo._product_database() == "a``b"
+    monkeypatch.setattr(repo, "settings", replace(repo.settings, shop_source_database="  "))
+    assert repo._product_database() == "jmh_data_platform"
+
+
+def test_owner_filter_binds_values_and_folds_null_into_unassigned():
+    where, params = repo._filters({"owners": ["方黎力", "未分配"]})
+    assert where == " WHERE COALESCE(owner_name,'未分配') IN (%s,%s)"
+    assert params == ["方黎力", "未分配"]
+    assert "owners" in service._criteria(owners="方黎力")
+    assert service._criteria(owners=" 方黎力 ,方黎力")["owners"] == ["方黎力"]
+
+
+def _site_sku_stock(rows):
+    """把 SKU 汇总里的实际库存那段 SQL 交给内存 sqlite 按 站点+SKU 分组执行。"""
+    import sqlite3
+
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.execute("CREATE TABLE t (seller_account TEXT, site TEXT, sku TEXT, inventory_matched INT,"
+                       " overseas_sellable INT, chengdu_sellable INT, ebay_quantity_available INT)")
+    connection.executemany("INSERT INTO t VALUES (:seller_account,:site,:sku,:inventory_matched,"
+                           ":overseas_sellable,:chengdu_sellable,:ebay_quantity_available)", rows)
+    result = {(row["site"], row["sku"]): row["inventory_qty"] for row in connection.execute(
+        f"SELECT site,sku,{repo.INVENTORY_SQL} inventory_qty FROM t GROUP BY site,sku")}
+    connection.close()
+    return result
+
+
+def test_inventory_counts_shared_stock_once_and_never_uses_ebay_quantity():
+    listing = {"site": "DE", "sku": "DAS-10178-0576", "inventory_matched": 1, "overseas_sellable": 10,
+               "chengdu_sellable": 2, "ebay_quantity_available": 10}
+    rows = [{**listing, "seller_account": f"store-{n}"} for n in range(9)]
+    rows += [
+        {"seller_account": "a", "site": "UK", "sku": "X-1-1", "inventory_matched": 1, "overseas_sellable": 5,
+         "chengdu_sellable": None, "ebay_quantity_available": 3},
+        {"seller_account": "a", "site": "US", "sku": "X-2-2", "inventory_matched": 0, "overseas_sellable": None,
+         "chengdu_sellable": None, "ebay_quantity_available": 4},
+    ]
+    stock = _site_sku_stock(rows)
+    # 9 家店各挂 10 件 eBay 可售，但仓里只有 10 + 2 件：实际库存 12，不是 90
+    assert stock[("DE", "DAS-10178-0576")] == 12
+    assert stock[("UK", "X-1-1")] == 5
+    assert stock[("US", "X-2-2")] is None, "未匹配库存留空，不当 0"
+    assert "ebay_quantity_available" not in repo.INVENTORY_SQL and "SUM(" not in repo.INVENTORY_SQL
+    assert f"{repo.INVENTORY_SQL} inventory_qty" in repo._SUMMARY_SELECT
+    for column in ("inventory_value_cny", "inventory_qty", "unit_price_tax"):
+        assert column in repo.SUMMARY_SORTABLE
+
+
+@pytest.mark.parametrize("stock,price,expected", [
+    (12, 20.0, 240.0),
+    (12, 0.0, 0.0),     # 0 价是有效单价
+    (12, None, None),   # 没有单价：留空，不回退采购成本
+    (None, 20.0, None),  # 未匹配库存：留空
+    (0, 20.0, 0.0),
+])
+def test_inventory_value_is_stock_times_inventory_detail_unit_price(stock, price, expected):
+    import sqlite3
+
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE g (inventory_qty INT)")
+    connection.execute("CREATE TABLE price (unit_price_tax REAL)")
+    connection.execute("INSERT INTO g VALUES (?)", (stock,))
+    connection.execute("INSERT INTO price VALUES (?)", (price,))
+    value = connection.execute(f"SELECT {repo.INVENTORY_VALUE_SQL} FROM g, price").fetchone()[0]
+    connection.close()
+    assert value == expected
+    assert "purchase_cost_cny" not in repo.INVENTORY_VALUE_SQL
+
+
+def test_unit_price_join_matches_the_inventory_detail_page_rule(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(repo, "_query", lambda sql, params: captured.update(sql=sql, params=list(params)) or [])
+    repo.summary_rows({"owners": ["方黎力"]}, sort_by="inventory_value_cny", limit=10, offset=0)
+    sql = captured["sql"]
+    middle = repo.middle_code_sql("g.sku")
+    # 单价表按中间码先聚合取最低价，再挂到「站点 + SKU」上；匹配条件与库存明细页一致
+    assert "FROM ebay_inventory_detail_price" in sql
+    assert "SELECT middle_code,MIN(unit_price) unit_price_tax" in sql and "GROUP BY middle_code" in sql
+    assert "LOCATE('-',g.sku)>0" in sql
+    assert f"{middle} REGEXP '^[a-zA-Z0-9]{{1,64}}$'" in sql and f"{middle} REGEXP '[0-9]'" in sql
+    assert f"{repo.INVENTORY_VALUE_SQL} inventory_value_cny" in sql
+    assert "ORDER BY (inventory_value_cny IS NULL) ASC,inventory_value_cny DESC" in sql
+    assert middle == ("REGEXP_REPLACE(SUBSTRING_INDEX(SUBSTRING_INDEX(g.sku,'-',2),'-',-1),"
+                      "'^[[:space:]]+|[[:space:]]+$','')")
+    # 计数不挂单价，不多一次关联
+    monkeypatch.setattr(repo, "_query", lambda sql, params: captured.update(sql=sql) or [{"n": 0}])
+    repo.summary_count({})
+    assert UNIT_PRICE_TABLE_NAME not in captured["sql"]
+
+
+UNIT_PRICE_TABLE_NAME = "ebay_inventory_detail_price"
+
+
+def test_owner_listing_rows_only_use_site_and_account_filters(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(repo, "_query", lambda sql, params: captured.update(sql=sql, params=list(params)) or [])
+    repo.owner_listing_rows({"sites": ["DE"], "accounts": ["a"], "owners": ["方黎力"], "keyword": "x"})
+    sql = captured["sql"]
+    assert "COUNT(DISTINCT seller_account) store_count" in sql
+    assert "GROUP BY COALESCE(owner_name,'未分配')" in sql and "sku IS NOT NULL" in sql
+    assert captured["params"] == ["DE", "a"]
+
+
+def test_owners_add_up_sku_level_stock_and_value_per_owner(monkeypatch):
+    seen = {}
+
+    def summary(criteria, **kwargs):
+        seen["criteria"] = criteria
+        seen["kwargs"] = kwargs
+        return [
+            stored_row(owner_name="方黎力", sku="A-1-1", ebay_quantity_available=90, overseas_sellable=10,
+                       chengdu_sellable=2, inventory_qty=12, unit_price_tax=Decimal("23.000000"),
+                       inventory_value_cny=Decimal("276.000000"),
+                       sales_qty_7d=1, sales_qty_30d=4),
+            stored_row(owner_name="方黎力", sku="A-2-2", ebay_quantity_available=3, overseas_sellable=5,
+                       chengdu_sellable=0, inventory_qty=5, inventory_value_cny=None,
+                       sales_qty_7d=None, sales_qty_30d=2),
+            stored_row(owner_name="方黎力", sku="A-3-3", ebay_quantity_available=4, overseas_sellable=None,
+                       chengdu_sellable=None, inventory_qty=None, inventory_value_cny=None,
+                       sales_qty_7d=None, sales_qty_30d=None),
+            stored_row(owner_name="杨萍", sku="B-1-1", ebay_quantity_available=6, overseas_sellable=0,
+                       chengdu_sellable=0, inventory_qty=0, inventory_value_cny=Decimal("0"),
+                       sales_qty_7d=0, sales_qty_30d=0),
+            stored_row(owner_name=None, sku="C-1-1", ebay_quantity_available=1, inventory_qty=None,
+                       inventory_value_cny=None),
+        ]
+
+    monkeypatch.setattr(repo, "summary_rows", summary)
+    monkeypatch.setattr(repo, "owner_listing_rows", lambda criteria: [
+        {"owner_name": "方黎力", "listing_count": 11, "store_count": 9},
+        {"owner_name": "杨萍", "listing_count": 1, "store_count": 1},
+        {"owner_name": "未分配", "listing_count": 1, "store_count": 1},
+    ])
+    data = service.owners(sites="DE", accounts="a")
+    assert seen["criteria"]["sites"] == ["DE"] and seen["criteria"]["accounts"] == ["a"]
+    assert seen["kwargs"] == {}, "负责人汇总要全量 SKU，不分页"
+    assert [row["owner_name"] for row in data["rows"]] == ["方黎力", "杨萍", "未分配"], "按货值排，未分配放最后"
+    owner = data["rows"][0]
+    assert (owner["sku_count"], owner["listing_count"], owner["store_count"]) == (3, 11, 9)
+    assert owner["ebay_available"] == 97
+    assert (owner["inventory_qty"], owner["overseas_sellable"], owner["chengdu_sellable"]) == (17, 15, 2)
+    assert owner["inventory_value_cny"] == 276.0
+    assert owner["value_missing_sku_count"] == 1, "有库存缺单价的 SKU 单独计数，不当 0"
+    assert owner["unmatched_sku_count"] == 1
+    assert (owner["sales_qty_7d"], owner["sales_qty_30d"]) == (1, 6)
+    assert "status_counts" not in owner
+    assert data["rows"][2]["unmatched_sku_count"] == 1 and data["rows"][2]["inventory_value_cny"] == 0.0
+    assert data["stat_date"] == "2026-09-23"
+
+
+def test_summary_rows_carry_inventory_and_value_and_owner_filter_reaches_detail(monkeypatch):
+    seen = {}
+
+    def summary(criteria, **kwargs):
+        seen["criteria"] = criteria
+        return [stored_row(statuses="健康", listing_count=2, store_count=2, inventory_qty=160,
+                           unit_price_tax=Decimal("186.400000"), inventory_value_cny=Decimal("29824.000000"))]
+
+    monkeypatch.setattr(repo, "summary_rows", summary)
+    monkeypatch.setattr(repo, "summary_count", lambda criteria: 1)
+    row = service.detail(mode="summary", owners="方黎力", sort_by="inventory_value_cny")["rows"][0]
+    assert seen["criteria"]["owners"] == ["方黎力"]
+    assert (row["inventory_qty"], row["unit_price_tax"], row["inventory_value_cny"]) == (160, 186.4, 29824.0)
+
+
+def test_summary_export_has_value_columns_and_takes_the_owner_filter(monkeypatch):
+    seen = {}
+
+    def summary(criteria, **kwargs):
+        seen["criteria"] = criteria
+        return [stored_row(statuses="健康", listing_count=1, store_count=1, inventory_qty=160,
+                           unit_price_tax=Decimal("186.400000"), inventory_value_cny=Decimal("29824.000000"))]
+
+    monkeypatch.setattr(repo, "summary_rows", summary)
+    _, content = service.export(mode="summary", owners="方黎力",
+                                columns="sku,inventory_qty,unit_price_tax,inventory_value_cny")
+    assert seen["criteria"]["owners"] == ["方黎力"]
+    assert sheet_values(content) == [["SKU", "实际库存", "单价(含税¥)", "货值(¥)"],
+                                     ["TYT-90245-0772", 160, 186.4, 29824.0]]
+    monkeypatch.setattr(repo, "detail_rows", lambda criteria, **kwargs: [stored_row()])
+    _, content = service.export(columns="sku,unit_price_tax,inventory_value_cny")
+    assert sheet_values(content)[0] == ["SKU"], "按刊登导出不出货值列"
+
+
+def test_owners_route_and_owner_param_are_wired(client, monkeypatch):
+    test_client, _ = client
+    seen = {}
+    monkeypatch.setattr(service, "owners", lambda **kwargs: seen.update(owners=kwargs) or {"rows": []})
+    response = test_client.get("/api/v1/ebay-price-analysis/owners", params={"sites": "DE"})
+    assert response.status_code == 200 and response.json()["data"] == {"rows": []}
+    assert seen["owners"] == {"sites": "DE", "accounts": None}
+
+    def detail(**kwargs):
+        seen["detail"] = kwargs
+        return {"rows": []}
+
+    monkeypatch.setattr(service, "detail", detail)
+    assert test_client.get("/api/v1/ebay-price-analysis/detail",
+                           params={"mode": "summary", "owners": "方黎力"}).status_code == 200
+    assert seen["detail"]["owners"] == "方黎力"

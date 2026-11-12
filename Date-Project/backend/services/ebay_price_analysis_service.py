@@ -69,9 +69,12 @@ EXPORT_COLUMNS = (
     ("chengdu_sellable", "成都可售"), ("pending_outbound", "待出库"),
     ("sales_qty_7d", "近7日销量"), ("sales_qty_30d", "近30日销量"),
     ("cover_days", "覆盖天数"), ("stock_gap", "库存缺口"),
-    ("purchase_cost_cny", "采购成本(¥)"), ("status", "状态"),
+    ("purchase_cost_cny", "采购成本(¥)"), ("inventory_qty", "实际库存"),
+    ("unit_price_tax", "单价(含税¥)"), ("inventory_value_cny", "货值(¥)"), ("status", "状态"),
     ("view_item_url", "刊登链接"), ("stat_date", "快照日期"),
 )
+# 只有按「站点 + SKU」汇总才有的列：库存按站点共享，单条刊登上算货值会被误加，按刊登导出时不出这几列。
+SUMMARY_ONLY_EXPORT_COLUMNS = frozenset({"inventory_qty", "unit_price_tax", "inventory_value_cny"})
 
 
 # ---------------------------------------------------------------- 纯计算
@@ -510,7 +513,7 @@ def _criteria(*, stat_date: str | None = None, sites: str | None = None,
               keyword: str | None = None, sku: str | None = None,
               mid_code_filter: str | None = None, site_oversell: bool | None = None,
               out_of_stock_listed: bool | None = None,
-              unmatched: bool | None = None) -> dict[str, Any]:
+              unmatched: bool | None = None, owners: str | None = None) -> dict[str, Any]:
     statuses = _csv(status, limit=len(STATUSES), item_length=16)
     unknown = [item for item in statuses if item not in STATUSES]
     if unknown:
@@ -522,6 +525,7 @@ def _criteria(*, stat_date: str | None = None, sites: str | None = None,
         "stat_date": _parse_date(stat_date),
         "sites": [site.upper() for site in _csv(sites, limit=10, item_length=16)],
         "accounts": _csv(accounts, limit=60),
+        "owners": _csv(owners, limit=60, item_length=64),
         "statuses": statuses,
         "keyword": text,
         "sku": (str(sku).strip() or None) if sku else None,
@@ -633,6 +637,10 @@ def _summary_row(row: dict[str, Any]) -> dict[str, Any]:
     result["store_count"] = _int(row.get("store_count")) or 0
     result["price_usd_min"] = _number(row.get("price_usd_min"))
     result["price_usd_max"] = _number(row.get("price_usd_max"))
+    result["inventory_qty"] = _int(row.get("inventory_qty"))
+    # 货值 = 实际库存 × 单价（含税，库存明细导入），与库存明细页同一口径；采购成本列只作参考。
+    result["unit_price_tax"] = _number(row.get("unit_price_tax"), 4)
+    result["inventory_value_cny"] = _number(row.get("inventory_value_cny"))
     return result
 
 
@@ -659,7 +667,7 @@ def detail(*, stat_date: str | None = None, sites: str | None = None,
            page_size: int = 50, sort_by: str | None = None,
            sort_order: str = "desc", site_oversell: bool | None = None,
            out_of_stock_listed: bool | None = None,
-           unmatched: bool | None = None) -> dict[str, Any]:
+           unmatched: bool | None = None, owners: str | None = None) -> dict[str, Any]:
     if mode not in ("detail", "summary"):
         raise ValueError("mode 只能是 detail 或 summary")
     page = max(1, int(page))
@@ -667,7 +675,8 @@ def detail(*, stat_date: str | None = None, sites: str | None = None,
     criteria = _criteria(stat_date=stat_date, sites=sites, accounts=accounts,
                          status=status, keyword=keyword, sku=sku,
                          mid_code_filter=mid_code_filter, site_oversell=site_oversell,
-                         out_of_stock_listed=out_of_stock_listed, unmatched=unmatched)
+                         out_of_stock_listed=out_of_stock_listed, unmatched=unmatched,
+                         owners=owners)
     total = (repo.summary_count(criteria) if mode == "summary"
              else repo.detail_count(criteria))
     rows = _rows(criteria, mode=mode, sort_by=sort_by, sort_order=sort_order,
@@ -690,6 +699,55 @@ def stores(*, sites: str | None = None, accounts: str | None = None) -> dict[str
         "site_oversell_sku_count": _int(row.get("site_oversell_sku_count")) or 0,
         "unmatched_count": _int(row.get("unmatched_count")) or 0,
     } for row in repo.store_rows(criteria)]}
+
+
+def _owner_group(owner: str) -> dict[str, Any]:
+    return {"owner_name": owner, "sku_count": 0, "listing_count": 0, "store_count": 0,
+            "ebay_available": 0, "overseas_sellable": 0, "chengdu_sellable": 0,
+            "inventory_qty": 0, "inventory_value_cny": Decimal(0),
+            "value_missing_sku_count": 0, "unmatched_sku_count": 0,
+            "sales_qty_7d": 0, "sales_qty_30d": 0}
+
+
+def owners(*, sites: str | None = None, accounts: str | None = None) -> dict[str, Any]:
+    """负责人汇总：一行一个负责人，只受站点、店铺筛选（与店铺汇总一致）。
+
+    先按「站点 + SKU」汇总（库存取站点共享的一份），再按负责人相加，所以库存、货值不会因
+    多店铺挂同一份货而重复。未匹配按「站点 + SKU」计数（谷仓、成都都没关联上，实际库存为 NULL）。
+    货值用库存明细导入的单价（含税）；有库存但没有单价的 SKU 不计入货值，单独数出来，
+    页面据此提示货值偏小。
+    """
+    criteria = _criteria(sites=sites, accounts=accounts)
+    groups: dict[str, dict[str, Any]] = {}
+    for row in repo.summary_rows(criteria):
+        group = groups.setdefault(row.get("owner_name") or repo.UNASSIGNED_OWNER,
+                                  _owner_group(row.get("owner_name") or repo.UNASSIGNED_OWNER))
+        group["sku_count"] += 1
+        group["ebay_available"] += _int(row.get("ebay_quantity_available")) or 0
+        group["overseas_sellable"] += _int(row.get("overseas_sellable")) or 0
+        group["chengdu_sellable"] += _int(row.get("chengdu_sellable")) or 0
+        stock = _int(row.get("inventory_qty"))
+        group["inventory_qty"] += stock or 0
+        if stock is None:
+            group["unmatched_sku_count"] += 1
+        value = _decimal(row.get("inventory_value_cny"))
+        if value is not None:
+            group["inventory_value_cny"] += value
+        elif stock:
+            group["value_missing_sku_count"] += 1
+        group["sales_qty_7d"] += _int(row.get("sales_qty_7d")) or 0
+        group["sales_qty_30d"] += _int(row.get("sales_qty_30d")) or 0
+    for row in repo.owner_listing_rows(criteria):
+        owner = row.get("owner_name") or repo.UNASSIGNED_OWNER
+        group = groups.setdefault(owner, _owner_group(owner))
+        group["listing_count"] = _int(row.get("listing_count")) or 0
+        group["store_count"] = _int(row.get("store_count")) or 0
+    rows = sorted(groups.values(), key=lambda item: (
+        item["owner_name"] == repo.UNASSIGNED_OWNER, -item["inventory_value_cny"],
+        item["owner_name"]))
+    for row in rows:
+        row["inventory_value_cny"] = _number(row["inventory_value_cny"])
+    return {**_snapshot(), "rows": rows}
 
 
 def sku_listings(*, sku: str | None) -> dict[str, Any]:
@@ -743,14 +801,15 @@ def export(*, columns: str | None = None, mode: str = "detail", **filters) -> tu
     if mode not in ("detail", "summary"):
         raise ValueError("mode 只能是 detail 或 summary")
     allowed = set(_csv(columns, limit=len(EXPORT_COLUMNS), item_length=64))
-    chosen = [item for item in EXPORT_COLUMNS if not allowed or item[0] in allowed]
+    chosen = [item for item in EXPORT_COLUMNS if (not allowed or item[0] in allowed)
+              and (mode == "summary" or item[0] not in SUMMARY_ONLY_EXPORT_COLUMNS)]
     if not chosen:
         raise ValueError("没有可导出的列，请检查导出列权限配置")
     criteria = _criteria(**{key: value for key, value in filters.items()
                             if key in ("stat_date", "sites", "accounts", "status",
                                        "keyword", "sku", "mid_code_filter",
                                        "site_oversell", "out_of_stock_listed",
-                                       "unmatched")})
+                                       "unmatched", "owners")})
     rows = _rows(criteria, mode=mode, sort_by=filters.get("sort_by"),
                  sort_order=filters.get("sort_order") or "desc", offset=None, limit=None)
     if not rows:

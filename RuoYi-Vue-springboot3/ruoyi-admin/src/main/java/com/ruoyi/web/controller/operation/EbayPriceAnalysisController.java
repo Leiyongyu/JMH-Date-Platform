@@ -51,7 +51,8 @@ public class EbayPriceAnalysisController extends BaseController
             "current_price", "price_usd", "ebay_quantity_available",
             "overseas_sellable", "overseas_in_transit", "chengdu_sellable",
             "pending_outbound", "sales_qty_7d", "sales_qty_30d", "cover_days",
-            "stock_gap", "purchase_cost_cny", "status", "view_item_url");
+            "stock_gap", "purchase_cost_cny", "inventory_qty", "unit_price_tax", "inventory_value_cny",
+            "status", "view_item_url");
 
     private final EbayPriceAnalysisPythonClient client;
 
@@ -72,6 +73,20 @@ public class EbayPriceAnalysisController extends BaseController
         params.put("sites", trimToNull(sites));
         params.put("accounts", trimToNull(accounts));
         return success(client.stores(params, requestId).get("data"));
+    }
+
+    /** 负责人维度汇总：每个负责人一行，不分页（负责人只有个位数）；只受站点、店铺筛选。 */
+    @PreAuthorize("@ss.hasPermi('operations:ebayPriceAnalysis:list')")
+    @GetMapping("/owners")
+    public AjaxResult owners(
+            @RequestParam(required = false) String sites,
+            @RequestParam(required = false) String accounts,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("sites", trimToNull(sites));
+        params.put("accounts", trimToNull(accounts));
+        return success(client.owners(params, requestId).get("data"));
     }
 
     /** 某个 SKU 在各店铺、各站点的在售与库存对比；SKU 必填，精确匹配。 */
@@ -95,6 +110,7 @@ public class EbayPriceAnalysisController extends BaseController
             @RequestParam(required = false) String statDate,
             @RequestParam(required = false) String sites,
             @RequestParam(required = false) String accounts,
+            @RequestParam(required = false) String owners,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "detail") String mode,
@@ -107,7 +123,7 @@ public class EbayPriceAnalysisController extends BaseController
             @RequestParam(required = false) Boolean unmatched,
             @RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
-        Map<String, Object> params = filters(statDate, sites, accounts, status, keyword);
+        Map<String, Object> params = filters(statDate, sites, accounts, owners, status, keyword);
         params.put("mode", trimToNull(mode));
         // 不传时为 null，不出现在查询串里，Python 按「不筛选」处理。
         params.put("site_oversell", siteOversell);
@@ -132,6 +148,7 @@ public class EbayPriceAnalysisController extends BaseController
             @RequestParam(required = false) String statDate,
             @RequestParam(required = false) String sites,
             @RequestParam(required = false) String accounts,
+            @RequestParam(required = false) String owners,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "detail") String mode,
@@ -143,7 +160,7 @@ public class EbayPriceAnalysisController extends BaseController
             @RequestHeader(value = "X-Request-ID", required = false) String requestId,
             HttpServletResponse response) throws IOException
     {
-        export(statDate, sites, accounts, status, keyword, mode, sortBy, sortOrder,
+        export(statDate, sites, accounts, owners, status, keyword, mode, sortBy, sortOrder,
                 siteOversell, outOfStockListed, unmatched, requestId, response);
     }
 
@@ -155,6 +172,7 @@ public class EbayPriceAnalysisController extends BaseController
             @RequestParam(required = false) String statDate,
             @RequestParam(required = false) String sites,
             @RequestParam(required = false) String accounts,
+            @RequestParam(required = false) String owners,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "detail") String mode,
@@ -166,17 +184,18 @@ public class EbayPriceAnalysisController extends BaseController
             @RequestHeader(value = "X-Request-ID", required = false) String requestId,
             HttpServletResponse response) throws IOException
     {
-        export(statDate, sites, accounts, status, keyword, mode, sortBy, sortOrder,
+        export(statDate, sites, accounts, owners, status, keyword, mode, sortBy, sortOrder,
                 siteOversell, outOfStockListed, unmatched, requestId, response);
     }
 
-    private void export(String statDate, String sites, String accounts, String status,
+    private void export(String statDate, String sites, String accounts, String owners,
+            String status,
             String keyword, String mode, String sortBy, String sortOrder,
             Boolean siteOversell, Boolean outOfStockListed, Boolean unmatched,
             String requestId, HttpServletResponse response) throws IOException
     {
         Set<String> permissions = getLoginUser().getPermissions();
-        Map<String, Object> params = filters(statDate, sites, accounts, status, keyword);
+        Map<String, Object> params = filters(statDate, sites, accounts, owners, status, keyword);
         params.put("mode", trimToNull(mode));
         // 与 /detail 相同：导出跟着页面筛选走；不传为 null，查询串里不出现。
         params.put("site_oversell", siteOversell);
@@ -210,12 +229,13 @@ public class EbayPriceAnalysisController extends BaseController
     }
 
     private static Map<String, Object> filters(String statDate, String sites,
-            String accounts, String status, String keyword)
+            String accounts, String owners, String status, String keyword)
     {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("stat_date", trimToNull(statDate));
         params.put("sites", trimToNull(sites));
         params.put("accounts", trimToNull(accounts));
+        params.put("owners", trimToNull(owners));
         params.put("status", trimToNull(status));
         params.put("keyword", trimToNull(keyword));
         return params;
