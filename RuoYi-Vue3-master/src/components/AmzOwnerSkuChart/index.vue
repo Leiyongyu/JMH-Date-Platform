@@ -5,7 +5,7 @@
         <span class="eyebrow">{{ platformLabel }} · 在售商品</span>
         <h2 :id="`owner-sku-title-${platform}`">负责人在售 SKU 数</h2>
       </div>
-      <el-button :loading="loading" icon="Refresh" size="small" circle title="刷新统计" :aria-label="`${platformLabel}刷新统计`" @click="load" />
+      <icon-btn icon="refresh" :loading="loading" :tooltip="`${platformLabel}刷新统计`" @click="load" />
     </header>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <template v-else-if="summary">
@@ -71,25 +71,26 @@ onBeforeUnmount(() => { disposed = true })
 </script>
 
 <style scoped>
-.owner-panel { box-sizing: border-box; display: flex; flex-direction: column; width: 100%; min-width: 0; height: 360px; padding: 14px; background: var(--el-bg-color); border: 1px solid var(--el-border-color-lighter); border-radius: 10px; }
+.owner-panel { box-sizing: border-box; display: flex; flex-direction: column; width: 100%; min-width: 0; height: 360px; padding: 16px; background: var(--jb-surface, var(--el-bg-color)); border: 1px solid var(--jb-line, var(--el-border-color-lighter)); border-radius: 12px; box-shadow: var(--jb-sh-1, none); transition: box-shadow 0.2s ease, border-color 0.2s ease; }
+.owner-panel:hover { border-color: var(--jb-line-strong, var(--el-border-color)); box-shadow: var(--jb-sh-2, none); }
 .panel-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-shrink: 0; }
-.eyebrow { color: var(--el-color-primary); font-size: 10px; font-weight: 600; letter-spacing: .5px; }
-h2 { margin: 6px 0 10px; color: var(--el-text-color-primary); font-size: 15px; line-height: 1.4; }
-.summary-line { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px; padding-top: 10px; border-top: 1px solid var(--el-border-color-lighter); color: var(--el-text-color-regular); font-size: 11px; flex-shrink: 0; }
-.summary-line strong { color: var(--el-text-color-primary); font-size: 21px; margin-left: 5px; font-variant-numeric: tabular-nums; }
-.owner-total { color: var(--el-text-color-secondary); }
-.source-time { margin: 6px 0 10px; color: var(--el-text-color-secondary); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.eyebrow { color: var(--jb-accent, var(--el-color-primary)); font-size: 11px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase; }
+h2 { margin: 6px 0 10px; color: var(--jb-ink-700, var(--el-text-color-primary)); font-size: 15px; line-height: 1.4; font-weight: 600; }
+.summary-line { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px; padding-top: 10px; border-top: 1px solid var(--jb-line, var(--el-border-color-lighter)); color: var(--jb-ink-500, var(--el-text-color-regular)); font-size: 11px; flex-shrink: 0; }
+.summary-line strong { color: var(--jb-ink-900, var(--el-text-color-primary)); font-size: 21px; margin-left: 5px; font-variant-numeric: tabular-nums; }
+.owner-total { color: var(--jb-ink-400, var(--el-text-color-secondary)); }
+.source-time { margin: 6px 0 10px; color: var(--jb-ink-400, var(--el-text-color-secondary)); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
 .chart-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; scrollbar-width: thin; scrollbar-gutter: stable; padding-right: 4px; }
-.chart-scroll:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: -2px; }
+.chart-scroll:focus-visible { outline: 2px solid var(--jb-accent, var(--el-color-primary)); outline-offset: -2px; }
 .bar-chart { list-style: none; padding: 0; margin: 0; }
 .bar-chart li { display: grid; grid-template-columns: 48px minmax(0, 1fr) 43px; gap: 6px; align-items: center; min-height: 32px; font-size: 12px; }
-.owner-name { color: var(--el-text-color-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bar-track { height: 12px; background: var(--el-fill-color-light); border-radius: 3px; overflow: hidden; }
-.bar { height: 100%; min-width: 2px; background: linear-gradient(90deg, #387ae5, #79b1fa); border-radius: 4px; }
-.bar-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--el-text-color-primary); }
-.unassigned .bar { background: #e6a23c; }
-.unassigned .owner-name, .unassigned .bar-value { color: var(--el-color-warning); }
-footer { display: flex; justify-content: space-between; gap: 6px; border-top: 1px solid var(--el-border-color-lighter); margin-top: 10px; padding-top: 8px; color: var(--el-text-color-secondary); font-size: 10px; flex-shrink: 0; }
+.owner-name { color: var(--jb-ink-700, var(--el-text-color-primary)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-track { height: 12px; background: var(--jb-hover, var(--el-fill-color-light)); border-radius: 999px; overflow: hidden; }
+.bar { height: 100%; min-width: 2px; background: linear-gradient(90deg, #1257d6, #12b2a6); border-radius: 999px; }
+.bar-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--jb-ink-900, var(--el-text-color-primary)); }
+.unassigned .bar { background: var(--jb-warn, #e6a23c); }
+.unassigned .owner-name, .unassigned .bar-value { color: var(--jb-warn, var(--el-color-warning)); }
+footer { display: flex; justify-content: space-between; gap: 6px; border-top: 1px solid var(--jb-line, var(--el-border-color-lighter)); margin-top: 10px; padding-top: 8px; color: var(--jb-ink-400, var(--el-text-color-secondary)); font-size: 10px; flex-shrink: 0; }
 footer span:first-child { cursor: help; }
 .el-alert { margin: 8px 0; overflow-y: auto; }
 </style>

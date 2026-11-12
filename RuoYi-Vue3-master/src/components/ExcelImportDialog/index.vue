@@ -1,7 +1,7 @@
 <template>
   <el-dialog :title="title" v-model="visible" :width="width" append-to-body @close="handleClose">
     <el-upload ref="uploadRef" :limit="1" accept=".xlsx, .xls" :headers="headers" :action="uploadUrl" :disabled="isUploading" :on-progress="handleProgress" :on-change="handleFileChange" :on-remove="handleFileRemove" :on-success="handleSuccess" :auto-upload="false" drag>
-      <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+      <app-icon name="upload" :size="40" class="upload-hero" />
       <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
       <template #tip>
         <div class="el-upload__tip text-center">

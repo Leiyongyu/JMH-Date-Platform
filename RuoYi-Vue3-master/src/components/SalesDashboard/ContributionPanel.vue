@@ -29,10 +29,10 @@ const contribution = computed(() => props.report?.contributions?.[metric.value]?
 const hasPlatformValues = computed(() => props.report?.metrics?.[metric.value]?.platform_series?.some(s => s.values.some(v => v != null)))
 </script>
 <style scoped>
-.contribution-panel { padding: 22px; margin-top: 18px; border: 1px solid var(--el-border-color-light); border-radius: 12px; background: var(--el-bg-color); }
+.contribution-panel { padding: 22px; margin-top: 18px; border: 1px solid var(--jb-line, #e3e9f2); border-radius: 12px; background: var(--jb-surface, #fff); box-shadow: var(--jb-sh-1, 0 1px 2px rgba(13,26,45,.06)); }
 .heading, .controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 h3 { margin: 0; font-size: 17px; } h4 { margin: 0; font-size: 14px; }
-.heading > span, p { font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.7; }
+.heading > span, p { font-size: 12px; color: var(--jb-ink-400, #8a99b0); line-height: 1.7; }
 .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; margin-top: 22px; }
 .chart-panel { min-width: 0; }
 @media (max-width: 1100px) { .charts { grid-template-columns: 1fr; } }

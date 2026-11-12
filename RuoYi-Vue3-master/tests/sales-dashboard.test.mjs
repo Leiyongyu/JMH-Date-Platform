@@ -6,6 +6,37 @@ import * as Vue from 'vue'
 import { compile } from '@vue/compiler-dom'
 import { renderToString } from '@vue/server-renderer'
 import { trendDirection, comparisonDirection, trendColors } from '../src/components/SalesDashboard/trend.js'
+
+// 把 #rgb / #rrggbb / rgb() / rgba() 解析成 { hue, alpha }，用色相判断「红」「绿」，不绑死具体色值。
+function colorInfo(text) {
+  const value = String(text).trim()
+  let r, g, b, alpha = 1
+  const hex = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)
+  const rgb = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i)
+  if (hex) {
+    const full = hex[1].length === 3 ? hex[1].replace(/./g, c => c + c) : hex[1]
+    ;[r, g, b] = [0, 2, 4].map(i => parseInt(full.slice(i, i + 2), 16))
+  } else if (rgb) {
+    ;[r, g, b] = rgb.slice(1, 4).map(Number)
+    if (rgb[4] !== undefined) alpha = Number(rgb[4])
+  } else {
+    assert.fail(`unrecognised color: ${value}`)
+  }
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  let hue = 0
+  if (max !== min) {
+    const d = max - min
+    if (max === r) hue = ((g - b) / d) % 6
+    else if (max === g) hue = (b - r) / d + 2
+    else hue = (r - g) / d + 4
+    hue = (hue * 60 + 360) % 360
+  }
+  return { hue, alpha, lightness: (max + min) / 2 / 255 }
+}
+const isRed = color => { const { hue } = colorInfo(color); return hue <= 20 || hue >= 340 }
+// 绿到青绿都算「跌」色：改版的跌色是青绿 #12b2a6（色相约 176°），旧的是 #16834a（约 145°）。
+const isGreen = color => { const { hue } = colorInfo(color); return hue >= 90 && hue <= 185 }
 import { salesChartOption, salesMetrics, formatMetric } from '../src/components/SalesDashboard/chart.js'
 import { availableMonths, disabledMonth, fitMonthRange, validMonthRange, availableQuarters, quarterRange, quarterMonths, platformGroups } from '../src/components/SalesDashboard/months.js'
 import { changeText, changeTip } from '../src/components/SalesDashboard/comparison.js'
@@ -230,7 +261,10 @@ test('TrendValue renders red up and green down arrows while zero and missing val
   const source = fs.readFileSync(new URL('../src/components/SalesDashboard/TrendValue.vue', import.meta.url), 'utf8')
   const template = parse(source).descriptor.template.content
   const render = new Function('Vue', compile(template, { mode: 'function', prefixIdentifiers: true }).code)(Vue)
-  for (const [value, direction, arrow, color] of [['1', 'up', '↑', '#d93025'], ['-1', 'down', '↓', '#16834a'], ['0', '', '', ''], [null, '', '', '']]) {
+  // 红涨绿跌按色相锁，颜色本身取 trendColors，换调色板不用改测试。
+  assert.ok(isRed(trendColors.up), `up should be red, got ${trendColors.up}`)
+  assert.ok(isGreen(trendColors.down), `down should be green, got ${trendColors.down}`)
+  for (const [value, direction, arrow, color] of [['1', 'up', '↑', trendColors.up], ['-1', 'down', '↓', trendColors.down], ['0', '', '', ''], [null, '', '', '']]) {
     const app = Vue.createSSRApp({ render, setup: () => ({ direction: trendDirection(value), trendColors }) })
     const html = await renderToString(app)
     if (direction) {
@@ -248,8 +282,9 @@ test('platform-specific chart comparisons use the same signed arrows and colors'
   const tip = option.tooltip.formatter([{ value: 10, seriesIndex: 0, dataIndex: 0 }])
   assert.match(tip, /环比 \{down\|↓ -20\.00%\}/)
   assert.match(tip, /同比 0\.00%/)
-  assert.equal(option.tooltip.textStyle.rich.up.color, '#d93025')
-  assert.equal(option.tooltip.textStyle.rich.down.color, '#16834a')
+  // 图表提示和 TrendValue 用同一套颜色。
+  assert.equal(option.tooltip.textStyle.rich.up.color, trendColors.up)
+  assert.equal(option.tooltip.textStyle.rich.down.color, trendColors.down)
 })
 
 for (const name of ['TrendValue', 'ComparisonValue', 'ComparisonTable', 'DashboardChart', 'ContributionPanel', 'PlatformAnalysis']) {

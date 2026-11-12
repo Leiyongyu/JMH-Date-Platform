@@ -169,7 +169,7 @@
 /** 表格更多操作下拉样式 */
 .el-table .el-dropdown-link {
   cursor: pointer;
-  color: #409EFF;
+  color: var(--el-color-primary);
   margin-left: 10px;
 }
 
@@ -287,7 +287,7 @@
       padding-top: 4px;
       min-height: 1.6em;
       &.plaintext {
-        border-bottom: 1px dashed #dde1e6;
+        border-bottom: 1px dashed var(--jb-line-strong, #d8e0ee);
       }
     }
   }
@@ -296,21 +296,24 @@
 .detail-wrap { padding: 0 4px; }
 
 .detail-card {
-  border: 1px solid #ebeef5;
-  border-radius: 6px;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 12px;
   margin-bottom: 14px;
   overflow: hidden;
+  background: var(--jb-surface, #fff);
+  box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16, 34, 64, .04));
 }
 
 .detail-card-title {
-  background: #f7f9fb;
-  padding: 8px 16px;
+  background: var(--jb-canvas, #f5f7fb);
+  padding: 10px 16px;
   font-size: 13px;
   font-weight: 600;
-  color: #333;
-  border-bottom: 1px solid #ebeef5;
+  color: var(--jb-ink-700, #24334a);
+  border-bottom: 1px solid var(--jb-line, #e3e9f2);
 }
-.detail-card-title i { margin-right: 5px; color: #409EFF; }
+.detail-card-title .app-icon,
+.detail-card-title i { margin-right: 5px; color: var(--el-color-primary); }
 
 .detail-row { padding: 0 8px; }
 
@@ -326,16 +329,16 @@
 .detail-label {
   flex-shrink: 0;
   width: 72px;
-  color: #909399;
+  color: var(--jb-ink-400, #8a99b0);
   margin-right: 12px;
 }
-.detail-value { color: #303133; flex: 1; word-break: break-all; }
-.detail-location { color: #999; font-size: 12px; }
+.detail-value { color: var(--jb-ink-700, #24334a); flex: 1; word-break: break-all; }
+.detail-location { color: var(--jb-ink-400, #8a99b0); font-size: 12px; }
 
 .method-tag {
   display: inline-block;
   padding: 1px 7px;
-  border-radius: 3px;
+  border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
   margin-right: 6px;
@@ -344,9 +347,9 @@
 .mono { font-family: Consolas, 'SFMono-Regular', monospace; font-size: 12px; }
 .code-body { padding: 14px; }
 .code-wrap {
-  background: #f7f9fb;
-  border: 1px solid #e8ecf0;
-  border-radius: 4px;
+  background: var(--jb-canvas, #f5f7fb);
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 10px;
   overflow: hidden;
   max-height: 260px;
   position: relative;
@@ -363,12 +366,13 @@
   height: 24px; 
   font-size: 12px; 
   padding: 4px 8px; 
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid #dcdcdc;
+  background: var(--jb-surface, #fff);
+  border: 1px solid var(--jb-line-strong, #d8e0ee);
+  border-radius: 6px;
 }
 .code-action .el-button:hover { 
   background: #ffffff;
-  border-color: #409EFF;
+  border-color: var(--el-color-primary);
 }
 .code-pre {
   margin: 0;

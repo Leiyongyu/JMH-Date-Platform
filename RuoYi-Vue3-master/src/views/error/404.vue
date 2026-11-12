@@ -164,7 +164,7 @@ let message = computed(() => {
       font-size: 32px;
       font-weight: bold;
       line-height: 40px;
-      color: #1482f0;
+      color: #1257d6;
       opacity: 0;
       margin-bottom: 20px;
       animation-name: slideUp;
@@ -174,7 +174,7 @@ let message = computed(() => {
     &__headline {
       font-size: 20px;
       line-height: 24px;
-      color: #222;
+      color: #0b1526;
       font-weight: bold;
       opacity: 0;
       margin-bottom: 10px;
@@ -186,7 +186,7 @@ let message = computed(() => {
     &__info {
       font-size: 13px;
       line-height: 21px;
-      color: grey;
+      color: #8a99b0;
       opacity: 0;
       margin-bottom: 30px;
       animation-name: slideUp;
@@ -199,8 +199,10 @@ let message = computed(() => {
       float: left;
       width: 110px;
       height: 36px;
-      background: #1482f0;
+      background: linear-gradient(135deg, #2c74f0, #1257d6);
       border-radius: 100px;
+      box-shadow: 0 8px 18px -10px rgba(18, 87, 214, 0.85);
+      transition: filter .16s ease, transform .16s ease;
       text-align: center;
       color: #ffffff;
       opacity: 0;

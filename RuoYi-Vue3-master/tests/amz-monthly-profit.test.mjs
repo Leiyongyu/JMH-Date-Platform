@@ -27,7 +27,9 @@ test('page renders store and group statements from backend column definitions', 
 test('buttons follow the three permissions', () => {
   assert.ok(page.includes("v-hasPermi=\"['finance:amzMonthlyProfit:edit']\""))
   assert.ok(page.includes("v-hasPermi=\"['finance:amzMonthlyProfit:export']\""))
-  assert.ok(page.includes("icon-class=\"jmh-refresh\"") && page.includes("icon-class=\"jmh-export\""))
+  // 改版后图标统一走 <app-icon>：刷新带 :spin 加载态，导出在导出权限的包裹里。
+  assert.match(page, /<app-icon name="refresh"[^>]*:spin="loading"/)
+  assert.match(page, /v-hasPermi="\['finance:amzMonthlyProfit:export'\]"[^]*?<app-icon name="export"/)
 })
 
 test('supplementary fees go to leaf rows only and refresh the report after changes', () => {
@@ -42,7 +44,7 @@ test('empty values show -- instead of 0', () => {
 })
 
 test('logic and data source live behind the top-right question button, not an always-on notice', () => {
-  assert.ok(page.includes('aria-label="页面逻辑与数据来源"') && page.includes('<QuestionFilled />'))
+  assert.match(page, /aria-label="页面逻辑与数据来源"[^>]*>\s*<app-icon name="help"/)
   assert.ok(page.includes('<el-drawer v-model="helpVisible"'))
   assert.doesNotMatch(page, /数据口径说明/, '原来常驻的口径说明块已移入问号按钮')
   assert.ok(logicSteps.some(step => step.text.includes('最终毛利 = 毛利润 − FBA途损抵扣 + 手工补充费用')))

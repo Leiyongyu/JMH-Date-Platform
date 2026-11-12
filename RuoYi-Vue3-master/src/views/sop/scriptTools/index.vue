@@ -1,16 +1,16 @@
 <template>
   <div class="python-tools-gateway">
     <div v-if="loading" class="gateway-state">
-      <el-icon class="state-icon is-loading"><Loading /></el-icon>
+      <app-icon name="refresh" :size="40" spin class="state-icon" />
       <h3>正在打开 Python 脚本工作台</h3>
       <p>正在读取当前 ERP 用户的脚本权限并建立安全会话。</p>
     </div>
 
     <div v-else-if="errorMessage" class="gateway-state error-state">
-      <el-icon class="state-icon"><WarningFilled /></el-icon>
+      <app-icon name="warning" :size="40" class="state-icon" />
       <h3>脚本工作台暂时无法打开</h3>
       <p>{{ errorMessage }}</p>
-      <el-button type="primary" :icon="RefreshRight" @click="initialize">重新连接</el-button>
+      <el-button type="primary" @click="initialize"><app-icon name="resync" :size="15" class="btn-icon" />重新连接</el-button>
     </div>
 
     <iframe
@@ -25,7 +25,6 @@
 
 <script setup>
 import { onMounted, ref } from 'vue'
-import { Loading, RefreshRight, WarningFilled } from '@element-plus/icons-vue'
 import { createPythonToolsSession } from '@/api/sop/scriptTools'
 
 const loading = ref(true)
@@ -76,15 +75,17 @@ onMounted(initialize)
   height: calc(100vh - 84px);
   min-height: 680px;
   overflow: hidden;
-  background: #f3f6fb;
+  background: var(--jb-page, #f5f7fb);
 }
-.workbench-frame { width: 100%; height: 100%; display: block; border: 0; background: #f3f6fb; }
+.workbench-frame { width: 100%; height: 100%; display: block; border: 0; background: var(--jb-page, #f5f7fb); }
 .gateway-state {
   height: 100%; padding: 36px; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; color: #64748b; text-align: center;
+  justify-content: center; color: var(--jb-ink-500, #5a6b85); text-align: center;
 }
-.gateway-state h3 { margin: 14px 0 6px; color: #1e293b; font-size: 20px; }
+.gateway-state h3 { margin: 14px 0 6px; color: var(--jb-ink-700, #24334a); font-size: 20px; }
 .gateway-state p { margin: 0 0 18px; }
-.state-icon { color: #4f46e5; font-size: 40px; }
-.error-state .state-icon { color: #f59e0b; }
+.gateway-state .el-button { border-radius: 8px; font-weight: 500; }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+.state-icon { color: var(--jb-brand-500, #1257d6); }
+.error-state .state-icon { color: #f5b545; }
 </style>

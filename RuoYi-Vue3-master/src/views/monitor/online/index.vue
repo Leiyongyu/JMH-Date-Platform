@@ -20,8 +20,8 @@
             />
          </el-form-item>
          <el-form-item>
-            <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-            <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+            <el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+            <el-button @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
          </el-form-item>
       </el-form>
       <el-table
@@ -48,7 +48,7 @@
          </el-table-column>
          <el-table-column label="操作" align="center" class-name="small-padding fixed-width">
             <template #default="scope">
-               <el-button link type="primary" icon="Delete" @click="handleForceLogout(scope.row)" v-hasPermi="['monitor:online:forceLogout']">强退</el-button>
+               <el-button link type="primary" @click="handleForceLogout(scope.row)" v-hasPermi="['monitor:online:forceLogout']"><app-icon name="delete" :size="15" class="btn-icon" />强退</el-button>
             </template>
          </el-table-column>
       </el-table>

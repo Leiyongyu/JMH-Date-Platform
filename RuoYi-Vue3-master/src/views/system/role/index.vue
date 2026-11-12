@@ -45,8 +45,8 @@
             ></el-date-picker>
          </el-form-item>
          <el-form-item>
-            <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-            <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+            <el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+            <el-button @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
          </el-form-item>
       </el-form>
       <el-row :gutter="10" class="mb8">
@@ -54,39 +54,35 @@
             <el-button
                type="primary"
                plain
-               icon="Plus"
                @click="handleAdd"
                v-hasPermi="['system:role:add']"
-            >新增</el-button>
+            ><app-icon name="plus" :size="15" class="btn-icon" />新增</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
                type="success"
                plain
-               icon="Edit"
                :disabled="single"
                @click="handleUpdate"
                v-hasPermi="['system:role:edit']"
-            >修改</el-button>
+            ><app-icon name="edit" :size="15" class="btn-icon" />修改</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
                type="danger"
                plain
-               icon="Delete"
                :disabled="multiple"
                @click="handleDelete"
                v-hasPermi="['system:role:remove']"
-            >删除</el-button>
+            ><app-icon name="delete" :size="15" class="btn-icon" />删除</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
                type="warning"
                plain
-               icon="Download"
                @click="handleExport"
                v-hasPermi="['system:role:export']"
-            >导出</el-button>
+            ><app-icon name="download" :size="15" class="btn-icon" />导出</el-button>
          </el-col>
          <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
       </el-row>
@@ -117,16 +113,16 @@
          <el-table-column label="操作" align="center" class-name="small-padding fixed-width">
             <template #default="scope">
               <el-tooltip content="修改" placement="top">
-                <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)" v-hasPermi="['system:role:edit']"></el-button>
+                <el-button link type="primary" @click="handleUpdate(scope.row)" v-hasPermi="['system:role:edit']"><app-icon name="edit" :size="15" class="btn-icon" /></el-button>
               </el-tooltip>
               <el-tooltip content="删除" placement="top" v-if="!isAdminRole(scope.row)">
-                <el-button link type="primary" icon="Delete" @click="handleDelete(scope.row)" v-hasPermi="['system:role:remove']"></el-button>
+                <el-button link type="primary" @click="handleDelete(scope.row)" v-hasPermi="['system:role:remove']"><app-icon name="delete" :size="15" class="btn-icon" /></el-button>
               </el-tooltip>
               <el-tooltip content="数据权限" placement="top">
-                <el-button link type="primary" icon="CircleCheck" @click="handleDataScope(scope.row)" v-hasPermi="['system:role:edit']"></el-button>
+                <el-button link type="primary" @click="handleDataScope(scope.row)" v-hasPermi="['system:role:edit']"><app-icon name="success" :size="15" class="btn-icon" /></el-button>
               </el-tooltip>
               <el-tooltip content="分配用户" placement="top">
-                <el-button link type="primary" icon="User" @click="handleAuthUser(scope.row)" v-hasPermi="['system:role:edit']"></el-button>
+                <el-button link type="primary" @click="handleAuthUser(scope.row)" v-hasPermi="['system:role:edit']"><app-icon name="user" :size="15" class="btn-icon" /></el-button>
               </el-tooltip>
             </template>
          </el-table-column>
@@ -150,7 +146,7 @@
                <template #label>
                   <span>
                      <el-tooltip content="控制器中定义的权限字符，如：@PreAuthorize(`@ss.hasRole('admin')`)" placement="top">
-                        <el-icon><question-filled /></el-icon>
+                        <app-icon name="help" :size="14" />
                      </el-tooltip>
                      权限字符
                   </span>

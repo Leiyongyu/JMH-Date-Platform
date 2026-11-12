@@ -14,8 +14,8 @@
           <el-input v-model="query.orderNo" placeholder="输入订单号" clearable style="width: 175px" @keyup.enter="search" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" icon="Search" @click="search">搜索</el-button>
-          <el-button icon="Refresh" @click="reset">重置</el-button>
+          <el-button type="primary" @click="search"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+          <el-button @click="reset"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
         </el-form-item>
         <el-form-item class="date-filter">
           <el-select v-model="query.timeType" style="width: 120px" @change="handleTimeTypeChange">
@@ -286,5 +286,13 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.return-detail-page{min-height:calc(100vh - 84px);background:#f4f6f9}.filter-card,.table-card{border:0;border-radius:10px;margin-bottom:14px}.filter-card :deep(.el-card__body){padding:14px 16px 2px}.date-filter{float:right}.summary-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}.summary-row>div{background:#fff;border-radius:10px;padding:15px 20px;border-left:4px solid #409eff}.summary-row span{display:block;color:#909399;font-size:13px}.summary-row strong{display:block;margin-top:7px;font-size:22px;color:#303133}.card-title{display:flex;align-items:center;justify-content:space-between}.card-title>div{display:flex;align-items:baseline;gap:12px}.card-title small{color:#909399;font-weight:400}.order-cell{display:flex;flex-direction:column;gap:5px}.order-cell span{color:#909399;font-size:12px}.product-cell{display:flex;align-items:center;gap:12px}.product-image,.product-placeholder{width:52px;height:52px;border-radius:7px;flex:0 0 52px}.product-placeholder{display:flex;align-items:center;justify-content:center;background:#f2f3f5;color:#a8abb2;font-size:12px}.amount{font-weight:500;color:#303133}.reason-summary{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;max-height:40px;line-height:20px;word-break:break-all;color:#606266;cursor:help}.reason-detail{max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-word;line-height:1.65;color:#303133}.empty-text{color:#a8abb2}@media(max-width:1200px){.date-filter{float:none}.summary-row{grid-template-columns:repeat(2,1fr)}}
+.return-detail-page{min-height:calc(100vh - 84px);background:var(--jb-page,#f5f7fb)}.filter-card,.table-card{border:1px solid var(--jb-line,#e3e9f2);border-radius:12px;margin-bottom:14px;box-shadow:var(--jb-sh-1,0 1px 2px rgba(16,42,90,.04),0 4px 16px rgba(16,42,90,.05))}.filter-card :deep(.el-card__body){padding:14px 16px 2px}.filter-card :deep(.el-form-item__label){color:var(--jb-ink-500,#5a6b85);font-weight:500}.filter-card :deep(.el-button){border-radius:8px;font-weight:500}.btn-icon{margin-right:5px;vertical-align:-2px}.date-filter{float:right}
+.summary-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
+.summary-row>div{position:relative;overflow:hidden;background:#fff;border:1px solid var(--jb-line,#e3e9f2);border-radius:12px;padding:15px 20px 15px 24px;box-shadow:var(--jb-sh-1,0 1px 2px rgba(16,42,90,.04),0 4px 16px rgba(16,42,90,.05))}
+.summary-row>div::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(180deg,var(--jb-brand-500,#1257d6),var(--jb-teal-500,#12b2a6))}
+.summary-row span{display:block;color:var(--jb-ink-500,#5a6b85);font-size:12px}
+.summary-row strong{display:block;margin-top:7px;font-size:22px;color:var(--jb-ink-700,#24334a);font-variant-numeric:tabular-nums}
+.card-title{display:flex;align-items:center;justify-content:space-between}.card-title>div{display:flex;align-items:baseline;gap:12px}.card-title b{color:var(--jb-ink-700,#24334a)}.card-title small{color:var(--jb-ink-300,#94a0b1);font-weight:400}
+.table-card :deep(.el-table){--el-table-header-bg-color:#f5f8fd;--el-table-header-text-color:#51627c;--el-table-border-color:var(--jb-line,#e3e9f2);--el-table-row-hover-bg-color:rgba(18,87,214,.055)}
+.order-cell{display:flex;flex-direction:column;gap:5px}.order-cell span{color:var(--jb-ink-300,#94a0b1);font-size:12px}.product-cell{display:flex;align-items:center;gap:12px}.product-image,.product-placeholder{width:52px;height:52px;border-radius:8px;flex:0 0 52px}.product-placeholder{display:flex;align-items:center;justify-content:center;background:var(--jb-page,#f5f7fb);color:#a8abb2;font-size:12px}.amount{font-weight:600;color:var(--jb-ink-700,#24334a);font-variant-numeric:tabular-nums}.reason-summary{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;max-height:40px;line-height:20px;word-break:break-all;color:var(--jb-ink-500,#5a6b85);cursor:help}.reason-detail{max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-word;line-height:1.65;color:var(--jb-ink-700,#24334a)}.empty-text{color:#a8abb2}@media(max-width:1200px){.date-filter{float:none}.summary-row{grid-template-columns:repeat(2,1fr)}}
 </style>

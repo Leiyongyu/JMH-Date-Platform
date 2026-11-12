@@ -40,7 +40,7 @@
             @drop="onDrop(index)"
             @dragend="dragIndex = null"
           >
-            <el-icon><Rank /></el-icon>
+            <app-icon name="drag" :size="14" class="drag-handle" />
             <span>{{ col.label }}</span>
             <el-tag v-if="fixedKeys.includes(col.key)" size="small" type="info">固定</el-tag>
           </div>
@@ -56,8 +56,6 @@
 </template>
 
 <script setup>
-import { Rank } from '@element-plus/icons-vue'
-
 const props = defineProps({
   modelValue: {
     type: Boolean,
@@ -167,8 +165,8 @@ function handleApply() {
 }
 
 .column-config__panel {
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 10px;
   overflow: hidden;
   background: #fff;
 }
@@ -179,13 +177,15 @@ function handleApply() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #e4e7ed;
-  color: #303133;
+  border-bottom: 1px solid var(--jb-line, #e3e9f2);
+  background: var(--jb-hover, #f7faff);
+  color: var(--jb-ink-700, #24334a);
+  font-size: 13px;
   font-weight: 600;
 }
 
 .column-config__hint {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 12px;
   font-weight: 400;
 }
@@ -198,15 +198,26 @@ function handleApply() {
   align-items: center;
 }
 
+.column-config__option {
+  border-radius: 6px;
+  margin: 2px 6px;
+  transition: background .15s;
+}
+.column-config__option:hover { background: var(--jb-hover, #eef3fb); }
+
 .column-config__selected {
   gap: 8px;
   cursor: move;
-  border-bottom: 1px solid #f0f2f5;
+  border-bottom: 1px solid var(--jb-line, #e3e9f2);
+  transition: background .15s;
 }
+.column-config__selected:hover { background: var(--jb-hover, #eef3fb); }
+
+.drag-handle { color: var(--jb-ink-300, #94a0b1); flex-shrink: 0; }
 
 .column-config__selected.is-fixed {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   cursor: not-allowed;
-  background: #fafafa;
+  background: #fafbfd;
 }
 </style>

@@ -31,8 +31,8 @@
             </el-select>
          </el-form-item>
          <el-form-item>
-            <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-            <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+            <el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+            <el-button @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
          </el-form-item>
       </el-form>
 
@@ -41,48 +41,43 @@
             <el-button
                type="primary"
                plain
-               icon="Plus"
                @click="handleAdd"
                v-hasPermi="['monitor:job:add']"
-            >新增</el-button>
+            ><app-icon name="plus" :size="15" class="btn-icon" />新增</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
                type="success"
                plain
-               icon="Edit"
                :disabled="single"
                @click="handleUpdate"
                v-hasPermi="['monitor:job:edit']"
-            >修改</el-button>
+            ><app-icon name="edit" :size="15" class="btn-icon" />修改</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
                type="danger"
                plain
-               icon="Delete"
                :disabled="multiple"
                @click="handleDelete"
                v-hasPermi="['monitor:job:remove']"
-            >删除</el-button>
+            ><app-icon name="delete" :size="15" class="btn-icon" />删除</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
                type="warning"
                plain
-               icon="Download"
                @click="handleExport"
                v-hasPermi="['monitor:job:export']"
-            >导出</el-button>
+            ><app-icon name="download" :size="15" class="btn-icon" />导出</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
                type="info"
                plain
-               icon="Operation"
                @click="handleJobLog"
                v-hasPermi="['monitor:job:query']"
-            >日志</el-button>
+            ><app-icon name="sliders" :size="15" class="btn-icon" />日志</el-button>
          </el-col>
          <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
       </el-row>
@@ -118,16 +113,16 @@
          <el-table-column label="操作" align="center" width="200" class-name="small-padding fixed-width">
             <template #default="scope">
                <el-tooltip content="修改" placement="top">
-                  <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)" v-hasPermi="['monitor:job:edit']"></el-button>
+                  <el-button link type="primary" @click="handleUpdate(scope.row)" v-hasPermi="['monitor:job:edit']"><app-icon name="edit" :size="15" class="btn-icon" /></el-button>
                </el-tooltip>
                <el-tooltip content="删除" placement="top">
-                  <el-button link type="primary" icon="Delete" @click="handleDelete(scope.row)" v-hasPermi="['monitor:job:remove']"></el-button>
+                  <el-button link type="primary" @click="handleDelete(scope.row)" v-hasPermi="['monitor:job:remove']"><app-icon name="delete" :size="15" class="btn-icon" /></el-button>
                </el-tooltip>
                <el-tooltip content="执行一次" placement="top">
-                  <el-button link type="primary" icon="CaretRight" @click="handleRun(scope.row)" v-hasPermi="['monitor:job:changeStatus']"></el-button>
+                  <el-button link type="primary" @click="handleRun(scope.row)" v-hasPermi="['monitor:job:changeStatus']"><app-icon name="chevronRight" :size="15" class="btn-icon" /></el-button>
                </el-tooltip>
                <el-tooltip content="调度日志" placement="top">
-                  <el-button link type="primary" icon="Operation" @click="handleJobLog(scope.row)" v-hasPermi="['monitor:job:query']"></el-button>
+                  <el-button link type="primary" @click="handleJobLog(scope.row)" v-hasPermi="['monitor:job:query']"><app-icon name="sliders" :size="15" class="btn-icon" /></el-button>
                </el-tooltip>
             </template>
          </el-table-column>
@@ -163,7 +158,7 @@
                         <span>调用方法
                            <el-tooltip placement="top">
                               <template #content><div>Bean调用示例：ryTask.ryParams('ry')<br/>Class类调用示例：com.ruoyi.quartz.task.RyTask.ryParams('ry')<br/>参数说明：支持字符串，布尔类型，长整型，浮点型，整型</div></template>
-                              <el-icon><question-filled /></el-icon>
+                              <app-icon name="help" :size="14" />
                            </el-tooltip>
                         </span>
                      </template>
@@ -639,11 +634,11 @@ getList()
 </script>
 
 <style scoped>
-.cron-builder { padding:12px 14px; border-radius:8px; background:#f8f9fb; border:1px solid #e8eaed }
+.cron-builder { padding:14px 16px; border-radius:10px; background:var(--jb-canvas, #f5f7fb); border:1px solid var(--jb-line, #e3e9f2) }
 .freq-cards { display:flex; gap:10px; margin-bottom:10px }
-.freq-card { flex:1; padding:10px 0; text-align:center; border-radius:6px; cursor:pointer; font-size:14px; color:#5f6368; background:#fff; border:1px solid #dadce0; transition:all .2s }
-.freq-card:hover { border-color:#409eff; color:#409eff }
-.freq-card.active { background:#e6f4ff; border-color:#409eff; color:#409eff; font-weight:600 }
+.freq-card { flex:1; padding:10px 0; text-align:center; border-radius:8px; cursor:pointer; font-size:14px; color:var(--jb-ink-500, #5a6b85); background:var(--jb-surface, #fff); border:1px solid var(--jb-line, #e3e9f2); transition:all .2s }
+.freq-card:hover { border-color:#1257d6; color:#1257d6; background:#f2f6fd }
+.freq-card.active { background:#eaf1fd; border-color:#1257d6; color:#1257d6; font-weight:600; box-shadow:0 2px 8px rgba(18,87,214,.12) }
 .freq-card span { user-select:none }
 .week-days { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px }
 .month-days { margin-bottom:10px; display:flex; align-items:center }

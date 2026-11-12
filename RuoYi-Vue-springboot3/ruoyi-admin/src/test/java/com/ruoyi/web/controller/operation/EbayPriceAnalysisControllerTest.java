@@ -238,8 +238,8 @@ class EbayPriceAnalysisControllerTest
         String columns = String.valueOf(captor.getValue().get("columns"));
         // 不传「只看未匹配」时为 null，查询串里会被跳过。
         assertNull(captor.getValue().get("unmatched"));
-        assertEquals(19, columns.split(",").length);
-        assertTrue(columns.startsWith("seller_account,site_name,sku,title,currency,"));
+        assertEquals(21, columns.split(",").length);
+        assertTrue(columns.startsWith("seller_account,site_name,sku,owner_name,title,listing_start_time,currency,"));
         assertTrue(columns.endsWith("purchase_cost_cny,status,view_item_url"));
     }
 

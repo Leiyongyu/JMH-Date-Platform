@@ -9,9 +9,8 @@
               style="float: right; padding: 3px 0"
               link
               type="primary"
-              icon="Refresh"
               @click="refreshCacheNames()"
-            ></el-button>
+            ><app-icon name="refresh" :size="15" class="btn-icon" /></el-button>
           </template>
           <el-table
             v-loading="loading"
@@ -51,9 +50,8 @@
                 <el-button
                   link
                   type="primary"
-                  icon="Delete"
                   @click="handleClearCacheName(scope.row)"
-                ></el-button>
+                ><app-icon name="delete" :size="15" class="btn-icon" /></el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -68,9 +66,8 @@
               style="float: right; padding: 3px 0"
               link
               type="primary"
-              icon="Refresh"
               @click="refreshCacheKeys()"
-            ></el-button>
+            ><app-icon name="refresh" :size="15" class="btn-icon" /></el-button>
           </template>
           <el-table
             v-loading="subLoading"
@@ -102,9 +99,8 @@
                 <el-button
                   link
                   type="primary"
-                  icon="Delete"
                   @click="handleClearCacheKey(scope.row)"
-                ></el-button>
+                ><app-icon name="delete" :size="15" class="btn-icon" /></el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -119,9 +115,8 @@
               style="float: right; padding: 3px 0"
               link
               type="primary"
-              icon="Refresh"
               @click="handleClearCacheAll()"
-              >清理全部</el-button
+              ><app-icon name="refresh" :size="15" class="btn-icon" />清理全部</el-button
             >
           </template>
           <el-form :model="cacheForm">

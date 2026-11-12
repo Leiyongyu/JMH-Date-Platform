@@ -23,8 +23,8 @@ function onFilterClick(e) {
 
 <style scoped>
 .header-with-filter { display:inline-flex;align-items:center;gap:4px;cursor:default }
-.filter-icon { color:#bfbfbf;cursor:pointer;flex-shrink:0 }
-.filter-icon.active { color:#409EFF }
-.filter-icon:hover { color:#409EFF }
+.filter-icon { color:#a3b1cc;cursor:pointer;flex-shrink:0 }
+.filter-icon.active { color:#1257d6 }
+.filter-icon:hover { color:#1257d6 }
 .label { white-space:nowrap }
 </style>

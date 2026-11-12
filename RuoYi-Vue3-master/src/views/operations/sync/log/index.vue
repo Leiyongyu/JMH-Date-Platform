@@ -16,7 +16,7 @@
           <el-option label="手动" value="MANUAL"/><el-option label="定时" value="JOB"/>
         </el-select>
       </el-form-item>
-      <el-form-item><el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button></el-form-item>
+      <el-form-item><el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button></el-form-item>
     </el-form>
     <el-table v-loading="loading" :data="list" border stripe @row-click="handleRowClick" highlight-current-row>
       <el-table-column label="ID" prop="id" width="70"/>
@@ -96,3 +96,14 @@ function handleRowClick(row) {
 getList()
 onUnmounted(() => { if (autoRefreshTimer) clearInterval(autoRefreshTimer) })
 </script>
+
+<style scoped>
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+:deep(.el-button) { border-radius: 8px; font-weight: 500; }
+:deep(.el-table) {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+}
+</style>

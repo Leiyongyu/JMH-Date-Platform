@@ -5,7 +5,7 @@
         <div class="page-title">AMZ公式配置</div>
         <div class="page-subtitle">按区域组维护仓库归属、销量权重和补货计算公式</div>
       </div>
-      <el-button type="primary" icon="Plus" @click="handleAdd" v-hasPermi="['operations:amzReplenishment:list']">新增配置</el-button>
+      <el-button type="primary" @click="handleAdd" v-hasPermi="['operations:amzReplenishment:list']"><app-icon name="plus" :size="15" class="btn-icon" />新增配置</el-button>
     </div>
 
     <el-table v-loading="loading" :data="list" border stripe class="formula-table">
@@ -416,31 +416,41 @@ getList()
 
 <style scoped>
 .amz-formula-page {
-  background: #f6f8fb;
+  background: var(--jb-page, #f5f7fb);
 }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+.amz-formula-page :deep(.el-table) {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+  border-radius: 8px;
+}
+.amz-formula-page > .el-button, .page-toolbar .el-button { border-radius: 8px; font-weight: 500; }
 
 .page-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 16px;
+  padding: 14px 18px;
   margin-bottom: 12px;
   background: #fff;
-  border: 1px solid #e6eaf0;
-  border-radius: 8px;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 12px;
+  box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16,42,90,.04), 0 4px 16px rgba(16,42,90,.05));
 }
 
 .page-title {
   font-size: 18px;
   font-weight: 700;
-  color: #1f2d3d;
+  color: var(--jb-ink-700, #24334a);
 }
 
 .page-subtitle {
   margin-top: 4px;
   font-size: 12px;
-  color: #7b8794;
+  color: var(--jb-ink-300, #94a0b1);
 }
 
 .formula-table {
@@ -456,13 +466,13 @@ getList()
 .region-name {
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
 }
 
 .region-status,
 .muted {
   font-size: 12px;
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
 }
 
 .warehouse-tags {
@@ -483,11 +493,11 @@ getList()
 }
 
 .weight-grid span {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
 }
 
 .weight-grid b {
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
   font-weight: 600;
 }
 
@@ -496,7 +506,7 @@ getList()
   gap: 8px;
   flex-wrap: wrap;
   font-size: 12px;
-  color: #606266;
+  color: var(--jb-ink-500, #5a6b85);
 }
 
 .dialog-grid {
@@ -508,7 +518,8 @@ getList()
 
 .config-panel {
   background: #fff;
-  border: 1px solid #e6eaf0;
+  border-radius: 10px;
+  border: 1px solid var(--jb-line, #e3e9f2);
   border-radius: 8px;
   padding: 14px;
 }
@@ -517,7 +528,7 @@ getList()
   margin-bottom: 12px;
   font-size: 14px;
   font-weight: 700;
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
 }
 
 .side-panel {
@@ -530,7 +541,7 @@ getList()
   align-items: center;
   margin-bottom: 10px;
   font-size: 12px;
-  color: #606266;
+  color: var(--jb-ink-500, #5a6b85);
 }
 
 .number-row {
@@ -544,7 +555,7 @@ getList()
 .number-row span {
   width: 42px;
   font-size: 13px;
-  color: #606266;
+  color: var(--jb-ink-500, #5a6b85);
 }
 
 .number-row :deep(.el-input-number) {
@@ -567,30 +578,30 @@ getList()
   padding: 10px 12px;
   text-align: left;
   background: #f7f9fc;
-  border: 1px solid #e6eaf0;
+  border: 1px solid var(--jb-line, #e3e9f2);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.16s;
 }
 
 .strategy-card.active {
-  background: #ecf5ff;
-  border-color: #409eff;
-  box-shadow: 0 0 0 1px rgba(64, 158, 255, 0.12);
+  background: rgba(18, 87, 214, .07);
+  border-color: var(--jb-brand-500, #1257d6);
+  box-shadow: 0 0 0 1px rgba(18, 87, 214, .15);
 }
 
 .strategy-card span {
   display: block;
   font-size: 13px;
   font-weight: 700;
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
 }
 
 .strategy-card small {
   display: block;
   margin-top: 6px;
   line-height: 1.45;
-  color: #7b8794;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 12px;
 }
 
@@ -604,7 +615,7 @@ getList()
   min-height: 150px;
   padding: 12px;
   background: #fafbfc;
-  border: 1px solid #e6eaf0;
+  border: 1px solid var(--jb-line, #e3e9f2);
   border-radius: 8px;
 }
 
@@ -612,24 +623,24 @@ getList()
   margin-bottom: 10px;
   font-size: 13px;
   font-weight: 700;
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
 }
 
 .formula-preview {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  color: #606266;
+  color: var(--jb-ink-500, #5a6b85);
 }
 
 .formula-preview span {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 12px;
 }
 
 .formula-preview b {
   font-weight: 600;
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
 }
 
 .rule-block :deep(.el-checkbox) {
@@ -648,7 +659,7 @@ getList()
 
 .limit-row span {
   font-size: 12px;
-  color: #606266;
+  color: var(--jb-ink-500, #5a6b85);
 }
 
 .limit-row :deep(.el-input-number),

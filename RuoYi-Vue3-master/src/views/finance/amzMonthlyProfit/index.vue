@@ -13,7 +13,7 @@
       </span>
       <el-tooltip content="页面逻辑与数据来源" placement="left">
         <button type="button" class="icon-btn help-btn" aria-label="页面逻辑与数据来源" @click="helpVisible = true">
-          <el-icon><QuestionFilled /></el-icon>
+          <app-icon name="help" :size="15" />
         </button>
       </el-tooltip>
     </div>
@@ -46,13 +46,13 @@
           </el-button>
           <el-tooltip content="刷新" placement="top">
             <button type="button" class="icon-btn" aria-label="刷新" :disabled="loading || !statMonth" @click="loadReport">
-              <svg-icon icon-class="jmh-refresh" class="report-icon" :class="{ spinning: loading }" />
+              <app-icon name="refresh" :size="17" :spin="loading" class="report-icon" />
             </button>
           </el-tooltip>
           <span v-hasPermi="['finance:amzMonthlyProfit:export']" class="export-entry">
             <el-tooltip content="导出 Excel（店铺利润、小组利润两张表）" placement="top">
               <button type="button" class="icon-btn" aria-label="导出 Excel" :disabled="!report || exporting" @click="handleExport">
-                <svg-icon icon-class="jmh-export" class="report-icon" />
+                <app-icon name="export" :size="17" class="report-icon" />
               </button>
             </el-tooltip>
           </span>
@@ -197,7 +197,6 @@
 
 <script setup name="AmzMonthlyProfit">
 import { computed, getCurrentInstance, onMounted, reactive, ref } from 'vue'
-import { QuestionFilled } from '@element-plus/icons-vue'
 import { checkSteps, columnHelp, logicSteps, sourceInfo } from './help'
 import {
   addAmzMonthlyProfitAdjustment, deleteAmzMonthlyProfitAdjustment, exportAmzMonthlyProfit,
@@ -408,17 +407,17 @@ onMounted(async () => {
 
 <style scoped>
 .amz-monthly-profit {
-  --sky-50: #f2f9ff;
-  --sky-100: #e4f2fe;
-  --sky-200: #c6e6fb;
-  --sky-300: #92d3f8;
-  --sky-600: #0d86bd;
-  --sky-700: #0b6b98;
-  --ink-900: #0f2333;
-  --ink-700: #35505f;
-  --ink-500: #6b8595;
-  --ink-400: #9aafbb;
-  --line: #e5eef4;
+  --sky-50: #f4f8ff;
+  --sky-100: #e7efff;
+  --sky-200: #c9dcfb;
+  --sky-300: #a9c6f4;
+  --sky-600: #1257d6;
+  --sky-700: #0e45a8;
+  --ink-900: #0b1526;
+  --ink-700: #24334a;
+  --ink-500: #5a6b85;
+  --ink-400: #8a99b0;
+  --line: #e3e9f2;
   --radius: 14px;
   display: flex;
   flex-direction: column;
@@ -433,14 +432,14 @@ onMounted(async () => {
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
-  box-shadow: 0 2px 10px rgba(11, 107, 152, .05);
+  box-shadow: 0 2px 10px rgba(13, 26, 45, .06);
 }
 .f-label { font-size: 13.5px; color: var(--ink-700); font-weight: 500; }
 .f-hint { font-size: 12px; color: var(--ink-400); }
 .month-select { width: 150px; }
 
 .notice {
-  --n-bg: linear-gradient(100deg, #f2faff 0%, #f8fdff 100%);
+  --n-bg: linear-gradient(100deg, #f6f9ff 0%, #fbfdff 100%);
   --n-bd: var(--sky-200);
   --n-fg: var(--sky-700);
   --n-ico-bg: var(--sky-100);
@@ -475,7 +474,7 @@ onMounted(async () => {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: 0 2px 10px rgba(11, 107, 152, .05);
+  box-shadow: 0 2px 10px rgba(13, 26, 45, .06);
   overflow: hidden;
 }
 .tc-head {
@@ -493,7 +492,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  background: #f5fafd;
+  background: #f5f8fd;
   border: 1px solid var(--line);
   border-radius: 9px;
   padding: 3px;
@@ -511,7 +510,7 @@ onMounted(async () => {
   white-space: nowrap;
 }
 .chip:hover { color: var(--sky-600); background: #fff; }
-.chip.active { background: #fff; color: var(--sky-700); box-shadow: 0 1px 4px rgba(11, 107, 152, .14); font-weight: 600; }
+.chip.active { background: #fff; color: var(--sky-700); box-shadow: 0 1px 4px rgba(18, 87, 214, .22); font-weight: 600; }
 .export-entry { display: inline-flex; }
 .icon-btn {
   width: 34px;
@@ -526,25 +525,25 @@ onMounted(async () => {
 }
 .icon-btn:hover { border-color: var(--sky-300); background: var(--sky-50); }
 .icon-btn:disabled { opacity: .4; cursor: not-allowed; }
-.report-icon { font-size: 18px; color: #1296db; }
+.report-icon { color: #1257d6; }
 .report-icon.spinning { animation: report-icon-spin 1s linear infinite; }
 @keyframes report-icon-spin { to { transform: rotate(360deg); } }
 
 .report-table {
-  --el-table-border-color: #f2f7fa;
-  --el-table-header-bg-color: #f7fbfe;
-  --el-table-row-hover-bg-color: #f7fcff;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, 0.055);
   --el-table-text-color: var(--ink-700);
   --el-table-header-text-color: var(--ink-500);
   font-size: 12.5px;
 }
-.report-table :deep(th.el-table__cell) { font-size: 11.5px; font-weight: 600; border-bottom: 1px solid var(--sky-200) !important; }
+.report-table :deep(th.el-table__cell) { font-size: 11.5px; font-weight: 600; border-bottom: 1px solid var(--jb-line, #e3e9f2) !important; }
 .report-table :deep(.el-table__cell) { padding: 9px 0; }
-.report-table :deep(.report-total-row) { background: #f4faff; font-weight: 600; }
-.report-table :deep(.report-sub-row) { background: #fbfdff; }
+.report-table :deep(.report-total-row) { background: #eef3fd; font-weight: 600; }
+.report-table :deep(.report-sub-row) { background: #fafcff; }
 .v { font-variant-numeric: tabular-nums; }
 .v.strong { font-weight: 600; color: var(--ink-900); }
-.v.neg { color: #d4380d; }
+.v.neg { color: #dc2626; }
 .sum-label { font-weight: 650; color: var(--ink-900); }
 .sub-label { color: var(--ink-500); padding-left: 6px; }
 .g-tag { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--sky-700); }
@@ -568,15 +567,15 @@ onMounted(async () => {
   border-top: 1px solid var(--line);
   flex-wrap: wrap;
 }
-.help-btn { margin-left: auto; color: #1296db; font-size: 18px; }
+.help-btn { margin-left: auto; color: #1257d6; }
 
 /* 说明抽屉挂在 body 下，取不到页面根上的 CSS 变量，颜色直接写值。 */
-.help { display: flex; flex-direction: column; gap: 18px; padding: 0 4px 12px; color: #35505f; font-size: 13px; }
-.help-h { font-size: 14px; font-weight: 650; color: #0f2333; margin-bottom: 8px; padding-left: 8px; border-left: 3px solid #1ba4e0; }
+.help { display: flex; flex-direction: column; gap: 18px; padding: 0 4px 12px; color: #24334a; font-size: 13px; }
+.help-h { font-size: 14px; font-weight: 650; color: #0b1526; margin-bottom: 8px; padding-left: 8px; border-left: 3px solid #1257d6; }
 .help-kv { display: flex; flex-direction: column; gap: 6px; }
 .help-kv > div { display: flex; gap: 12px; line-height: 1.6; }
-.help-kv span { flex: 0 0 88px; color: #6b8595; }
-.help-kv b { font-weight: 500; color: #0f2333; }
+.help-kv span { flex: 0 0 88px; color: #5a6b85; }
+.help-kv b { font-weight: 500; color: #0b1526; }
 .help-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .help-steps li { display: flex; gap: 10px; }
 .help-steps i {
@@ -592,8 +591,8 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
 }
-.help-steps b { color: #0f2333; }
-.help-steps p { margin: 2px 0 0; line-height: 1.7; color: #35505f; }
+.help-steps b { color: #0b1526; }
+.help-steps p { margin: 2px 0 0; line-height: 1.7; color: #24334a; }
 .help-table code { font-size: 12px; color: #0b6b98; background: #f2f9ff; padding: 1px 4px; border-radius: 4px; white-space: normal; }
 .help-check { margin: 0; padding-left: 18px; line-height: 1.8; }
 .help-check li + li { margin-top: 4px; }

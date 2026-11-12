@@ -7,10 +7,10 @@
         <span class="notice-mark-all" @click="markAllRead">全部已读</span>
       </div>
       <div v-if="noticeLoading" class="notice-loading">
-        <el-icon class="is-loading"><Loading /></el-icon> 加载中...
+        <app-icon name="refresh" :size="15" spin /> 加载中...
       </div>
       <div v-else-if="noticeList.length === 0" class="notice-empty">
-        <el-icon style="font-size:24px;display:block;margin-bottom:6px;"><Postcard /></el-icon>
+        <app-icon name="mail" :size="24" style="display:block;margin-bottom:6px;color:#b4c0d2" />
         暂无公告
       </div>
       <div v-else>
@@ -26,7 +26,7 @@
       <!-- 触发器 -->
       <template #reference>
         <div class="right-menu-item hover-effect notice-trigger" @mouseenter="onNoticeEnter" @mouseleave="onNoticeLeave">
-          <svg-icon icon-class="bell" />
+          <BellIcon :size="18" />
           <span v-if="unreadCount > 0" class="notice-badge">{{ unreadCount }}</span>
         </div>
       </template>
@@ -40,6 +40,7 @@
 <script setup>
 import NoticeDetailView from './DetailView'
 import { listNoticeTop, markNoticeRead, markNoticeReadAll } from '@/api/system/notice'
+import { BellIcon } from '@solar-icons/vue/bold-duotone/bell'
 
 const noticePopover = ref(null)
 const noticeList = ref([])
@@ -107,12 +108,10 @@ function markAllRead() {
 <style lang="scss" scoped>
 .notice-trigger {
   position: relative;
-  transform: translateX(-6px);
-  .svg-icon { width: 1.2em; height: 1.2em; vertical-align: -0.2em; }
   .notice-badge {
     position: absolute;
-    top: 7px;
-    right: -3px;
+    top: 1px;
+    right: 0;
     background: #f56c6c;
     color: #fff;
     border-radius: 10px;
@@ -124,6 +123,7 @@ function markAllRead() {
     text-align: center;
     white-space: nowrap;
     pointer-events: none;
+    box-shadow: 0 0 0 2px var(--navbar-bg, #fff);
   }
 }
 .notice-popover { padding: 0 !important; }

@@ -6,19 +6,19 @@
         <span>中华人民共和国海关出口货物报关单</span>
       </div>
       <div class="toolbar">
-        <el-button type="primary" icon="Download" :loading="exporting" @click="handleExport"
-          v-hasPermi="['customs:declaration:export']">导出报关单</el-button>
-        <el-button type="success" icon="Connection" @click="openDataSourceDialog"
-          v-hasPermi="['customs:declaration:query']">关联数据源</el-button>
+        <el-button type="primary" :loading="exporting" @click="handleExport"
+          v-hasPermi="['customs:declaration:export']"><app-icon v-if="!exporting" name="export" :size="15" class="btn-icon" />导出报关单</el-button>
+        <el-button type="success" @click="openDataSourceDialog"
+          v-hasPermi="['customs:declaration:query']"><app-icon name="link" :size="15" class="btn-icon" />关联数据源</el-button>
         <el-dropdown trigger="click" @command="handleToolbarCommand" :disabled="fbaBoxImporting">
           <el-button :loading="fbaBoxImporting">
-            {{ fbaBoxImporting ? '导入中' : '更多操作' }}<el-icon v-if="!fbaBoxImporting" class="dropdown-icon"><ArrowDown /></el-icon>
+            {{ fbaBoxImporting ? '导入中' : '更多操作' }}<app-icon v-if="!fbaBoxImporting" name="chevronDown" :size="14" class="dropdown-icon" />
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-if="checkPermi(['customs:declaration:import'])" command="sku" icon="DocumentAdd">批量导入 SKU</el-dropdown-item>
-              <el-dropdown-item v-if="checkPermi(['customs:declaration:import'])" command="fbaBox" icon="Box" :disabled="fbaBoxImporting">导入 FBA 装箱明细</el-dropdown-item>
-              <el-dropdown-item v-if="checkPermi(['customs:declaration:import'])" command="history" icon="UploadFilled">批量上传历史报关单</el-dropdown-item>
+              <el-dropdown-item v-if="checkPermi(['customs:declaration:import'])" command="sku"><app-icon name="clipboard" :size="14" style="margin-right:5px;vertical-align:-2px" />批量导入 SKU</el-dropdown-item>
+              <el-dropdown-item v-if="checkPermi(['customs:declaration:import'])" command="fbaBox" :disabled="fbaBoxImporting"><app-icon name="box" :size="14" style="margin-right:5px;vertical-align:-2px" />导入 FBA 装箱明细</el-dropdown-item>
+              <el-dropdown-item v-if="checkPermi(['customs:declaration:import'])" command="history"><app-icon name="upload" :size="14" style="margin-right:5px;vertical-align:-2px" />批量上传历史报关单</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -31,11 +31,11 @@
     <section class="declaration-sheet">
       <button class="section-toggle" type="button" @click="headerExpanded = !headerExpanded">
         <span class="section-toggle__title">
-          <el-icon><Tickets /></el-icon>
+          <app-icon name="clipboard" :size="16" />
           报关基本信息
           <span class="section-toggle__hint">{{ headerExpanded ? '收起后可专注编辑商品' : '点击展开编辑' }}</span>
         </span>
-        <el-icon class="section-toggle__arrow" :class="{ 'is-expanded': headerExpanded }"><ArrowDown /></el-icon>
+        <app-icon name="chevronDown" :size="15" class="section-toggle__arrow" :class="{ 'is-expanded': headerExpanded }" />
       </button>
       <el-collapse-transition>
         <el-form v-show="headerExpanded" ref="headerFormRef" :model="header" label-position="top" class="header-form">
@@ -81,15 +81,15 @@
       <span>总价 {{ totalAmount }}</span>
       <span>毛重 {{ totalGrossWeight }} kg</span>
       <span>净重 {{ totalNetWeight }} kg</span>
-      <el-button type="primary" plain size="small" icon="Finished" :loading="saving" @click="handleSaveProducts"
-        v-hasPermi="['customs:product:edit']">保存商品</el-button>
-      <el-button type="danger" plain size="small" icon="Delete" @click="handleClear">清空商品</el-button>
+      <el-button type="primary" plain size="small" :loading="saving" @click="handleSaveProducts"
+        v-hasPermi="['customs:product:edit']"><app-icon v-if="!saving" name="check" :size="14" class="btn-icon" />保存商品</el-button>
+      <el-button type="danger" plain size="small" @click="handleClear"><app-icon name="delete" :size="14" class="btn-icon" />清空商品</el-button>
     </div>
 
     <section ref="itemTableRef" class="packing-workbench">
       <div class="packing-head">
         <div class="packing-head__title">
-          <el-icon><Box /></el-icon>
+          <app-icon name="box" :size="16" />
           装箱商品
         </div>
         <div class="packing-head__meta">
@@ -108,7 +108,7 @@
               <el-checkbox v-model="group.checked" disabled />
             </div>
             <div class="box-no">
-              <span class="box-chip"><el-icon><Box /></el-icon>{{ group.label }}</span>
+              <span class="box-chip"><app-icon name="box" :size="13" />{{ group.label }}</span>
               <el-input v-model="group.items[0].row.boxNo" size="small" placeholder="箱号"
                 @change="syncBoxFieldToGroup(group, 'boxNo')" />
               <span class="box-sub">{{ group.items.length }} 个SKU</span>
@@ -143,7 +143,7 @@
               <strong>{{ group.netWeight }}</strong>
             </div>
             <div class="box-actions">
-              <el-button link type="primary" icon="Plus" title="新增箱子" @click="addBoxAfterGroup(group)" />
+              <el-button link type="primary" title="新增箱子" @click="addBoxAfterGroup(group)"><app-icon name="plus" :size="14" /></el-button>
             </div>
           </div>
 
@@ -217,8 +217,8 @@
                 </el-select>
               </div>
               <div class="item-actions">
-                <el-button link type="primary" icon="Plus" title="在当前箱组添加商品" @click="addItemInBox(entry.index, entry.row)" />
-                <el-button link type="danger" icon="Minus" title="删除" @click="removeRow(entry.index)" />
+                <el-button link type="primary" title="在当前箱组添加商品" @click="addItemInBox(entry.index, entry.row)"><app-icon name="plus" :size="14" /></el-button>
+                <el-button link type="danger" title="删除" @click="removeRow(entry.index)"><app-icon name="minus" :size="14" /></el-button>
               </div>
             </div>
           </div>
@@ -236,14 +236,14 @@
               @keyup.enter="loadStockOrders">
               <template #prepend>备货单号</template>
               <template #append>
-                <el-button icon="Search" :loading="stockDialog.loading" @click="loadStockOrders" />
+                <el-button :loading="stockDialog.loading" aria-label="查询" @click="loadStockOrders"><app-icon v-if="!stockDialog.loading" name="search" :size="15" /></el-button>
               </template>
             </el-input>
             <el-input v-model="stockDialog.inboundOrderNo" clearable placeholder="搜索三方入库单号" class="stock-search-input"
               @keyup.enter="loadStockOrders">
               <template #prepend>入库单号</template>
               <template #append>
-                <el-button icon="Search" :loading="stockDialog.loading" @click="loadStockOrders" />
+                <el-button :loading="stockDialog.loading" aria-label="查询" @click="loadStockOrders"><app-icon v-if="!stockDialog.loading" name="search" :size="15" /></el-button>
               </template>
             </el-input>
           </div>
@@ -311,7 +311,7 @@
               @keyup.enter="loadFbaShipments">
               <template #prepend>货件编号</template>
               <template #append>
-                <el-button icon="Search" :loading="fbaDialog.loading" @click="loadFbaShipments" />
+                <el-button :loading="fbaDialog.loading" aria-label="查询" @click="loadFbaShipments"><app-icon v-if="!fbaDialog.loading" name="search" :size="15" /></el-button>
               </template>
             </el-input>
           </div>
@@ -1398,7 +1398,10 @@ async function handleClear() {
 .customs-page {
   min-width: 1080px;
   padding-top: 14px;
+  background: var(--jb-page, #f5f7fb);
 }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+.customs-page .el-button { border-radius: 8px; font-weight: 500; }
 
 .page-bar {
   display: flex;
@@ -1417,14 +1420,14 @@ async function handleClear() {
 
 .page-heading h2 {
   margin: 0;
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
   font-size: 18px;
   font-weight: 600;
 }
 
 .page-heading span {
   overflow: hidden;
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1439,6 +1442,7 @@ async function handleClear() {
 
 .dropdown-icon {
   margin-left: 6px;
+  vertical-align: -2px;
 }
 
 .file-input {
@@ -1447,9 +1451,10 @@ async function handleClear() {
 
 .declaration-sheet {
   overflow: hidden;
-  border: 1px solid #dcdfe6;
-  border-radius: 4px;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 12px;
   background: #fff;
+  box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16,42,90,.04), 0 4px 16px rgba(16,42,90,.05));
 }
 
 .section-toggle {
@@ -1458,15 +1463,15 @@ async function handleClear() {
   height: 42px;
   padding: 0 14px;
   border: 0;
-  background: #f7f8fa;
-  color: #303133;
+  background: var(--jb-hover, #f7faff);
+  color: var(--jb-ink-700, #24334a);
   cursor: pointer;
   align-items: center;
   justify-content: space-between;
 }
 
 .section-toggle:hover {
-  background: #f2f4f7;
+  background: #eef3fb;
 }
 
 .section-toggle__title {
@@ -1478,13 +1483,13 @@ async function handleClear() {
 }
 
 .section-toggle__hint {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 12px;
   font-weight: 400;
 }
 
 .section-toggle__arrow {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   transition: transform 0.2s ease;
 }
 
@@ -1540,7 +1545,7 @@ async function handleClear() {
   border: 1px solid #dcdfe6;
   border-bottom: none;
   background: #f5f7fa;
-  color: #606266;
+  color: var(--jb-ink-500, #5a6b85);
   font-size: 13px;
   align-items: center;
 }
@@ -1591,14 +1596,14 @@ async function handleClear() {
 
 .packing-head__title {
   gap: 7px;
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
   font-size: 14px;
   font-weight: 600;
 }
 
 .packing-head__meta {
   gap: 18px;
-  color: #606266;
+  color: var(--jb-ink-500, #5a6b85);
   font-size: 13px;
 }
 
@@ -1646,12 +1651,12 @@ async function handleClear() {
   font-weight: 600;
 }
 
-.box-chip .el-icon {
+.box-chip .app-icon {
   color: #e6b95c;
 }
 
 .box-sub {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 12px;
 }
 
@@ -1666,7 +1671,7 @@ async function handleClear() {
 
 .box-stat span {
   overflow: hidden;
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1716,7 +1721,7 @@ async function handleClear() {
 .box-items__head {
   height: 32px;
   padding: 0 12px 0 188px;
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 12px;
 }
 
@@ -1749,7 +1754,7 @@ async function handleClear() {
 
 .item-price span,
 .item-weight span {
-  color: #606266;
+  color: var(--jb-ink-500, #5a6b85);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
@@ -1771,7 +1776,7 @@ async function handleClear() {
 }
 
 .tax-yes {
-  color: #67c23a;
+  color: #12a150;
 }
 
 .tax-no {
@@ -1830,7 +1835,7 @@ async function handleClear() {
 }
 
 .calculated-value {
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1844,7 +1849,7 @@ async function handleClear() {
 }
 
 .sku-option small {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 12px;
 }
 
@@ -1853,7 +1858,7 @@ async function handleClear() {
   padding: 11px 14px;
   border-radius: 4px;
   background: #fff4dc;
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
   font-size: 13px;
 }
 
@@ -1875,7 +1880,7 @@ async function handleClear() {
   justify-content: flex-end;
   gap: 18px;
   padding-top: 10px;
-  color: #606266;
+  color: var(--jb-ink-500, #5a6b85);
   font-size: 13px;
 }
 

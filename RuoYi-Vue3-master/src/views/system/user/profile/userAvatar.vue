@@ -34,21 +34,21 @@
           >
             <el-button>
               选择
-              <el-icon class="el-icon--right"><Upload /></el-icon>
+              <app-icon name="upload" :size="14" class="el-icon--right" />
             </el-button>
           </el-upload>
         </el-col>
         <el-col :lg="{ span: 1, offset: 2 }" :md="2">
-          <el-button icon="Plus" @click="changeScale(1)"></el-button>
+          <el-button @click="changeScale(1)"><app-icon name="plus" :size="15" class="btn-icon" /></el-button>
         </el-col>
         <el-col :lg="{ span: 1, offset: 1 }" :md="2">
-          <el-button icon="Minus" @click="changeScale(-1)"></el-button>
+          <el-button @click="changeScale(-1)"><app-icon name="minus" :size="15" class="btn-icon" /></el-button>
         </el-col>
         <el-col :lg="{ span: 1, offset: 1 }" :md="2">
-          <el-button icon="RefreshLeft" @click="rotateLeft()"></el-button>
+          <el-button @click="rotateLeft()"><app-icon name="undo" :size="15" class="btn-icon" /></el-button>
         </el-col>
         <el-col :lg="{ span: 1, offset: 1 }" :md="2">
-          <el-button icon="RefreshRight" @click="rotateRight()"></el-button>
+          <el-button @click="rotateRight()"><app-icon name="refresh" :size="15" class="btn-icon" /></el-button>
         </el-col>
         <el-col :lg="{ span: 2, offset: 6 }" :md="2">
           <el-button type="primary" @click="uploadImg()">提 交</el-button>

@@ -46,7 +46,8 @@ public class EbayPriceAnalysisController extends BaseController
      * 页面展示不受这些权限控制，只有 Excel 导出列按角色过滤（沿用补货2.0 的做法）。
      */
     private static final List<String> EXPORT_COLUMNS = List.of(
-            "seller_account", "site_name", "sku", "title", "currency",
+            "seller_account", "site_name", "sku", "owner_name", "title",
+            "listing_start_time", "currency",
             "current_price", "price_usd", "ebay_quantity_available",
             "overseas_sellable", "overseas_in_transit", "chengdu_sellable",
             "pending_outbound", "sales_qty_7d", "sales_qty_30d", "cover_days",

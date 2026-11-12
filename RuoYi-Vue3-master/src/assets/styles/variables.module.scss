@@ -8,31 +8,31 @@ $tiffany: #4AB7BD;
 $yellow: #FEC171;
 $panGreen: #30B08F;
 
-// 默认主题变量
-$menuText: #bfcbd9;
-$menuActiveText: #409eff;
-$menuBg: #1a1f2e;
-$menuHover: #263445;
+// 默认主题变量（深海蓝·潮汐青）
+$menuText: rgba(255, 255, 255, 0.68);
+$menuActiveText: #1257D6;
+$menuBg: #0a1f44;
+$menuHover: rgba(255, 255, 255, 0.08);
 
-// 浅色主题theme-light
-$menuLightBg: #ffffff;
-$menuLightHover: #f0f1f5;
-$menuLightText: #303133;
-$menuLightActiveText: #409EFF;
+// 浅色主题theme-light（蓝白：微蓝底 + 品牌蓝点缀）
+$menuLightBg: #f7faff;
+$menuLightHover: #e9f1fd;
+$menuLightText: #24334a;
+$menuLightActiveText: #1257D6;
 
 // 基础变量
 $base-sidebar-width: 200px;
 $sideBarWidth: 200px;
 
 // 菜单暗色变量
-$base-menu-color: rgba(255,255,255,.65);
+$base-menu-color: rgba(255,255,255,.68);
 $base-menu-color-active: #ffffff;
-$base-menu-background: #1a1f2e;
-$base-sub-menu-background: #141824;
-$base-sub-menu-hover: rgba(255,255,255,.06);
+$base-menu-background: #0a1f44;
+$base-sub-menu-background: transparent;
+$base-sub-menu-hover: rgba(255,255,255,.08);
 
 // 组件变量
-$--color-primary: #409EFF;
+$--color-primary: #1257D6;
 $--color-success: #67C23A;
 $--color-warning: #E6A23C;
 $--color-danger: #F56C6C;
@@ -201,7 +201,7 @@ html.dark {
 
   /* 页签样式覆盖 */
   .navbar {
-    box-shadow: 0 1px 4px rgba(255, 255, 255, 0.08);
+    border-bottom-color: var(--el-border-color);
   }
   .tags-view-container {
     &.tags-view-container--chrome {

@@ -1,12 +1,21 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 
 <head>
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
   <meta name="renderer" content="webkit">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <link rel="icon" href="/favicon.ico">
+  <meta name="theme-color" content="#0B3D93">
+  <meta name="description" content="JMH 跨境 ERP — 订单、库存、利润一体化运营工作台">
+  <meta name="apple-mobile-web-app-title" content="JMH 跨境ERP">
+
+  <!-- 图标：SVG 优先（清晰、支持暗色适配），PNG / ICO 兜底 -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="alternate icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
   <title>%VITE_APP_TITLE%</title>
   <!--[if lt IE 11]><script>window.location.href='/html/ie.html';</script><![endif]-->
   <style>
@@ -18,184 +27,102 @@
       padding: 0px;
     }
 
-    .chromeframe {
-      margin: 0.2em 0;
-      background: #ccc;
-      color: #000;
-      padding: 0.2em 0;
-    }
-
+    /* ---------- 启动画面：品牌渐变 + 标识 + 细进度条 ---------- */
     #loader-wrapper {
       position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      inset: 0;
       z-index: 999999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 26px;
+      /* 与登录页左栏采用同一套品牌斜向渐变，切换时不跳色 */
+      background:
+        radial-gradient(90% 70% at 0% 100%, rgba(18, 178, 166, 0.28), transparent 60%),
+        linear-gradient(133deg, #061630 0%, #0a2a5e 40%, #0b4a80 70%, #0d7a86 100%);
+      -webkit-font-smoothing: antialiased;
     }
 
-    #loader {
-      display: block;
-      position: relative;
-      left: 50%;
-      top: 50%;
-      width: 150px;
-      height: 150px;
-      margin: -75px 0 0 -75px;
-      border-radius: 50%;
-      border: 3px solid transparent;
-      border-top-color: #FFF;
-      -webkit-animation: spin 2s linear infinite;
-      -ms-animation: spin 2s linear infinite;
-      -moz-animation: spin 2s linear infinite;
-      -o-animation: spin 2s linear infinite;
-      animation: spin 2s linear infinite;
-      z-index: 1001;
-    }
-
-    #loader:before {
-      content: "";
-      position: absolute;
-      top: 5px;
-      left: 5px;
-      right: 5px;
-      bottom: 5px;
-      border-radius: 50%;
-      border: 3px solid transparent;
-      border-top-color: #FFF;
-      -webkit-animation: spin 3s linear infinite;
-      -moz-animation: spin 3s linear infinite;
-      -o-animation: spin 3s linear infinite;
-      -ms-animation: spin 3s linear infinite;
-      animation: spin 3s linear infinite;
-    }
-
-    #loader:after {
-      content: "";
-      position: absolute;
-      top: 15px;
-      left: 15px;
-      right: 15px;
-      bottom: 15px;
-      border-radius: 50%;
-      border: 3px solid transparent;
-      border-top-color: #FFF;
-      -moz-animation: spin 1.5s linear infinite;
-      -o-animation: spin 1.5s linear infinite;
-      -ms-animation: spin 1.5s linear infinite;
-      -webkit-animation: spin 1.5s linear infinite;
-      animation: spin 1.5s linear infinite;
-    }
-
-
-    @-webkit-keyframes spin {
-      0% {
-        -webkit-transform: rotate(0deg);
-        -ms-transform: rotate(0deg);
-        transform: rotate(0deg);
-      }
-
-      100% {
-        -webkit-transform: rotate(360deg);
-        -ms-transform: rotate(360deg);
-        transform: rotate(360deg);
-      }
-    }
-
-    @keyframes spin {
-      0% {
-        -webkit-transform: rotate(0deg);
-        -ms-transform: rotate(0deg);
-        transform: rotate(0deg);
-      }
-
-      100% {
-        -webkit-transform: rotate(360deg);
-        -ms-transform: rotate(360deg);
-        transform: rotate(360deg);
-      }
-    }
-
-
-    #loader-wrapper .loader-section {
-      position: fixed;
-      top: 0;
-      width: 51%;
-      height: 100%;
-      background: #7171C6;
-      z-index: 1000;
-      -webkit-transform: translateX(0);
-      -ms-transform: translateX(0);
-      transform: translateX(0);
-    }
-
-    #loader-wrapper .loader-section.section-left {
-      left: 0;
-    }
-
-    #loader-wrapper .loader-section.section-right {
-      right: 0;
-    }
-
-
-    .loaded #loader-wrapper .loader-section.section-left {
-      -webkit-transform: translateX(-100%);
-      -ms-transform: translateX(-100%);
-      transform: translateX(-100%);
-      -webkit-transition: all 0.7s 0.3s cubic-bezier(0.645, 0.045, 0.355, 1.000);
-      transition: all 0.7s 0.3s cubic-bezier(0.645, 0.045, 0.355, 1.000);
-    }
-
-    .loaded #loader-wrapper .loader-section.section-right {
-      -webkit-transform: translateX(100%);
-      -ms-transform: translateX(100%);
-      transform: translateX(100%);
-      -webkit-transition: all 0.7s 0.3s cubic-bezier(0.645, 0.045, 0.355, 1.000);
-      transition: all 0.7s 0.3s cubic-bezier(0.645, 0.045, 0.355, 1.000);
-    }
-
-    .loaded #loader {
+    #loader-mark {
+      width: 56px;
+      height: 56px;
       opacity: 0;
-      -webkit-transition: all 0.3s ease-out;
-      transition: all 0.3s ease-out;
+      transform: translateY(6px);
+      animation: loader-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.05s forwards;
     }
 
-    .loaded #loader-wrapper {
-      visibility: hidden;
-      -webkit-transform: translateY(-100%);
-      -ms-transform: translateY(-100%);
-      transform: translateY(-100%);
-      -webkit-transition: all 0.3s 1s ease-out;
-      transition: all 0.3s 1s ease-out;
+    #loader-bar {
+      position: relative;
+      width: 132px;
+      height: 2px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.16);
+      overflow: hidden;
+      opacity: 0;
+      animation: loader-fade 0.5s ease 0.18s forwards;
     }
 
-    .no-js #loader-wrapper {
-      display: none;
-    }
-
-    .no-js h1 {
-      color: #222222;
-    }
-
-    #loader-wrapper .load_title {
-      font-family: 'Open Sans';
-      color: #FFF;
-      font-size: 19px;
-      width: 100%;
-      text-align: center;
-      z-index: 9999999999999;
+    #loader-bar::after {
+      content: "";
       position: absolute;
-      top: 60%;
-      opacity: 1;
-      line-height: 30px;
+      top: 0;
+      left: 0;
+      width: 44%;
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0), #fff);
+      animation: loader-slide 1.15s cubic-bezier(0.65, 0, 0.35, 1) infinite;
     }
 
-    #loader-wrapper .load_title span {
-      font-weight: normal;
-      font-style: italic;
-      font-size: 13px;
-      color: #FFF;
-      opacity: 0.5;
+    .load_title {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      color: rgba(255, 255, 255, 0.62);
+      opacity: 0;
+      animation: loader-fade 0.5s ease 0.26s forwards;
+    }
+
+    @keyframes loader-rise {
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes loader-fade {
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes loader-slide {
+      0% {
+        left: -46%;
+      }
+
+      100% {
+        left: 100%;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #loader-mark,
+      #loader-bar,
+      .load_title {
+        animation-duration: 0.01s;
+        opacity: 1;
+        transform: none;
+      }
+
+      #loader-bar::after {
+        animation: none;
+        left: 0;
+        width: 100%;
+        background: rgba(255, 255, 255, 0.5);
+      }
     }
   </style>
 </head>
@@ -203,10 +130,20 @@
 <body>
   <div id="app">
     <div id="loader-wrapper">
-      <div id="loader"></div>
-      <div class="loader-section section-left"></div>
-      <div class="loader-section section-right"></div>
-      <div class="load_title">正在加载系统资源，请耐心等待</div>
+      <svg id="loader-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <defs>
+          <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#fff" stop-opacity=".95" />
+            <stop offset="1" stop-color="#fff" stop-opacity=".7" />
+          </linearGradient>
+        </defs>
+        <rect x="0.6" y="0.6" width="22.8" height="22.8" rx="6" fill="none" stroke="url(#lg)"
+          stroke-width="1.2" stroke-opacity=".55" />
+        <path d="M14.9 5.8 L14.9 13.2 C14.9 16.6 12.8 18.5 10.1 18.5 C7.7 18.5 6.1 17.1 5.6 15.2"
+          fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <div id="loader-bar"></div>
+      <div class="load_title">正在加载工作台</div>
     </div>
   </div>
   <script type="module" src="/src/main.js"></script>

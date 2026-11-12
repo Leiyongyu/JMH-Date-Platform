@@ -160,7 +160,7 @@ function axisLabel(value, unit) {
 function chartOption(chart) {
   const months = trend.value.months || []
   return {
-    color: ['#1296db', '#ee6666', '#3ba272', '#fac858', '#9a60b4', '#fc8452', '#73c0de',
+    color: ['#1257d6', '#12b2a6', '#7c6fe0', '#e8933f', '#e06c8b', '#4e8de8', '#0e45a8',
       '#5470c6', '#91cc75', '#ea7ccc', '#d48265', '#2f4554', '#61a0a8', '#c4ccd3'],
     tooltip: {
       trigger: 'axis',
@@ -179,7 +179,7 @@ function chartOption(chart) {
       type: 'value',
       scale: chart.unit === 'days',
       axisLabel: { formatter: value => axisLabel(value, chart.unit) },
-      splitLine: { lineStyle: { type: 'dashed', color: '#ebeef5' } }
+      splitLine: { lineStyle: { type: 'dashed', color: '#e9eef6' } }
     },
     series: selectedOwners.value.map(owner => ({
       name: owner,
@@ -230,7 +230,7 @@ onBeforeUnmount(disposeCharts)
 
 .owner-trend-note {
   margin: 10px 0 12px;
-  color: #909399;
+  color: #8a99b0;
   font-size: 12px;
   line-height: 1.6;
 }
@@ -243,7 +243,7 @@ onBeforeUnmount(disposeCharts)
 }
 
 .owner-trend-card {
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--jb-line, #e3e9f2);
   border-radius: 6px;
   padding: 10px 12px 6px;
   background: #fff;
@@ -252,7 +252,7 @@ onBeforeUnmount(disposeCharts)
 .owner-trend-card__title {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: #24334a;
 }
 
 .owner-trend-card__chart {

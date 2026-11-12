@@ -1,0 +1,443 @@
+/**
+ * 通用 UI 工具类
+ * 与 tokens.scss 配套，只提供布局与分组，不接管业务样式
+ */
+
+/* 按钮内图标与文字的间距/对齐（供 el-button 内嵌 app-icon 使用） */
+.btn-icon {
+  margin-right: 5px;
+  vertical-align: -2px;
+}
+
+/* 图标工具条：把一组图标按钮排成紧凑的一条 */
+.jb-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.jb-toolbar--end {
+  margin-left: auto;
+}
+
+/* 工具条内分隔线 */
+.jb-toolbar__sep {
+  flex: none;
+  width: 1px;
+  height: 14px;
+  margin: 0 3px;
+  background: var(--jb-line);
+}
+
+/* 工具条内的弹性占位 */
+.jb-toolbar__spacer {
+  flex: 1 1 auto;
+}
+
+/* 轻量分组容器（表格上方的工具区） */
+.jb-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 4px 8px;
+  border-radius: var(--jb-r-md);
+}
+
+.jb-bar--surface {
+  background: var(--jb-surface);
+  border: 1px solid var(--jb-line);
+  box-shadow: var(--jb-sh-1);
+}
+
+/* ============================================================
+ * 表格皮肤
+ * 设计要点：去竖线、去斑马纹，只保留横向分隔线；
+ *          表头浅蓝底 + 12px 中等字重；数字列右对齐 + 等宽数字；
+ *          行高原 40px → 更松弛的 9px 内边距
+ * ============================================================ */
+.el-table {
+  --el-table-border-color: var(--jb-line);
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #5a6b85;
+  --el-table-text-color: var(--jb-ink-700);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, 0.055);
+  --el-table-current-row-bg-color: var(--jb-brand-50);
+  --el-table-tr-bg-color: transparent;
+  --el-table-bg-color: transparent;
+  --el-table-expanded-cell-bg-color: transparent;
+  font-size: 12.5px;
+  color: var(--jb-ink-700);
+  background-color: transparent;
+
+  /* 外框与竖线一律去掉 */
+  &.el-table--border,
+  &.el-table--group {
+    border: 0;
+  }
+  &::before,
+  &::after,
+  .el-table__inner-wrapper::before,
+  .el-table__inner-wrapper::after {
+    display: none;
+  }
+  th.el-table__cell,
+  td.el-table__cell {
+    border-right: 0 !important;
+  }
+  .el-table__border-left-patch {
+    display: none;
+  }
+
+  /* 表头 */
+  th.el-table__cell {
+    height: 40px;
+    padding: 0;
+    background-color: #f5f8fd !important;
+    border-bottom: 1px solid var(--jb-line) !important;
+    font-size: 12px;
+    font-weight: 600;
+    color: #5a6b85;
+    letter-spacing: 0.1px;
+
+    > .cell {
+      line-height: 20px;
+      white-space: nowrap;
+      color: inherit;
+    }
+  }
+
+  /* 单元行：只有一条横向细线 */
+  td.el-table__cell {
+    padding: 9px 0;
+    background-color: transparent;
+    border-bottom: 1px solid var(--jb-line) !important;
+  }
+  .el-table__body tr:last-child > td.el-table__cell {
+    border-bottom-color: transparent !important;
+  }
+
+  /* 去斑马纹：隔行不再填色 */
+  .el-table__body tr.el-table__row--striped > td.el-table__cell {
+    background-color: transparent !important;
+  }
+
+  /* 悬停与选中 */
+  .el-table__body tr:hover > td.el-table__cell {
+    background-color: rgba(18, 87, 214, 0.055) !important;
+  }
+  .el-table__body tr.current-row > td.el-table__cell {
+    background-color: var(--jb-brand-50) !important;
+  }
+
+  /* ------------------------------------------------------------
+   * 固定列（左/右）必须是「实色」底
+   * Element Plus 对固定列用的是 background:inherit + position:sticky，
+   * 上面把 td 设为 transparent 后，横向滚动时下层单元格会透出来，
+   * 表现为文字/按钮重叠。这里统一补回不透明底色。
+   * ------------------------------------------------------------ */
+  .el-table__body td.el-table__cell.el-table-fixed-column--left,
+  .el-table__body td.el-table__cell.el-table-fixed-column--right {
+    background-color: var(--jb-surface) !important;
+  }
+  .el-table__header th.el-table__cell.el-table-fixed-column--left,
+  .el-table__header th.el-table__cell.el-table-fixed-column--right,
+  .el-table__footer td.el-table__cell.el-table-fixed-column--left,
+  .el-table__footer td.el-table__cell.el-table-fixed-column--right {
+    background-color: #f5f8fd !important;
+  }
+  /* 固定列的隔行：依然是实色（不跟着去斑马纹变透明） */
+  .el-table__body tr.el-table__row--striped > td.el-table__cell.el-table-fixed-column--left,
+  .el-table__body tr.el-table__row--striped > td.el-table__cell.el-table-fixed-column--right {
+    background-color: var(--jb-surface) !important;
+  }
+  /* 固定列的悬停/选中：用等效实色，不能用半透明 */
+  .el-table__body tr:hover > td.el-table__cell.el-table-fixed-column--left,
+  .el-table__body tr:hover > td.el-table__cell.el-table-fixed-column--right {
+    background-color: #f2f6fd !important;
+  }
+  .el-table__body tr.current-row > td.el-table__cell.el-table-fixed-column--left,
+  .el-table__body tr.current-row > td.el-table__cell.el-table-fixed-column--right {
+    background-color: #eaf1fd !important;
+  }
+
+  /* 单元格内容 */
+  .cell {
+    padding: 0 12px;
+    line-height: 20px;
+    font-variant-numeric: tabular-nums;
+    color: inherit;
+  }
+  /* 数字列：右对齐（列上显式写 align 时以列配置为准） */
+  .cell.is-num {
+    text-align: right;
+  }
+
+  /* 空数据 */
+  .el-table__empty-text {
+    font-size: 12.5px;
+    color: var(--jb-ink-400);
+  }
+  .el-table__empty-block {
+    min-height: 140px;
+  }
+
+  /* 表格内的状态标签统一为胶囊 */
+  .el-tag {
+    --el-tag-border-radius: 999px;
+    height: 22px;
+    padding: 0 9px;
+    border: 0 !important;
+    font-size: 11.5px;
+    font-weight: 500;
+    vertical-align: middle;
+  }
+  .el-tag .el-tag__content {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* 操作列文字按钮收紧 */
+  .el-button.is-link,
+  .el-button.is-text {
+    font-weight: 500;
+  }
+
+  /* 卡片内表格：去掉顶部多余留白 */
+  & + .el-table {
+    margin-top: 0;
+  }
+}
+
+/* 小内边距表格仍生效（覆盖上面的 12px） */
+.small-padding .cell {
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+/* ---------- 卡片：12px 圆角 + 轻投影 + 统一内边距 ---------- */
+.el-card {
+  --el-card-border-color: var(--jb-line);
+  --el-card-border-radius: var(--jb-r-lg);
+  border-radius: var(--jb-r-lg);
+  border: 1px solid var(--jb-line);
+  background-color: var(--jb-surface);
+  box-shadow: var(--jb-sh-1) !important;
+
+  .el-card__header {
+    padding: 12px 16px !important;
+    min-height: 0;
+    border-bottom: 1px solid var(--jb-line);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--jb-ink-700);
+  }
+
+  .el-card__body {
+    padding: 14px 16px 16px !important;
+  }
+}
+
+/* ---------- 状态标签统一为胶囊 ---------- */
+.el-tag {
+  --el-tag-border-radius: 999px;
+  height: 22px;
+  padding: 0 9px;
+  border: 0;
+  font-size: 11.5px;
+  font-weight: 500;
+
+  &.el-tag--large {
+    height: 26px;
+    padding: 0 11px;
+    font-size: 12.5px;
+  }
+  &.el-tag--small {
+    height: 20px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+  .el-tag__close {
+    margin-left: 2px;
+  }
+}
+
+/* ============================================================
+ * 分页器：胶囊页码 + 品牌蓝当前页
+ * ============================================================ */
+.pagination-container {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 4px 2px 2px;
+  background: transparent !important;
+}
+
+.el-pagination {
+  --el-pagination-button-bg-color: transparent;
+  --el-pagination-hover-color: var(--jb-brand-600);
+  --el-pagination-font-size: 12.5px;
+  --el-pagination-button-width: 30px;
+  --el-pagination-button-height: 30px;
+  align-items: center;
+  gap: 2px;
+  font-weight: 400;
+
+  .el-pagination__total,
+  .el-pagination__jump,
+  .el-pagination__classifier {
+    font-size: 12.5px;
+    color: var(--jb-ink-400);
+    margin: 0 6px 0 0;
+  }
+
+  .el-input__inner,
+  .el-select__wrapper {
+    min-height: 30px;
+    border-radius: var(--jb-r-md);
+  }
+
+  /* 上一页/下一页 */
+  button.btn-prev,
+  button.btn-next,
+  .el-pager li {
+    min-width: 30px;
+    height: 30px;
+    line-height: 28px;
+    margin: 0 2px;
+    padding: 0 4px;
+    border: 1px solid var(--jb-line);
+    border-radius: var(--jb-r-md);
+    background-color: var(--jb-surface);
+    color: var(--jb-ink-500);
+    font-size: 12.5px;
+    font-weight: 500;
+    transition: background-color var(--jb-dur) var(--jb-ease),
+      border-color var(--jb-dur) var(--jb-ease),
+      color var(--jb-dur) var(--jb-ease);
+  }
+
+  button.btn-prev:hover,
+  button.btn-next:hover,
+  .el-pager li:hover {
+    background-color: var(--jb-brand-50);
+    border-color: var(--jb-brand-100);
+    color: var(--jb-brand-600);
+  }
+
+  .el-pager li.is-active,
+  .el-pager li.is-active:hover {
+    background: linear-gradient(135deg, var(--jb-brand-500), var(--jb-brand-600));
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 2px 8px -2px rgba(18, 87, 214, 0.55);
+  }
+
+  button.btn-prev:disabled,
+  button.btn-next:disabled {
+    background-color: var(--jb-hover);
+    border-color: var(--jb-line);
+    color: var(--jb-ink-300);
+  }
+
+  .el-pagination__jump .el-input {
+    width: 44px;
+  }
+}
+
+/* 状态胶囊 */
+.jb-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.jb-pill::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.jb-pill--ok { background: var(--jb-ok-bg); color: #0e7a3d; }
+.jb-pill--warn { background: var(--jb-warn-bg); color: #a85c05; }
+.jb-pill--danger { background: var(--jb-danger-bg); color: #b42318; }
+.jb-pill--info { background: #eef2f8; color: #4a5a73; }
+
+html.dark .jb-pill--ok { color: #68d391; }
+html.dark .jb-pill--warn { color: #f6ad55; }
+html.dark .jb-pill--danger { color: #fc8181; }
+html.dark .jb-pill--info { background: rgba(255, 255, 255, 0.08); color: #9baabf; }
+
+/* ---------- 深色模式：表格与分页器 ---------- */
+html.dark {
+  .el-table {
+    --el-table-header-bg-color: rgba(255, 255, 255, 0.045);
+
+    th.el-table__cell {
+      background-color: rgba(255, 255, 255, 0.045) !important;
+      color: #9baabf;
+    }
+    th.el-table__cell,
+    td.el-table__cell {
+      border-color: var(--jb-line) !important;
+    }
+    .el-table__body tr:hover > td.el-table__cell {
+      background-color: rgba(255, 255, 255, 0.05) !important;
+    }
+    .el-table__body tr.current-row > td.el-table__cell {
+      background-color: rgba(18, 87, 214, 0.18) !important;
+    }
+
+    /* 固定列：深色下同样要实色，否则滚动时透底 */
+    .el-table__body td.el-table__cell.el-table-fixed-column--left,
+    .el-table__body td.el-table__cell.el-table-fixed-column--right {
+      background-color: var(--jb-surface) !important;
+    }
+    .el-table__header th.el-table__cell.el-table-fixed-column--left,
+    .el-table__header th.el-table__cell.el-table-fixed-column--right {
+      background-color: #16233a !important;
+    }
+    .el-table__body tr:hover > td.el-table__cell.el-table-fixed-column--left,
+    .el-table__body tr:hover > td.el-table__cell.el-table-fixed-column--right {
+      background-color: #1b2537 !important;
+    }
+    .el-table__body tr.current-row > td.el-table__cell.el-table-fixed-column--left,
+    .el-table__body tr.current-row > td.el-table__cell.el-table-fixed-column--right {
+      background-color: #11264c !important;
+    }
+  }
+
+  .el-pagination {
+    button.btn-prev,
+    button.btn-next,
+    .el-pager li {
+      background-color: transparent;
+      border-color: var(--jb-line);
+      color: var(--jb-ink-500);
+    }
+    button.btn-prev:hover,
+    button.btn-next:hover,
+    .el-pager li:hover {
+      background-color: rgba(18, 87, 214, 0.18);
+      border-color: rgba(18, 87, 214, 0.4);
+      color: #9ec1ff;
+    }
+    button.btn-prev:disabled,
+    button.btn-next:disabled {
+      background-color: transparent;
+      color: var(--jb-ink-300);
+    }
+  }
+}

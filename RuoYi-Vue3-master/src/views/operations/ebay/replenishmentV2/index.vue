@@ -75,8 +75,8 @@
         </el-select>
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-        <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+        <el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+        <el-button @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
       </el-form-item>
     </el-form>
 
@@ -84,14 +84,13 @@
       <el-col :span="1.5">
         <el-tooltip content="导出当前筛选下全部记录，仅包含角色授权的导出字段；不受分页或页面隐藏列限制，页面可见字段不受影响" placement="top">
           <el-button
-            type="warning"
+            type="primary"
             plain
-            icon="Download"
             :loading="exporting"
             :disabled="loading || savingLeadTimeKeys.size > 0 || salesTypeSaving.size > 0 || recalculatingRowKeys.size > 0"
             v-hasPermi="['operations:ebayReplenishmentV2:export']"
             @click="handleExport"
-          >导出全部数据</el-button>
+          ><app-icon v-if="!exporting" name="export" :size="15" class="btn-icon" />导出全部数据</el-button>
         </el-tooltip>
       </el-col>
       <el-col :span="1.5" class="data-source-note">
@@ -156,7 +155,7 @@
                 @click.stop="openFormulaDialog('productLevel')">{{ col.label }}</button>
               <span v-else>{{ col.label }}</span>
               <el-tooltip v-if="col.tip" :content="col.tip" placement="top">
-                <el-icon class="column-tip"><QuestionFilled /></el-icon>
+                <app-icon name="help" :size="13" class="column-tip" />
               </el-tooltip>
             </span>
           </template>
@@ -191,7 +190,7 @@
             >
               <span>{{ col.label }}</span>
               <el-tooltip v-if="col.tip" :content="columnTip(col)" placement="top">
-                <el-icon class="column-tip"><QuestionFilled /></el-icon>
+                <app-icon name="help" :size="13" class="column-tip" />
               </el-tooltip>
             </span>
           </template>
@@ -447,7 +446,6 @@
 <script setup name="EbayReplenishmentV2">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { QuestionFilled } from '@element-plus/icons-vue'
 import {
   exportEbayReplenishmentV2,
   submitEbayReplenishmentV2Purchase,
@@ -1473,23 +1471,35 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.hierarchy-count, .hierarchy-footer { color: var(--el-text-color-secondary); font-size: 12px; }
+.hierarchy-count, .hierarchy-footer { color: var(--jb-ink-500, #5a6b85); font-size: 12px; }
 .hierarchy-footer { padding: 12px 0; }
 .review-cell { display: flex; align-items: center; gap: 8px; }
 .review-cell :deep(.el-input) { width: 85px; }
 .formula-header-button { border: 0; padding: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; }
-.formula-header-button:hover { color: var(--el-color-primary); }
+.formula-header-button:hover { color: var(--jb-brand-500, #1257d6); }
 .ebay-replenishment-v2-page {
   min-height: calc(100vh - 84px);
-  background: #f5f7fa;
+  background: var(--jb-page, #f5f7fb);
 }
 
 .query-form {
   padding: 14px 16px 0;
   margin-bottom: 12px;
-  border: 1px solid #e4e7ed;
-  border-radius: 6px;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 12px;
   background: #fff;
+  box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16, 42, 90, .04), 0 4px 16px rgba(16, 42, 90, .05));
+}
+.query-form :deep(.el-form-item__label) { color: var(--jb-ink-500, #5a6b85); font-weight: 500; }
+.query-form :deep(.el-button), .table-toolbar :deep(.el-button) { border-radius: 8px; font-weight: 500; }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+
+/* 表格品牌表头 */
+.ebay-replenishment-v2-page :deep(.el-table) {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
 }
 
 .table-toolbar {
@@ -1509,7 +1519,7 @@ onBeforeUnmount(() => {
 }
 
 .column-tip {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   cursor: help;
 }
 
@@ -1525,15 +1535,15 @@ onBeforeUnmount(() => {
 }
 
 .monthly-metric-trigger strong {
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
   font-weight: 600;
 }
 
 .monthly-history__title {
   padding-bottom: 8px;
   margin-bottom: 4px;
-  border-bottom: 1px solid #ebeef5;
-  color: #303133;
+  border-bottom: 1px solid var(--jb-line, #e3e9f2);
+  color: var(--jb-ink-700, #24334a);
   font-weight: 600;
 }
 
@@ -1542,11 +1552,11 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   min-height: 34px;
-  color: #606266;
+  color: var(--jb-ink-500, #5a6b85);
 }
 
 .monthly-history__row strong {
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1558,33 +1568,33 @@ onBeforeUnmount(() => {
 .quality-return-table th,
 .quality-return-table td {
   padding: 8px 4px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--jb-line, #e3e9f2);
   text-align: right;
   white-space: nowrap;
 }
 .quality-return-table th:first-child,
 .quality-return-table td:first-child { text-align: left; }
 .quality-return-table tfoot { font-weight: 600; }
-.quality-return-note { margin-top: 8px; color: #909399; font-size: 12px; line-height: 1.6; }
-.quality-return-warning { margin-top: 6px; color: #b88230; font-size: 12px; line-height: 1.6; }
+.quality-return-note { margin-top: 8px; color: var(--jb-ink-300, #94a0b1); font-size: 12px; line-height: 1.6; }
+.quality-return-warning { margin-top: 6px; color: var(--jb-warn, #b88230); font-size: 12px; line-height: 1.6; }
 
 .suggested-qty {
-  color: #409eff;
+  color: var(--jb-brand-500, #1257d6);
   font-weight: 600;
 }
 
 .column-header--formula {
   padding: 1px 4px;
-  border-radius: 3px;
+  border-radius: 4px;
   cursor: pointer;
-  text-decoration: underline dotted #409eff;
+  text-decoration: underline dotted var(--jb-brand-500, #1257d6);
   text-underline-offset: 3px;
   transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .column-header--formula:hover {
-  color: #409eff;
-  background: #ecf5ff;
+  color: var(--jb-brand-500, #1257d6);
+  background: rgba(18, 87, 214, .07);
 }
 
 .formula-alert {
@@ -1594,9 +1604,9 @@ onBeforeUnmount(() => {
 .formula-description {
   padding: 10px 12px;
   margin-bottom: 14px;
-  border-radius: 4px;
-  color: #606266;
-  background: #f5f7fa;
+  border-radius: 8px;
+  color: var(--jb-ink-500, #5a6b85);
+  background: var(--jb-page, #f5f7fb);
   font-size: 13px;
   line-height: 1.8;
 }
@@ -1615,12 +1625,12 @@ onBeforeUnmount(() => {
 
 .lead-time-unit,
 .lead-time-saving {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 12px;
 }
 
 .lead-time-saving {
-  color: #409eff;
+  color: var(--jb-brand-500, #1257d6);
 }
 
 :deep(.lead-time-input .el-input__inner) {

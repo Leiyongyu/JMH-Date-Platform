@@ -107,19 +107,19 @@
         </el-select>
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-        <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+        <el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+        <el-button @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
       </el-form-item>
     </el-form>
 
     <el-row :gutter="10" class="mb8 amz-action-toolbar">
       <el-col :span="1.5">
-        <el-button type="primary" plain icon="RefreshRight" @click="handleSyncAll"
-          :loading="syncing" v-hasPermi="['operations:amzReplenishment:sync']">拉取AMZ最新数据</el-button>
+        <el-button type="primary" plain @click="handleSyncAll"
+          :loading="syncing" v-hasPermi="['operations:amzReplenishment:sync']"><app-icon v-if="!syncing" name="resync" :size="15" class="btn-icon" />拉取AMZ最新数据</el-button>
       </el-col>
       <el-col :span="1.5">
-        <el-button type="warning" plain icon="Download" :loading="exporting" @click="handleExport"
-          v-hasPermi="['operations:amzReplenishment:export']">{{ exporting ? '导出中…' : '导出' }}</el-button>
+        <el-button type="primary" plain :loading="exporting" @click="handleExport"
+          v-hasPermi="['operations:amzReplenishment:export']"><app-icon v-if="!exporting" name="export" :size="15" class="btn-icon" />{{ exporting ? '导出中…' : '导出' }}</el-button>
       </el-col>
       <el-col :span="1.5" class="profit-source-note">
         鼠标停留在列名上可查看字段的数据来源和计算规则。
@@ -294,7 +294,7 @@
         <div class="number-filter-popover" :style="popoverStyle" @click.stop>
           <div class="popover-header">
             <span>{{ filterEditingCol?.label || '' }} 筛选</span>
-            <el-icon class="close-btn" @click="filterPopoverVisible = false"><Delete /></el-icon>
+            <app-icon name="close" :size="14" class="close-btn" @click="filterPopoverVisible = false" />
           </div>
           <div class="popover-body">
             <el-select v-model="filterEditingData.operator" size="small" style="width:100%" :teleported="false" popper-class="number-filter-select-popper">
@@ -325,7 +325,6 @@ import { searchEuReplenishment, refreshEuReplenishment } from '@/api/operations/
 import { syncAmzAll } from '@/api/operations/sync'
 import request from '@/utils/request'
 import { parseTime, blobValidate } from '@/utils/ruoyi'
-import { Filter, Delete, QuestionFilled } from '@element-plus/icons-vue'
 import { ElTooltip } from 'element-plus'
 import { getAmzReplenishmentFieldHelp } from '../fieldHelp'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
@@ -618,7 +617,7 @@ function renderColumnHeader(col) {
     const help = getAmzReplenishmentFieldHelp(col.key, 'EU')
     const labelNode = h(ElTooltip, { placement: 'top', effect: 'light', showAfter: 250, popperClass: 'amz-field-help-popper' }, {
       default: () => h('span', { class: 'amz-field-help-trigger', 'aria-label': `${label}的数据来源和计算规则` }, [
-        label, h(QuestionFilled, { class: 'amz-field-help-icon' })
+        label, h(resolveComponent('AppIcon'), { name: 'help', size: 12, class: 'amz-field-help-icon' })
       ]),
       content: () => h('div', { class: 'amz-field-help-content' }, [
         h('strong', label),
@@ -629,9 +628,9 @@ function renderColumnHeader(col) {
     })
     if (col.filterType !== 'number') return labelNode
     const active = hasActiveFilter(col.key)
-    const icon = resolveComponent('el-icon'); const filterIcon = resolveComponent('Filter')
+    const appIcon = resolveComponent('AppIcon')
     return h('div', { class: 'col-header-cell', style: 'display:inline-flex;align-items:center;justify-content:flex-start;gap:2px;overflow:hidden' }, [
-      h(icon, { size: 13, style: `flex-shrink:0;cursor:pointer;color:${active ? '#409EFF' : '#909399'}`, onClick: (e) => { e.stopPropagation(); openFilter(col, (e && e.currentTarget) || null) } }, [h(filterIcon)]),
+      h('span', { class: 'col-filter-trigger', style: `color:${active ? '#1257d6' : '#94a0b1'}`, onClick: (e) => { e.stopPropagation(); openFilter(col, (e && e.currentTarget) || null) } }, [h(appIcon, { name: 'filter', size: 13 })]),
       labelNode
     ])
   }
@@ -799,50 +798,62 @@ initPage()
   flex: 1;
   min-width: 260px;
   max-width: 100%;
-  color: #606266;
+  color: var(--jb-ink-500, #5a6b85);
   font-size: 14px;
   line-height: 22px;
   overflow-wrap: anywhere;
 }
 
-.amz-replenishment-page { background: #f5f7fa; }
+.amz-replenishment-page { background: var(--jb-page, #f5f7fb); }
+.amz-replenishment-page .query-form, .amz-replenishment-page :deep(.el-card) { border-radius: 12px; }
+.amz-replenishment-page :deep(.el-form-item__label) { color: var(--jb-ink-500, #5a6b85); font-weight: 500; }
+.amz-replenishment-page :deep(.el-button) { border-radius: 8px; font-weight: 500; }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+.amz-replenishment-page :deep(.el-table) {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+}
 
-.sales-cell { cursor: pointer; color: #409eff; border-bottom: 1.5px dashed #409eff; padding-bottom: 1px; }
-.sales-cell:hover { color: #1a6fd4; border-bottom-color: #1a6fd4; font-weight: 600; }
+.sales-cell { cursor: pointer; color: var(--jb-brand-500, #1257d6); border-bottom: 1.5px dashed var(--jb-brand-500, #1257d6); padding-bottom: 1px; }
+.sales-cell:hover { color: var(--jb-brand-600, #0e45a8); border-bottom-color: var(--jb-brand-600, #0e45a8); font-weight: 600; }
 .negative-value { color: #f56c6c; font-weight: 600; }
 .sales-cell.negative-value { color: #f56c6c; border-bottom-color: #f56c6c; }
 .negative-value { color: #f56c6c; font-weight: 600; }
 .breakdown-popover { max-height: 360px; }
-.breakdown-popover .bd-title { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #ebeef5; }
-.breakdown-popover .bd-loading, .breakdown-popover .bd-empty { text-align: center; color: #909399; padding: 12px 0; font-size: 13px; }
+.breakdown-popover .bd-title { font-size: 13px; font-weight: 600; color: var(--jb-ink-700, #24334a); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--jb-line, #e3e9f2); }
+.breakdown-popover .bd-loading, .breakdown-popover .bd-empty { text-align: center; color: var(--jb-ink-300, #94a0b1); padding: 12px 0; font-size: 13px; }
 .breakdown-popover .bd-list { max-height: 300px; overflow: hidden; }
 .breakdown-popover .bd-list.bd-scroll { overflow-y: auto; }
-.breakdown-popover .bd-item { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; color: #606266; border-bottom: 1px solid #f2f3f5; }
+.breakdown-popover .bd-item { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; color: var(--jb-ink-500, #5a6b85); border-bottom: 1px solid #f2f3f5; }
 .breakdown-popover .bd-item:last-child { border-bottom: none; }
 .breakdown-popover .bd-store { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.breakdown-popover .bd-val { font-weight: 600; color: #303133; margin-left: 12px; flex-shrink: 0; }
-.breakdown-popover .bd-total { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 6px; border-top: 1.5px solid #dcdfe6; font-size: 13px; font-weight: 600; color: #303133; }
+.breakdown-popover .bd-val { font-weight: 600; color: var(--jb-ink-700, #24334a); margin-left: 12px; flex-shrink: 0; }
+.breakdown-popover .bd-total { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 6px; border-top: 1.5px solid #dcdfe6; font-size: 13px; font-weight: 600; color: var(--jb-ink-700, #24334a); }
 .breakdown-popover .bd-total-val { color: #e6a23c; font-size: 14px; }
 
 :deep(.el-table .cell) { white-space: nowrap; }
 :deep(.col-header-cell) { cursor: default; user-select: none; }
-:deep(.col-header-cell .el-icon) { opacity: 0.5; transition: opacity 0.2s; }
-:deep(.col-header-cell:hover .el-icon) { opacity: 1; }
+:deep(.col-filter-trigger) { opacity: .45; transition: opacity .2s; cursor: pointer; display: inline-flex; flex-shrink: 0; }
+:deep(.col-header-cell:hover .col-filter-trigger) { opacity: 1; }
 :deep(.amz-field-help-trigger) { display: inline-flex; align-items: center; gap: 3px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
-:deep(.amz-field-help-icon) { width: 12px; height: 12px; flex-shrink: 0; color: #909399; }
+:deep(.amz-field-help-icon) { flex-shrink: 0; color: var(--jb-ink-300, #94a0b1); }
 </style>
 
 <style>
 .number-filter-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 2999; background: transparent; }
-.number-filter-popover { position: fixed; background: #fff; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,0.15); min-width: 240px; z-index: 3000; }
-.number-filter-popover .popover-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px 6px; font-size: 14px; font-weight: 600; border-bottom: 1px solid #ebeef5; }
-.number-filter-popover .popover-header .close-btn { cursor: pointer; color: #909399; font-size: 14px; }
+.number-filter-popover { position: fixed; background: #fff; border-radius: 10px; box-shadow: 0 6px 24px rgba(16,42,90,.16); min-width: 240px; z-index: 3000; }
+.number-filter-popover { border: 1px solid #e3e9f2; }
+.number-filter-popover .popover-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px 6px; font-size: 14px; font-weight: 600; color: #24334a; border-bottom: 1px solid #e3e9f2; }
+.number-filter-popover .popover-header .close-btn { cursor: pointer; color: #94a0b1; display: inline-flex; }
+.number-filter-popover .popover-header .close-btn:hover { color: #1257d6; }
 .number-filter-popover .popover-body { padding: 12px 14px; overflow: visible; }
 .number-filter-popover .popover-footer { padding: 8px 14px 12px; display: flex; justify-content: flex-end; gap: 8px; }
 .number-filter-select-popper { z-index: 3100 !important; }
 .amz-field-help-popper { max-width: 420px; white-space: normal; line-height: 1.6; }
 .amz-field-help-content { overflow-wrap: anywhere; }
-.amz-field-help-content strong { display: block; margin-bottom: 6px; color: #303133; }
+.amz-field-help-content strong { display: block; margin-bottom: 6px; color: #24334a; }
 .amz-field-help-content > div { margin-top: 4px; }
-.amz-field-help-content small { display: block; margin-top: 8px; color: #909399; }
+.amz-field-help-content small { display: block; margin-top: 8px; color: #94a0b1; }
 </style>

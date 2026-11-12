@@ -30,8 +30,8 @@
             </el-select>
          </el-form-item>
          <el-form-item>
-            <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-            <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+            <el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+            <el-button @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
          </el-form-item>
       </el-form>
 
@@ -40,30 +40,27 @@
             <el-button
                type="primary"
                plain
-               icon="Plus"
                @click="handleAdd"
                v-hasPermi="['system:notice:add']"
-            >新增</el-button>
+            ><app-icon name="plus" :size="15" class="btn-icon" />新增</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
                type="success"
                plain
-               icon="Edit"
                :disabled="single"
                @click="handleUpdate"
                v-hasPermi="['system:notice:edit']"
-            >修改</el-button>
+            ><app-icon name="edit" :size="15" class="btn-icon" />修改</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
                type="danger"
                plain
-               icon="Delete"
                :disabled="multiple"
                @click="handleDelete"
                v-hasPermi="['system:notice:remove']"
-            >删除</el-button>
+            ><app-icon name="delete" :size="15" class="btn-icon" />删除</el-button>
          </el-col>
          <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
       </el-row>
@@ -94,9 +91,9 @@
          </el-table-column>
          <el-table-column label="操作" align="center" class-name="small-padding fixed-width">
             <template #default="scope">
-               <el-button link type="primary" icon="User" @click="handleReadUsers(scope.row)" v-hasPermi="['system:notice:list']">阅读用户</el-button>
-               <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)" v-hasPermi="['system:notice:edit']">修改</el-button>
-               <el-button link type="primary" icon="Delete" @click="handleDelete(scope.row)" v-hasPermi="['system:notice:remove']" >删除</el-button>
+               <el-button link type="primary" @click="handleReadUsers(scope.row)" v-hasPermi="['system:notice:list']"><app-icon name="user" :size="15" class="btn-icon" />阅读用户</el-button>
+               <el-button link type="primary" @click="handleUpdate(scope.row)" v-hasPermi="['system:notice:edit']"><app-icon name="edit" :size="15" class="btn-icon" />修改</el-button>
+               <el-button link type="primary" @click="handleDelete(scope.row)" v-hasPermi="['system:notice:remove']" ><app-icon name="delete" :size="15" class="btn-icon" />删除</el-button>
             </template>
          </el-table-column>
       </el-table>

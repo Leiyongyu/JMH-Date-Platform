@@ -6,15 +6,16 @@
           v-model="queryParams.searchValue"
           placeholder="登录名称 / 用户名称"
           clearable
-          :prefix-icon="Search"
           style="width: 220px;"
           @keyup.enter="handleQuery"
           @clear="handleQuery"
-        />
+        >
+          <template #prefix><app-icon name="search" :size="14" /></template>
+        </el-input>
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" icon="Search" size="small" @click="handleQuery">搜索</el-button>
-        <el-button icon="Refresh" size="small" @click="resetQuery">重置</el-button>
+        <el-button type="primary" size="small" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+        <el-button size="small" @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
       </el-form-item>
       <el-form-item style="float: right; margin-right: 0;">
         <span class="read-stat">
@@ -46,7 +47,6 @@
 </template>
 
 <script setup name="ReadUsers">
-import { Search } from "@element-plus/icons-vue"
 import { listNoticeReadUsers } from "@/api/system/notice"
 
 const { proxy } = getCurrentInstance()
@@ -111,7 +111,7 @@ defineExpose({
   line-height: 28px;
 }
 .read-stat strong {
-  color: #409eff;
+  color: #1257d6;
   font-size: 15px;
   margin: 0 2px;
 }

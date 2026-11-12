@@ -31,6 +31,35 @@ function harness({ allowed = true, read, refresh } = {}) {
   return { api: context.api, props: context.props, calls, events, messages }
 }
 
+
+// 把 #rgb / #rrggbb / rgb() / rgba() 解析成 { hue, alpha }，用色相判断「红」「绿」，不绑死具体色值。
+function colorInfo(text) {
+  const value = String(text).trim()
+  let r, g, b, alpha = 1
+  const hex = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)
+  const rgb = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i)
+  if (hex) {
+    const full = hex[1].length === 3 ? hex[1].replace(/./g, c => c + c) : hex[1]
+    ;[r, g, b] = [0, 2, 4].map(i => parseInt(full.slice(i, i + 2), 16))
+  } else if (rgb) {
+    ;[r, g, b] = rgb.slice(1, 4).map(Number)
+    if (rgb[4] !== undefined) alpha = Number(rgb[4])
+  } else {
+    assert.fail(`unrecognised color: ${value}`)
+  }
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  let hue = 0
+  if (max !== min) {
+    const d = max - min
+    if (max === r) hue = ((g - b) / d) % 6
+    else if (max === g) hue = (b - r) / d + 2
+    else hue = (r - g) / d + 4
+    hue = (hue * 60 + 360) % 360
+  }
+  return { hue, alpha, lightness: (max + min) / 2 / 255 }
+}
+
 test('eleven-column owner and eight-column site views compile without verbose help or exclusion details', () => {
   const result = compileTemplate({ source: descriptor.template.content, filename: file.pathname, id: 'age-ratio-test',
     compilerOptions: { bindingMetadata: script.bindings } })
@@ -105,7 +134,12 @@ test('pink data bars use actual percentages against a fixed 100 percent cell wid
   assert.equal(h.api.formatPercent('0.1'), '10.00%')
   assert.equal(JSON.stringify(h.api.report.value), before)
   assert.equal((descriptor.template.content.match(/class="ratio-data-bar"/g) || []).length, 2)
-  assert.match(source, /background: #f5a0ac/)
+  // 底条是浅红（粉）色：按色相和透明度 / 亮度判断，不绑死色值（改版换成了 rgba(245, 108, 108, .22)）。
+  const bar = source.match(/\.ratio-data-bar \{[^}]*background: ([^;]+);/)
+  assert.ok(bar, 'ratio-data-bar sets a background')
+  const { hue, alpha, lightness } = colorInfo(bar[1])
+  assert.ok(hue <= 20 || hue >= 340, `bar should be red-tinted, got ${bar[1]}`)
+  assert.ok(alpha < 0.5 || lightness > 0.75, `bar should be a light tint so the number stays readable, got ${bar[1]}`)
 })
 
 test('site bars keep a fixed scale on report changes; zero and missing values stay empty', () => {

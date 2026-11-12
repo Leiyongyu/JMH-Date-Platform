@@ -38,16 +38,15 @@
           <el-input v-model="query.principalName" clearable placeholder="Listing负责人" @keyup.enter="handleQuery" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-          <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+          <el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+          <el-button @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
           <el-button
             type="success"
-            icon="Refresh"
             :loading="refreshing"
             v-hasPermi="['finance:performanceRanking:edit']"
             @click="handleRefresh"
           >
-            重新匹配并汇总
+            <app-icon name="refresh" :size="15" class="btn-icon" />重新匹配并汇总
           </el-button>
           <el-dropdown
             trigger="click"
@@ -61,9 +60,9 @@
               plain
               :loading="dataOperationLoading"
             >
-              <el-icon><FolderOpened /></el-icon>
+              <app-icon name="folder" :size="15" />
               <span>数据导入/导出</span>
-              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              <app-icon name="chevronDown" :size="13" class="el-icon--right" />
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
@@ -71,7 +70,7 @@
                   command="exportAmzSource"
                   v-hasPermi="['finance:performanceRanking:list']"
                 >
-                  <el-icon class="data-menu-icon export-icon"><Download /></el-icon>
+                  <app-icon name="download" :size="15" class="data-menu-icon export-icon" />
                   <div class="data-menu-copy">
                     <span>导出 AMZ 源数据</span>
                     <small>导出当前月份的绩效明细</small>
@@ -92,7 +91,7 @@
                   >
                     <template #reference>
                       <div class="ebay-profit-import-trigger">
-                        <el-icon class="data-menu-icon profit-icon"><Upload /></el-icon>
+                        <app-icon name="upload" :size="15" class="data-menu-icon profit-icon" />
                         <div class="data-menu-copy">
                           <span>导入 eBay 月度利润表</span>
                           <small>覆盖所导入月份的利润数据</small>
@@ -304,7 +303,7 @@
             :on-change="handleProfitFileChange"
             :on-remove="handleProfitFileRemove"
           >
-            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+            <app-icon name="upload" :size="40" class="upload-hero" />
             <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
             <template #tip>
               <div class="el-upload__tip">
@@ -432,16 +431,16 @@ function buildChartOption(ranking, field, color, seriesName) {
       name: '金额（CNY）',
       nameLocation: 'middle',
       nameGap: 38,
-      nameTextStyle: { color: '#64748b' },
+      nameTextStyle: { color: '#8a99b0' },
       axisLabel: {
-        color: '#64748b',
+        color: '#8a99b0',
         formatter(value) {
           const absolute = Math.abs(value)
           if (absolute >= 10000) return `${(value / 10000).toFixed(1)}万`
           return Number(value).toLocaleString('zh-CN')
         }
       },
-      splitLine: { lineStyle: { color: '#eef2f7' } }
+      splitLine: { lineStyle: { color: '#e9eef6' } }
     },
     yAxis: {
       type: 'category',
@@ -449,11 +448,11 @@ function buildChartOption(ranking, field, color, seriesName) {
       data: ranking.map(item => item.principalNames || '未分配'),
       axisTick: { show: false },
       axisLabel: {
-        color: '#475569',
+        color: '#24334a',
         fontSize: 13,
         margin: 12
       },
-      axisLine: { lineStyle: { color: '#cbd5e1' } }
+      axisLine: { lineStyle: { color: '#e3e9f2' } }
     },
     dataZoom: showZoom
       ? [
@@ -493,7 +492,7 @@ function buildChartOption(ranking, field, color, seriesName) {
         label: {
           show: true,
           position: 'right',
-          color: '#334155',
+          color: '#24334a',
           fontSize: 11,
           formatter: params => formatMoney(params.value)
         }
@@ -506,7 +505,7 @@ function buildChartOption(ranking, field, color, seriesName) {
             type: 'text',
             left: 'center',
             top: 'middle',
-            style: { text: '暂无排名数据', fill: '#94a3b8', fontSize: 14 }
+            style: { text: '暂无排名数据', fill: '#8a99b0', fontSize: 14 }
           }
         ]
   }
@@ -520,7 +519,7 @@ async function renderCharts() {
       buildChartOption(
         grossProfitRanking.value,
         'grossProfit',
-        '#16a34a',
+        '#12a150',
         '毛利润'
       ),
       true
@@ -529,7 +528,7 @@ async function renderCharts() {
   if (netSalesChartRef.value) {
     netSalesChart ||= echarts.init(netSalesChartRef.value)
     netSalesChart.setOption(
-      buildChartOption(netSalesRanking.value, 'netSalesAmount', '#2563eb', '净销售额'),
+      buildChartOption(netSalesRanking.value, 'netSalesAmount', '#1257d6', '净销售额'),
       true
     )
   }
@@ -770,8 +769,8 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 18px;
 }
-.platform-heading { color: #1e293b; font-size: 18px; font-weight: 650; }
-.platform-hint { margin-top: 5px; color: #64748b; font-size: 12px; }
+.platform-heading { color: #0b1526; font-size: 18px; font-weight: 650; }
+.platform-hint { margin-top: 5px; color: #8a99b0; font-size: 12px; }
 .filter-card { margin-bottom: 16px; }
 .filter-card :deep(.el-form-item:last-child .el-form-item__content) {
   display: flex;
@@ -781,15 +780,15 @@ onBeforeUnmount(() => {
 .filter-card :deep(.el-form-item:last-child .el-button + .el-button) { margin-left: 0; }
 .data-action-trigger {
   min-width: 154px;
-  border-color: #bfdbfe;
-  background: linear-gradient(135deg, #eff6ff 0%, #f8fbff 100%);
-  box-shadow: 0 2px 8px rgb(37 99 235 / 8%);
+  border-color: #c9dcfb;
+  background: linear-gradient(135deg, #f4f8ff 0%, #fbfdff 100%);
+  box-shadow: 0 2px 8px rgb(18 87 214 / 8%);
 }
 .data-action-trigger:hover,
 .data-action-trigger:focus {
-  border-color: #60a5fa;
-  background: #eff6ff;
-  box-shadow: 0 4px 12px rgb(37 99 235 / 14%);
+  border-color: #a9c6f4;
+  background: #e7efff;
+  box-shadow: 0 4px 12px rgb(18 87 214 / 14%);
 }
 .data-action-trigger span { margin-left: 7px; }
 :global(.performance-data-menu .el-dropdown-menu) { padding: 7px; }
@@ -808,15 +807,15 @@ onBeforeUnmount(() => {
   border-radius: 7px;
   font-size: 16px;
 }
-:global(.performance-data-menu .export-icon) { color: #15803d; background: #ecfdf3; }
-:global(.performance-data-menu .profit-icon) { color: #1d4ed8; background: #eff6ff; }
+:global(.performance-data-menu .export-icon) { color: #12a150; background: #e7f6ec; }
+:global(.performance-data-menu .profit-icon) { color: #1257d6; background: #e7efff; }
 :global(.performance-data-menu .data-menu-copy) {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-:global(.performance-data-menu .data-menu-copy span) { color: #1e293b; font-weight: 600; }
-:global(.performance-data-menu .data-menu-copy small) { color: #94a3b8; font-size: 11px; }
+:global(.performance-data-menu .data-menu-copy span) { color: #0b1526; font-weight: 600; }
+:global(.performance-data-menu .data-menu-copy small) { color: #8a99b0; font-size: 11px; }
 :global(.performance-data-menu .ebay-profit-import-item) { padding: 0; }
 :global(.performance-data-menu .ebay-profit-import-trigger) {
   display: flex;
@@ -886,8 +885,8 @@ onBeforeUnmount(() => {
   border-radius: 10px;
 }
 .ranking-card :deep(.el-card__body) { padding: 12px 16px 16px; }
-.gross-profit-card { border-top: 3px solid #16a34a; }
-.net-sales-card { border-top: 3px solid #2563eb; }
+.gross-profit-card { border-top: 3px solid #12a150; }
+.net-sales-card { border-top: 3px solid #1257d6; }
 .ranking-header {
   display: flex;
   align-items: center;
@@ -912,4 +911,5 @@ onBeforeUnmount(() => {
   .subtitle { display: block; margin: 5px 0 0; }
   .ranking-chart { height: 400px; }
 }
+.upload-hero { color: var(--jb-brand-500, #2c74f0); }
 </style>

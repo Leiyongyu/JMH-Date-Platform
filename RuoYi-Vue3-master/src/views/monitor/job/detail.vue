@@ -5,7 +5,7 @@
         <!-- 基本信息 -->
         <div class="detail-card">
           <div class="detail-card-title">
-            <el-icon><InfoFilled /></el-icon> 基本信息
+            <app-icon name="info" :size="14" /> 基本信息
           </div>
           <el-row class="detail-row">
             <el-col :span="12">
@@ -39,7 +39,7 @@
         <!-- 任务信息 -->
         <div class="detail-card">
           <div class="detail-card-title">
-            <el-icon><Clock /></el-icon> 任务信息
+            <app-icon name="clock" :size="14" /> 任务信息
           </div>
           <el-row class="detail-row">
             <el-col :span="12">
@@ -61,7 +61,7 @@
         <!-- 调用目标 -->
         <div class="detail-card">
           <div class="detail-card-title">
-            <el-icon><Operation /></el-icon> 调用目标
+            <app-icon name="sliders" :size="14" /> 调用目标
           </div>
           <div class="code-body">
             <div class="code-wrap"><pre class="code-pre">{{ form.invokeTarget || '（无）' }}</pre></div>
@@ -70,7 +70,7 @@
         <!-- 异常信息 -->
         <div class="detail-card" v-if="form.status == 1">
           <div class="detail-card-title error-title">
-            <el-icon><Warning /></el-icon> 异常信息
+            <app-icon name="warning" :size="14" /> 异常信息
           </div>
           <div class="error-body"><div class="error-msg">{{ form.exceptionInfo }}</div></div>
         </div>
@@ -80,7 +80,7 @@
         <!-- 任务配置 -->
         <div class="detail-card">
           <div class="detail-card-title">
-            <el-icon><Setting /></el-icon> 任务配置
+            <app-icon name="settings" :size="14" /> 任务配置
           </div>
           <el-row class="detail-row">
             <el-col :span="12">
@@ -109,7 +109,7 @@
         <!-- 调度信息 -->
         <div class="detail-card">
           <div class="detail-card-title">
-            <el-icon><Calendar /></el-icon> 调度信息
+            <app-icon name="calendar" :size="14" /> 调度信息
           </div>
           <el-row class="detail-row">
             <el-col :span="12">
@@ -141,7 +141,7 @@
         <!-- 执行方法 -->
         <div class="detail-card">
           <div class="detail-card-title">
-            <el-icon><Operation /></el-icon> 执行方法
+            <app-icon name="sliders" :size="14" /> 执行方法
           </div>
           <div class="code-body">
             <div class="code-wrap"><pre class="code-pre">{{ form.invokeTarget || '（无）' }}</pre></div>
@@ -150,7 +150,7 @@
         <!-- 元信息 -->
         <div class="detail-card">
           <div class="detail-card-title">
-            <el-icon><Document /></el-icon> 元信息
+            <app-icon name="file" :size="14" /> 元信息
           </div>
           <el-row class="detail-row">
             <el-col :span="12">

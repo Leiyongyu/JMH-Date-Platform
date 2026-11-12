@@ -17,28 +17,29 @@
         </el-select>
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-        <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+        <el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+        <el-button @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
       </el-form-item>
     </el-form>
 
     <el-row :gutter="10" class="mb8 toolbar-row">
       <el-col :span="1.5">
-        <el-button type="primary" icon="Download" :disabled="deleting || selectedPendingIds.length === 0"
+        <el-button type="primary" :disabled="deleting || selectedPendingIds.length === 0"
           :loading="exporting" v-hasPermi="['procurement:pendingPurchase:export']"
           @click="handleExport(selectedPendingIds)">
+          <app-icon v-if="!exporting" name="export" :size="15" class="btn-icon" />
           导出选中待采购（{{ selectedPendingIds.length }}）
         </el-button>
       </el-col>
       <el-col :span="1.5">
-        <el-button type="danger" icon="Delete" :disabled="!canRemove || exporting || selectedIds.length === 0"
+        <el-button type="danger" :disabled="!canRemove || exporting || selectedIds.length === 0"
           :loading="deleting"
-          @click="handleDelete">删除选中（{{ selectedIds.length }}）</el-button>
+          @click="handleDelete"><app-icon v-if="!deleting" name="delete" :size="15" class="btn-icon" />删除选中（{{ selectedIds.length }}）</el-button>
       </el-col>
       <el-col :span="1.5" class="export-tip">两种状态均可勾选删除；导出仅处理选中的待采购记录</el-col>
       <el-col :span="1.5">
-        <el-button icon="Refresh" :loading="syncing || syncRunning" v-hasPermi="['procurement:pendingPurchase:syncStatus']"
-          @click="handleSync">同步采购单状态</el-button>
+        <el-button :loading="syncing || syncRunning" v-hasPermi="['procurement:pendingPurchase:syncStatus']"
+          @click="handleSync"><app-icon v-if="!(syncing || syncRunning)" name="resync" :size="15" class="btn-icon" />同步采购单状态</el-button>
       </el-col>
       <el-col v-if="!canRemove" :span="24" class="permission-tip">
         删除不可用：缺少 procurement:pendingPurchase:remove 权限，请联系管理员授权后重新登录。
@@ -370,14 +371,23 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(pollTimer) })
 </script>
 
 <style scoped>
-.pending-purchase-page { min-height: calc(100vh - 84px); background: #f5f7fa; }
-.query-form { padding: 14px 16px 0; margin-bottom: 12px; border: 1px solid #e4e7ed; border-radius: 6px; background: #fff; }
+.pending-purchase-page { min-height: calc(100vh - 84px); background: var(--jb-page, #f5f7fb); }
+.query-form { padding: 14px 16px 0; margin-bottom: 12px; border: 1px solid var(--jb-line, #e3e9f2); border-radius: 12px; background: #fff; box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16,42,90,.04), 0 4px 16px rgba(16,42,90,.05)); }
+.query-form :deep(.el-form-item__label) { color: var(--jb-ink-500, #5a6b85); font-weight: 500; }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+.pending-purchase-page :deep(.el-button) { border-radius: 8px; font-weight: 500; }
+.pending-purchase-page :deep(.el-table) {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+}
 .toolbar-row { align-items: center; }
-.export-tip { color: #909399; font-size: 13px; line-height: 32px; white-space: nowrap; }
+.export-tip { color: var(--jb-ink-300, #94a0b1); font-size: 13px; line-height: 32px; white-space: nowrap; }
 .permission-tip { color: #e6a23c; font-size: 13px; line-height: 28px; }
-.completed-text { color: #67c23a; }
-.po-sync-tip { color: #606266; font-size: 13px; margin: 8px 0 12px; line-height: 22px; }
-.po-warning { color: #b88230; font-size: 12px; }
+.completed-text { color: #12a150; }
+.po-sync-tip { color: var(--jb-ink-500, #5a6b85); font-size: 13px; margin: 8px 0 12px; line-height: 22px; }
+.po-warning { color: var(--jb-warn, #b88230); font-size: 12px; }
 .po-detail { padding: 12px 22px; }
 :deep(.el-table .cell) { white-space: nowrap; }
 </style>

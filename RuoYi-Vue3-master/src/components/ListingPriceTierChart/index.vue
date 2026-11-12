@@ -5,7 +5,7 @@
       <div><span class="eyebrow">{{ platformLabel }} · {{ currencyLabel }}价格结构</span><h2 :id="`price-tier-${platform}`">店铺 SKU 价格分层</h2></div>
       <div class="actions">
         <el-button v-if="platform === 'ebay'" size="small" @click="structureOpen = true">产品结构</el-button>
-        <el-button size="small" icon="Refresh" circle :disabled="loading" :title="refreshTitle" aria-label="重新统计价格分层" @click="load(true)" />
+        <icon-btn icon="refresh" :disabled="loading" :tooltip="refreshTitle" @click="load(true)" />
       </div>
     </header>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
@@ -105,7 +105,8 @@ const keyword = ref('')
 const month = ref('')
 const shop = ref('')
 // 七档要七种颜色；人民币只用前五个，色序不变，改档位数不影响AMZ报表的观感。
-const palette = ['#67b8ae', '#629dce', '#666cc6', '#b07baf', '#d79b5e', '#c9756a', '#8a8f98']
+// 品牌色阶：低价档偏青、高价档偏深蓝，与「深海蓝·潮汐青」主题一致。
+const palette = ['#6fd3c8', '#2fb8ab', '#12b2a6', '#4e8de8', '#2c74f0', '#1257d6', '#0e45a8']
 const definitions = computed(() => presentation.value.names.map((name, i) => ({
   name, short: presentation.value.shorts[i],
   compact: presentation.value.compacts[i], range: presentation.value.ranges[i]
@@ -180,13 +181,14 @@ onBeforeUnmount(() => { disposed = true })
 </script>
 
 <style scoped>
-.price-panel { box-sizing: border-box; display: flex; flex-direction: column; min-width: 0; height: 360px; padding: 14px; border: 1px solid var(--el-border-color-lighter); border-radius: 10px; background: var(--el-bg-color); }
+.price-panel { box-sizing: border-box; display: flex; flex-direction: column; min-width: 0; height: 360px; padding: 16px; border: 1px solid var(--jb-line, var(--el-border-color-lighter)); border-radius: 12px; background: var(--jb-surface, var(--el-bg-color)); box-shadow: var(--jb-sh-1, none); transition: box-shadow 0.2s ease, border-color 0.2s ease; }
+.price-panel:hover { border-color: var(--jb-line-strong, var(--el-border-color)); box-shadow: var(--jb-sh-2, none); }
 header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.eyebrow { color: var(--el-color-primary); font-size: 10px; font-weight: 600; }
-h2 { margin: 6px 0 10px; font-size: 15px; color: var(--el-text-color-primary); }
-.summary { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 8px; }
-.summary b { font-size: 17px; }
-.legend { display: flex; flex-wrap: wrap; gap: 5px 8px; font-size: 10px; margin-bottom: 8px; }
+.eyebrow { color: var(--jb-accent, var(--el-color-primary)); font-size: 11px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase; }
+h2 { margin: 6px 0 10px; font-size: 15px; color: var(--jb-ink-700, var(--el-text-color-primary)); font-weight: 600; }
+.summary { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 8px; color: var(--jb-ink-500, var(--el-text-color-regular)); }
+.summary b { font-size: 17px; color: var(--jb-ink-900, var(--el-text-color-primary)); font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 5px 8px; font-size: 10px; margin-bottom: 8px; color: var(--jb-ink-500, var(--el-text-color-regular)); }
 i { display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 3px; }
 .chart-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
 .shop-row { margin-bottom: 10px; }
@@ -196,7 +198,7 @@ summary::before { content: '▸'; position: absolute; top: 0; left: 0; }
 details[open] > summary::before { content: '▾'; }
 .store-heading { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; margin: 0 0 5px 12px; }
 .store-heading span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.stack { display: flex; height: 11px; width: 100%; overflow: hidden; border-radius: 3px; background: var(--el-fill-color-light); }
+.stack { display: flex; height: 11px; width: 100%; overflow: hidden; border-radius: 999px; background: var(--jb-hover, var(--el-fill-color-light)); }
 .stack span { min-width: 0; }
 .site-row { padding: 9px 0 4px 12px; }
 .site-row .store-heading { margin: 0 0 5px; font-size: 10px; color: var(--el-text-color-secondary); }
@@ -208,9 +210,9 @@ details[open] > summary::before { content: '▾'; }
 .actions { display: flex; align-items: center; gap: 6px; }
 .filters-inline { display: flex; gap: 6px; margin-bottom: 6px; }
 .warning { color: var(--el-color-warning-dark-2); font-size: 10px; line-height: 1.5; max-height: 35px; overflow-y: auto; }
-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--el-border-color-lighter); padding-top: 6px; margin-top: 5px; font-size: 10px; color: var(--el-text-color-secondary); }
+footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--jb-line, var(--el-border-color-lighter)); padding-top: 6px; margin-top: 5px; font-size: 10px; color: var(--jb-ink-400, var(--el-text-color-secondary)); }
 footer span, .generated { cursor: help; }
-.generated { color: var(--el-text-color-secondary); font-size: 10px; }
+.generated { color: var(--jb-ink-400, var(--el-text-color-secondary)); font-size: 10px; }
 .filters { display: flex; gap: 12px; align-items: center; margin: 12px 0; font-size: 12px; }
 .rules { font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.7; margin: 8px 0; }
 .percent { color: var(--el-text-color-secondary); font-size: 12px; }

@@ -8,7 +8,7 @@
       @clear="filterIcons"
       @input="filterIcons"
     >
-      <template #suffix><i class="el-icon-search el-input__icon" /></template>
+      <template #suffix><app-icon name="search" :size="14" /></template>
     </el-input>
     <div class="icon-list">
       <div class="list-container">

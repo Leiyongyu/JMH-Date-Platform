@@ -1,14 +1,14 @@
 import { comparisonDirection, trendColors } from './trend.js'
 
 export const salesMetrics = [
-  { key: 'platform_income', label: '平台收入', color: '#23b7a3', icon: 'Coin' },
-  { key: 'platform_expense', label: '平台支出', color: '#64748b', icon: 'Wallet' },
-  { key: 'gross_profit', label: '毛利润', color: '#38b5ed', icon: 'TrendCharts' },
-  { key: 'net_sales', label: '净收款', color: '#f47798', icon: 'Wallet' },
-  { key: 'gross_sales', label: '销售总额', color: '#5285da', icon: 'DataAnalysis' },
-  { key: 'refund_amount', label: '退款金额', color: '#f2a14a', icon: 'RefreshLeft' },
-  { key: 'gross_margin', label: '毛利率', color: '#8b7ce8', icon: 'DataAnalysis', secondary: true },
-  { key: 'refund_rate', label: '退款率', color: '#df789b', icon: 'PieChart', secondary: true }
+  { key: 'platform_income', label: '平台收入', color: '#12b2a6', icon: 'coins' },
+  { key: 'platform_expense', label: '平台支出', color: '#5a6b85', icon: 'wallet' },
+  { key: 'gross_profit', label: '毛利润', color: '#2c74f0', icon: 'trendUp' },
+  { key: 'net_sales', label: '净收款', color: '#1257d6', icon: 'money' },
+  { key: 'gross_sales', label: '销售总额', color: '#4e8de8', icon: 'chartBar' },
+  { key: 'refund_amount', label: '退款金额', color: '#e8933f', icon: 'undo' },
+  { key: 'gross_margin', label: '毛利率', color: '#7c6fe0', icon: 'percent', secondary: true },
+  { key: 'refund_rate', label: '退款率', color: '#e06c8b', icon: 'chartPie', secondary: true }
 ]
 
 export function formatMetric(value, unit = 'CNY', compact = false) {
@@ -34,17 +34,17 @@ export function salesChartOption(report, metricKey = 'net_sales', dimension = 't
     return direction ? `{${direction}|${direction === 'up' ? '↑' : '↓'} ${text}}` : text
   }
   return {
-    color: [definition.color, '#409eff', '#f5ad42', '#8b7ce8', '#23b7a3', '#64748b'],
+    color: [definition.color, '#2c74f0', '#12b2a6', '#7c6fe0', '#e8933f', '#5a6b85'],
     animationDuration: 350,
     animationDurationUpdate: 300,
     tooltip: {
       trigger: 'axis', renderMode: 'richText', confine: true,
-      backgroundColor: '#fff', borderColor: '#e8edf5', padding: [12, 16],
-      textStyle: { color: '#334155', fontSize: 12, rich: {
+      backgroundColor: '#fff', borderColor: '#e3e9f2', padding: [12, 16],
+      textStyle: { color: '#24334a', fontSize: 12, rich: {
         up: { color: trendColors.up, fontWeight: 'bold' },
         down: { color: trendColors.down, fontWeight: 'bold' }
       } },
-      axisPointer: { type: 'line', lineStyle: { color: '#b8c5d9', type: 'dashed' } },
+      axisPointer: { type: 'line', lineStyle: { color: '#b4c0d2', type: 'dashed' } },
       valueFormatter: value => value == null ? '无数据' : formatMetric(value, unit),
       formatter: params => {
         const items = Array.isArray(params) ? params : [params]
@@ -58,20 +58,20 @@ export function salesChartOption(report, metricKey = 'net_sales', dimension = 't
       }
     },
     legend: { type: 'scroll', bottom: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 4,
-      itemGap: 24, textStyle: { color: '#718096', fontSize: 12 } },
+      itemGap: 24, textStyle: { color: '#8a99b0', fontSize: 12 } },
     grid: { left: 18, right: 30, top: 40, bottom: 48, containLabel: true },
     xAxis: { type: 'category', boundaryGap: false, data: report.months,
-      axisTick: { show: false }, axisLine: { lineStyle: { color: '#e8edf5' } },
-      axisLabel: { color: '#8090a8', margin: 16 },
+      axisTick: { show: false }, axisLine: { lineStyle: { color: '#e3e9f2' } },
+      axisLabel: { color: '#8a99b0', margin: 16 },
       splitLine: { show: true, lineStyle: { color: '#edf1f8', type: 'dashed' } } },
     yAxis: { type: 'value', name: unit === 'ratio' ? `${definition.label}（%）` : '人民币（元）',
-      nameTextStyle: { color: '#8090a8', padding: [0, 12, 8, 0] },
-      axisLabel: { color: '#8090a8', formatter: value => unit === 'ratio'
+      nameTextStyle: { color: '#8a99b0', padding: [0, 12, 8, 0] },
+      axisLabel: { color: '#8a99b0', formatter: value => unit === 'ratio'
         ? `${Number((Number(value) * 100).toFixed(2))}%`
         : Math.abs(value) >= 10000 ? `${Number((value / 10000).toFixed(2))}万` : Number(value).toLocaleString('zh-CN') },
-      splitLine: { lineStyle: { color: '#e8edf5', type: 'dashed' } } },
+      splitLine: { lineStyle: { color: '#e9eef6', type: 'dashed' } } },
     series: series.map((item, index) => ({ name: item.name, type: 'line', connectNulls: false,
-      smooth: false, showSymbol: (report.months || []).length === 1, symbol: 'circle', symbolSize: 7,
+      smooth: true, showSymbol: (report.months || []).length === 1, symbol: 'circle', symbolSize: 7,
       lineStyle: { width: index === 0 ? 3 : 1.8, opacity: index === 0 ? 1 : 0.8, type: item.previous ? 'dashed' : 'solid' },
       emphasis: { focus: 'series', scale: true },
       ...(index === 0 && unit !== 'ratio' ? { areaStyle: { opacity: 0.07 } } : {}),

@@ -128,7 +128,7 @@ onBeforeUnmount(() => { version++; clearTimeout(timer) })
 </script>
 
 <style scoped>
-.help { line-height: 1.8; color: #606266; }
+.help { line-height: 1.8; color: var(--jb-ink-500, #5a6b85); }
 .invalid { color: #f56c6c; }
 </style>
 

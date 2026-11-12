@@ -80,19 +80,19 @@ const activeMenu = computed(() => {
     border: none;
     height: 100%;
     width: 100% !important;
-    
+
     .el-menu-item, .el-sub-menu__title {
       &:hover {
-        background-color: var(--menu-hover, rgba(0, 0, 0, 0.06)) !important;
+        background-color: var(--menu-hover, rgba(255, 255, 255, 0.08)) !important;
       }
     }
 
     .el-menu-item {
       color: v-bind(getMenuTextColor);
-      
+
       &.is-active {
-        color: var(--menu-active-text, #409eff);
-        background-color: var(--menu-hover, rgba(0, 0, 0, 0.06)) !important;
+        /* 激活态背景由 sidebar.scss 的 theme-dark / theme-light 胶囊样式接管 */
+        background-color: transparent;
       }
     }
 

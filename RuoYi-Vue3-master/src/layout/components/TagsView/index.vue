@@ -2,7 +2,7 @@
   <div id="tags-view-container" class="tags-view-container" :class="{ 'tags-view-container--chrome': tagsViewStyle === 'chrome' }">
     <!-- 左切换箭头 -->
     <span class="tags-nav-btn tags-nav-btn--left" :class="{ disabled: !canScrollLeft }" @click="scrollLeft">
-      <el-icon><arrow-left /></el-icon>
+      <app-icon name="chevronLeft" :size="14" />
     </span>
 
     <!-- 标签滚动区 -->
@@ -21,31 +21,31 @@
         <svg-icon v-if="tagsIcon && tag.meta && tag.meta.icon && tag.meta.icon !== '#'" :icon-class="tag.meta.icon" style="margin-right: 3px;" />
         {{ tag.title }}
         <span v-if="!isAffix(tag)" @click.prevent.stop="closeSelectedTag(tag)" class="tags-close-btn">
-          <close class="el-icon-close" />
+          <app-icon name="close" :size="12" class="el-icon-close" />
         </span>
       </router-link>
     </scroll-pane>
 
     <!-- 右切换箭头 -->
     <span class="tags-nav-btn tags-nav-btn--right" :class="{ disabled: !canScrollRight }" @click="scrollRight">
-      <el-icon><arrow-right /></el-icon>
+      <app-icon name="chevronRight" :size="14" />
     </span>
 
     <!-- 下拉操作菜单 -->
     <el-dropdown class="tags-action-dropdown" trigger="click" placement="bottom-end" @command="handleDropdownCommand">
       <span class="tags-action-btn">
-        <el-icon><arrow-down /></el-icon>
+        <app-icon name="chevronDown" :size="14" />
       </span>
       <template #dropdown>
         <el-dropdown-menu class="tags-dropdown-menu">
-          <el-dropdown-item v-if="!isAffix(selectedDropdownTag)" command="close"><close style="width: 1em; height: 1em;" />关闭当前</el-dropdown-item>
-          <el-dropdown-item command="closeOthers"><circle-close style="width: 1em; height: 1em;" />关闭其他</el-dropdown-item>
-          <el-dropdown-item command="closeLeft" :disabled="isFirstView()"><back style="width: 1em; height: 1em;" />关闭左侧</el-dropdown-item>
-          <el-dropdown-item command="closeRight" :disabled="isLastView()"><right style="width: 1em; height: 1em;" />关闭右侧</el-dropdown-item>
-          <el-dropdown-item command="closeAll"><circle-close style="width: 1em; height: 1em;" />全部关闭</el-dropdown-item>
+          <el-dropdown-item v-if="!isAffix(selectedDropdownTag)" command="close"><app-icon name="close" :size="13" />关闭当前</el-dropdown-item>
+          <el-dropdown-item command="closeOthers"><app-icon name="close" :size="13" />关闭其他</el-dropdown-item>
+          <el-dropdown-item command="closeLeft" :disabled="isFirstView()"><app-icon name="arrowLeft" :size="13" />关闭左侧</el-dropdown-item>
+          <el-dropdown-item command="closeRight" :disabled="isLastView()"><app-icon name="arrowRight" :size="13" />关闭右侧</el-dropdown-item>
+          <el-dropdown-item command="closeAll"><app-icon name="close" :size="13" />全部关闭</el-dropdown-item>
           <el-dropdown-item command="fullscreen" divided>
-            <template v-if="!isFullscreen"><full-screen style="width: 1em; height: 1em;" />全屏显示</template>
-            <template v-else><close style="width: 1em; height: 1em;" />退出全屏</template>
+            <template v-if="!isFullscreen"><app-icon name="fullscreen" :size="13" />全屏显示</template>
+            <template v-else><app-icon name="exitFullscreen" :size="13" />退出全屏</template>
           </el-dropdown-item>
         </el-dropdown-menu>
       </template>
@@ -53,17 +53,17 @@
 
     <!-- 刷新按钮 -->
     <span class="tags-action-btn tags-refresh-btn" title="刷新页面" @click="refreshSelectedTag(selectedDropdownTag)">
-      <el-icon><refresh-right/></el-icon> 刷新
+      <app-icon name="refresh" :size="13" /> 刷新
     </span>
 
     <!-- 右键上下文菜单 -->
     <ul v-show="visible" :style="{ left: left + 'px', top: top + 'px' }" class="contextmenu">
-      <li @click="refreshSelectedTag(selectedTag)"><refresh-right style="width: 1em; height: 1em;" />刷新页面</li>
-      <li v-if="!isAffix(selectedTag)" @click="closeSelectedTag(selectedTag)"><close style="width: 1em; height: 1em;" />关闭当前</li>
-      <li @click="closeOthersTags"><circle-close style="width: 1em; height: 1em;" />关闭其他</li>
-      <li v-if="!isFirstView()" @click="closeLeftTags"><back style="width: 1em; height: 1em;" />关闭左侧</li>
-      <li v-if="!isLastView()" @click="closeRightTags"><right style="width: 1em; height: 1em;" />关闭右侧</li>
-      <li @click="closeAllTags(selectedTag)"><circle-close style="width: 1em; height: 1em;" />全部关闭</li>
+      <li @click="refreshSelectedTag(selectedTag)"><app-icon name="refresh" :size="13" />刷新页面</li>
+      <li v-if="!isAffix(selectedTag)" @click="closeSelectedTag(selectedTag)"><app-icon name="close" :size="13" />关闭当前</li>
+      <li @click="closeOthersTags"><app-icon name="close" :size="13" />关闭其他</li>
+      <li v-if="!isFirstView()" @click="closeLeftTags"><app-icon name="arrowLeft" :size="13" />关闭左侧</li>
+      <li v-if="!isLastView()" @click="closeRightTags"><app-icon name="arrowRight" :size="13" />关闭右侧</li>
+      <li @click="closeAllTags(selectedTag)"><app-icon name="close" :size="13" />全部关闭</li>
     </ul>
   </div>
 </template>

@@ -3,7 +3,7 @@
     <div class="detail-wrap">
       <!-- 基本信息 -->
       <div class="detail-card">
-        <div class="detail-card-title"><el-icon><InfoFilled /></el-icon> 基本信息</div>
+        <div class="detail-card-title"><app-icon name="info" :size="14" /> 基本信息</div>
         <el-row class="detail-row">
           <el-col :span="12">
             <div class="detail-item"><span class="detail-label">操作模块</span><span class="detail-value">{{ form.title }}</span></div>
@@ -28,7 +28,7 @@
 
       <!-- 操作人员 -->
       <div class="detail-card">
-        <div class="detail-card-title"><el-icon><User /></el-icon> 操作人员</div>
+        <div class="detail-card-title"><app-icon name="user" :size="14" /> 操作人员</div>
         <el-row class="detail-row">
           <el-col :span="12">
             <div class="detail-item"><span class="detail-label">操作人员</span><span class="detail-value">{{ form.operName }}</span></div>
@@ -49,7 +49,7 @@
 
       <!-- 请求信息 -->
       <div class="detail-card">
-        <div class="detail-card-title"><el-icon><Sort /></el-icon> 请求信息</div>
+        <div class="detail-card-title"><app-icon name="sort" :size="14" /> 请求信息</div>
         <el-row class="detail-row">
           <el-col :span="24">
             <div class="detail-item">
@@ -75,11 +75,11 @@
 
       <!-- 请求参数 -->
       <div class="detail-card">
-        <div class="detail-card-title"><el-icon><Upload /></el-icon> 请求参数</div>
+        <div class="detail-card-title"><app-icon name="upload" :size="14" /> 请求参数</div>
         <div class="code-body">
           <div class="code-wrap">
             <div class="code-action">
-              <el-button size="small" :icon="CopyDocument" @click="copyText(form.operParam)">复制</el-button>
+              <el-button size="small" @click="copyText(form.operParam)"><app-icon name="copy" :size="13" class="btn-icon" />复制</el-button>
             </div>
             <pre class="code-pre">{{ formatJson(form.operParam) }}</pre>
           </div>
@@ -88,11 +88,11 @@
 
       <!-- 返回参数 -->
       <div class="detail-card">
-        <div class="detail-card-title"><el-icon><Download /></el-icon> 返回参数</div>
+        <div class="detail-card-title"><app-icon name="download" :size="14" /> 返回参数</div>
         <div class="code-body">
           <div class="code-wrap">
             <div class="code-action">
-              <el-button size="small" :icon="CopyDocument" @click="copyText(form.jsonResult)">复制</el-button>
+              <el-button size="small" @click="copyText(form.jsonResult)"><app-icon name="copy" :size="13" class="btn-icon" />复制</el-button>
             </div>
             <pre class="code-pre">{{ formatJson(form.jsonResult) }}</pre>
           </div>
@@ -101,7 +101,7 @@
 
       <!-- 异常信息 -->
       <div class="detail-card" v-if="form.status !== 0">
-        <div class="detail-card-title error-title"><el-icon><Warning /></el-icon> 异常信息</div>
+        <div class="detail-card-title error-title"><app-icon name="warning" :size="14" /> 异常信息</div>
         <div class="error-body">
           <div class="error-msg">{{ form.errorMsg }}</div>
         </div>

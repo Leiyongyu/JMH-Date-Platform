@@ -52,8 +52,7 @@ watch(() => props.report, reset)
 </script>
 <style scoped>
 .table-controls, .table-footer { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 14px 0; }
-.table-controls span, .table-footer span { font-size: 12px; color: var(--el-text-color-secondary); }
+.table-controls span, .table-footer span { font-size: 12px; color: var(--jb-ink-400, #8a99b0); }
 .table-footer { justify-content: space-between; overflow-x: auto; }
-:deep(.el-table th.el-table__cell) { background: var(--el-fill-color-light); }
 :deep(.el-table__footer-wrapper) { font-weight: 600; }
 </style>

@@ -19,7 +19,7 @@
         :align="column.format ? 'right' : 'left'" sortable="custom" :show-overflow-tooltip="!column.format">
         <template #header>
           <el-tooltip :content="column.tip" placement="top" :show-after="200">
-            <span class="pivot-heading">{{ column.label }}<el-icon><QuestionFilled /></el-icon></span>
+            <span class="pivot-heading">{{ column.label }}<app-icon name="help" :size="13" /></span>
           </el-tooltip>
         </template>
         <template #default="{ row }">
@@ -27,7 +27,7 @@
             <span>{{ row.stat_date || '--' }}</span>
           </el-tooltip>
           <el-tooltip v-else-if="missingMessage(row, column.key)" :content="missingMessage(row, column.key)" placement="top">
-            <span class="missing-value">{{ formatValue(row[column.key], column.format) }} <el-icon><QuestionFilled /></el-icon></span>
+            <span class="missing-value">{{ formatValue(row[column.key], column.format) }} <app-icon name="help" :size="13" /></span>
           </el-tooltip>
           <span v-else :class="{ 'numeric-value': column.format }">{{ formatValue(row[column.key], column.format) }}</span>
         </template>
@@ -51,7 +51,6 @@
 
 <script setup name="EbayInventoryHistoryPivot">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { QuestionFilled } from '@element-plus/icons-vue'
 import Pagination from '@/components/Pagination/index.vue'
 import { listEbayInventoryPivot } from '@/api/operations/ebay/inventoryDetail'
 
@@ -193,25 +192,31 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.pivot-panel { background: #fff; border: 1px solid #e5eaf2; border-radius: 10px; padding: 18px; color: #23324a; }
-.pivot-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #65758c; font-size: 12px; }
-.pivot-toolbar b { color: #2a3951; }
-.snapshot-count { color: #8591a3; margin-left: 8px; }
-.history-note { color: #8591a3; font-size: 12px; line-height: 1.8; margin: 12px 0; }
-.summary-note { color: #65758c; font-size: 12px; line-height: 1.8; margin: 0 0 12px; }
+.pivot-panel { background: #fff; color: var(--jb-ink-700, #24334a); }
+.pivot-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--jb-ink-500, #5a6b85); font-size: 12px; }
+.pivot-toolbar b { color: var(--jb-ink-700, #24334a); }
+.snapshot-count { color: var(--jb-ink-300, #94a0b1); margin-left: 8px; }
+.history-note { color: var(--jb-ink-300, #94a0b1); font-size: 12px; line-height: 1.8; margin: 12px 0; }
+.summary-note { color: var(--jb-ink-500, #5a6b85); font-size: 12px; line-height: 1.8; margin: 0 0 12px; }
 .empty-history { margin-bottom: 12px; }
-.pivot-table { --el-table-header-bg-color: #f4f7fc; --el-table-header-text-color: #51627c; --el-table-border-color: #e9edf4; --el-table-row-hover-bg-color: #edf4ff; border-radius: 6px; }
-.pivot-table :deep(th.el-table__cell) { height: 46px; font-size: 12px; }
+.pivot-table {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+  border-radius: 8px;
+}
+.pivot-table :deep(th.el-table__cell) { height: 46px; font-size: 12px; font-weight: 600; }
 .pivot-table :deep(td.el-table__cell) { height: 44px; font-size: 12px; }
 .pivot-heading { display: inline-flex; align-items: center; gap: 4px; cursor: help; }
-.pivot-heading .el-icon { color: #9ba8bb; font-size: 12px; }
-.missing-value { display: inline-flex; align-items: center; gap: 4px; color: #b88230; }
-.pivot-table :deep(.owner-total-row > td.el-table__cell) { background: #fff1f0 !important; color: #c62828; font-weight: 700; }
+.pivot-heading .app-icon { color: #9ba8bb; }
+.missing-value { display: inline-flex; align-items: center; gap: 4px; color: var(--jb-warn, #b88230); }
+.pivot-table :deep(.owner-total-row > td.el-table__cell) { background: #fdeeee !important; color: #c62828; font-weight: 700; }
 .pivot-table :deep(.owner-total-row .cell), .pivot-table :deep(.owner-total-row .missing-value) { color: #c62828; font-weight: 700; }
 .numeric-value { font-variant-numeric: tabular-nums; }
-.pivot-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf0f5; }
-.page-range { color: #65758c; font-size: 12px; white-space: nowrap; }
+.pivot-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--jb-line, #e3e9f2); }
+.page-range { color: var(--jb-ink-500, #5a6b85); font-size: 12px; white-space: nowrap; }
 .pagination-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; max-width: 100%; }
 .pivot-pagination :deep(.pagination-container) { margin-top: 0; max-width: 100%; overflow-x: auto; }
-@media (max-width: 600px) { .pivot-panel { padding: 12px; } .pivot-toolbar { align-items: flex-start; flex-wrap: wrap; } }
+@media (max-width: 600px) { .pivot-toolbar { align-items: flex-start; flex-wrap: wrap; } }
 </style>

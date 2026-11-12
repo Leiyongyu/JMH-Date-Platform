@@ -720,8 +720,8 @@ function createRequestId(scope) {
   place-items: center;
   border-radius: 13px;
   color: #fff;
-  background: linear-gradient(145deg, #66b2ff, #3478f6);
-  box-shadow: 0 6px 16px rgba(64, 158, 255, 0.25);
+  background: linear-gradient(145deg, #2c74f0, #1257d6);
+  box-shadow: 0 6px 16px rgba(18, 87, 214, 0.22);
 
   svg {
     width: 27px;
@@ -898,10 +898,10 @@ function createRequestId(scope) {
     display: grid;
     place-items: center;
     border-radius: 18px;
-    background: linear-gradient(145deg, #66b2ff, #3478f6);
+    background: linear-gradient(145deg, #2c74f0, #1257d6);
     color: #fff;
     font-weight: 700;
-    box-shadow: 0 8px 24px rgba(64, 158, 255, 0.22);
+    box-shadow: 0 8px 24px rgba(18, 87, 214, 0.20);
   }
 
   h3 { margin: 0 0 8px; color: var(--el-text-color-primary, #303133); font-size: 18px; }
@@ -947,13 +947,13 @@ function createRequestId(scope) {
   display: grid;
   place-items: center;
   border-radius: 11px;
-  background: linear-gradient(145deg, #66b2ff, #3478f6);
+  background: linear-gradient(145deg, #2c74f0, #1257d6);
   color: #fff;
   font-size: 12px;
   font-weight: 700;
 }
 
-.user .message-avatar { background: linear-gradient(145deg, #67c23a, #3ba272); }
+.user .message-avatar { background: linear-gradient(145deg, #12b2a6, #0e8f86); }
 
 .message-body { max-width: 78%; min-width: 0; }
 .user .message-body { display: flex; align-items: flex-end; flex-direction: column; }

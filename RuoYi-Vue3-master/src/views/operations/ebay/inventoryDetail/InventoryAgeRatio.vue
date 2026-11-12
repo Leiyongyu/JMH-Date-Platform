@@ -128,10 +128,18 @@ onBeforeUnmount(() => { disposed = true; version++ })
 </script>
 
 <style scoped>
-.dimension-title { color: #23324a; font-size: 14px; font-weight: 600; margin: 20px 0 12px; }
-.age-ratio-help { color: #64748b; font-size: 13px; line-height: 1.8; margin: 8px 0 14px; }
+.dimension-title { display: flex; align-items: center; gap: 8px; color: var(--jb-ink-700, #24334a); font-size: 14px; font-weight: 600; margin: 20px 0 12px; }
+.dimension-title::before { content: ''; width: 3px; height: 14px; border-radius: 2px; background: linear-gradient(180deg, var(--jb-brand-500, #1257d6), var(--jb-teal-500, #12b2a6)); }
+.age-ratio-help { color: var(--jb-ink-500, #5a6b85); font-size: 13px; line-height: 1.8; margin: 8px 0 14px; }
 .age-ratio-warning { margin: 10px 0; }
+.age-ratio-panel :deep(.el-table) {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+  border-radius: 8px;
+}
 .ratio-data-cell { position: relative; min-height: 24px; line-height: 24px; isolation: isolate; }
-.ratio-data-bar { position: absolute; left: 0; top: 1px; bottom: 1px; background: #f5a0ac; pointer-events: none; z-index: -1; }
+.ratio-data-bar { position: absolute; left: 0; top: 2px; bottom: 2px; background: rgba(245, 108, 108, .22); border-radius: 3px; pointer-events: none; z-index: -1; }
 .ratio-data-label { position: relative; display: block; padding: 0 4px; color: var(--el-text-color-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 </style>

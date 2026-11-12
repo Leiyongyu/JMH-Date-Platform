@@ -26,6 +26,7 @@ import elementIcons from '@/components/SvgIcon/svgicon'
 import './permission' // permission control
 
 import { useDict } from '@/utils/dict'
+import { setupTableNumAlign } from '@/utils/table-num-align'
 import { getConfigKey } from "@/api/system/config"
 import { parseTime, resetForm, addDateRange, handleTree, selectDictLabel, selectDictLabels } from '@/utils/ruoyi'
 
@@ -43,6 +44,11 @@ import ImageUpload from "@/components/ImageUpload"
 import ImagePreview from "@/components/ImagePreview"
 // 字典标签组件
 import DictTag from '@/components/DictTag'
+// 图标与图标按钮
+import AppIcon from '@/components/AppIcon'
+import IconBtn from '@/components/IconBtn'
+// 品牌标识
+import BrandMark from '@/components/BrandMark'
 
 const app = createApp(App)
 
@@ -65,6 +71,9 @@ app.component('ImageUpload', ImageUpload)
 app.component('ImagePreview', ImagePreview)
 app.component('RightToolbar', RightToolbar)
 app.component('Editor', Editor)
+app.component('AppIcon', AppIcon)
+app.component('IconBtn', IconBtn)
+app.component('BrandMark', BrandMark)
 
 app.use(router)
 app.use(store)
@@ -82,3 +91,6 @@ app.use(ElementPlus, {
 })
 
 app.mount('#app')
+
+// 表格数字列自动右对齐（纯前端呈现层增强）
+setupTableNumAlign()

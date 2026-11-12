@@ -1,6 +1,6 @@
 <template>
   <div class="header-search">
-    <svg-icon class-name="search-icon" icon-class="search" @click.stop="click" />
+    <app-icon name="search" :size="17" class="search-icon" @click.stop="click" />
     <el-dialog
       v-model="show"
       width="600"
@@ -48,12 +48,12 @@
                 <div class="menu-title" v-html="highlightText(item.title.join(' / '))"></div>
                 <div class="menu-path" v-html="highlightText(item.path)"></div>
               </div>
-              <svg-icon icon-class="enter" v-show="index === activeIndex" />
+              <app-icon name="arrowRight" :size="15" v-show="index === activeIndex" />
             </div>
           </template>
 
           <div class="empty-state" v-else-if="search && options.length === 0">
-            <el-icon class="empty-icon"><Search /></el-icon>
+            <app-icon name="search" :size="26" class="empty-icon" />
             <p class="empty-text">未找到 "<strong>{{ search }}</strong>" 相关菜单</p>
             <p class="empty-tip">试试其他关键词或路径</p>
           </div>

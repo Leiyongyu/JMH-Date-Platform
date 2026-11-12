@@ -11,7 +11,7 @@
     <div class="lock-card">
       <div class="avatar-wrap">
         <img :src="userStore.avatar" class="lock-avatar" @error="onAvatarError" />
-        <div class="lock-icon">🔒</div>
+        <div class="lock-icon"><app-icon name="lock" :size="13" /></div>
       </div>
       <div class="lock-username">{{ userStore.nickName }}</div>
       <div class="lock-hint">系统已锁定，请输入密码解锁</div>
@@ -19,7 +19,7 @@
       <div class="input-wrap" :class="{ shake: isShaking }">
         <input ref="passwordInput" v-model="password" type="password" placeholder="请输入登录密码" class="lock-input" @keydown.enter="handleUnlock" autocomplete="off" />
         <button class="unlock-btn" @click="handleUnlock" :disabled="loading">
-          <span v-if="!loading">→</span>
+          <app-icon v-if="!loading" name="arrowRight" :size="17" />
           <span v-else class="loading-dot">···</span>
         </button>
       </div>
@@ -247,7 +247,8 @@ onBeforeUnmount(() => {
   position: absolute;
   bottom: -4px;
   right: -4px;
-  background: rgba(255,255,255,0.15);
+  color: #fff;
+  background: linear-gradient(135deg, #2c74f0, #1257d6);
   border-radius: 50%;
   width: 26px;
   height: 26px;
@@ -318,7 +319,7 @@ onBeforeUnmount(() => {
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, #2c74f0, #1257d6);
   border: none;
   color: #fff;
   font-size: 18px;

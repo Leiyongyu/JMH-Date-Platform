@@ -4,14 +4,14 @@
       <el-form :model="filters" inline>
         <el-form-item><el-select v-model="filters.site" placeholder="所有站点" clearable style="width:120px"><el-option v-for="site in sites" :key="site" :label="site" :value="site" /></el-select></el-form-item>
         <el-form-item><el-input v-model="filters.sku" placeholder="SKU" clearable style="width:150px" /></el-form-item>
-        <el-form-item><el-button type="primary" icon="Search" @click="search">搜索</el-button><el-button icon="Refresh" @click="reset">重置</el-button></el-form-item>
+        <el-form-item><el-button type="primary" @click="search"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button><el-button @click="reset"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button></el-form-item>
         <el-form-item class="date-filter"><el-select v-model="filters.timeType" style="width:125px" @change="handleTimeTypeChange"><el-option label="按付款时间" value="payment" /><el-option label="按退款时间" value="refund" /></el-select><el-date-picker v-model="filters.dateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false" :disabled-date="disabledDate" style="width:250px" @change="search" /></el-form-item>
       </el-form>
     </el-card>
 
     <div v-loading="loading" class="metrics-grid">
       <article v-for="item in metrics" :key="item.label" class="metric-card">
-        <div class="metric-label">{{ item.label }} <el-tooltip :content="item.tip" placement="top"><el-icon><QuestionFilled /></el-icon></el-tooltip></div>
+        <div class="metric-label">{{ item.label }} <el-tooltip :content="item.tip" placement="top"><app-icon name="help" :size="13" class="help-icon" /></el-tooltip></div>
         <div class="metric-body"><div><strong>{{ item.value }}</strong><small :class="item.changeRate > 0 ? 'up' : item.changeRate < 0 ? 'down' : 'flat'" :title="comparisonTitle">{{ item.changeRate > 0 ? '↑' : item.changeRate < 0 ? '↓' : '→' }} {{ Math.abs(item.changeRate).toFixed(2) }}%</small></div><span class="metric-ring" :style="{ '--ring-color': item.color }"></span></div>
       </article>
     </div>
@@ -86,12 +86,12 @@ const metricData = ref({})
 const currentPeriod = ref({ start_date: '', end_date: '', days: 0 })
 const previousPeriod = ref({ start_date: '', end_date: '', days: 0 })
 const metricDefinitions = [
-  { key: 'return_count', label: '退货数', format: 'number', color: '#409eff', tip: '所选日期维度下，已退款、已作废商品数量' },
-  { key: 'refund_amount', label: '退款金额', format: 'money', color: '#22c55e', tip: '所选日期维度下，退款金额人民币合计' },
-  { key: 'return_rate', label: '退货率', format: 'percentage', color: '#6366f1', tip: '所选日期维度下，退货数 ÷ 已售出数量' },
-  { key: 'refund_amount_ratio', label: '退款金额占比', format: 'percentage', color: '#f59e0b', tip: '所选日期维度下，退款金额 ÷ 已支付金额' },
-  { key: 'sold_quantity', label: '已售出', format: 'number', color: '#14b8a6', tip: '所选日期维度下，已支付订单商品数量' },
-  { key: 'paid_amount', label: '已支付金额', format: 'money', color: '#8b5cf6', tip: '所选日期维度下，与SKU分析一致的已支付金额口径' }
+  { key: 'return_count', label: '退货数', format: 'number', color: '#1257d6', tip: '所选日期维度下，已退款、已作废商品数量' },
+  { key: 'refund_amount', label: '退款金额', format: 'money', color: '#12b2a6', tip: '所选日期维度下，退款金额人民币合计' },
+  { key: 'return_rate', label: '退货率', format: 'percentage', color: '#4e8de8', tip: '所选日期维度下，退货数 ÷ 已售出数量' },
+  { key: 'refund_amount_ratio', label: '退款金额占比', format: 'percentage', color: '#f5b545', tip: '所选日期维度下，退款金额 ÷ 已支付金额' },
+  { key: 'sold_quantity', label: '已售出', format: 'number', color: '#0e45a8', tip: '所选日期维度下，已支付订单商品数量' },
+  { key: 'paid_amount', label: '已支付金额', format: 'money', color: '#6fd3c8', tip: '所选日期维度下，与SKU分析一致的已支付金额口径' }
 ]
 const timeDimensionLabel = computed(() => filters.timeType === 'refund' ? '退款时间' : '付款时间')
 const metrics = computed(() => metricDefinitions.map(definition => {
@@ -224,17 +224,17 @@ function renderCharts() {
   trendChart ||= echarts.init(trendChartRef.value)
   trendChart.clear()
   const days = trendRows.value.map(item => item.date.slice(5))
-  trendChart.setOption({ color:['#409eff','#22c55e','#f59e0b','#253b80','#8b5cf6','#14b8a6'], tooltip:{trigger:'axis',formatter:params=>{const row=trendRows.value[params[0]?.dataIndex];if(!row)return '';return [`<b>${row.date}</b>`,`退货数：${row.returnCount.toLocaleString('zh-CN')}`,`退货率：${row.returnRate.toFixed(2)}%`,`退款金额：${money(row.refundAmount)}`,`退款金额占比：${row.refundRatio.toFixed(2)}%`,`已售出：${row.soldQuantity.toLocaleString('zh-CN')}`,`已支付金额：${money(row.paidAmount)}`].join('<br/>')}}, legend:{bottom:0}, grid:{left:70,right:72,top:32,bottom:58}, xAxis:{type:'category',data:days,boundaryGap:false,axisLabel:{hideOverlap:true}}, yAxis:[{type:'value',splitLine:{lineStyle:{color:'#eef1f5'}},axisLabel:{formatter:value=>Number(value).toLocaleString('zh-CN')}},{type:'value',axisLabel:{formatter:'{value}%'}}], series:[
+  trendChart.setOption({ color:['#1257d6','#12b2a6','#f5b545','#0e45a8','#4e8de8','#6fd3c8'], tooltip:{trigger:'axis',backgroundColor:'rgba(11,31,68,.92)',borderWidth:0,textStyle:{color:'#e8eefb',fontSize:12},padding:[8,12],extraCssText:'border-radius:8px;box-shadow:0 6px 20px rgba(11,31,68,.28);',formatter:params=>{const row=trendRows.value[params[0]?.dataIndex];if(!row)return '';return [`<b>${row.date}</b>`,`退货数：${row.returnCount.toLocaleString('zh-CN')}`,`退货率：${row.returnRate.toFixed(2)}%`,`退款金额：${money(row.refundAmount)}`,`退款金额占比：${row.refundRatio.toFixed(2)}%`,`已售出：${row.soldQuantity.toLocaleString('zh-CN')}`,`已支付金额：${money(row.paidAmount)}`].join('<br/>')}}, legend:{bottom:0}, grid:{left:70,right:72,top:32,bottom:58}, xAxis:{type:'category',data:days,boundaryGap:false,axisLabel:{hideOverlap:true}}, yAxis:[{type:'value',splitLine:{lineStyle:{color:'#eef1f7'}},axisLabel:{formatter:value=>Number(value).toLocaleString('zh-CN')}},{type:'value',axisLabel:{formatter:'{value}%'}}], series:[
     {name:'退货数',type:'line',smooth:true,showSymbol:false,data:trendRows.value.map(item=>item.returnCount)}, {name:'退货率',type:'line',smooth:true,showSymbol:false,yAxisIndex:1,data:trendRows.value.map(item=>item.returnRate)},
     {name:'退款金额',type:'line',smooth:true,showSymbol:false,data:trendRows.value.map(item=>item.refundAmount)}, {name:'退款金额占比',type:'line',smooth:true,showSymbol:false,yAxisIndex:1,data:trendRows.value.map(item=>item.refundRatio)},
     {name:'已售出',type:'line',smooth:true,showSymbol:false,data:trendRows.value.map(item=>item.soldQuantity)}, {name:'已支付金额',type:'line',smooth:true,showSymbol:false,data:trendRows.value.map(item=>item.paidAmount)}
   ]})
   regionChart ||= echarts.init(regionChartRef.value)
   regionChart.clear()
-  regionChart.setOption({ tooltip:{trigger:'axis',axisPointer:{type:'shadow'},valueFormatter:value=>money(value)}, grid:{left:80,right:24,top:12,bottom:28}, xAxis:{type:'value',axisLabel:{formatter:v=>`${Math.round(v/1000)}k`},splitLine:{lineStyle:{color:'#eef1f5'}}}, yAxis:{type:'category',inverse:true,data:regionRows.value.map(i=>i.siteName)}, series:[{name:'退款金额',type:'bar',data:regionRows.value.map(i=>i.refundAmount),barWidth:18,itemStyle:{color:'#7cb5ec',borderRadius:[0,5,5,0]}}]})
+  regionChart.setOption({ tooltip:{trigger:'axis',axisPointer:{type:'shadow'},valueFormatter:value=>money(value),backgroundColor:'rgba(11,31,68,.92)',borderWidth:0,textStyle:{color:'#e8eefb',fontSize:12},extraCssText:'border-radius:8px;box-shadow:0 6px 20px rgba(11,31,68,.28);'}, grid:{left:80,right:24,top:12,bottom:28}, xAxis:{type:'value',axisLabel:{formatter:v=>`${Math.round(v/1000)}k`},splitLine:{lineStyle:{color:'#eef1f7'}}}, yAxis:{type:'category',inverse:true,data:regionRows.value.map(i=>i.siteName)}, series:[{name:'退款金额',type:'bar',data:regionRows.value.map(i=>i.refundAmount),barWidth:18,itemStyle:{color:new echarts.graphic.LinearGradient(0,0,1,0,[{offset:0,color:'#1257d6'},{offset:1,color:'#12b2a6'}]),borderRadius:[0,6,6,0]}}]})
   reasonChart ||= echarts.init(reasonChartRef.value)
   reasonChart.clear()
-  reasonChart.setOption({ tooltip:{trigger:'item',formatter:'{b}<br/>{c} 单 · {d}%'}, legend:{type:'scroll',bottom:0}, series:[{name:'售后小类',type:'pie',radius:['36%','68%'],center:['50%','44%'],label:{formatter:'{b}\n{d}%'},data:reasonRows.value.map(i=>({name:i.reason,value:i.count}))}]})
+  reasonChart.setOption({ color:['#1257d6','#12b2a6','#4e8de8','#f5b545','#0e45a8','#6fd3c8','#8fb2ef','#e05252'], tooltip:{trigger:'item',formatter:'{b}<br/>{c} 单 · {d}%',backgroundColor:'rgba(11,31,68,.92)',borderWidth:0,textStyle:{color:'#e8eefb',fontSize:12},extraCssText:'border-radius:8px;box-shadow:0 6px 20px rgba(11,31,68,.28);'}, legend:{type:'scroll',bottom:0}, series:[{name:'售后小类',type:'pie',radius:['36%','68%'],center:['50%','44%'],label:{formatter:'{b}\n{d}%'},itemStyle:{borderRadius:4,borderColor:'#fff',borderWidth:2},data:reasonRows.value.map(i=>({name:i.reason,value:i.count}))}]})
 }
 function resizeCharts() { trendChart?.resize(); regionChart?.resize(); reasonChart?.resize() }
 onMounted(async()=>{ await loadMetrics(); window.addEventListener('resize', resizeCharts) })
@@ -242,5 +242,42 @@ onBeforeUnmount(()=>{ window.removeEventListener('resize',resizeCharts); trendCh
 </script>
 
 <style scoped>
-.return-overview-page{min-height:calc(100vh - 84px);background:#f4f6f9}.filter-card,.panel{border:0;border-radius:10px;margin-bottom:14px}.filter-card :deep(.el-card__body){padding:14px 16px 2px}.date-filter{float:right}.metrics-grid{display:grid;grid-template-columns:repeat(3,minmax(230px,1fr));gap:14px;margin-bottom:14px}.metric-card{background:#fff;border-radius:10px;padding:17px 20px;box-shadow:0 1px 3px rgba(15,23,42,.08)}.metric-label{display:flex;align-items:center;gap:5px;color:#606266;font-size:14px}.metric-body{display:flex;align-items:center;justify-content:space-between;margin-top:10px}.metric-body strong{font-size:25px;font-weight:500;color:#303133}.metric-body small{margin-left:10px;font-size:12px}.up{color:#16a34a}.down{color:#ef4444}.flat{color:#909399}.metric-ring{width:45px;height:45px;border-radius:50%;background:conic-gradient(var(--ring-color) 0 72%,#edf0f5 72%);position:relative}.metric-ring:after{content:'';position:absolute;inset:7px;border-radius:50%;background:#fff}.panel-title{display:flex;align-items:center;justify-content:space-between;font-weight:600}.panel-title small{font-weight:400;color:#909399}.trend-chart{height:360px}.two-column{display:grid;grid-template-columns:1fr 1fr;gap:14px}.region-chart{height:225px}.reason-layout{display:grid;grid-template-columns:minmax(300px,44%) minmax(0,56%);gap:20px;align-items:start}.reason-chart{height:390px;min-width:0}.reason-table-wrap{min-width:0;padding-top:8px}.reason-table-wrap :deep(.el-table__header-wrapper th){height:44px}.reason-table-wrap :deep(.el-table__cell){padding:9px 0}.listing-panel{margin-bottom:0}.listing-image{width:52px;height:52px;border-radius:4px}.image-placeholder{display:flex;align-items:center;justify-content:center;width:52px;height:52px;border-radius:4px;background:#f5f7fa;color:#a8abb2;font-size:12px}.listing-pagination{display:flex;justify-content:flex-end;padding-top:16px}@media(max-width:1200px){.date-filter{float:none}.metrics-grid{grid-template-columns:repeat(2,1fr)}.two-column{grid-template-columns:1fr}.reason-layout{grid-template-columns:1fr}.reason-table-wrap{padding-top:0}}@media(max-width:700px){.metrics-grid{grid-template-columns:1fr}}
+.return-overview-page{min-height:calc(100vh - 84px);background:var(--jb-page,#f5f7fb)}
+.filter-card,.panel{border:1px solid var(--jb-line,#e3e9f2);border-radius:12px;margin-bottom:14px;box-shadow:var(--jb-sh-1,0 1px 2px rgba(16,42,90,.04),0 4px 16px rgba(16,42,90,.05))}
+.filter-card :deep(.el-card__body){padding:14px 16px 2px}
+.filter-card :deep(.el-button){border-radius:8px;font-weight:500}
+.btn-icon{margin-right:5px;vertical-align:-2px}
+.date-filter{float:right}
+/* 指标卡 */
+.metrics-grid{display:grid;grid-template-columns:repeat(3,minmax(230px,1fr));gap:14px;margin-bottom:14px}
+.metric-card{background:#fff;border:1px solid var(--jb-line,#e3e9f2);border-radius:12px;padding:17px 20px;box-shadow:var(--jb-sh-1,0 1px 2px rgba(16,42,90,.04),0 4px 16px rgba(16,42,90,.05));transition:transform .18s,box-shadow .18s}
+.metric-card:hover{transform:translateY(-2px);box-shadow:var(--jb-sh-2,0 6px 20px rgba(16,42,90,.09))}
+.metric-label{display:flex;align-items:center;gap:5px;color:var(--jb-ink-500,#5a6b85);font-size:13px}
+.metric-label .help-icon{color:var(--jb-ink-300,#94a0b1)}
+.metric-body{display:flex;align-items:center;justify-content:space-between;margin-top:10px}
+.metric-body strong{font-size:25px;font-weight:600;color:var(--jb-ink-700,#24334a);font-variant-numeric:tabular-nums}
+.metric-body small{margin-left:10px;font-size:12px;font-weight:600}
+.up{color:#e05252}
+.down{color:#12b2a6}
+.flat{color:var(--jb-ink-300,#94a0b1)}
+.metric-ring{width:45px;height:45px;border-radius:50%;background:conic-gradient(var(--ring-color) 0 72%,#edf0f5 72%);position:relative}
+.metric-ring:after{content:'';position:absolute;inset:7px;border-radius:50%;background:#fff}
+.panel-title{display:flex;align-items:center;justify-content:space-between;font-weight:600;color:var(--jb-ink-700,#24334a)}
+.panel-title small{font-weight:400;color:var(--jb-ink-300,#94a0b1)}
+.trend-chart{height:360px}
+.two-column{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.region-chart{height:225px}
+.reason-layout{display:grid;grid-template-columns:minmax(300px,44%) minmax(0,56%);gap:20px;align-items:start}
+.reason-chart{height:390px;min-width:0}
+.reason-table-wrap{min-width:0;padding-top:8px}
+.reason-table-wrap :deep(.el-table__header-wrapper th){height:44px}
+.reason-table-wrap :deep(.el-table__cell){padding:9px 0}
+.listing-panel{margin-bottom:0}
+.listing-image{width:52px;height:52px;border-radius:8px}
+.image-placeholder{display:flex;align-items:center;justify-content:center;width:52px;height:52px;border-radius:8px;background:var(--jb-page,#f5f7fb);color:#a8abb2;font-size:12px}
+.listing-pagination{display:flex;justify-content:flex-end;padding-top:16px}
+/* 表格品牌表头 */
+.return-overview-page :deep(.el-table){--el-table-header-bg-color:#f5f8fd;--el-table-header-text-color:#51627c;--el-table-border-color:var(--jb-line,#e3e9f2);--el-table-row-hover-bg-color:rgba(18,87,214,.055)}
+@media(max-width:1200px){.date-filter{float:none}.metrics-grid{grid-template-columns:repeat(2,1fr)}.two-column{grid-template-columns:1fr}.reason-layout{grid-template-columns:1fr}.reason-table-wrap{padding-top:0}}
+@media(max-width:700px){.metrics-grid{grid-template-columns:1fr}}
 </style>

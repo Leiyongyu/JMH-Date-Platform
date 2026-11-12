@@ -4,17 +4,14 @@
     <div v-if="!collapsed" class="resize-handle" @mousedown="startResize" @touchstart="startResize" :class="{ active: isResizing }" />
     <div class="tree-header">
       <span class="tree-title" v-show="!collapsed">
-        <el-icon><component :is="titleIcon" /></el-icon> {{ title }}
+        <app-icon :name="titleIcon" :size="15" /> {{ title }}
       </span>
       <div class="tree-actions" v-show="!collapsed">
         <el-tooltip :content="isExpandedAll ? '收起全部' : '展开全部'" placement="right">
-          <el-icon class="tree-action-icon" @click="toggleExpandAll">
-            <ArrowDown v-if="isExpandedAll" />
-            <ArrowUp v-else />
-          </el-icon>
+          <app-icon :name="isExpandedAll ? 'chevronDown' : 'chevronRight'" :size="14" class="tree-action-icon" @click="toggleExpandAll" />
         </el-tooltip>
         <el-tooltip content="刷新" placement="right">
-          <el-icon class="tree-action-icon" @click="handleRefresh"><Refresh /></el-icon>
+          <app-icon name="refresh" :size="14" class="tree-action-icon" @click="handleRefresh" />
         </el-tooltip>
         <slot name="actions"></slot>
       </div>
@@ -23,17 +20,14 @@
     <!-- 侧边栏展开/收起按钮 -->
     <div class="collapse-button-container">
       <el-tooltip :content="collapsed ? '展开' : '收起'" placement="right">
-        <el-icon class="collapse-button" @click="toggleCollapsed">
-          <DArrowRight v-if="collapsed" />
-          <DArrowLeft v-else />
-        </el-icon>
+        <app-icon :name="collapsed ? 'arrowRight' : 'arrowLeft'" :size="15" class="collapse-button" @click="toggleCollapsed" />
       </el-tooltip>
     </div>
 
     <div class="tree-search" v-show="!collapsed" v-if="showSearch">
       <el-input v-model="searchKeyword" :placeholder="searchPlaceholder" clearable>
         <template #prefix>
-          <el-icon><Search /></el-icon>
+          <app-icon name="search" :size="14" />
         </template>
       </el-input>
     </div>
@@ -58,10 +52,7 @@
         <template #default="{ node, data }">
           <slot name="node" :node="node" :data="data">
             <span class="tree-node">
-              <el-icon class="node-icon">
-                <Folder v-if="data.children && data.children.length" />
-                <Document v-else />
-              </el-icon>
+              <app-icon :name="data.children && data.children.length ? 'folder' : 'file'" :size="14" class="node-icon" />
               <span class="node-label" :title="node.label">{{ node.label }}</span>
             </span>
           </slot>
@@ -633,8 +624,8 @@ onBeforeUnmount(() => {
   transition: all 0.2s;
   
   &:hover {
-    color: #409eff;
-    background: #ecf5ff;
+    color: #1257d6;
+    background: #f2f6fd;
   }
 }
 
@@ -659,7 +650,7 @@ onBeforeUnmount(() => {
     gap: 5px;
 
     .el-icon {
-      color: #409eff;
+      color: #1257d6;
       font-size: 16px;
     }
   }
@@ -681,8 +672,8 @@ onBeforeUnmount(() => {
   transition: all 0.2s;
 
   &:hover {
-    color: #409eff;
-    background: #ecf5ff;
+    color: #1257d6;
+    background: #f2f6fd;
   }
 }
 
@@ -724,12 +715,12 @@ onBeforeUnmount(() => {
   }
 
   :deep(.el-tree-node.is-current > .el-tree-node__content) {
-    background: #e6f0fd;
-    color: #409eff;
+    background: #eaf1fd;
+    color: #1257d6;
     font-weight: 600;
 
     .node-icon {
-      color: #409eff !important;
+      color: #1257d6 !important;
     }
   }
 }

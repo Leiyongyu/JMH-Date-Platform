@@ -47,7 +47,7 @@
                 :loading="purchaseOrderUploading"
                 :disabled="purchaseOrderSyncing || calculating"
               >
-                上传数据 ▾
+                <app-icon name="upload" :size="15" class="btn-icon" />上传数据
               </el-button>
               <template #dropdown>
                 <el-dropdown-menu>
@@ -152,10 +152,9 @@
           class="owner-trend-button"
           type="primary"
           plain
-          icon="TrendCharts"
           @click="ownerTrendVisible = true"
         >
-          趋势分析
+          <app-icon name="trendUp" :size="15" class="btn-icon" />趋势分析
         </el-button>
       </div>
 
@@ -1114,25 +1113,20 @@ onBeforeUnmount(() => {
   min-height: 360px;
 }
 
-.monthly-inventory-report :deep(.el-table__header th) {
-  background: #f5f7fa;
-  color: #303133;
-}
-
 .monthly-inventory-report :deep(.total-row td) {
-  background: #fff7e8 !important;
+  background: #fdf3e3 !important;
   font-weight: 700;
 }
 
 .monthly-inventory-report :deep(.dimension-total-row td) {
-  background: #eaf6ff !important;
-  color: #1f4f73;
+  background: #e7efff !important;
+  color: #0e45a8;
   font-weight: 700;
 }
 
 :global(.inventory-import-guide__title) {
   margin-bottom: 10px;
-  color: #606266;
+  color: #24334a;
   line-height: 1.5;
 }
 
@@ -1159,7 +1153,7 @@ onBeforeUnmount(() => {
 
 .report-column-tip {
   cursor: help;
-  border-bottom: 1px dashed #909399;
+  border-bottom: 1px dashed #b4c0d2;
 }
 
 </style>

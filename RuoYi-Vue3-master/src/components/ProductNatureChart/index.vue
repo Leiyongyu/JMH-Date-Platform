@@ -2,7 +2,7 @@
   <section class="nature-panel" v-loading="loading" :aria-labelledby="`nature-title-${platform}`">
     <header>
       <div><span class="eyebrow">{{ platform === 'amz' ? 'AMAZON' : 'EBAY' }} · 商品结构</span><h2 :id="`nature-title-${platform}`">新老品月度趋势</h2></div>
-      <el-button icon="Refresh" circle size="small" :loading="loading" title="刷新报表，不拉取外部数据" aria-label="刷新新老品趋势" @click="load" />
+      <icon-btn icon="refresh" :loading="loading" tooltip="刷新报表，不拉取外部数据" @click="load" />
     </header>
     <div class="month-filter">
       <el-select v-model="segment" size="small" class="segment-filter" :aria-label="platform === 'amz' ? '区域' : '站点'">
@@ -124,10 +124,11 @@ onBeforeUnmount(() => { disposed = true; requestVersion++; disposeChart() })
 </script>
 
 <style scoped>
-.nature-panel { box-sizing: border-box; height: 400px; min-width: 0; display: flex; flex-direction: column; padding: 16px; background: var(--el-bg-color); border: 1px solid var(--el-border-color-lighter); border-radius: 10px; }
+.nature-panel { box-sizing: border-box; height: 400px; min-width: 0; display: flex; flex-direction: column; padding: 16px; background: var(--jb-surface, var(--el-bg-color)); border: 1px solid var(--jb-line, var(--el-border-color-lighter)); border-radius: 12px; box-shadow: var(--jb-sh-1, none); transition: box-shadow 0.2s ease, border-color 0.2s ease; }
+.nature-panel:hover { border-color: var(--jb-line-strong, var(--el-border-color)); box-shadow: var(--jb-sh-2, none); }
 header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.eyebrow { color: var(--el-color-primary); font-size: 10px; font-weight: 600; letter-spacing: .5px; }
-h2 { margin: 6px 0 10px; font-size: 15px; color: var(--el-text-color-primary); }
+.eyebrow { color: var(--jb-accent, var(--el-color-primary)); font-size: 11px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase; }
+h2 { margin: 6px 0 10px; font-size: 15px; color: var(--jb-ink-700, var(--el-text-color-primary)); font-weight: 600; }
 .month-filter { display: flex; gap: 8px; }
 .segment-filter { width: 115px; flex-shrink: 0; }
 .month-filter :deep(.el-date-editor) { flex: 1; width: 100%; min-width: 0; box-sizing: border-box; }
@@ -142,7 +143,7 @@ h2 { margin: 6px 0 10px; font-size: 15px; color: var(--el-text-color-primary); }
 .chart { width: 100%; flex: 1; min-height: 100px; }
 .empty { flex: 1; padding: 4px 0; }
 .empty :deep(.el-empty__description p) { font-size: 12px; }
-footer { margin-top: auto; padding-top: 7px; border-top: 1px solid var(--el-border-color-lighter); font-size: 10px; color: var(--el-text-color-secondary); }
+footer { margin-top: auto; padding-top: 7px; border-top: 1px solid var(--jb-line, var(--el-border-color-lighter)); font-size: 10px; color: var(--jb-ink-400, var(--el-text-color-secondary)); }
 footer > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
 .el-alert { margin-top: 12px; }
 .table-note { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.7; }

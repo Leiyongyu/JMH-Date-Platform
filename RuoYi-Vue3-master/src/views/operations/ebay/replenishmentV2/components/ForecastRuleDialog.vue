@@ -342,17 +342,17 @@ onBeforeUnmount(cancelPending)
 </script>
 
 <style scoped>
-.rule-help { margin: 12px 0; line-height: 1.8; font-size: 12px; color: #606266; }
+.rule-help { margin: 12px 0; line-height: 1.8; font-size: 12px; color: var(--jb-ink-500, #5a6b85); }
 .rule-error { margin-bottom: 12px; }
 .rule-invalid { color: #c45656; font-size: 12px; overflow-wrap: anywhere; }
-.rule-muted { color: #909399; font-size: 12px; }
+.rule-muted { color: var(--jb-ink-300, #94a0b1); font-size: 12px; }
 .rule-preview { margin-top: 16px; }
 .sku-loader { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
 .sku-loader > .el-select { width: 150px; }
 .sku-loader > .el-input { width: 250px; }
 .trial-fields { display: grid; grid-template-columns: repeat(5, minmax(100px, 1fr)); gap: 10px; margin: 12px 0; }
-.trial-fields label { display: grid; gap: 6px; color: #606266; font-size: 12px; }
-.trial-result { padding: 12px; background: #f5f7fa; line-height: 1.8; overflow-wrap: anywhere; }
+.trial-fields label { display: grid; gap: 6px; color: var(--jb-ink-500, #5a6b85); font-size: 12px; }
+.trial-result { padding: 12px; background: var(--jb-page, #f5f7fb); line-height: 1.8; overflow-wrap: anywhere; }
 code { font-family: Consolas, monospace; }
 @media (max-width: 720px) {
   .trial-fields { grid-template-columns: repeat(2, minmax(100px, 1fr)); }

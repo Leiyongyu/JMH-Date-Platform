@@ -1,8 +1,8 @@
 // Display only new/old products; retain all backend categories for reconciliation.
 export const ALL_NATURE_KEYS = ['NEW', 'OLD', 'UNKNOWN', 'CONFLICT']
 export const NATURES = [
-  { key: 'NEW', label: '新品', color: '#397bea' },
-  { key: 'OLD', label: '老品', color: '#26a69a' }
+  { key: 'NEW', label: '新品', color: '#1257d6' },
+  { key: 'OLD', label: '老品', color: '#12b2a6' }
 ]
 
 export function currentMonth() {
@@ -54,6 +54,9 @@ export function chartOption(items, mode = 'count') {
     legend: { data: NATURES.map(n => n.label), top: 0, itemWidth: 12, itemHeight: 7, textStyle: { fontSize: 10, color: '#718096' } },
     tooltip: {
       trigger: 'axis', renderMode: 'richText', confine: true,
+      backgroundColor: 'rgba(11, 21, 38, 0.92)', borderWidth: 0, borderRadius: 8,
+      padding: [8, 12], textStyle: { color: '#fff', fontSize: 12, lineHeight: 20 },
+      axisPointer: { type: 'line', lineStyle: { color: '#c3d0e4', type: 'dashed' } },
       formatter(params) {
         const index = params[0]?.dataIndex
         const item = items[index]
@@ -69,8 +72,10 @@ export function chartOption(items, mode = 'count') {
     xAxis: { type: 'category', boundaryGap: false, data: items.map(i => i.stat_month), axisTick: { show: false }, axisLine: { lineStyle: { color: '#dce3ec' } }, axisLabel: { fontSize: 10, formatter: value => value.slice(2), hideOverlap: true } },
     yAxis: { type: 'value', min: 0, max: mode === 'percent' ? 100 : undefined, minInterval: mode === 'percent' ? undefined : 1, splitNumber: 3, axisLabel: { fontSize: 10, formatter: mode === 'percent' ? '{value}%' : '{value}' }, splitLine: { lineStyle: { color: '#edf1f6', type: 'dashed' } } },
     series: NATURES.flatMap(n => versions.map(version => ({
-      name: n.label, type: 'line', smooth: false, connectNulls: false, showSymbol: true, symbolSize: 6,
+      name: n.label, type: 'line', smooth: true, connectNulls: false, showSymbol: true, symbolSize: 5,
       lineStyle: { width: 2, color: n.color }, itemStyle: { color: n.color },
+      areaStyle: { color: n.color, opacity: 0.07 },
+      emphasis: { focus: 'series' },
       data: items.map(i => ready(i) && i.rule_version === version
         ? (mode === 'percent' ? i.percentages?.[n.key] ?? null : i.counts?.[n.key] ?? null) : null)
     })))

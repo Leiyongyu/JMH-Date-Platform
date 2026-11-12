@@ -74,7 +74,8 @@ test('price import compiles and exposes safe update rules with explicit refresh'
     filename: filename.pathname, id: 'inventory-price-import-test',
     compilerOptions: { bindingMetadata: script.bindings } })
   assert.deepEqual(result.errors, [])
-  assert.match(source, /command="prices".*导入产品单价/)
+  // 同一个菜单项里（中间可以有图标和换行），不跨到下一个 el-dropdown-item。
+  assert.match(source, /command="prices">(?:(?!<\/el-dropdown-item>)[^])*导入产品单价/)
   // 等级改为计算字段，导入入口已移除。
   assert.doesNotMatch(source, /command="grades"/)
   assert.doesNotMatch(source, /导入产品等级/)

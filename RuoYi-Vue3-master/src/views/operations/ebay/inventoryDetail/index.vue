@@ -33,28 +33,36 @@
           </el-select>
         </el-form-item>
         <el-form-item class="query-actions">
-          <el-button type="primary" icon="Search" :disabled="loading" @click="handleQuery">查询</el-button>
-          <el-button icon="Refresh" :disabled="loading" @click="resetQuery">重置</el-button>
+          <el-button type="primary" :disabled="loading" @click="handleQuery">
+            <app-icon name="search" :size="15" class="btn-icon" />查询
+          </el-button>
+          <el-button :disabled="loading" @click="resetQuery">
+            <app-icon name="undo" :size="15" class="btn-icon" />重置
+          </el-button>
           <div v-if="canImportData || canExportData" class="transfer-actions" role="group" aria-label="库存数据导入导出">
             <el-tooltip content="按统一统计日期范围导出库存明细、历史透视和海外仓库龄占比，分别保存为三个Sheet，不受行筛选、勾选和分页影响。" placement="top">
               <span>
-                <el-button class="transfer-primary" type="primary" icon="Download"
+                <el-button class="transfer-primary" type="primary"
                   :loading="exporting" :disabled="exportUnavailable" @click="handleExport">
-                  导出全部数据
+                  <app-icon v-if="!exporting" name="export" :size="15" class="btn-icon" />导出全部数据
                 </el-button>
               </span>
             </el-tooltip>
             <el-dropdown trigger="click" :disabled="transferBusy" @command="handleTransferCommand">
               <el-button class="transfer-toggle" type="primary" :disabled="transferBusy" aria-label="展开导入导出菜单">
-                <el-icon><ArrowDown /></el-icon>
+                <app-icon name="chevronDown" :size="14" />
               </el-button>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item v-if="canExportData" command="export" icon="Download" :disabled="exportUnavailable">
-                    导出全部数据
+                  <el-dropdown-item v-if="canExportData" command="export" :disabled="exportUnavailable">
+                    <app-icon name="export" :size="14" style="margin-right: 5px; vertical-align: -2px" />导出全部数据
                   </el-dropdown-item>
-                  <el-dropdown-item v-if="canImportData" command="prices" icon="Upload">导入产品单价</el-dropdown-item>
-                  <el-dropdown-item v-if="canImportData" command="history" icon="Upload">导入历史数据</el-dropdown-item>
+                  <el-dropdown-item v-if="canImportData" command="prices">
+                    <app-icon name="import" :size="14" style="margin-right: 5px; vertical-align: -2px" />导入产品单价
+                  </el-dropdown-item>
+                  <el-dropdown-item v-if="canImportData" command="history">
+                    <app-icon name="import" :size="14" style="margin-right: 5px; vertical-align: -2px" />导入历史数据
+                  </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -104,18 +112,18 @@
                 </div>
               </template>
               <span class="column-heading" tabindex="0" :aria-label="`${column.label}：数据来源与计算口径`">
-                {{ column.label }}<el-icon class="column-tip" aria-hidden="true"><QuestionFilled /></el-icon>
+                {{ column.label }}<app-icon name="help" :size="13" class="column-tip" aria-hidden="true" />
               </span>
             </el-tooltip>
           </template>
           <template #default="{ row }">
             <el-tooltip v-if="column.key === 'sku' && row.merged_sku_count > 1"
               :content="`按站点＋中间码合并 ${row.merged_sku_count} 个SKU：${row.sku_aliases.join('、')}`" placement="top">
-              <span class="sku-text">{{ row.sku }} <el-icon><QuestionFilled /></el-icon></span>
+              <span class="sku-text">{{ row.sku }} <app-icon name="help" :size="13" /></span>
             </el-tooltip>
             <el-tooltip v-else-if="['grade', 'owner'].includes(column.key) && row.merge_warning"
               :content="row.merge_warning" placement="top">
-              <span class="rent-warning-value">{{ formatValue(row[column.key], column.format) }} <el-icon><QuestionFilled /></el-icon></span>
+              <span class="rent-warning-value">{{ formatValue(row[column.key], column.format) }} <app-icon name="help" :size="13" /></span>
             </el-tooltip>
             <el-tag v-else-if="column.key === 'grade' && hasValue(row.grade)" type="info" effect="plain" size="small" class="grade-tag">{{ row.grade }}</el-tag>
             <span v-else-if="column.key === 'grade'" class="empty-value">--</span>
@@ -125,15 +133,15 @@
             </span>
             <el-tooltip v-else-if="column.key === 'warehouse_rent_30d_cny' && row.rent_warning"
               :content="row.rent_warning" placement="top">
-              <span class="rent-warning-value">{{ formatValue(row[column.key], column.format) }} <el-icon><QuestionFilled /></el-icon></span>
+              <span class="rent-warning-value">{{ formatValue(row[column.key], column.format) }} <app-icon name="help" :size="13" /></span>
             </el-tooltip>
             <el-tooltip v-else-if="priceColumnKeys.includes(column.key) && row.price_warning"
               :content="row.price_warning" placement="top">
-              <span class="price-warning-value">{{ formatValue(row[column.key], column.format) }} <el-icon><QuestionFilled /></el-icon></span>
+              <span class="price-warning-value">{{ formatValue(row[column.key], column.format) }} <app-icon name="help" :size="13" /></span>
             </el-tooltip>
             <el-tooltip v-else-if="column.key === 'overseas_max_age_days' && row.age_warning"
               :content="row.age_warning" placement="top">
-              <span class="age-warning-value">{{ formatValue(row[column.key], column.format) }} <el-icon><QuestionFilled /></el-icon></span>
+              <span class="age-warning-value">{{ formatValue(row[column.key], column.format) }} <app-icon name="help" :size="13" /></span>
             </el-tooltip>
             <span v-else :class="{ 'sku-text': column.key === 'sku', 'empty-value': !hasValue(row[column.key]), 'numeric-value': !!column.format }">
               {{ formatValue(row[column.key], column.format) }}
@@ -178,7 +186,7 @@
       <p class="import-description">{{ activeImportConfig.description }}</p>
       <el-upload ref="uploadRef" drag :auto-upload="false" :limit="1" accept=".xlsx" :disabled="importing"
         :on-change="handleImportFileChange" :on-remove="handleImportFileRemove" :on-exceed="handleFileExceed">
-        <el-icon class="upload-icon"><UploadFilled /></el-icon>
+        <app-icon name="upload" :size="38" class="upload-icon" />
         <div>拖入{{ activeImportConfig.label }}文件，或<span class="upload-link">点击选择</span></div>
         <template #tip><div class="el-upload__tip">仅支持 .xlsx，最大 {{ activeImportConfig.maxMb || 10 }} MB；{{ activeImportConfig.tip }}</div></template>
       </el-upload>
@@ -204,7 +212,6 @@
 <script setup name="EbayInventoryDetail">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ArrowDown, QuestionFilled, UploadFilled } from '@element-plus/icons-vue'
 import Pagination from '@/components/Pagination/index.vue'
 import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
 import { useColumnConfig } from '@/composables/useColumnConfig'
@@ -684,34 +691,84 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.inventory-detail-page { background: #f5f7fb; min-height: calc(100vh - 84px); color: #23324a; }
+.inventory-detail-page { background: var(--jb-page, #f5f7fb); min-height: calc(100vh - 84px); color: var(--jb-ink-700, #24334a); }
+
+/* 视图切换：分段控件 */
 .view-switch { margin-bottom: 14px; }
-.table-panel { background: #fff; border: 1px solid #e5eaf2; border-radius: 10px; padding: 18px; }
-.query-form { border-bottom: 1px solid #edf0f5; padding: 0 0 2px; margin-bottom: 14px; }
+.view-switch :deep(.el-radio-group) {
+  background: #e9eef7;
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+.view-switch :deep(.el-radio-button__inner) {
+  border: none !important;
+  background: transparent;
+  box-shadow: none !important;
+  border-radius: 8px !important;
+  height: 32px;
+  line-height: 32px;
+  padding: 0 18px;
+  font-size: 13px;
+  color: var(--jb-ink-500, #5a6b85);
+  transition: color .2s, background .2s;
+}
+.view-switch :deep(.el-radio-button__inner:hover) { color: var(--jb-brand-500, #1257d6); }
+.view-switch :deep(.el-radio-button.is-active .el-radio-button__inner) {
+  background: linear-gradient(135deg, var(--jb-brand-600, #0e45a8) 0%, var(--jb-brand-500, #1257d6) 60%, #2c74f0 100%);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(18, 87, 214, .3) !important;
+}
+
+/* 主面板 */
+.table-panel {
+  background: #fff;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 12px;
+  box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16, 42, 90, .04), 0 4px 16px rgba(16, 42, 90, .05));
+  padding: 18px;
+}
+.query-form { border-bottom: 1px solid var(--jb-line, #e3e9f2); padding: 0 0 2px; margin-bottom: 14px; }
 .query-form :deep(.el-form-item) { margin-right: 20px; margin-bottom: 14px; }
-.query-form :deep(.el-form-item__label) { color: #65758c; }
+.query-form :deep(.el-form-item__label) { color: var(--jb-ink-500, #5a6b85); font-weight: 500; }
 .query-actions :deep(.el-form-item__content) { gap: 8px; }
 .query-actions :deep(.el-button + .el-button) { margin-left: 0; }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+.query-actions .el-button { border-radius: 8px; font-weight: 500; }
+
+/* 导入导出分裂按钮 */
 .transfer-actions { display: inline-flex; align-items: center; }
-.transfer-primary { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.transfer-toggle { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; padding: 8px 10px; border-left-color: rgba(255, 255, 255, .4); }
+.transfer-primary { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+.transfer-toggle { border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; margin-left: -1px; padding: 8px 10px; border-left-color: rgba(255, 255, 255, .35) !important; }
+
+/* 工具条 / 选中信息 */
 .table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-.selection-info { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 12px; color: #65758c; }
-.selection-info b { color: #2a3951; font-weight: 600; }
-.selected-text { color: #3d71bf; }
-.pending-filter-text { color: #b88230; }
-.muted { color: #94a0b1; }
-.table-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf0f5; }
-.page-range { color: #65758c; font-size: 12px; white-space: nowrap; }
+.selection-info { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--jb-ink-500, #5a6b85); }
+.selection-info b { color: var(--jb-ink-700, #24334a); font-weight: 600; }
+.selected-text { color: var(--jb-brand-500, #1257d6); font-weight: 500; }
+.pending-filter-text { color: var(--jb-warn, #b88230); }
+.muted { color: var(--jb-ink-300, #94a0b1); }
+
+/* 分页 */
+.table-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--jb-line, #e3e9f2); }
+.page-range { color: var(--jb-ink-500, #5a6b85); font-size: 12px; white-space: nowrap; }
 .table-pagination :deep(.pagination-container) { margin-top: 0; max-width: 100%; overflow-x: auto; }
-.inventory-table { --el-table-header-bg-color: #f4f7fc; --el-table-header-text-color: #51627c; --el-table-border-color: #e9edf4; --el-table-row-hover-bg-color: #edf4ff; border-radius: 6px; }
+
+/* 表格 */
+.inventory-table {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+  border-radius: 8px;
+}
 .inventory-table :deep(th.el-table__cell) { height: 46px; font-size: 12px; font-weight: 600; }
 .inventory-table :deep(td.el-table__cell) { height: 44px; font-size: 12px; }
 .column-heading { display: inline-flex; align-items: center; gap: 4px; cursor: help; }
-.column-heading:focus-visible { outline: 2px solid #7297cd; outline-offset: 3px; border-radius: 2px; }
-.column-tip { color: #9ba8bb; font-size: 12px; }
+.column-heading:focus-visible { outline: 2px solid var(--jb-brand-300, #7297cd); outline-offset: 3px; border-radius: 2px; }
+.column-tip { color: #9ba8bb; }
 .column-help { width: min(540px, calc(100vw - 48px)); max-height: min(520px, calc(100vh - 80px)); overflow-y: auto; font-size: 12px; line-height: 1.7; color: #51627c; }
-.column-help-title { color: #24486d; font-size: 13px; font-weight: 600; padding-bottom: 8px; border-bottom: 1px solid #e9edf4; }
+.column-help-title { color: var(--jb-brand-700, #0b3d93); font-size: 13px; font-weight: 600; padding-bottom: 8px; border-bottom: 1px solid var(--jb-line, #e3e9f2); }
 .column-help dl { margin: 0; }
 .column-help dl > div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; padding-top: 9px; }
 .column-help dt { font-weight: 600; color: #344d72; }
@@ -720,13 +777,16 @@ onBeforeUnmount(() => {
 .sku-text { font-weight: 550; color: #344d72; }
 .numeric-value { font-variant-numeric: tabular-nums; }
 .empty-value { color: #b3bdcb; }
-.grade-tag { border-radius: 4px; }
-.rent-warning-value { display: inline-flex; align-items: center; gap: 4px; color: #b88230; }
-.price-warning-value { display: inline-flex; align-items: center; gap: 4px; color: #b88230; }
-.age-warning-value { display: inline-flex; align-items: center; gap: 4px; color: #b88230; }
-.import-warning-list { padding: 12px; border-radius: 6px; background: #fff8ec; color: #947142; font-size: 12px; line-height: 1.9; }
-.import-description { line-height: 1.8; color: #687991; font-size: 13px; margin: 16px 0; }
-.upload-icon { font-size: 36px; color: #7297cd; margin-bottom: 12px; }
-.upload-link { color: #409eff; }
+.grade-tag { border-radius: 6px; }
+.rent-warning-value { display: inline-flex; align-items: center; gap: 4px; color: var(--jb-warn, #b88230); }
+.price-warning-value { display: inline-flex; align-items: center; gap: 4px; color: var(--jb-warn, #b88230); }
+.age-warning-value { display: inline-flex; align-items: center; gap: 4px; color: var(--jb-warn, #b88230); }
+
+/* 导入弹窗 */
+.import-warning-list { padding: 12px; border-radius: 8px; background: #fff8ec; color: #947142; font-size: 12px; line-height: 1.9; }
+.import-description { line-height: 1.8; color: var(--jb-ink-500, #5a6b85); font-size: 13px; margin: 16px 0; }
+.upload-icon { color: var(--jb-brand-300, #7297cd); margin-bottom: 12px; }
+.upload-link { color: var(--jb-brand-500, #1257d6); }
+
 @media (max-width: 600px) { .inventory-detail-page { padding: 12px; } .table-panel { padding: 12px; } .table-toolbar { align-items: flex-start; } .selection-info { gap: 8px; } }
 </style>

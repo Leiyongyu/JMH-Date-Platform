@@ -26,8 +26,8 @@
 
         <el-tooltip content="主题模式" effect="dark" placement="bottom">
           <div class="right-menu-item hover-effect theme-switch-wrapper" @click="toggleTheme">
-            <svg-icon v-if="settingsStore.isDark" icon-class="sunny" />
-            <svg-icon v-if="!settingsStore.isDark" icon-class="moon" />
+            <SunIcon v-if="settingsStore.isDark" :size="18" color="#f5b545" secondary-color="#f7d9a0" />
+            <MoonIcon v-else :size="18" color="#5a6b85" secondary-color="#c4d2e8" />
           </div>
         </el-tooltip>
 
@@ -43,7 +43,8 @@
       <el-dropdown @command="handleCommand" class="avatar-container right-menu-item hover-effect" trigger="hover">
         <div class="avatar-wrapper">
           <img :src="userStore.avatar" class="user-avatar" />
-          <span class="user-nickname"> {{ userStore.nickName }} </span>
+          <span class="user-nickname">{{ userStore.nickName }}</span>
+          <AltArrowDownIcon :size="12" class="avatar-caret" />
         </div>
         <template #dropdown>
           <el-dropdown-menu>
@@ -83,6 +84,9 @@ import useUserStore from '@/store/modules/user'
 import useLockStore from '@/store/modules/lock'
 import useSettingsStore from '@/store/modules/settings'
 import HeaderNotice from './HeaderNotice'
+import { SunIcon } from '@solar-icons/vue/bold-duotone/sun'
+import { MoonIcon } from '@solar-icons/vue/bold-duotone/moon'
+import { AltArrowDownIcon } from '@solar-icons/vue/linear/alt-arrow-down'
 import { runDataCalibration } from '@/api/operations/sync'
 import { getCurrentInstance } from 'vue'
 
@@ -214,25 +218,28 @@ async function toggleTheme(event) {
   overflow: hidden;
   position: relative;
   background: var(--navbar-bg);
-  box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
+  border-bottom: 1px solid var(--jb-line, #e3e9f2);
   display: flex;
   align-items: center;
-  // padding: 0 8px;
   box-sizing: border-box;
 
   .hamburger-container {
-    line-height: 46px;
-    height: 100%;
+    height: 32px;
+    margin-left: 10px;
+    margin-right: 6px;
+    padding: 0 7px;
+    border-radius: 8px;
     cursor: pointer;
-    transition: background 0.3s;
+    transition: background-color 0.2s ease, color 0.2s ease;
     -webkit-tap-highlight-color: transparent;
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    margin-right: 8px;
+    color: var(--jb-ink-500, #5a6b85);
 
     &:hover {
-      background: rgba(0, 0, 0, 0.025);
+      background: var(--jb-hover, #eef3fb);
+      color: var(--jb-ink-700, #24334a);
     }
   }
 
@@ -256,77 +263,73 @@ async function toggleTheme(event) {
 
   .right-menu {
     height: 100%;
-    line-height: 50px;
     display: flex;
     align-items: center;
+    gap: 2px;
     margin-left: auto;
+    padding-right: 10px;
 
     &:focus {
       outline: none;
     }
 
     .right-menu-item {
-      display: inline-block;
-      padding: 0 8px;
-      height: 100%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 32px;
+      min-width: 32px;
+      padding: 0 6px;
+      border-radius: 8px;
       font-size: 18px;
-      color: #5a5e66;
-      vertical-align: text-bottom;
+      color: var(--jb-ink-500, #5a6b85);
 
       &.hover-effect {
         cursor: pointer;
-        transition: background 0.3s;
+        transition: background-color 0.2s ease, color 0.2s ease;
 
         &:hover {
-          background: rgba(0, 0, 0, 0.025);
+          background: var(--jb-hover, #eef3fb);
+          color: var(--jb-ink-700, #24334a);
         }
       }
 
       &.theme-switch-wrapper {
-        display: flex;
-        align-items: center;
-
         svg {
           transition: transform 0.3s;
-          
+
           &:hover {
-            transform: scale(1.15);
+            transform: scale(1.12) rotate(8deg);
           }
         }
       }
     }
 
     .avatar-container {
-      margin-right: 0px;
-      padding-right: 0px;
+      margin-left: 4px;
+      padding: 0 8px !important;
 
       .avatar-wrapper {
-        margin-top: 10px;
-        right: 8px;
-        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 8px;
 
         .user-avatar {
           cursor: pointer;
           width: 30px;
           height: 30px;
-          margin-right: 8px;
           border-radius: 50%;
+          box-shadow: 0 0 0 2px var(--jb-brand-100, #e7efff);
         }
 
-        .user-nickname{
-          position: relative;
-          left: 0px;
-          bottom: 10px;
-          font-size: 14px;
-          font-weight: bold;
+        .user-nickname {
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--jb-ink-700, #24334a);
         }
 
-        i {
-          cursor: pointer;
-          position: absolute;
-          right: -20px;
-          top: 25px;
-          font-size: 12px;
+        .avatar-caret {
+          color: var(--jb-ink-400, #8a99b0);
         }
       }
     }

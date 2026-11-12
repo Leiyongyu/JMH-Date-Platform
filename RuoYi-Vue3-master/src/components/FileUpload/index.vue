@@ -30,7 +30,7 @@
     <transition-group ref="uploadFileList" class="upload-file-list el-upload-list el-upload-list--text" name="el-fade-in-linear" tag="ul">
       <li :key="file.uid" class="el-upload-list__item ele-upload-list__item-content" v-for="(file, index) in fileList">
         <el-link :href="`${baseUrl}${file.url}`" underline="never" target="_blank">
-          <span class="el-icon-document"> {{ getFileName(file.name) }} </span>
+          <span class="el-icon-document"><app-icon name="excel" :size="13" style="vertical-align:-2px" />  {{ getFileName(file.name) }} </span>
         </el-link>
         <div class="ele-upload-list__item-content-action">
           <el-link underline="never" @click="handleDelete(index)" type="danger" v-if="!disabled">&nbsp;删除</el-link>

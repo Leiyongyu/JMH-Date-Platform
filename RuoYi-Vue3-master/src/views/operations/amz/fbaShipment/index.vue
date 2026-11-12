@@ -38,14 +38,14 @@
         <el-date-picker v-model="gmtCreateRange" type="daterange" range-separator="-" start-placeholder="开始" end-placeholder="结束" value-format="YYYY-MM-DD" style="width:240px" @change="handleQuery" />
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-        <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+        <el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+        <el-button @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
       </el-form-item>
     </el-form>
 
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
-        <el-button type="warning" plain icon="Download" @click="handleExport" v-hasPermi="['operations:amzReplenishment:export']">导出</el-button>
+        <el-button type="primary" plain @click="handleExport" v-hasPermi="['operations:amzReplenishment:export']"><app-icon name="export" :size="15" class="btn-icon" />导出</el-button>
       </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
@@ -62,7 +62,7 @@
       <el-table-column label="申报量" prop="quantityShipped" align="right" width="90" sortable="custom" />
       <el-table-column label="签收量" prop="quantityReceived" align="right" width="90" sortable="custom">
         <template #default="scope">
-          <span style="color:#67c23a">{{ scope.row.quantityReceived ?? 0 }}</span>
+          <span style="color:#12a150">{{ scope.row.quantityReceived ?? 0 }}</span>
         </template>
       </el-table-column>
       <el-table-column label="申收差异" prop="declaredDiff" align="right" width="100" sortable="custom">
@@ -107,7 +107,7 @@
       </el-table-column>
       <el-table-column label="已完结" prop="confirmed" align="center" width="80">
         <template #default="scope">
-          <span v-if="scope.row.confirmed === 1" style="color:#67c23a">已完结</span>
+          <span v-if="scope.row.confirmed === 1" style="color:#12a150">已完结</span>
           <el-button v-else size="small" plain @click="handleConfirm(scope.row)">确认</el-button>
         </template>
       </el-table-column>
@@ -242,10 +242,20 @@ getList()
 </script>
 
 <style scoped>
-.fba-shipment-page { background: #f5f7fa; }
+.fba-shipment-page { background: var(--jb-page, #f5f7fb); }
+.fba-shipment-page :deep(.el-form-item__label) { color: var(--jb-ink-500, #5a6b85); font-weight: 500; }
+.fba-shipment-page :deep(.el-button) { border-radius: 8px; font-weight: 500; }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+.fba-shipment-page :deep(.el-table) {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+  border-radius: 8px;
+}
 :deep(.el-table .cell) { white-space: nowrap; }
 .delivery-header { border-bottom: 1px dashed #c0c4cc; cursor: help; }
-.delivery-none { color: #909399; }                       /* 无值 / 已过送达日期 */
+.delivery-none { color: var(--jb-ink-300, #94a0b1); }    /* 无值 / 已过送达日期 */
 .delivery-urgent { color: #f56c6c; font-weight: 600; }   /* 0~7 天 */
-.delivery-normal { color: #67c23a; }                     /* 7 天以上 */
+.delivery-normal { color: #12a150; }                     /* 7 天以上 */
 </style>

@@ -6,8 +6,8 @@
         <span>领星刊登、补货填充、SOP 图片生成与批次库存工具</span>
       </div>
       <div class="assistant-actions">
-        <el-button icon="Refresh" @click="refreshFrame">刷新</el-button>
-        <el-button type="primary" plain icon="TopRight" @click="openWindow">新窗口打开</el-button>
+        <el-button @click="refreshFrame"><app-icon name="refresh" :size="15" class="btn-icon" />刷新</el-button>
+        <el-button type="primary" plain @click="openWindow"><app-icon name="external" :size="15" class="btn-icon" />新窗口打开</el-button>
       </div>
     </div>
 
@@ -47,7 +47,7 @@ function openWindow() {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  background: #f4f6f8;
+  background: var(--jb-page, #f5f7fb);
 }
 
 .assistant-toolbar {
@@ -64,12 +64,12 @@ function openWindow() {
 
 .assistant-toolbar h3 {
   margin: 0 0 4px;
-  color: #1f2937;
+  color: var(--jb-ink-700, #24334a);
   font-size: 18px;
 }
 
 .assistant-toolbar span {
-  color: #64748b;
+  color: var(--jb-ink-500, #5a6b85);
   font-size: 13px;
 }
 

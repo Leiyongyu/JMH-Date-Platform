@@ -8,7 +8,7 @@
   >
     <template #error>
       <div class="image-slot">
-        <el-icon><picture-filled /></el-icon>
+        <app-icon name="image" :size="26" />
       </div>
     </template>
   </el-image>

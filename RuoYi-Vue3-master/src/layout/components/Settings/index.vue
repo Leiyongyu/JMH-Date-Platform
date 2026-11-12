@@ -117,8 +117,12 @@
 
     <el-divider />
 
-    <el-button type="primary" plain icon="DocumentAdd" @click="saveSetting">保存配置</el-button>
-    <el-button plain icon="Refresh" @click="resetSetting">重置配置</el-button>
+    <el-button type="primary" plain @click="saveSetting">
+      <app-icon name="save" :size="14" class="btn-icon" />保存配置
+    </el-button>
+    <el-button plain @click="resetSetting">
+      <app-icon name="refresh" :size="14" class="btn-icon" />重置配置
+    </el-button>
   </el-drawer>
 
 </template>
@@ -139,7 +143,7 @@ const theme = ref(settingsStore.theme)
 const sideTheme = ref(settingsStore.sideTheme)
 const tagsViewPersist = ref(settingsStore.tagsViewPersist)
 const storeSettings = computed(() => settingsStore)
-const predefineColors = ref(["#409EFF", "#ff4500", "#ff8c00", "#ffd700", "#90ee90", "#00ced1", "#1e90ff", "#c71585"])
+const predefineColors = ref(["#1257D6", "#12B2A6", "#2c74f0", "#ff4500", "#ff8c00", "#ffd700", "#00ced1", "#c71585"])
 
 /** 是否需要dynamicTitle */
 function dynamicTitleChange() {

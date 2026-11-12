@@ -62,8 +62,8 @@ COLUMNS = (
     "watch_count", "overseas_sellable", "overseas_in_transit", "chengdu_sellable",
     "pending_outbound", "inventory_matched", "unmatched_reason", "unmatched_reason_text",
     "sales_qty_7d", "sales_qty_30d",
-    "cover_days", "stock_gap", "purchase_cost_cny", "status", "sync_batch_id",
-    "refreshed_at",
+    "cover_days", "stock_gap", "purchase_cost_cny", "status", "owner_name",
+    "listing_start_time", "sync_batch_id", "refreshed_at",
 )
 
 # 明细视图可排序列白名单。不在表里的列一律拒绝，不拼接客户端字符串。
@@ -73,7 +73,7 @@ SORTABLE = {
     "ebay_quantity_sold", "watch_count", "overseas_sellable", "overseas_in_transit",
     "chengdu_sellable", "pending_outbound", "sales_qty_7d", "sales_qty_30d",
     "cover_days", "stock_gap", "purchase_cost_cny", "status", "item_id",
-    "site_store_count", "site_ebay_available_total", "site_price_usd_min",
+    "owner_name", "listing_start_time", "site_store_count", "site_ebay_available_total", "site_price_usd_min",
     "site_price_usd_max", "price_vs_site_min_pct", "site_oversell",
 }
 
@@ -83,7 +83,7 @@ SUMMARY_SORTABLE = {
     "overseas_sellable", "overseas_in_transit", "chengdu_sellable", "pending_outbound",
     "sales_qty_7d", "sales_qty_30d", "cover_days", "stock_gap", "price_usd",
     "current_price", "purchase_cost_cny", "listing_count", "store_count",
-    "price_usd_min", "price_usd_max", "site_oversell",
+    "price_usd_min", "price_usd_max", "site_oversell", "owner_name",
 }
 
 _DETAIL_COLUMNS = (
@@ -93,7 +93,7 @@ _DETAIL_COLUMNS = (
     "overseas_sellable", "overseas_in_transit", "chengdu_sellable", "pending_outbound",
     "inventory_matched", "unmatched_reason", "unmatched_reason_text",
     "sales_qty_7d", "sales_qty_30d", "cover_days", "stock_gap",
-    "purchase_cost_cny", "status", "stat_date",
+    "purchase_cost_cny", "status", "stat_date", "owner_name", "listing_start_time",
     # 以下为查询时派生的跨店对比列（见 _listing_view），不在 DWS 表里。
     "site_store_count", "site_ebay_available_total", "site_price_usd_min",
     "site_price_usd_max", "price_vs_site_min_pct", "site_oversell", "out_of_stock_listed",
@@ -261,6 +261,7 @@ def _listing_cte(stat_month: str | None) -> str:
                    CAST(l.quantity_available AS SIGNED) ebay_quantity_available,
                    CAST(l.quantity_sold AS SIGNED) ebay_quantity_sold,
                    CAST(l.watch_count AS SIGNED) watch_count,
+                   l.start_time,
                    l.pulled_at
             FROM {LISTING_TABLE} l
             JOIN listing_batch b ON b.stat_month=l.stat_month
@@ -288,6 +289,17 @@ def latest_listing_batch(cursor, stat_month: str | None = None) -> dict[str, Any
         "listing_rows": int(row.get("listing_rows") or 0),
         "account_count": int(row.get("account_count") or 0),
     }
+
+
+def latest_owner_rule_month(cursor, month: str) -> str | None:
+    """eBay 负责人规则取刊登批次月份及以前最近一个有规则的月份（规则按月维护，月初可能还没出）。"""
+    cursor.execute(
+        "SELECT MAX(stat_month) stat_month FROM dwd_performance_owner_rule "
+        "WHERE platform='ebay' AND stat_month<=%s",
+        (month,),
+    )
+    row = cursor.fetchone() or {}
+    return row.get("stat_month")
 
 
 def rate_lookup(cursor, rate_month: str) -> tuple[dict[str, Decimal], dict[str, str]]:
@@ -383,7 +395,7 @@ def _source_rows(cursor, stat_month: str, stat_date: date) -> list[dict[str, Any
                listing.site_name,listing.title,listing.image_url,listing.view_item_url,
                listing.currency,listing.current_price,listing.ebay_quantity,
                listing.ebay_quantity_available,listing.ebay_quantity_sold,
-               listing.watch_count,
+               listing.watch_count,listing.start_time,
                -- 谷仓或成都任一关联上即算匹配；两边都没关联上时库存列留 NULL（build_row 据此判「未匹配」）。
                CASE WHEN overseas.site_name IS NULL AND chengdu.site_name IS NULL THEN NULL
                     ELSE COALESCE(overseas.overseas_sellable,0) END overseas_sellable,
@@ -489,9 +501,11 @@ def read_source(stat_month: str | None = None) -> dict[str, Any]:
                 rows = _source_rows(cursor, batch["stat_month"], stat_date)
                 month_rates, rate_months = rate_lookup(cursor, stat_date.strftime("%Y-%m"))
                 index = inventory_index(cursor)
+                owner_rule_month = latest_owner_rule_month(cursor, batch["stat_month"])
             connection.commit()
             return {"batch": batch, "rows": rows, "rates": month_rates,
                     "rate_months": rate_months, "inventory_index": index,
+                    "owner_rule_month": owner_rule_month,
                     "windows": sales_windows(stat_date), "goodcang": goodcang}
         except Exception:
             connection.rollback()
@@ -705,6 +719,7 @@ _SUMMARY_SELECT = """
         COUNT(*) listing_count,MAX(site_store_count) store_count,
         MAX(site_oversell) site_oversell,MAX(out_of_stock_listed) out_of_stock_listed,
         MAX(unmatched_reason) unmatched_reason,MAX(unmatched_reason_text) unmatched_reason_text,
+        MAX(owner_name) owner_name,
         MAX(stat_date) stat_date"""
 
 
@@ -761,7 +776,7 @@ def sku_listings(sku: str) -> list[dict[str, Any]]:
     return _query(
         "SELECT seller_account,site,site_name,item_id,view_item_url,currency,current_price,"
         "price_usd,ebay_quantity_available,status,title,image_url,"
-        "unmatched_reason,unmatched_reason_text,"
+        "unmatched_reason,unmatched_reason_text,owner_name,listing_start_time,"
         f"{out_of_stock_listed_sql()} out_of_stock_listed FROM {TABLE} WHERE sku=%s "
         "ORDER BY site,(price_usd IS NULL) ASC,price_usd,seller_account,item_id "
         f"LIMIT {MAX_ROWS + 1}", (sku,))

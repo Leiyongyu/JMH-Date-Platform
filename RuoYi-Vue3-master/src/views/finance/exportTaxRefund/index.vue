@@ -7,7 +7,7 @@
       </div>
       <div class="head-actions">
         <el-button v-hasPermi="['finance:exportTaxRefund:import']" type="primary" @click="openImport">
-          <el-icon><Upload /></el-icon>导入数据
+          <app-icon name="upload" :size="15" class="btn-icon" />导入数据
         </el-button>
         <el-button
           v-hasPermi="['finance:exportTaxRefund:generate']"
@@ -15,14 +15,14 @@
           :disabled="!selectedDeclarations.length"
           @click="openGenerate"
         >
-          <el-icon><DocumentChecked /></el-icon>生成所选批次
+          <app-icon name="file" :size="15" class="btn-icon" />生成所选批次
         </el-button>
         <el-button
           v-hasPermi="['finance:exportTaxRefund:export']"
           :loading="downloadLoading"
           @click="handleDownload"
         >
-          <el-icon><Download /></el-icon>下载最新资料包
+          <app-icon name="download" :size="15" class="btn-icon" />下载最新资料包
         </el-button>
       </div>
     </div>
@@ -90,7 +90,7 @@
             </el-form-item>
             <el-form-item>
               <el-button :loading="declarationLoading" @click="loadDeclarations">
-                <el-icon><Refresh /></el-icon>刷新
+                <app-icon name="refresh" :size="15" class="btn-icon" />刷新
               </el-button>
             </el-form-item>
           </el-form>
@@ -210,7 +210,7 @@
             :on-change="handleFileChange"
             :on-remove="handleFileRemove"
           >
-            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+            <app-icon name="upload" :size="40" class="upload-hero" />
             <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
             <template #tip>
               <div class="el-upload__tip">{{ importTip }}</div>
@@ -572,7 +572,7 @@ onBeforeUnmount(stopPolling)
 
 <style scoped lang="scss">
 .refund-page {
-  background: #f5f7fa;
+  background: var(--jb-canvas, #f5f7fb);
   min-height: calc(100vh - 84px);
 }
 
@@ -585,7 +585,7 @@ onBeforeUnmount(stopPolling)
   margin-bottom: 14px;
   color: #fff;
   border-radius: 10px;
-  background: linear-gradient(125deg, #1d4ed8, #0f766e);
+  background: linear-gradient(125deg, #0e45a8, #1257d6 55%, #12b2a6);
 }
 
 .page-title { font-size: 24px; font-weight: 700; }
@@ -599,21 +599,23 @@ onBeforeUnmount(stopPolling)
   align-items: center;
   justify-content: space-between;
   padding: 18px 20px;
-  background: #fff;
-  border-radius: 9px;
-  border-left: 4px solid #64748b;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
+  background: var(--jb-surface, #fff);
+  border-radius: 12px;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-left: 4px solid #5a6b85;
+  box-shadow: var(--jb-sh-1, 0 1px 2px rgba(13, 26, 45, .06));
 }
-.summary-card span { color: #64748b; }
-.summary-card strong { font-size: 27px; color: #0f172a; }
-.summary-card.ready { border-left-color: #2563eb; }
-.summary-card.done { border-left-color: #16a34a; }
-.summary-card.selected { border-left-color: #f59e0b; }
+.summary-card span { color: #5a6b85; }
+.summary-card strong { font-size: 27px; color: #0b1526; font-variant-numeric: tabular-nums; }
+.summary-card.ready { border-left-color: #1257d6; }
+.summary-card.done { border-left-color: #12a150; }
+.summary-card.selected { border-left-color: #d97706; }
 .main-card { border: none; }
 .toolbar { padding-top: 4px; }
 .dialog-alert { margin-bottom: 20px; }
 
 :deep(.el-upload), :deep(.el-upload-dragger) { width: 100%; }
+.upload-hero { color: var(--jb-brand-500, #2c74f0); }
 
 @media (max-width: 900px) {
   .page-head { align-items: flex-start; flex-direction: column; }

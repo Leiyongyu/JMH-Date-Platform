@@ -46,17 +46,17 @@ watch(fields, values => { if (values.length && !values.some(f => f.key === selec
 watch(selected, () => { page.value = 1 })
 </script>
 <style scoped>
-.platform-analysis { margin-top: 18px; padding: 22px; background: var(--el-bg-color); border: 1px solid var(--el-border-color-light); border-radius: 12px; }
+.platform-analysis { margin-top: 18px; padding: 22px; background: var(--jb-surface, #fff); border: 1px solid var(--jb-line, #e3e9f2); border-radius: 12px; box-shadow: var(--jb-sh-1, 0 1px 2px rgba(13,26,45,.06)); }
 header, .controls, .footer { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 header { justify-content: space-between; margin-bottom: 12px; } h3 { margin: 0; font-size: 17px; } h4 { margin: 0; }
-header span, p, .controls > span { font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.7; }
+header span, p, .controls > span { font-size: 12px; color: var(--jb-ink-400, #8a99b0); line-height: 1.7; }
 .special-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
-.special-cards button { text-align: left; font: inherit; background: var(--el-bg-color); color: var(--el-text-color-primary); padding: 16px; border: 1px solid var(--el-border-color-light); border-top: 3px solid #7a87d5; border-radius: 8px; cursor: pointer; }
-.special-cards button.active { background: var(--el-color-primary-light-9); border-color: var(--el-color-primary); }
+.special-cards button { text-align: left; font: inherit; background: var(--jb-surface, #fff); color: var(--jb-ink-700, #24334a); padding: 16px; border: 1px solid var(--jb-line, #e3e9f2); border-top: 3px solid var(--jb-brand-500, #2c74f0); border-radius: 12px; cursor: pointer; transition: box-shadow .2s, transform .2s, border-color .2s; }
+.special-cards button:hover { transform: translateY(-2px); box-shadow: var(--jb-sh-2, 0 4px 16px -8px rgba(13,26,45,.16)); }
+.special-cards button.active { background: var(--jb-brand-50, #f4f8ff); border-color: var(--jb-brand-600, #1257d6); box-shadow: var(--jb-sh-2, 0 4px 16px -8px rgba(13,26,45,.16)); }
 .special-cards strong { display: block; font-size: 22px; margin: 10px 0; }
 .comparisons { display: flex; gap: 10px; flex-wrap: wrap; }
 .controls { margin: 16px 0; } .footer { justify-content: space-between; overflow-x: auto; }
-:deep(.el-table th.el-table__cell) { background: var(--el-fill-color-light); }
 @media (max-width: 900px) { .special-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .special-cards { grid-template-columns: 1fr; } }
 </style>

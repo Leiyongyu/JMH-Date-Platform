@@ -1,19 +1,43 @@
 <template>
   <div class="top-right-btn" :style="style">
-    <el-row>
-      <el-tooltip class="item" effect="dark" :content="showSearch ? '隐藏搜索' : '显示搜索'" placement="top" v-if="search">
-        <el-button circle icon="Search" @click="toggleSearch()" />
-      </el-tooltip>
-      <el-tooltip class="item" effect="dark" :content="refreshTooltip" placement="top">
-        <el-button circle icon="Refresh" :loading="refreshLoading" :disabled="refreshDisabled" @click="refresh()" />
-      </el-tooltip>
-      <el-tooltip class="item" effect="dark" content="列配置" placement="top" v-if="showColumnConfig">
-        <el-button circle icon="Menu" @click="openColumnConfig()" />
-      </el-tooltip>
-      <el-tooltip class="item" effect="dark" content="显隐列" placement="top" v-if="Object.keys(columns).length > 0">
-        <el-button circle icon="Menu" @click="showColumn()" v-if="showColumnsType == 'transfer'"/>
-        <el-dropdown trigger="click" :hide-on-click="false" style="padding-left: 12px" v-if="showColumnsType == 'checkbox'">
-          <el-button circle icon="Menu" />
+    <div class="jb-toolbar">
+      <icon-btn
+        v-if="search"
+        :icon="showSearch ? 'eye' : 'eyeOff'"
+        :tooltip="showSearch ? '隐藏搜索' : '显示搜索'"
+        :active="showSearch"
+        size="sm"
+        @click="toggleSearch()"
+      />
+      <icon-btn
+        icon="refresh"
+        :tooltip="refreshTooltip"
+        :loading="refreshLoading"
+        :disabled="refreshDisabled"
+        size="sm"
+        @click="refresh()"
+      />
+      <icon-btn
+        v-if="showColumnConfig"
+        icon="sliders"
+        tooltip="列配置"
+        size="sm"
+        @click="openColumnConfig()"
+      />
+      <template v-if="Object.keys(columns).length > 0">
+        <icon-btn
+          v-if="showColumnsType == 'transfer'"
+          icon="columns"
+          tooltip="显隐列"
+          size="sm"
+          @click="showColumn()"
+        />
+        <el-dropdown
+          v-if="showColumnsType == 'checkbox'"
+          trigger="click"
+          :hide-on-click="false"
+        >
+          <span class="dropdown-trigger"><icon-btn icon="columns" tooltip="显隐列" size="sm" /></span>
           <template #dropdown>
             <el-dropdown-menu>
               <!-- 全选/反选 按钮 -->
@@ -29,8 +53,9 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-      </el-tooltip>
-    </el-row>
+      </template>
+      <slot />
+    </div>
     <el-dialog :title="title" v-model="open" append-to-body>
       <el-transfer
         :titles="['显示', '隐藏']"
@@ -243,6 +268,11 @@ function saveStorage() {
 </script>
 
 <style lang='scss' scoped>
+.dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+}
+
 :deep(.el-transfer__button) {
   border-radius: 50%;
   display: block;

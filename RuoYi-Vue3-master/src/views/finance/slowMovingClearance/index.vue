@@ -9,9 +9,7 @@
         </div>
         <el-dropdown trigger="click" :disabled="costExporting || loading" @command="handleExport">
           <el-button class="cost-action-trigger" type="primary" plain :loading="costExporting" :disabled="loading">
-            <el-icon><Download /></el-icon>
-            <span>导出</span>
-            <el-icon><ArrowDown /></el-icon>
+            <app-icon name="download" :size="15" class="btn-icon" /><span>导出</span><app-icon name="chevronDown" :size="13" class="el-icon--right" />
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
@@ -408,18 +406,18 @@ onMounted(() => Promise.all([loadMonths(), loadData()]))
 </script>
 
 <style scoped>
-.clearance-page { background: #f6f8fb; min-height: calc(100vh - 84px); }
+.clearance-page { background: var(--jb-canvas, #f5f7fb); min-height: calc(100vh - 84px); }
 .hero-card,
-.table-card { border-radius: 10px; margin-bottom: 16px; }
+.table-card { border-radius: 12px; margin-bottom: 16px; }
 .hero {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
 }
-.hero h2 { margin: 5px 0 7px; color: #172033; font-size: 24px; }
-.hero p { margin: 0; color: #64748b; }
-.eyebrow { color: #2563eb; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+.hero h2 { margin: 5px 0 7px; color: #0b1526; font-size: 24px; }
+.hero p { margin: 0; color: #8a99b0; }
+.eyebrow { color: #1257d6; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(180px, 1fr));
@@ -432,25 +430,25 @@ onMounted(() => Promise.all([loadMonths(), loadData()]))
   min-width: 0;
   min-height: 98px;
   padding: 14px 16px;
-  border: 1px solid #e7ebf1;
-  border-radius: 10px;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 12px;
   background: #fff;
   box-sizing: border-box;
 }
-.summary-item span { display: block; color: #64748b; font-size: 12px; }
+.summary-item span { display: block; color: #5a6b85; font-size: 12px; }
 .summary-item strong {
   display: block;
   overflow: hidden;
   margin-top: 8px;
-  color: #172033;
+  color: #0b1526;
   font-size: clamp(17px, 1.25vw, 21px);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.summary-item small { display: block; margin-top: 4px; color: #64748b; font-size: 13px; }
-.summary-item.snapshot-item { border-top: 3px solid #2563eb; }
+.summary-item small { display: block; margin-top: 4px; color: #8a99b0; font-size: 13px; font-variant-numeric: tabular-nums; }
+.summary-item.snapshot-item { border-top: 3px solid #1257d6; }
 .summary-item.ctu { border-top: 3px solid #d97706; }
-.summary-item.warning { border-top: 3px solid #f59e0b; }
+.summary-item.warning { border-top: 3px solid #e8933f; }
 .summary-item.danger { border-top: 3px solid #dc2626; }
 .snapshot-select { width: 100%; margin-top: 9px; }
 .snapshot-select :deep(.el-select__wrapper) {
@@ -463,12 +461,11 @@ onMounted(() => Promise.all([loadMonths(), loadData()]))
   align-items: center;
   justify-content: space-between;
 }
-.table-title { color: #1e293b; font-size: 16px; font-weight: 650; }
-.table-hint { margin-top: 4px; color: #94a3b8; font-size: 12px; }
+.table-title { color: #0b1526; font-size: 16px; font-weight: 650; }
+.table-hint { margin-top: 4px; color: #8a99b0; font-size: 12px; }
 .negative-value { color: #dc2626; }
-.drilldown-hint { color: #64748b; line-height: 1.8; margin: 0 0 14px; }
+.drilldown-hint { color: #8a99b0; line-height: 1.8; margin: 0 0 14px; }
 .cost-action-trigger { min-width: 164px; }
-.age-table :deep(.el-table__header th) { background: #f8fafc; color: #475569; }
 @media (max-width: 768px) {
   .hero { align-items: flex-start; flex-direction: column; }
 }

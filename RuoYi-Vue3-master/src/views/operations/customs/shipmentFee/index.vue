@@ -9,16 +9,16 @@
         <h2>发货单与装箱信息上传</h2>
         <p>统一处理物流费用与装箱信息，完整保留每个批次的请求、响应和执行结果。</p>
         <div class="hero-meta">
-          <span><el-icon><Document /></el-icon>仅支持 Excel</span>
-          <span><el-icon><Tickets /></el-icon>按货件记录日志</span>
-          <span><el-icon><Refresh /></el-icon>装箱任务自动更新</span>
+          <span><app-icon name="file" :size="13" />仅支持 Excel</span>
+          <span><app-icon name="clipboard" :size="13" />按货件记录日志</span>
+          <span><app-icon name="resync" :size="13" />装箱任务自动更新</span>
         </div>
       </div>
 
       <div class="hero-actions">
-        <el-button type="primary" icon="Calendar" v-hasPermi="['customs:shipmentFee:list']" @click="deliveryDateVisible = true">批量修改提交时间</el-button>
+        <el-button type="primary" v-hasPermi="['customs:shipmentFee:list']" @click="deliveryDateVisible = true"><app-icon name="calendar" :size="15" class="btn-icon" />批量修改提交时间</el-button>
         <div class="hero-note">
-          <el-icon><InfoFilled /></el-icon>
+          <app-icon name="info" :size="15" />
           <span>上传前请确认模板与货件数据，费用上传会直接修改领星数据。</span>
         </div>
       </div>
@@ -41,7 +41,7 @@
 
     <section class="upload-grid">
       <article class="upload-card fee-card">
-        <div class="upload-card__icon"><el-icon><Wallet /></el-icon></div>
+        <div class="upload-card__icon"><app-icon name="wallet" :size="26" /></div>
         <div class="upload-card__body">
           <div class="upload-card__heading">
             <div>
@@ -58,18 +58,17 @@
           </div>
           <el-button
             type="primary"
-            icon="Upload"
             :loading="importing"
             v-hasPermi="['customs:shipmentFee:import']"
             @click="selectFile"
           >
-            {{ importing ? '正在提交文件' : '选择费用明细文件' }}
+            <app-icon v-if="!importing" name="upload" :size="15" class="btn-icon" />{{ importing ? '正在提交文件' : '选择费用明细文件' }}
           </el-button>
         </div>
       </article>
 
       <article class="upload-card packing-card">
-        <div class="upload-card__icon"><el-icon><Box /></el-icon></div>
+        <div class="upload-card__icon"><app-icon name="box" :size="26" /></div>
         <div class="upload-card__body">
           <div class="upload-card__heading">
             <div>
@@ -86,12 +85,11 @@
           </div>
           <el-button
             type="success"
-            icon="Upload"
             :loading="packingImporting"
             v-hasPermi="['customs:shipmentFee:import']"
             @click="selectPackingFile"
           >
-            {{ packingImporting ? '正在提交文件' : '选择装箱信息文件' }}
+            <app-icon v-if="!packingImporting" name="upload" :size="15" class="btn-icon" />{{ packingImporting ? '正在提交文件' : '选择装箱信息文件' }}
           </el-button>
         </div>
       </article>
@@ -145,8 +143,8 @@
             <el-input v-model="batchQuery.operator" clearable placeholder="上传账号" @keyup.enter="queryBatches" />
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" icon="Search" @click="queryBatches">查询</el-button>
-            <el-button icon="Refresh" @click="resetBatchQuery">重置</el-button>
+            <el-button type="primary" @click="queryBatches"><app-icon name="search" :size="15" class="btn-icon" />查询</el-button>
+            <el-button @click="resetBatchQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
           </el-form-item>
         </el-form>
 
@@ -226,8 +224,8 @@
             />
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" icon="Search" @click="queryLogs">查询</el-button>
-            <el-button icon="Refresh" @click="resetLogQuery">重置</el-button>
+            <el-button type="primary" @click="queryLogs"><app-icon name="search" :size="15" class="btn-icon" />查询</el-button>
+            <el-button @click="resetLogQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
           </el-form-item>
         </el-form>
 
@@ -336,8 +334,8 @@
             </el-select>
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" icon="Search" @click="querySubmissions">查询</el-button>
-            <el-button icon="Refresh" @click="resetSubmissionQuery">重置</el-button>
+            <el-button type="primary" @click="querySubmissions"><app-icon name="search" :size="15" class="btn-icon" />查询</el-button>
+            <el-button @click="resetSubmissionQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
           </el-form-item>
         </el-form>
 
@@ -865,7 +863,7 @@ onBeforeUnmount(() => {
 .shipment-fee-page {
   min-height: calc(100vh - 84px);
   padding: 22px 24px 28px;
-  background: #f5f7fa;
+  background: var(--jb-page, #f5f7fb);
 
   .page-hero {
     position: relative;
@@ -876,9 +874,9 @@ onBeforeUnmount(() => {
     margin-bottom: 18px;
     padding: 26px 30px;
     overflow: hidden;
-    border: 1px solid #e7ebf2;
+    border: 1px solid var(--jb-line, #e3e9f2);
     border-radius: 14px;
-    background: linear-gradient(135deg, #ffffff 0%, #f7faff 68%, #eef5ff 100%);
+    background: linear-gradient(135deg, #ffffff 0%, #f5f9ff 55%, #eef4ff 100%);
 
     &::after {
       position: absolute;
@@ -894,7 +892,7 @@ onBeforeUnmount(() => {
 
     h2 {
       margin: 7px 0 8px;
-      color: #1f2937;
+      color: var(--jb-ink-700, #24334a);
       font-size: 26px;
       font-weight: 650;
       letter-spacing: -.5px;
@@ -902,7 +900,7 @@ onBeforeUnmount(() => {
 
     p {
       margin: 0;
-      color: #667085;
+      color: var(--jb-ink-500, #5a6b85);
       font-size: 14px;
       line-height: 1.7;
     }
@@ -927,7 +925,7 @@ onBeforeUnmount(() => {
     display: flex;
     align-items: center;
     gap: 7px;
-    color: #337ecc;
+    color: var(--jb-brand-500, #1257d6);
     font-size: 12px;
     font-weight: 650;
     letter-spacing: .08em;
@@ -937,7 +935,7 @@ onBeforeUnmount(() => {
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: #409eff;
+    background: linear-gradient(135deg, var(--jb-brand-500, #1257d6), var(--jb-teal-500, #12b2a6));
     box-shadow: 0 0 0 4px rgb(64 158 255 / 12%);
   }
 
@@ -951,7 +949,7 @@ onBeforeUnmount(() => {
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      color: #7a8599;
+      color: var(--jb-ink-500, #5a6b85);
       font-size: 12px;
     }
   }
@@ -971,7 +969,7 @@ onBeforeUnmount(() => {
     font-size: 13px;
     line-height: 1.55;
 
-    .el-icon {
+    .app-icon {
       flex: 0 0 auto;
       margin-top: 2px;
       font-size: 16px;
@@ -989,12 +987,21 @@ onBeforeUnmount(() => {
     margin-bottom: 18px;
   }
 
+.shipment-fee-page .el-button { border-radius: 8px; font-weight: 500; }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+.shipment-fee-page :deep(.el-table) {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+}
+.hero-meta .app-icon { vertical-align: -2px; margin-right: 4px; }
   .upload-card {
     display: flex;
     gap: 16px;
     min-width: 0;
     padding: 22px;
-    border: 1px solid #e7ebf2;
+    border: 1px solid var(--jb-line, #e3e9f2);
     border-radius: 14px;
     background: #fff;
     transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
@@ -1029,7 +1036,7 @@ onBeforeUnmount(() => {
 
       h3 {
         margin: 3px 0 0;
-        color: #273142;
+        color: var(--jb-ink-700, #24334a);
         font-size: 18px;
         font-weight: 650;
       }
@@ -1038,7 +1045,7 @@ onBeforeUnmount(() => {
     p {
       min-height: 44px;
       margin: 13px 0;
-      color: #667085;
+      color: var(--jb-ink-500, #5a6b85);
       font-size: 13px;
       line-height: 1.65;
     }
@@ -1053,25 +1060,25 @@ onBeforeUnmount(() => {
         padding: 4px 8px;
         border-radius: 5px;
         background: #f4f6f8;
-        color: #7a8599;
+        color: var(--jb-ink-500, #5a6b85);
         font-size: 11px;
       }
     }
   }
 
   .fee-card .upload-card__icon {
-    background: #edf5ff;
-    color: #337ecc;
+    background: rgba(18, 87, 214, .09);
+    color: var(--jb-brand-500, #1257d6);
   }
 
   .packing-card .upload-card__icon {
-    background: #ecf8f3;
-    color: #269764;
+    background: rgba(18, 178, 166, .1);
+    color: var(--jb-teal-500, #12b2a6);
   }
 
   .step-label,
   .section-kicker {
-    color: #98a2b3;
+    color: var(--jb-ink-300, #94a0b1);
     font-size: 11px;
     font-weight: 650;
     letter-spacing: .06em;
@@ -1091,14 +1098,14 @@ onBeforeUnmount(() => {
     }
 
     strong {
-      color: #344054;
+      color: var(--jb-ink-700, #24334a);
       font-size: 15px;
     }
   }
 
   .result-card {
     margin-bottom: 18px;
-    border: 1px solid #e7ebf2;
+    border: 1px solid var(--jb-line, #e3e9f2);
     border-radius: 14px;
   }
 
@@ -1125,7 +1132,7 @@ onBeforeUnmount(() => {
     strong {
       display: block;
       overflow: hidden;
-      color: #344054;
+      color: var(--jb-ink-700, #24334a);
       text-overflow: ellipsis;
       white-space: nowrap;
       word-break: break-all;
@@ -1143,7 +1150,7 @@ onBeforeUnmount(() => {
   }
 
   .workspace-card {
-    border: 1px solid #e7ebf2;
+    border: 1px solid var(--jb-line, #e3e9f2);
     border-radius: 14px;
 
     :deep(.el-card__body) {
@@ -1164,12 +1171,12 @@ onBeforeUnmount(() => {
 
     :deep(.el-tabs__item) {
       height: 54px;
-      color: #667085;
+      color: var(--jb-ink-500, #5a6b85);
       font-weight: 500;
     }
 
     :deep(.el-tabs__item.is-active) {
-      color: #337ecc;
+      color: var(--jb-brand-500, #1257d6);
       font-weight: 650;
     }
 

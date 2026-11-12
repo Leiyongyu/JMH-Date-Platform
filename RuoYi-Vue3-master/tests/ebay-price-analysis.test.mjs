@@ -218,7 +218,7 @@ test('dropped fields are gone from both tabs, the drawer and the expand rows', (
 
 test('store detail keeps the listed columns and adds the unmatched reason', () => {
   assert.deepEqual(columnKeys('columnDefs'), [
-    'image_url', 'sku', 'title', 'current_price', 'price_usd', 'ebay_quantity_available',
+    'image_url', 'sku', 'title', 'owner_name', 'listing_start_time', 'current_price', 'price_usd', 'ebay_quantity_available',
     'overseas_sellable', 'chengdu_sellable', 'overseas_in_transit', 'site_store_count',
     'site_ebay_available_total', 'unmatched_reason_text'
   ])
@@ -228,7 +228,7 @@ test('store detail keeps the listed columns and adds the unmatched reason', () =
 
 test('sku dimension keeps store count and stock and adds the unmatched reason', () => {
   assert.deepEqual(columnKeys('skuColumns'), [
-    'image_url', 'site_name', 'sku', 'title', 'store_count', 'ebay_quantity_available',
+    'image_url', 'site_name', 'sku', 'title', 'owner_name', 'store_count', 'ebay_quantity_available',
     'overseas_sellable', 'chengdu_sellable', 'overseas_in_transit', 'unmatched_reason_text'
   ])
 })
@@ -240,7 +240,7 @@ test('drawer and expand rows: site stock table and listing table keep only the n
   ])
   assert.deepEqual(columnKeys('compareListingColumns'), [
     'seller_account', 'site_name', 'item_id', 'current_price', 'price_usd', 'ebay_quantity_available',
-    'unmatched_reason_text'
+    'listing_start_time', 'unmatched_reason_text'
   ])
 })
 
@@ -251,15 +251,17 @@ test('store summary keeps six columns and the unmatched count is clickable', () 
   assert.match(summary, /v-if="Number\(row\.unmatched_count\) > 0"[^]*?@click\.stop="focusStore\(row\)"/)
 })
 
-test('header has a single refresh button that reloads the page with the jmh-refresh icon', () => {
+test('header has a single refresh button that reloads the page with the refresh icon', () => {
   const head = templateSource.match(/<div class="head-acts">[^]*?<\/el-tooltip>/)[0]
   assert.equal((head.match(/刷新/g) || []).length, 1)
-  assert.match(head, /<el-button :disabled="loading" @click="handleQuery">\s*<svg-icon icon-class="jmh-refresh" class="report-icon" :class="\{ spinning: loading \}" \/>刷新/)
-  assert.match(head, /icon-class="jmh-export"/)
-  assert.match(head, /<el-button\s+type="warning"\s+plain[^>]*@click="handleExport"/)
-  assert.doesNotMatch(head, /\sicon="/)
+  // 改版后图标走 <app-icon>，加载中旋转由组件的 spin 属性负责，不再靠页面自己的 .spinning 动画。
+  assert.match(head, /<el-button :disabled="loading" @click="handleQuery">\s*<app-icon name="refresh"[^>]*class="report-icon"[^>]*:spin="loading"[^>]*\/>刷新/)
+  assert.match(head, /<app-icon v-if="!exporting" name="export"[^>]*\/>导出明细/)
+  // 改版把导出按钮统一成 primary plain（原来是 warning plain 橙色）。
+  assert.match(head, /<el-button\s+type="primary"\s+plain[^>]*@click="handleExport"/)
+  assert.doesNotMatch(head, /\sicon="|svg-icon|icon-class=/)
   assert.doesNotMatch(pageSource, /刷新数据源|handleRefreshSource|operations:ebayPriceAnalysis:refresh/)
-  assert.match(styleSource, /\.report-icon\.spinning \{\s*animation: report-icon-spin/)
+  // 带文字的按钮里图标跟随文字色（currentColor），不写死颜色。
   const iconRule = styleSource.match(/\.report-icon \{[^}]*\}/)[0]
   assert.doesNotMatch(iconRule, /color:/)
 })
@@ -578,11 +580,11 @@ test('data-definition wording follows the weekly goodcang snapshot', () => {
 
 // ===== 布局与接口 =====
 test('drawer listing table fits the drawer without sideways scrolling', () => {
-  // 抽屉 820px，内边距左右各 20px；列宽合计超过约 780px 就会出横向滚动条，留 10px 余量。
-  assert.match(templateSource, /<el-drawer[^>]*size="820px"/)
+  // 抽屉 920px，内边距左右各 20px；列宽合计超过约 880px 就会出横向滚动条，留 10px 余量。
+  assert.match(templateSource, /<el-drawer[^>]*size="920px"/)
   const widths = [...declaration('compareListingColumns').matchAll(/(?:minWidth|width): (\d+)/g)].map(match => Number(match[1]))
-  assert.equal(widths.length, 7)
-  assert.ok(widths.reduce((sum, value) => sum + value, 0) <= 770, `listing columns too wide: ${widths}`)
+  assert.equal(widths.length, 8)
+  assert.ok(widths.reduce((sum, value) => sum + value, 0) <= 870, `listing columns too wide: ${widths}`)
   // 长原因句子不撑宽列：超出部分悬停看全文。
   assert.match(declaration('compareListingColumns'), /key: 'unmatched_reason_text'[^}]*tooltip: true/)
 })
@@ -606,4 +608,26 @@ test('api calls the erp proxy routes with a timeout fit for the aggregation', ()
   assert.match(apiSource, /LONG_TIMEOUT = 120000/)
   assert.doesNotMatch(apiSource, /refreshEbayPriceAnalysis|\/refresh`/)
   assert.equal((apiSource.match(/^export function /gm) || []).length, 4)
+})
+
+
+test('owner and listing start time columns are shown; start time is not called a price change', () => {
+  const store = declaration('columnDefs')
+  assert.match(store, /key: 'owner_name', label: '负责人'/)
+  assert.match(store, /key: 'listing_start_time', label: '上架时间'[^}]*不是最近调价时间/)
+  assert.match(declaration('skuColumns'), /key: 'owner_name', label: '负责人'/)
+  assert.match(declaration('compareListingColumns'), /key: 'listing_start_time', label: '上架日期', width: 100, format: 'date'/)
+  // 已保存过列配置的用户：新列插在产品名称后面，而不是追加到最后
+  assert.match(pageSource, /\{ owner_name: 'title', listing_start_time: 'owner_name' \}/)
+  assert.match(pageSource, /case 'date':\s*return value \? String\(value\)\.slice\(0, 10\) : '—'/)
+  assert.doesNotMatch(pageSource, /调价时间'/)
+})
+
+test('store summary table is width-capped so the store column does not swallow the card', () => {
+  const table = templateSource.match(/<el-table[^>]*class="store-table"[^>]*>/s)?.[0] || ''
+  assert.match(table, /max-width:\s*760px/)
+  const flexible = [...templateSource.split('class="store-table"')[1].split('</el-table>')[0]
+    .matchAll(/<el-table-column[^>]*min-width="(\d+)"/g)].map(m => Number(m[1]))
+  // 店铺是唯一弹性列；200 + 其余 5 个固定列 500 = 700，留 60px 给店铺列伸展
+  assert.deepEqual(flexible, [200])
 })

@@ -2,7 +2,7 @@
   <section class="sales-dashboard" aria-label="销售看板">
     <section class="global-filters" aria-label="销售看板全局筛选">
     <header><div><h2>销售看板</h2><p class="filter-description">统一筛选业绩指标、月度趋势与组别明细</p></div>
-      <el-button v-hasPermi="['finance:salesDashboard:import']" icon="Upload" @click="openImport">上传历史数据</el-button>
+      <el-button v-hasPermi="['finance:salesDashboard:import']" @click="openImport"><app-icon name="upload" :size="15" class="btn-icon" />上传历史数据</el-button>
     </header>
     <div class="filters">
       <div class="filter-control"><span class="filter-label">统计粒度</span><el-radio-group v-model="granularity" @change="changeGranularity"><el-radio-button value="month">按月</el-radio-button><el-radio-button value="quarter">按季度</el-radio-button></el-radio-group></div>
@@ -25,7 +25,7 @@
                  placeholder="全部组别" style="width: 260px" @change="loadReport">
         <el-option v-for="g in groupOptions" :key="g.value" :label="g.label" :value="g.value" />
       </el-select></div>
-      <el-button type="primary" icon="Search" :loading="loading" :disabled="!monthOptions.length" @click="loadReport">查询</el-button>
+      <el-button type="primary" :loading="loading" :disabled="!monthOptions.length" @click="loadReport"><app-icon name="search" :size="15" class="btn-icon" />查询</el-button>
     </div>
     </section>
 
@@ -38,8 +38,8 @@
         :aria-pressed="selectedMetric === item.key" :aria-label="`${item.label}，点击查看趋势`"
         @click="selectMetric(item.key)">
         <span class="card-heading"><span>{{ item.label }}
-          <el-tooltip :content="metricDescription(item.key)" placement="top"><el-icon class="info-icon"><InfoFilled /></el-icon></el-tooltip>
-        </span><span class="metric-icon"><el-icon><component :is="metricIcons[item.icon]" /></el-icon></span></span>
+          <el-tooltip :content="metricDescription(item.key)" placement="top"><app-icon name="help" :size="13" class="info-icon" /></el-tooltip>
+        </span><span class="metric-icon"><app-icon :name="item.icon" :size="18" /></span></span>
         <el-tooltip :content="formatMetric(metricData(item.key)?.summary?.value, metricData(item.key)?.unit)" placement="top">
           <strong class="metric-value">{{ loading ? '…' : formatMetric(metricData(item.key)?.summary?.value, metricData(item.key)?.unit, true) }}</strong>
         </el-tooltip>
@@ -97,7 +97,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Wallet, TrendCharts, DataAnalysis, Coin, RefreshLeft, PieChart, InfoFilled } from '@element-plus/icons-vue'
 import { getSalesOptions, getSalesAnalysis, previewSalesHistory, importSalesHistory } from '@/api/finance/salesDashboard'
 import { salesChartOption, salesMetrics, formatMetric } from './chart'
 import { availableMonths, disabledMonth, fitMonthRange, validMonthRange, availableQuarters, quarterRange, quarterMonths, platformGroups } from './months'
@@ -119,7 +118,6 @@ const groupOptions = computed(() => platformGroups(options.value, platform.value
 const monthOptions = computed(() => availableMonths(options.value, platform.value))
 const isMonthDisabled = date => disabledMonth(date, monthOptions.value)
 const selectedMetric = ref('net_sales')
-const metricIcons = { Wallet, TrendCharts, DataAnalysis, Coin, RefreshLeft, PieChart }
 const metricData = key => report.value?.metrics?.[key]
 const activeDefinition = computed(() => salesMetrics.find(item => item.key === selectedMetric.value))
 const hasData = computed(() => {
@@ -232,45 +230,45 @@ onBeforeUnmount(() => { disposed = true; requestVersion++; observer?.disconnect(
 
 <style scoped>
 .sales-dashboard { margin-bottom: 18px; }
-.global-filters, .analysis-panel { background: var(--el-bg-color); border: 1px solid var(--el-border-color-light); border-radius: 12px; padding: 22px; }
+.global-filters, .analysis-panel { background: var(--jb-surface, #fff); border: 1px solid var(--jb-line, #e3e9f2); border-radius: 12px; padding: 22px; box-shadow: var(--jb-sh-1, 0 1px 2px rgba(13,26,45,.06)); }
 .global-filters { margin-bottom: 18px; }
 .quarter-range { display: flex; align-items: center; gap: 8px; width: 270px; }
 .quarter-range .el-select { width: 125px; }
 .card-comparisons { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 12px; }
 .ratio-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px; }
-.ratio-card { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 14px 18px; background: var(--el-bg-color); color: var(--el-text-color-primary); border: 1px solid var(--el-border-color-light); border-radius: 8px; cursor: pointer; }
+.ratio-card { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 14px 18px; background: var(--jb-surface, #fff); color: var(--jb-ink-700, #24334a); border: 1px solid var(--jb-line, #e3e9f2); border-radius: 10px; cursor: pointer; }
 .ratio-card.active { border-color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
 .ratio-card strong { font-size: 20px; }
 .trend-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; margin-top: 18px; }
-.detail-section { margin-top: 18px; background: var(--el-bg-color); border: 1px solid var(--el-border-color-light); border-radius: 12px; padding: 22px; }
+.detail-section { margin-top: 18px; background: var(--jb-surface, #fff); border: 1px solid var(--jb-line, #e3e9f2); border-radius: 12px; padding: 22px; box-shadow: var(--jb-sh-1, 0 1px 2px rgba(13,26,45,.06)); }
 .detail-section :deep(.performance-details) { border: 0; padding: 0; margin-top: 0; }
 header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-h2 { font-size: 20px; margin: 0; color: var(--el-text-color-primary); }
-.filter-description { font-size: 12px; color: var(--el-text-color-secondary); margin: 8px 0 0; }
+h2 { font-size: 20px; margin: 0; color: var(--jb-ink-900, #0b1526); letter-spacing: .2px; }
+.filter-description { font-size: 12px; color: var(--jb-ink-400, #8a99b0); margin: 8px 0 0; }
 .filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; margin-top: 22px; }
 .filter-control { min-width: 0; max-width: 100%; }
-.filter-label { display: block; font-size: 12px; color: var(--el-text-color-regular); margin-bottom: 8px; }
+.filter-label { display: block; font-size: 12px; color: var(--jb-ink-500, #5a6b85); margin-bottom: 8px; }
 .filter-control :deep(.el-select) { max-width: 100%; }
 .month-range-filter { flex: 0 1 240px; width: 240px; min-width: 0; max-width: 100%; }
 .month-range-filter :deep(.el-date-editor) { width: 100%; min-width: 0; box-sizing: border-box; flex-grow: 0; }
 .analysis-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
-h3 { font-size: 17px; margin: 0; color: var(--el-text-color-primary); }
-.range-caption { font-size: 12px; color: var(--el-text-color-secondary); overflow-wrap: anywhere; }
+h3 { font-size: 17px; margin: 0; color: var(--jb-ink-700, #24334a); }
+.range-caption { font-size: 12px; color: var(--jb-ink-400, #8a99b0); overflow-wrap: anywhere; }
 .metric-cards { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; margin: 16px 0 28px; }
-.metric-card { font: inherit; text-align: left; cursor: pointer; min-width: 0; background: var(--el-bg-color); color: var(--el-text-color-primary); border: 1px solid var(--el-border-color-light); border-top: 3px solid var(--metric-color); border-radius: 9px; padding: 18px 20px; transition: box-shadow .2s, background .2s, transform .2s; }
-.metric-card:hover { transform: translateY(-2px); box-shadow: 0 5px 16px #1e293b0d; }
-.metric-card.active { background: color-mix(in srgb, var(--metric-color) 5%, var(--el-bg-color)); box-shadow: 0 4px 18px #1e293b12; outline: 1px solid var(--metric-color); }
+.metric-card { font: inherit; text-align: left; cursor: pointer; min-width: 0; background: var(--jb-surface, #fff); color: var(--jb-ink-700, #24334a); border: 1px solid var(--jb-line, #e3e9f2); border-top: 3px solid var(--metric-color); border-radius: 12px; padding: 18px 20px; transition: box-shadow .2s, background .2s, transform .2s, border-color .2s; }
+.metric-card:hover { transform: translateY(-2px); border-color: var(--jb-line-strong, #cfd9e8); box-shadow: var(--jb-sh-2, 0 4px 16px -8px rgba(13,26,45,.16)); }
+.metric-card.active { background: color-mix(in srgb, var(--metric-color) 5%, var(--jb-surface, #fff)); box-shadow: var(--jb-sh-2, 0 4px 16px -8px rgba(13,26,45,.16)); outline: 1px solid var(--metric-color); }
 .metric-card:focus-visible { outline: 2px solid var(--metric-color); outline-offset: 3px; }
-.card-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; color: var(--el-text-color-regular); }
-.info-icon { margin-left: 5px; color: var(--el-text-color-placeholder); vertical-align: -2px; font-size: 12px; }
+.card-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; color: var(--jb-ink-500, #5a6b85); }
+.info-icon { margin-left: 5px; color: var(--jb-ink-300, #b4c0d2); vertical-align: -2px; }
 .metric-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 8px; color: var(--metric-color); background: color-mix(in srgb, var(--metric-color) 10%, transparent); font-size: 19px; }
 .metric-value { display: block; font-size: clamp(21px, 2vw, 29px); line-height: 1.3; font-weight: 600; font-variant-numeric: tabular-nums; margin: 12px 0 8px; overflow-wrap: anywhere; }
-.card-footnote { display: block; font-size: 12px; color: var(--el-text-color-secondary); }
+.card-footnote { display: block; font-size: 12px; color: var(--jb-ink-400, #8a99b0); }
 .trend-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 8px; }
 .trend-heading > div { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .trend-dot { width: 7px; height: 7px; border-radius: 50%; }
-.trend-grain { font-size: 11px; padding: 3px 7px; border-radius: 4px; background: var(--el-fill-color-light); color: var(--el-text-color-secondary); }
-.metric-explanation, .hint { font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.7; }
+.trend-grain { font-size: 11px; padding: 3px 7px; border-radius: 4px; background: var(--jb-brand-50, #f4f8ff); color: var(--jb-brand-600, #1257d6); }
+.metric-explanation, .hint { font-size: 12px; color: var(--jb-ink-400, #8a99b0); line-height: 1.7; }
 .hint { margin: 18px 0 0; }
 .chart { width: 100%; height: 400px; margin-top: 14px; }
 .file-row { display: flex; flex-wrap: wrap; gap: 12px; margin: 18px 0; }

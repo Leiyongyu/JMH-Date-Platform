@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from typing import Any, Iterable, Sequence
@@ -61,7 +61,8 @@ _ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 # 不传就导全部；未知 key 直接忽略，不报错也不漏别的列。
 EXPORT_COLUMNS = (
     ("seller_account", "店铺"), ("site_name", "站点"), ("item_id", "ItemID"),
-    ("sku", "SKU"), ("mid_code", "中间码"), ("title", "标题"),
+    ("sku", "SKU"), ("mid_code", "中间码"), ("owner_name", "负责人"), ("title", "标题"),
+    ("listing_start_time", "上架时间"),
     ("currency", "币种"), ("current_price", "原币售价"), ("price_usd", "美元价"),
     ("ebay_quantity_available", "eBay可售"), ("ebay_quantity_sold", "eBay已售"),
     ("overseas_sellable", "谷仓可售"), ("overseas_in_transit", "海外在途"),
@@ -96,6 +97,45 @@ def quantity(value: Any) -> int | None:
         return int(Decimal(str(value)).to_integral_value(rounding="ROUND_HALF_UP"))
     except (InvalidOperation, TypeError, ValueError):
         return None
+
+
+def listing_start_time(value: Any) -> datetime | None:
+    """接口 ListingDetails/StartTime 是 UTC（如 2026-11-10T02:09:54.000Z），落库转成北京时间。
+
+    eBay 在售接口不返回改价时间，页面「上架时间」即刊登创建时间；格式不认识时留 NULL。
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(CHINA).replace(tzinfo=None, microsecond=0)
+
+
+def owner_resolver(rule_month: str | None, sku_month: str | None):
+    """SKU -> eBay 负责人，口径与绩效 / 月度库存一致（按品牌规则，固定品牌优先，没规则计「未分配」）。
+
+    rule_month 为空（库里还没有任何 eBay 规则）时一律返回 None，页面显示 --，不猜。
+    """
+    if not rule_month:
+        return lambda sku: None
+    from backend.repositories import inventory_report_etl_repository as owner_repo
+    from backend.services.inventory_report_etl_service import _ebay_assignment, _ebay_rule_map
+    rules = _ebay_rule_map(owner_repo.owner_rules(rule_month, "ebay"))
+    sku_map = owner_repo.ebay_product_sku_map(sku_month or rule_month)
+    cache: dict[str, str | None] = {}
+
+    def resolve(sku: str | None) -> str | None:
+        if not sku:
+            return None
+        if sku not in cache:
+            cache[sku] = _ebay_assignment(sku, rules, sku_map)[0] or None
+        return cache[sku]
+    return resolve
 
 
 def listing_price(value: Any) -> Decimal | None:
@@ -299,7 +339,7 @@ def _reason_fields(matched: bool, sku: str | None, site: str | None,
 
 def build_row(source: dict[str, Any], *, stat_date: date, rates: dict[str, Decimal],
               batch_id: str, refreshed_at: datetime,
-              index: dict[str, Any] | None = None) -> dict[str, Any]:
+              index: dict[str, Any] | None = None, owner_of=None) -> dict[str, Any]:
     """一条源记录 -> 一条落库行。未关联到库存的行照样返回，库存列留 NULL，并写明未匹配原因。"""
     sku = (str(source.get("sku")).strip() if source.get("sku") else None) or None
     matched = source.get("overseas_sellable") is not None
@@ -349,6 +389,8 @@ def build_row(source: dict[str, Any], *, stat_date: date, rates: dict[str, Decim
             inventory_matched=matched, ebay_quantity_available=available,
             overseas_sellable=overseas, chengdu_sellable=chengdu,
             cover_days_value=days, sales_qty_30d=sales_30d),
+        "owner_name": owner_of(sku) if owner_of else None,
+        "listing_start_time": listing_start_time(source.get("start_time")),
         "sync_batch_id": batch_id,
         "refreshed_at": refreshed_at,
     }
@@ -360,8 +402,10 @@ def build_rows(source: dict[str, Any], *, batch_id: str,
     if not batch:
         return []
     index = source.get("inventory_index") or {}
+    owner_of = owner_resolver(source.get("owner_rule_month"), batch.get("stat_month"))
     return [build_row(row, stat_date=batch["stat_date"], rates=source.get("rates") or {},
-                      batch_id=batch_id, refreshed_at=refreshed_at, index=index)
+                      batch_id=batch_id, refreshed_at=refreshed_at, index=index,
+                      owner_of=owner_of)
             for row in source.get("rows") or []]
 
 
@@ -422,6 +466,7 @@ def refresh_price_analysis() -> dict[str, Any]:
         "unmatched_reason_counts": _counter(row["unmatched_reason"] for row in rows
                                             if row["unmatched_reason"]),
         "goodcang_rows": goodcang["rows"],
+        "owner_rule_month": source.get("owner_rule_month"),
         # 币种 → 实际折算用的汇率月份（当月未出时按币种回退到最近已出月份）
         "rate_months": dict(sorted((source.get("rate_months") or {}).items())),
     }
@@ -560,6 +605,8 @@ def _detail_row(row: dict[str, Any]) -> dict[str, Any]:
         "purchase_cost_cny": _number(row.get("purchase_cost_cny")),
         "status": row.get("status"),
         "stat_date": _text(row.get("stat_date")),
+        "owner_name": row.get("owner_name"),
+        "listing_start_time": _text(row.get("listing_start_time")),
         # 跨店对比：同站点同 SKU 所有店铺（查询时派生，不受店铺筛选影响）
         "site_store_count": _int(row.get("site_store_count")),
         "site_ebay_available_total": _int(row.get("site_ebay_available_total")),
@@ -579,7 +626,7 @@ _CROSS_STORE_KEYS = ("site_store_count", "site_ebay_available_total", "site_pric
 
 def _summary_row(row: dict[str, Any]) -> dict[str, Any]:
     result = _detail_row(row)
-    for key in ("seller_account", "item_id", *_CROSS_STORE_KEYS):
+    for key in ("seller_account", "item_id", "listing_start_time", *_CROSS_STORE_KEYS):
         result.pop(key, None)
     result["status"] = _worst_status(row.get("statuses"))
     result["listing_count"] = _int(row.get("listing_count")) or 0
@@ -674,6 +721,8 @@ def sku_listings(*, sku: str | None) -> dict[str, Any]:
             "out_of_stock_listed": bool(_int(row.get("out_of_stock_listed"))),
             "unmatched_reason": row.get("unmatched_reason"),
             "unmatched_reason_text": row.get("unmatched_reason_text"),
+            "owner_name": row.get("owner_name"),
+            "listing_start_time": _text(row.get("listing_start_time")),
         } for row in listings],
         "sites": [{
             "site": row.get("site"),

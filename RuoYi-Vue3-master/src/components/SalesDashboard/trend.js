@@ -1,4 +1,4 @@
-export const trendColors = { up: '#d93025', down: '#16834a' }
+export const trendColors = { up: '#e05252', down: '#12b2a6' }
 
 export function trendDirection(value) {
   if (value == null || value === '' || !Number.isFinite(Number(value))) return ''

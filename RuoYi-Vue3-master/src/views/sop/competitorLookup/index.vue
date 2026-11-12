@@ -16,7 +16,7 @@
     <el-tabs v-model="activeTab" class="feature-tabs" @tab-change="handleTabChange">
       <el-tab-pane name="library">
         <template #label>
-          <span class="tab-label"><el-icon><Collection /></el-icon>已保存商品库</span>
+          <span class="tab-label"><app-icon name="box" :size="15" class="btn-icon" />已保存商品库</span>
         </template>
 
         <section class="panel filter-panel">
@@ -35,8 +35,8 @@
               </el-select>
             </el-form-item>
             <el-form-item>
-              <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
-              <el-button :icon="Refresh" @click="resetSearch">重置</el-button>
+              <el-button type="primary" @click="handleSearch"><app-icon name="search" :size="15" class="btn-icon" />查询</el-button>
+              <el-button @click="resetSearch"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
             </el-form-item>
           </el-form>
           <div class="filter-tip">OE和SKU支持模糊查询，两个条件同时填写时取交集。</div>
@@ -55,8 +55,8 @@
                 :disabled="exportLoading || total === 0"
                 @command="handleExportCommand"
               >
-                <el-button type="primary" plain :icon="Download" :loading="exportLoading">
-                  导出商品库<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                <el-button type="primary" plain :loading="exportLoading">
+                  <app-icon v-if="!exportLoading" name="export" :size="15" class="btn-icon" />导出商品库<app-icon name="chevronDown" :size="13" style="margin-left:6px;vertical-align:-2px" />
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
@@ -67,7 +67,7 @@
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
-              <el-button text type="primary" :icon="Refresh" :loading="libraryLoading" @click="loadLibrary">刷新</el-button>
+              <el-button text type="primary" :loading="libraryLoading" @click="loadLibrary"><app-icon v-if="!libraryLoading" name="refresh" :size="14" class="btn-icon" />刷新</el-button>
             </div>
           </div>
 
@@ -128,7 +128,7 @@
                     preview-teleported
                     fit="contain"
                   >
-                    <template #error><div class="image-empty"><el-icon><Picture /></el-icon></div></template>
+                    <template #error><div class="image-empty"><app-icon name="image" :size="20" /></div></template>
                   </el-image>
                   <span v-if="savedImageUrls(scope.row).length > 1" class="image-count">{{ savedImageUrls(scope.row).length }}张</span>
                 </div>
@@ -187,7 +187,7 @@
 
       <el-tab-pane name="calculator">
         <template #label>
-          <span class="tab-label"><el-icon><DataAnalysis /></el-icon>拉取商品并测算</span>
+          <span class="tab-label"><app-icon name="chartBar" :size="15" class="btn-icon" />拉取商品并测算</span>
         </template>
 
         <section class="panel query-panel">
@@ -199,7 +199,7 @@
               placeholder="输入eBay商品链接，例如：https://www.ebay.co.uk/itm/186929412574"
               @keyup.enter="handleQuery"
             >
-              <template #prefix><el-icon><Link /></el-icon></template>
+              <template #prefix><app-icon name="link" :size="15" style="color:var(--jb-ink-300,#94a0b1)" /></template>
             </el-input>
             <el-button
               v-hasPermi="['sop:competitor:query']"
@@ -207,9 +207,8 @@
               size="large"
               :loading="queryLoading"
               :disabled="batchRunning"
-              :icon="Search"
               @click="handleQuery"
-            >拉取商品</el-button>
+            ><app-icon v-if="!queryLoading" name="search" :size="15" class="btn-icon" />拉取商品</el-button>
             <el-upload
               ref="linkUploadRef"
               v-hasPermi="['sop:competitor:import']"
@@ -220,11 +219,11 @@
               :disabled="batchParsing || batchRunning"
               :on-change="handleLinkFileChange"
             >
-              <el-button size="large" :icon="Upload" :loading="batchParsing" :disabled="batchRunning">
-                批量导入链接
+              <el-button size="large" :loading="batchParsing" :disabled="batchRunning">
+                <app-icon v-if="!batchParsing" name="upload" :size="15" class="btn-icon" />批量导入链接
               </el-button>
             </el-upload>
-            <el-button v-if="drafts.length" size="large" :icon="Delete" @click="clearDrafts">清空</el-button>
+            <el-button v-if="drafts.length" size="large" @click="clearDrafts"><app-icon name="delete" :size="15" class="btn-icon" />清空</el-button>
           </div>
           <div class="query-hints">
             <span><i></i>链接自动识别DE、UK、US站点</span>
@@ -296,7 +295,7 @@
                     preview-teleported
                     fit="contain"
                   >
-                    <template #error><div class="image-empty"><el-icon><Picture /></el-icon></div></template>
+                    <template #error><div class="image-empty"><app-icon name="image" :size="20" /></div></template>
                   </el-image>
                   <span v-if="draftImageUrls(scope.row).length > 1" class="image-count">{{ draftImageUrls(scope.row).length }}张</span>
                 </div>
@@ -451,7 +450,6 @@ import { computed, defineComponent, h, onMounted, reactive, ref } from 'vue'
 import { ElInputNumber, ElMessage, ElMessageBox } from 'element-plus'
 import { saveAs } from 'file-saver'
 import { blobValidate } from '@/utils/ruoyi'
-import { ArrowDown, Collection, DataAnalysis, Delete, Download, Link, Picture, Refresh, Search, Upload } from '@element-plus/icons-vue'
 import {
   deleteEbayCompetitor,
   exportEbayCompetitors,
@@ -1052,33 +1050,35 @@ function siteTagType(site) {
 </script>
 
 <style scoped>
-.competitor-page { min-height: calc(100vh - 84px); padding: 16px; background: #f4f7fb; color: #27364a; }
-.page-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 12px; padding: 18px 22px; border: 1px solid #e6edf6; border-radius: 14px; background: linear-gradient(120deg, #fff 55%, #edf6ff); box-shadow: 0 8px 24px rgba(38, 82, 124, .06); }
-.eyebrow { color: #4b97e5; font-size: 11px; font-weight: 700; letter-spacing: 1.2px; }
-.page-head h2 { margin: 4px 0 2px; color: #20334b; font-size: 24px; }
-.page-head p { margin: 0; color: #7b899b; font-size: 13px; }
+.competitor-page { min-height: calc(100vh - 84px); padding: 16px; background: var(--jb-page, #f5f7fb); color: var(--jb-ink-700, #24334a); }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+.competitor-page :deep(.el-button) { border-radius: 8px; font-weight: 500; }
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 12px; padding: 18px 22px; border: 1px solid var(--jb-line, #e3e9f2); border-radius: 14px; background: linear-gradient(120deg, #fff 55%, #eef4ff); box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16,42,90,.04), 0 4px 16px rgba(16,42,90,.05)); }
+.eyebrow { color: var(--jb-brand-500, #1257d6); font-size: 11px; font-weight: 700; letter-spacing: 1.2px; }
+.page-head h2 { margin: 4px 0 2px; color: var(--jb-ink-700, #24334a); font-size: 24px; }
+.page-head p { margin: 0; color: var(--jb-ink-500, #5a6b85); font-size: 13px; }
 .head-badges { display: flex; gap: 8px; }
-.feature-tabs { --el-color-primary: #409eff; }
-:deep(.feature-tabs > .el-tabs__header) { margin: 0; padding: 0 18px; border: 1px solid #e6edf6; border-bottom: 0; border-radius: 12px 12px 0 0; background: #fff; }
+.feature-tabs { --el-color-primary: #1257d6; }
+:deep(.feature-tabs > .el-tabs__header) { margin: 0; padding: 0 18px; border: 1px solid var(--jb-line, #e3e9f2); border-bottom: 0; border-radius: 12px 12px 0 0; background: #fff; }
 :deep(.feature-tabs > .el-tabs__content) { overflow: visible; }
 .tab-label { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
-.panel { margin-top: 12px; border: 1px solid #e6edf6; border-radius: 12px; background: #fff; box-shadow: 0 5px 18px rgba(38, 82, 124, .045); }
+.panel { margin-top: 12px; border: 1px solid var(--jb-line, #e3e9f2); border-radius: 12px; background: #fff; box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16,42,90,.04), 0 4px 16px rgba(16,42,90,.05)); }
 .filter-panel { padding: 15px 18px 9px; }
 .filter-panel .el-form-item { margin-bottom: 8px; }
 .filter-panel :deep(.el-input) { width: 220px; }
-.filter-tip { margin: 0 0 2px 50px; color: #98a4b4; font-size: 12px; }
+.filter-tip { margin: 0 0 2px 50px; color: var(--jb-ink-300, #94a0b1); font-size: 12px; }
 .library-panel, .draft-panel { overflow: hidden; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; min-height: 50px; padding: 0 16px; border-bottom: 1px solid #edf1f6; }
-.panel-title strong { margin-right: 10px; color: #2c3c52; font-size: 15px; }
-.panel-title span { color: #8a97a8; font-size: 12px; }
+.panel-title strong { margin-right: 10px; color: var(--jb-ink-700, #24334a); font-size: 15px; }
+.panel-title span { color: var(--jb-ink-300, #94a0b1); font-size: 12px; }
 .panel-actions, .batch-actions { display: flex; align-items: center; gap: 8px; }
 .library-table, .calculator-table { width: 100%; }
-:deep(.el-table th.el-table__cell) { height: 42px; padding: 0; color: #68778c; background: #f7f9fc; font-size: 12px; font-weight: 600; }
+:deep(.el-table th.el-table__cell) { height: 42px; padding: 0; color: #51627c; background: #f5f8fd; font-size: 12px; font-weight: 600; }
 :deep(.library-table td.el-table__cell) { height: 66px; padding: 5px 0; }
 :deep(.calculator-table td.el-table__cell) { height: 72px; padding: 5px 0; }
 :deep(.calculator-table .el-input__wrapper) { padding: 1px 7px; }
 :deep(.manual-column) { background: #fffdf7; }
-:deep(.calculated-column) { background: #f5faff; }
+:deep(.calculated-column) { background: rgba(18, 87, 214, .04); }
 .product-image { width: 58px; height: 58px; border: 1px solid #e8edf3; border-radius: 8px; background: #fff; }
 .image-cell { position: relative; width: 58px; height: 58px; margin: 0 auto; }
 .image-count { position: absolute; right: -5px; bottom: -4px; padding: 1px 5px; border: 1px solid #fff; border-radius: 8px; color: #fff; background: rgba(40, 102, 165, .86); font-size: 9px; line-height: 15px; pointer-events: none; }
@@ -1086,18 +1086,18 @@ function siteTagType(site) {
 .detail-wrap { padding: 16px 20px; background: #f8fbff; }
 .detail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 18px; }
 .detail-item { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
-.detail-item span { color: #909dad; font-size: 11px; }
-.detail-item b { overflow: hidden; color: #3c4b60; font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.detail-item span { color: var(--jb-ink-300, #94a0b1); font-size: 11px; }
+.detail-item b { overflow: hidden; color: var(--jb-ink-700, #24334a); font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .detail-wide { grid-column: span 2; }
 .image-gallery-detail { grid-column: 1 / -1; }
 .image-gallery { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
 .gallery-thumb { width: 64px; height: 64px; border: 1px solid #e3eaf3; border-radius: 7px; background: #fff; cursor: zoom-in; }
 .query-panel { padding: 15px 18px 12px; }
 .query-row { display: grid; grid-template-columns: minmax(360px, 1fr) repeat(3, auto); gap: 10px; }
-.query-hints { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 10px; color: #8996a8; font-size: 12px; }
+.query-hints { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 10px; color: var(--jb-ink-500, #5a6b85); font-size: 12px; }
 .query-hints span { display: inline-flex; align-items: center; gap: 6px; }
-.query-hints i { width: 6px; height: 6px; border-radius: 50%; background: #59b684; }
-.batch-card { margin-top: 14px; padding: 13px 14px 5px; border: 1px solid #dceafa; border-radius: 10px; background: #f8fbff; }
+.query-hints i { width: 6px; height: 6px; border-radius: 50%; background: var(--jb-teal-500, #12b2a6); }
+.batch-card { margin-top: 14px; padding: 13px 14px 5px; border: 1px solid rgba(18, 87, 214, .16); border-radius: 10px; background: rgba(18, 87, 214, .04); }
 .batch-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
 .batch-head > div:first-child { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .batch-head strong { overflow: hidden; color: #34475e; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1112,7 +1112,7 @@ function siteTagType(site) {
 .positive-rate { color: #27865e; font-weight: 600; }
 .negative-rate { color: #e45656; font-weight: 600; }
 .draft-pagination { display: flex; justify-content: flex-end; padding: 14px 16px; }
-.edit-product-head { display: flex; align-items: center; gap: 14px; margin: -4px 0 14px; padding: 12px; border: 1px solid #e6edf6; border-radius: 10px; background: #f8fbff; }
+.edit-product-head { display: flex; align-items: center; gap: 14px; margin: -4px 0 14px; padding: 12px; border: 1px solid var(--jb-line, #e3e9f2); border-radius: 10px; background: #f8fbff; }
 .edit-product-image { width: 68px; height: 68px; flex: 0 0 auto; border: 1px solid #e3eaf3; border-radius: 8px; background: #fff; }
 .edit-product-title { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; color: #34455c; }
 .edit-form :deep(.el-form-item) { margin-bottom: 14px; }

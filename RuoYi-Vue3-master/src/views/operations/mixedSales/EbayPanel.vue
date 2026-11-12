@@ -25,8 +25,8 @@
         <span style="margin-left: 6px">天</span>
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" icon="Search" @click="search">搜索</el-button>
-        <el-button icon="Refresh" @click="reset">重置</el-button>
+        <el-button type="primary" @click="search"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+        <el-button @click="reset"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
       </el-form-item>
     </el-form>
     <el-row class="mb8 toolbar">
@@ -107,4 +107,15 @@ onBeforeUnmount(() => { requestId += 1 })
 <style scoped>
 .toolbar { align-items: center; justify-content: space-between; }
 .table-note { color: var(--el-text-color-secondary); font-size: 12px; }
+
+/* JMH 品牌化 */
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+:deep(.el-button) { border-radius: 8px; font-weight: 500; }
+:deep(.el-table) {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+}
+:deep(.el-card), :deep(.el-form) { --jb-card-line: var(--jb-line, #e3e9f2); }
 </style>

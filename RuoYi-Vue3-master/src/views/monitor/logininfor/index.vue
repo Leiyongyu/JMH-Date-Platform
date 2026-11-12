@@ -46,8 +46,8 @@
             ></el-date-picker>
          </el-form-item>
          <el-form-item>
-            <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-            <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+            <el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+            <el-button @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
          </el-form-item>
       </el-form>
 
@@ -56,39 +56,35 @@
             <el-button
                type="danger"
                plain
-               icon="Delete"
                :disabled="multiple"
                @click="handleDelete"
                v-hasPermi="['monitor:logininfor:remove']"
-            >删除</el-button>
+            ><app-icon name="delete" :size="15" class="btn-icon" />删除</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
                type="danger"
                plain
-               icon="Delete"
                @click="handleClean"
                v-hasPermi="['monitor:logininfor:remove']"
-            >清空</el-button>
+            ><app-icon name="delete" :size="15" class="btn-icon" />清空</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
                type="primary"
                plain
-               icon="Unlock"
                :disabled="single"
                @click="handleUnlock"
                v-hasPermi="['monitor:logininfor:unlock']"
-            >解锁</el-button>
+            ><app-icon name="key" :size="15" class="btn-icon" />解锁</el-button>
          </el-col>
          <el-col :span="1.5">
             <el-button
                type="warning"
                plain
-               icon="Download"
                @click="handleExport"
                v-hasPermi="['monitor:logininfor:export']"
-            >导出</el-button>
+            ><app-icon name="download" :size="15" class="btn-icon" />导出</el-button>
          </el-col>
          <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
       </el-row>

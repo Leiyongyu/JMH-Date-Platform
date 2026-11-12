@@ -29,7 +29,7 @@
           <el-option label="领星已移除" :value="0" />
         </el-select>
       </el-form-item>
-      <el-form-item><el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button></el-form-item>
+      <el-form-item><el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button></el-form-item>
     </el-form>
 
     <el-table v-loading="loading" :data="list" border stripe>
@@ -153,4 +153,15 @@ onMounted(getList)
 <style scoped>
 .shop-tip { margin-bottom: 12px; }
 .form-help { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
+
+/* JMH 品牌化 */
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+:deep(.el-button) { border-radius: 8px; font-weight: 500; }
+:deep(.el-table) {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+}
+:deep(.el-card), :deep(.el-form) { --jb-card-line: var(--jb-line, #e3e9f2); }
 </style>

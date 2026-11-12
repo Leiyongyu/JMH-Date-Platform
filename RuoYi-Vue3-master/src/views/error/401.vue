@@ -1,8 +1,8 @@
 <template>
   <div class="errPage-container">
-    <el-button icon="arrow-left" class="pan-back-btn" @click="back">
-      返回
-    </el-button>
+    <el-button class="pan-back-btn" @click="back">
+    <app-icon name="arrowLeft" :size="15" class="btn-icon" />返回
+  </el-button>
     <el-row>
       <el-col :span="12">
         <h1 class="text-jumbo text-ginormous">
@@ -47,9 +47,10 @@ function back() {
   max-width: 100%;
   margin: 100px auto;
   .pan-back-btn {
-    background: #008489;
+    background: linear-gradient(135deg, #2c74f0, #1257d6);
     color: #fff;
     border: none !important;
+    box-shadow: 0 8px 18px -10px rgba(18, 87, 214, 0.85);
   }
   .pan-gif {
     margin: 0 auto;
@@ -63,7 +64,7 @@ function back() {
   .text-jumbo {
     font-size: 60px;
     font-weight: 700;
-    color: #484848;
+    color: #0b1526;
   }
   .list-unstyled {
     font-size: 14px;
@@ -71,7 +72,7 @@ function back() {
       padding-bottom: 5px;
     }
     a {
-      color: #008489;
+      color: #1257d6;
       text-decoration: none;
       &:hover {
         text-decoration: underline;

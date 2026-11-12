@@ -38,14 +38,13 @@ watch(() => props.details, () => { page.value = 1; sort.value = {}; table.value?
 </script>
 
 <style scoped>
-.performance-details { min-width: 0; margin-top: 18px; padding: 22px; background: var(--el-bg-color); border: 1px solid var(--el-border-color-light); border-radius: 12px; }
+.performance-details { min-width: 0; margin-top: 18px; padding: 22px; background: var(--jb-surface, #fff); border: 1px solid var(--jb-line, #e3e9f2); border-radius: 12px; }
 header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
 header > div { display: flex; align-items: center; gap: 12px; }
-h3 { font-size: 17px; margin: 0; color: var(--el-text-color-primary); }
-.group-tag { font-size: 12px; padding: 5px 10px; color: var(--el-color-primary); background: var(--el-color-primary-light-9); border-radius: 5px; }
-.scope, .table-footer p { font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.7; }
+h3 { font-size: 17px; margin: 0; color: var(--jb-ink-700, #24334a); }
+.group-tag { font-size: 12px; padding: 4px 10px; color: var(--jb-brand-600, #1257d6); background: var(--jb-brand-50, #f4f8ff); border-radius: 999px; font-weight: 500; }
+.scope, .table-footer p { font-size: 12px; color: var(--jb-ink-400, #8a99b0); line-height: 1.7; }
 .scope { overflow-wrap: anywhere; }
-:deep(.el-table th.el-table__cell) { background: var(--el-fill-color-light); color: var(--el-text-color-regular); }
 :deep(.el-table .cell) { font-variant-numeric: tabular-nums; }
 :deep(.el-table__footer-wrapper) { font-weight: 600; }
 .table-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 14px; }

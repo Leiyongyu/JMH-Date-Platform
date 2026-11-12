@@ -23,6 +23,7 @@ from backend.sql_statements import split_sql_statements
 
 MIGRATION = PROJECT_ROOT / "migrations" / "20261110_ebay_price_analysis.sql"
 REASON_MIGRATION = PROJECT_ROOT / "migrations" / "20261110_ebay_price_analysis_unmatched_reason.sql"
+OWNER_MIGRATION = PROJECT_ROOT / "migrations" / "20261112_ebay_price_analysis_owner_start_time.sql"
 STAT_DATE = date(2026, 9, 23)
 REFRESHED_AT = datetime(2026, 9, 23, 10, 15, 11)
 RATES = {"USD": Decimal("6.523541"), "EUR": Decimal("7.308659"),
@@ -765,9 +766,13 @@ def test_migration_is_idempotent_and_additive_only():
 def test_migration_declares_every_column_the_loader_writes():
     sql = MIGRATION.read_text(encoding="utf-8")
     added = REASON_MIGRATION.read_text(encoding="utf-8")
+    owner_added = OWNER_MIGRATION.read_text(encoding="utf-8")
     for column in repo.COLUMNS:
         if column in ("unmatched_reason", "unmatched_reason_text"):
             assert f"ADD COLUMN `{column}`" in added, f"加列迁移缺少 {column}"
+            continue
+        if column in ("owner_name", "listing_start_time"):
+            assert f"ADD COLUMN `{column}`" in owner_added, f"加列迁移缺少 {column}"
             continue
         assert f"\n  {column} " in sql, f"迁移脚本缺少列 {column}"
 
@@ -1223,3 +1228,76 @@ def test_reason_migration_is_idempotent_ascii_and_only_adds_two_columns():
         assert forbidden not in upper
     assert "`unmatched_reason` VARCHAR(32) NULL" in sql
     assert "`unmatched_reason_text` VARCHAR(255) NULL" in sql
+
+
+# ----------------------------------------------------------- 负责人、上架时间
+def test_listing_start_time_is_converted_from_utc_to_beijing():
+    assert service.listing_start_time("2026-11-10T02:09:54.000Z") == datetime(2026, 11, 10, 10, 9, 54)
+    assert service.listing_start_time("2026-11-09T20:00:00+00:00") == datetime(2026, 11, 10, 4, 0, 0)
+    for bad in (None, "", "not-a-time"):
+        assert service.listing_start_time(bad) is None
+
+
+def test_build_row_carries_owner_and_start_time():
+    row = service.build_row(source(start_time="2026-09-29T11:18:51.000Z"), stat_date=STAT_DATE,
+                            rates=RATES, batch_id="b", refreshed_at=REFRESHED_AT,
+                            owner_of=lambda sku: {"TYT-90245-0772": "张三"}.get(sku))
+    assert row["owner_name"] == "张三"
+    assert row["listing_start_time"] == datetime(2026, 9, 29, 19, 18, 51)
+    assert build()["owner_name"] is None and build()["listing_start_time"] is None
+
+
+def test_owner_resolver_uses_ebay_brand_rules_and_fixed_brands(monkeypatch):
+    from backend.repositories import inventory_report_etl_repository as owner_repo
+    calls = []
+    monkeypatch.setattr(owner_repo, "owner_rules", lambda month, platform: calls.append((month, platform)) or [
+        {"rule_type": "EBAY_BRAND", "match_key": "DAS", "principal_name": "方黎力"},
+        {"rule_type": "EBAY_BRAND", "match_key": "TYT", "principal_name": "杨萍"}])
+    monkeypatch.setattr(owner_repo, "ebay_product_sku_map", lambda month: calls.append(("sku_map", month)) or {})
+    owner_of = service.owner_resolver("2026-11", "2026-11")
+    assert owner_of("DAS-10178-0576") == "方黎力"
+    assert owner_of("TYT-90245-0772") == "杨萍"
+    assert owner_of("CL-1-2") == "陈丽", "固定品牌优先，与绩效、月度库存一致"
+    assert owner_of("ZZZ-1-2") == "未分配"
+    assert owner_of(None) is None
+    assert calls == [("2026-11", "ebay"), ("sku_map", "2026-11")], "规则只读一次"
+    assert service.owner_resolver(None, "2026-11")("DAS-10178-0576") is None, "没有任何规则月份时不猜"
+
+
+def test_build_rows_resolves_owner_with_the_source_rule_month(monkeypatch):
+    seen = []
+    monkeypatch.setattr(service, "owner_resolver",
+                        lambda rule_month, sku_month: seen.append((rule_month, sku_month)) or (lambda sku: "负责人"))
+    rows = service.build_rows({"batch": {"stat_date": STAT_DATE, "stat_month": "2026-11"},
+                               "rates": RATES, "rows": [source()], "owner_rule_month": "2026-10"},
+                              batch_id="b", refreshed_at=REFRESHED_AT)
+    assert seen == [("2026-10", "2026-11")]
+    assert rows[0]["owner_name"] == "负责人"
+
+
+def test_latest_owner_rule_month_falls_back_to_the_latest_earlier_month():
+    class Cursor:
+        def execute(self, sql, params):
+            self.sql, self.params = sql, params
+
+        def fetchone(self):
+            return {"stat_month": "2026-10"}
+    cursor = Cursor()
+    assert repo.latest_owner_rule_month(cursor, "2026-11") == "2026-10"
+    assert "platform='ebay' AND stat_month<=%s" in cursor.sql and cursor.params == ("2026-11",)
+
+
+def test_owner_and_start_time_flow_to_detail_summary_listings_and_export():
+    assert {"owner_name", "listing_start_time"} <= set(repo.COLUMNS)
+    assert {"owner_name", "listing_start_time"} <= set(repo._DETAIL_COLUMNS)
+    assert {"owner_name", "listing_start_time"} <= repo.SORTABLE
+    assert "owner_name" in repo.SUMMARY_SORTABLE
+    assert "MAX(owner_name) owner_name" in repo._SUMMARY_SELECT
+    assert "l.start_time" in repo._listing_cte(None)
+    keys = [key for key, _ in service.EXPORT_COLUMNS]
+    assert keys[keys.index("sku"):keys.index("sku") + 4] == ["sku", "mid_code", "owner_name", "title"]
+    assert "listing_start_time" in keys
+    detail = service._detail_row({"owner_name": "张三", "listing_start_time": datetime(2026, 11, 10, 10, 9, 54)})
+    assert detail["owner_name"] == "张三" and detail["listing_start_time"] == "2026-11-10 10:09:54"
+    summary = service._summary_row({"owner_name": "张三", "statuses": "健康"})
+    assert summary["owner_name"] == "张三" and "listing_start_time" not in summary

@@ -22,21 +22,21 @@
         <div class="head-acts">
           <!-- 只重新读看板表；生产数据由 ERP 定时任务负责，页面不触发同步 -->
           <el-button :disabled="loading" @click="handleQuery">
-            <svg-icon icon-class="jmh-refresh" class="report-icon" :class="{ spinning: loading }" />刷新
+            <app-icon name="refresh" :size="15" class="report-icon" :spin="loading" />刷新
           </el-button>
           <el-tooltip
             content="导出当前筛选下全部记录（店铺维度按刊登、SKU 维度按站点 + SKU），仅包含角色授权的导出字段；不受分页或页面隐藏列限制"
             placement="top"
           >
             <el-button
-              type="warning"
+              type="primary"
               plain
               :loading="exporting"
               :disabled="loading"
               v-hasPermi="['operations:ebayPriceAnalysis:export']"
               @click="handleExport"
             >
-              <svg-icon v-if="!exporting" icon-class="jmh-export" class="report-icon" />导出明细
+              <app-icon v-if="!exporting" name="export" :size="15" class="report-icon" />导出明细
             </el-button>
           </el-tooltip>
         </div>
@@ -93,8 +93,8 @@
           <el-checkbox v-model="query.onlyUnmatched" @change="handleListFilter">只看未匹配</el-checkbox>
         </el-form-item>
         <el-form-item label-width="0">
-          <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-          <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+          <el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+          <el-button @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -118,10 +118,12 @@
             border
             max-height="320"
             class="store-table"
+            style="max-width: 760px"
             empty-text="没有符合条件的店铺，换个站点或店铺试试"
             @row-click="selectStore"
           >
-            <el-table-column prop="seller_account" label="店铺" min-width="150" show-overflow-tooltip />
+            <!-- 只有店铺列是弹性宽度；不给整表限宽时它会吃掉整张卡片的剩余宽度。最长店铺名约 21 个字符，200px 足够 -->
+            <el-table-column prop="seller_account" label="店铺" min-width="200" show-overflow-tooltip />
             <el-table-column prop="site_name" label="站点" width="90" align="center">
               <template #default="{ row }">{{ displayValue(row.site_name || row.site) }}</template>
             </el-table-column>
@@ -139,7 +141,7 @@
                 <span class="column-header">
                   <span>未匹配</span>
                   <el-tooltip content="这家店在本站点的谷仓和成都仓都找不到对应 SKU 的刊登数；点数字只看这些，原因见明细的「未匹配原因」列" placement="top">
-                    <el-icon class="column-tip"><QuestionFilled /></el-icon>
+                    <app-icon name="help" :size="13" class="column-tip" />
                   </el-tooltip>
                 </span>
               </template>
@@ -168,7 +170,7 @@
             </div>
             <div class="table-tools">
               <el-button :type="dense ? 'primary' : 'default'" plain @click="dense = !dense">紧凑</el-button>
-              <el-button icon="Setting" @click="openColumnConfig">自定义列</el-button>
+              <el-button @click="openColumnConfig"><app-icon name="columns" :size="15" class="btn-icon" />自定义列</el-button>
             </div>
           </div>
           <el-empty v-if="!selectedStore" description="在上方店铺汇总里点一个店铺，查看它的 SKU 明细" :image-size="64" />
@@ -200,7 +202,7 @@
                   <span class="column-header">
                     <span>{{ col.label }}</span>
                     <el-tooltip :content="col.tip" placement="top">
-                      <el-icon class="column-tip"><QuestionFilled /></el-icon>
+                      <app-icon name="help" :size="13" class="column-tip" />
                     </el-tooltip>
                   </span>
                 </template>
@@ -344,7 +346,7 @@
                 <span class="column-header">
                   <span>{{ col.label }}</span>
                   <el-tooltip :content="col.tip" placement="top">
-                    <el-icon class="column-tip"><QuestionFilled /></el-icon>
+                    <app-icon name="help" :size="13" class="column-tip" />
                   </el-tooltip>
                 </span>
               </template>
@@ -393,7 +395,7 @@
     <!-- ===== 这个 SKU 在其他店铺 ===== -->
     <el-drawer
       v-model="compareDrawer.visible"
-      size="820px"
+      size="920px"
       class="sku-compare-drawer"
       append-to-body
       :title="`其他店铺 · ${displayValue(compareDrawer.sku)}`"
@@ -541,6 +543,8 @@ const columnDefs = [
   { key: 'image_url', label: '图片', width: 70, fixed: true, align: 'center', format: 'image' },
   { key: 'sku', label: 'SKU', minWidth: 160, fixed: true, format: 'skuLink' },
   { key: 'title', label: '产品名称', minWidth: 200, tooltip: true },
+  { key: 'owner_name', label: '负责人', width: 100, sortable: true, tip: '按 eBay 品牌负责人规则匹配，与绩效排名、月度库存同一口径；规则里没有的品牌显示「未分配」。' },
+  { key: 'listing_start_time', label: '上架时间', width: 170, sortable: true, tip: 'eBay 刊登的上架时间（北京时间）。eBay 接口不返回改价时间，这里不是最近调价时间。' },
   { key: 'current_price', label: '原币售价', width: 120, align: 'right', format: 'price' },
   {
     key: 'price_usd', label: '售价(USD)', width: 115, align: 'right', format: 'decimal', sortable: true,
@@ -582,7 +586,9 @@ const {
   'operations:ebay:priceAnalysis:store',
   columnDefs,
   fixedColumnKeys,
-  requiredColumnKeys
+  requiredColumnKeys,
+  {},
+  { owner_name: 'title', listing_start_time: 'owner_name' }
 )
 
 // SKU 维度列：库存取同站点的一份（后端 MAX），eBay 可售是各店铺相加。
@@ -591,6 +597,7 @@ const skuColumns = [
   { key: 'site_name', label: '站点', width: 80, fixed: true, align: 'center' },
   { key: 'sku', label: 'SKU', minWidth: 160, fixed: true },
   { key: 'title', label: '产品名称', minWidth: 200, tooltip: true },
+  { key: 'owner_name', label: '负责人', width: 100, sortable: true, tip: '按 eBay 品牌负责人规则匹配，与绩效排名、月度库存同一口径；规则里没有的品牌显示「未分配」。' },
   { key: 'store_count', label: '在售店铺数', width: 115, align: 'right', format: 'integer', sortable: true },
   {
     key: 'ebay_quantity_available', label: 'eBay可售合计', width: 125, align: 'right', format: 'integer', sortable: true,
@@ -620,7 +627,7 @@ const compareSiteColumns = [
   { key: 'store_count', label: '在售店铺数', width: 100, align: 'right', format: 'integer' },
   { key: 'ebay_available_total', label: 'eBay可售合计', minWidth: 115, align: 'right', format: 'integer' }
 ]
-// 抽屉 820px 减去左右各 20px 内边距约 780px 可用；这张表要一眼扫完，列宽合计压在 770px 以内，不出横向滚动。
+// 抽屉 920px 减去左右各 20px 内边距约 880px 可用；这张表要一眼扫完，列宽合计压在 870px 以内，不出横向滚动。
 // 精简掉两列和售价旁的标签后，前几列放回宽松的宽度；未匹配原因是长句，超出部分悬停看全文。
 const compareListingColumns = [
   { key: 'seller_account', label: '店铺', minWidth: 130, tooltip: true },
@@ -629,6 +636,7 @@ const compareListingColumns = [
   { key: 'current_price', label: '原币售价', width: 115, align: 'right', format: 'price' },
   { key: 'price_usd', label: '售价(USD)', width: 105, align: 'right', format: 'decimal' },
   { key: 'ebay_quantity_available', label: 'eBay可售', width: 85, align: 'right', format: 'integer' },
+  { key: 'listing_start_time', label: '上架日期', width: 100, format: 'date' },
   { key: 'unmatched_reason_text', label: '未匹配原因', minWidth: 135, format: 'reason', tooltip: true }
 ]
 
@@ -686,6 +694,8 @@ function cellText(row, col) {
     }
     case 'reason':
       return unmatchedReason(row)
+    case 'date':
+      return value ? String(value).slice(0, 10) : '—'
     default:
       return displayValue(value)
   }
@@ -966,12 +976,13 @@ onMounted(async () => {
 
 <style scoped>
 .ebay-price-analysis {
-  background: #f5f7fa;
+  background: var(--jb-page, #f5f7fb);
   min-height: calc(100vh - 84px);
 }
 .ebay-price-analysis :deep(.el-card) {
-  border: 0;
-  border-radius: 10px;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 12px;
+  box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16, 42, 90, .04), 0 4px 16px rgba(16, 42, 90, .05));
 }
 .head-card,
 .table-card,
@@ -988,7 +999,7 @@ onMounted(async () => {
 .head-title h2 {
   margin: 0;
   font-size: 20px;
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
 }
 .head-meta {
   display: flex;
@@ -997,10 +1008,10 @@ onMounted(async () => {
   gap: 6px;
   margin: 6px 0 0;
   font-size: 13px;
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
 }
 .head-meta strong {
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
   font-weight: 600;
 }
 .meta-sep {
@@ -1011,19 +1022,19 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: 8px;
 }
-/* 自有图标库 jmh-refresh / jmh-export。按钮带文字，图标不设 color，
-   用 currentColor 跟随按钮文字色（导出按钮即 warning 橙色）；loading 时刷新图标旋转 */
+.head-acts .el-button,
+.filter-form :deep(.el-button),
+.table-tools .el-button {
+  border-radius: 8px;
+  font-weight: 500;
+}
 .report-icon {
   margin-right: 6px;
-  font-size: 16px;
+  vertical-align: -2px;
 }
-.report-icon.spinning {
-  animation: report-icon-spin 1s linear infinite;
-}
-@keyframes report-icon-spin {
-  to {
-    transform: rotate(360deg);
-  }
+.btn-icon {
+  margin-right: 5px;
+  vertical-align: -2px;
 }
 .snapshot-alert {
   margin: 12px 0 4px;
@@ -1034,11 +1045,18 @@ onMounted(async () => {
 .filter-form :deep(.el-form-item) {
   margin-bottom: 10px;
 }
+.filter-form :deep(.el-form-item__label) {
+  color: var(--jb-ink-500, #5a6b85);
+  font-weight: 500;
+}
 .filter-control {
   width: 220px;
 }
 .dimension-tabs :deep(.el-tabs__header) {
   margin-bottom: 12px;
+}
+.dimension-tabs :deep(.el-tabs__item) {
+  font-size: 14px;
 }
 .section-head {
   display: flex;
@@ -1051,7 +1069,7 @@ onMounted(async () => {
 .section-head--detail {
   margin-top: 18px;
   padding-top: 14px;
-  border-top: 1px dashed #e4e7ed;
+  border-top: 1px dashed var(--jb-line, #e3e9f2);
 }
 .section-head__text {
   display: flex;
@@ -1061,11 +1079,11 @@ onMounted(async () => {
 .section-head__text small {
   margin-top: 2px;
   font-size: 12px;
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
 }
 .card-title {
   font-weight: 600;
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
 }
 .table-tools {
   display: flex;
@@ -1073,20 +1091,28 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
 }
+/* 表格统一品牌表头 */
+.table-card :deep(.el-table),
+.sku-compare-drawer .el-table {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+}
 .store-table :deep(.el-table__row) {
   cursor: pointer;
 }
 .store-table :deep(.el-table__row.is-selected > td.el-table__cell) {
-  background: #ecf5ff;
+  background: rgba(18, 87, 214, .08);
 }
 .store-table :deep(.el-table__row.is-selected > td.el-table__cell:first-child) {
-  box-shadow: inset 3px 0 0 #409eff;
+  box-shadow: inset 3px 0 0 var(--jb-brand-500, #1257d6);
 }
 .count-link {
   font-weight: 600;
 }
 .unmatched-reason {
-  color: #b88230;
+  color: var(--jb-warn, #b88230);
 }
 .column-header {
   display: inline-flex;
@@ -1095,13 +1121,13 @@ onMounted(async () => {
   white-space: nowrap;
 }
 .column-tip {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   cursor: help;
 }
 .row-image {
   width: 46px;
   height: 46px;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 .sku-link {
   font-weight: 600;
@@ -1115,29 +1141,29 @@ onMounted(async () => {
 .shared-hint {
   margin: 0 0 10px;
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #fdf6ec;
-  color: #b88230;
+  color: var(--jb-warn, #b88230);
   font-size: 13px;
 }
 .compare-title {
   margin: 12px 0 6px;
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
 }
 .ebay-price-analysis :deep(.el-table__row.is-origin > td.el-table__cell) {
-  background: #ecf5ff;
+  background: rgba(18, 87, 214, .07);
 }
 .note-list {
   margin: 0;
   padding-left: 18px;
-  color: #606266;
+  color: var(--jb-ink-500, #5a6b85);
   font-size: 13px;
   line-height: 2;
 }
 .note-key {
-  color: #b88230;
+  color: var(--jb-warn, #b88230);
   font-weight: 600;
 }
 @media (max-width: 768px) {
@@ -1180,17 +1206,17 @@ onMounted(async () => {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  color: #606266;
+  color: #5a6b85;
   font-size: 13px;
 }
 .sku-compare-drawer .compare-head__text strong {
-  color: #303133;
+  color: #24334a;
   font-size: 15px;
 }
 .sku-compare-drawer .shared-hint {
   margin: 0 0 10px;
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #fdf6ec;
   color: #b88230;
   font-size: 13px;
@@ -1199,12 +1225,18 @@ onMounted(async () => {
   margin: 12px 0 6px;
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: #24334a;
 }
 .sku-compare-drawer .unmatched-reason {
   color: #b88230;
 }
+.sku-compare-drawer .el-table {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: #e3e9f2;
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+}
 .sku-compare-drawer .el-table__row.is-origin > td.el-table__cell {
-  background: #ecf5ff;
+  background: rgba(18, 87, 214, .07);
 }
 </style>

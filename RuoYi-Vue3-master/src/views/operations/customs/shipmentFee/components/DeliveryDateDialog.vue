@@ -2,8 +2,8 @@
   <el-dialog v-model="visible" title="批量修改提交时间" width="min(1280px, 96vw)" append-to-body>
     <el-alert title="先查询可选送达时间，当前阶段不提交修改。填写STA任务编号、货件单号和SID，可逐行添加多个货件。" type="info" :closable="false" show-icon />
     <div class="query-tools">
-      <el-button icon="Plus" :disabled="busy || rows.length >= 20" @click="rows.push(deliveryRow())">新增货件</el-button>
-      <el-button type="primary" icon="Search" :loading="busy" @click="queryRows">{{ busy ? '正在查询' : '查询' }}</el-button>
+      <el-button :disabled="busy || rows.length >= 20" @click="rows.push(deliveryRow())"><app-icon name="plus" :size="14" class="btn-icon" />新增货件</el-button>
+      <el-button type="primary" :loading="busy" @click="queryRows"><app-icon v-if="!busy" name="search" :size="15" class="btn-icon" />{{ busy ? '正在查询' : '查询' }}</el-button>
       <span>最多20条；已完成 {{ completed }} / {{ rows.length }}</span>
     </div>
     <el-table :data="rows" border max-height="340">
@@ -79,8 +79,10 @@ onBeforeUnmount(() => { run++ })
 </script>
 <style scoped>
 .query-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
-.query-tools > span, .context { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.8; }
-.delivery-result { margin-top: 20px; padding: 16px; border: 1px solid var(--el-border-color-light); border-radius: 8px; }
+.query-tools .el-button { border-radius: 8px; font-weight: 500; }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+.query-tools > span, .context { color: var(--jb-ink-500, #5a6b85); font-size: 12px; line-height: 1.8; }
+.delivery-result { margin-top: 20px; padding: 16px; border: 1px solid var(--jb-line, #e3e9f2); border-radius: 10px; }
 .delivery-result header { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .context { overflow-wrap: anywhere; margin: 8px 0 12px; }
 .raw-response { margin-top: 12px; }

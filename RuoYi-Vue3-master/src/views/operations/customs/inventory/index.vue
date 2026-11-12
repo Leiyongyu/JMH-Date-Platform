@@ -6,21 +6,21 @@
         <span>汽配含税产品出入库明细</span>
       </div>
       <div class="toolbar">
-        <el-button type="primary" icon="Plus" @click="handleAdd"
-          v-hasPermi="['customs:inventory:add']">新增</el-button>
+        <el-button type="primary" @click="handleAdd"
+          v-hasPermi="['customs:inventory:add']"><app-icon name="plus" :size="15" class="btn-icon" />新增</el-button>
         <el-dropdown trigger="click" @command="handleToolCommand" :disabled="importing || exporting">
           <el-button type="primary" :loading="importing || exporting">
             导入导出 ▾
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-if="checkPermi(['customs:inventory:import'])" command="importExcel" icon="Upload">导入 Excel</el-dropdown-item>
-              <el-dropdown-item v-if="checkPermi(['customs:inventory:export'])" command="exportSelected" icon="Download" :disabled="!selectedRows.length" divided>导出选中</el-dropdown-item>
-              <el-dropdown-item v-if="checkPermi(['customs:inventory:export'])" command="exportAll" icon="Download">导出全部</el-dropdown-item>
+              <el-dropdown-item v-if="checkPermi(['customs:inventory:import'])" command="importExcel"><app-icon name="import" :size="14" style="margin-right:5px;vertical-align:-2px" />导入 Excel</el-dropdown-item>
+              <el-dropdown-item v-if="checkPermi(['customs:inventory:export'])" command="exportSelected" :disabled="!selectedRows.length" divided><app-icon name="export" :size="14" style="margin-right:5px;vertical-align:-2px" />导出选中</el-dropdown-item>
+              <el-dropdown-item v-if="checkPermi(['customs:inventory:export'])" command="exportAll"><app-icon name="export" :size="14" style="margin-right:5px;vertical-align:-2px" />导出全部</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <el-button icon="Refresh" @click="getList">刷新</el-button>
+        <el-button @click="getList"><app-icon name="refresh" :size="15" class="btn-icon" />刷新</el-button>
       </div>
       <input ref="fileRef" class="file-input" type="file" accept=".xlsx" @change="handleFileChange">
     </div>
@@ -30,8 +30,8 @@
         <el-input v-model="queryParams.keyword" placeholder="SKU / 编码 / 产品名称" clearable @keyup.enter="handleQuery" />
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-        <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+        <el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+        <el-button @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
       </el-form-item>
     </el-form>
 
@@ -90,7 +90,7 @@
       <el-table-column label="申报要素" prop="declarationElements" min-width="180" show-overflow-tooltip />
       <el-table-column label="操作" width="86" fixed="right" align="center">
         <template #default="scope">
-          <el-button link type="primary" icon="Edit" @click="handleEdit(scope.row)"
+          <el-button link type="primary" @click="handleEdit(scope.row)"
             v-hasPermi="['customs:inventory:edit']">编辑</el-button>
         </template>
       </el-table-column>
@@ -666,7 +666,7 @@ getList()
 
 <style scoped>
 .customs-inventory-page {
-  background: #f6f8fb;
+  background: var(--jb-page, #f5f7fb);
   min-height: calc(100vh - 84px);
 }
 
@@ -678,27 +678,36 @@ getList()
   margin-bottom: 12px;
   padding: 14px 16px;
   background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 12px;
+  box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16,42,90,.04), 0 4px 16px rgba(16,42,90,.05));
 }
 
 .page-heading h2 {
   margin: 0;
   font-size: 20px;
   font-weight: 650;
-  color: #1f2937;
+  color: var(--jb-ink-700, #24334a);
 }
 
 .page-heading span {
   display: block;
   margin-top: 4px;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--jb-ink-300, #94a0b1);
 }
 
 .toolbar {
   display: flex;
   gap: 8px;
+}
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+.customs-inventory-page :deep(.el-button) { border-radius: 8px; font-weight: 500; }
+.customs-inventory-page :deep(.el-table) {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
 }
 
 .file-input {
@@ -709,8 +718,9 @@ getList()
   padding: 12px 16px 0;
   margin-bottom: 12px;
   background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 12px;
+  box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16,42,90,.04), 0 4px 16px rgba(16,42,90,.05));
 }
 
 .inventory-table {
@@ -761,7 +771,7 @@ getList()
 
 .product-option span {
   overflow: hidden;
-  color: #1f2937;
+  color: var(--jb-ink-700, #24334a);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -769,7 +779,7 @@ getList()
 
 .product-option small {
   overflow: hidden;
-  color: #6b7280;
+  color: var(--jb-ink-300, #94a0b1);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -784,7 +794,7 @@ getList()
 }
 
 .stock-cell strong {
-  color: #1f2937;
+  color: var(--jb-ink-700, #24334a);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
@@ -796,7 +806,7 @@ getList()
 }
 
 .stock-cell span {
-  color: #409eff;
+  color: #1257d6;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
@@ -815,7 +825,7 @@ getList()
 .log-popover {
   display: grid;
   gap: 10px;
-  color: #1f2937;
+  color: var(--jb-ink-700, #24334a);
 }
 
 .log-popover-title {
@@ -835,14 +845,14 @@ getList()
 }
 
 .log-title-main strong {
-  color: #1f2937;
+  color: var(--jb-ink-700, #24334a);
   font-size: 15px;
 }
 
 .log-title-main span {
   overflow: hidden;
   max-width: 315px;
-  color: #6b7280;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -854,7 +864,7 @@ getList()
 }
 
 .log-title-summary span {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 11px;
 }
 
@@ -876,8 +886,9 @@ getList()
   display: grid;
   gap: 9px;
   padding: 11px 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 12px;
+  box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16,42,90,.04), 0 4px 16px rgba(16,42,90,.05));
   background: #f8fafc;
 }
 
@@ -897,7 +908,7 @@ getList()
 
 .log-order strong {
   overflow: hidden;
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -949,7 +960,7 @@ getList()
 }
 
 .log-meta-item span {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
 }
 
 .log-meta-item strong {
@@ -966,7 +977,7 @@ getList()
   gap: 12px;
   padding-top: 7px;
   border-top: 1px dashed #dbe3ec;
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 11px;
 }
 
@@ -982,14 +993,14 @@ getList()
 }
 
 .log-more {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 11px;
   text-align: center;
 }
 
 .log-empty {
   padding: 10px 0;
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   text-align: center;
 }
 </style>
@@ -1005,7 +1016,7 @@ getList()
 .customs-inventory-log-popper .log-popover {
   display: grid;
   gap: 10px;
-  color: #1f2937;
+  color: var(--jb-ink-700, #24334a);
 }
 
 .customs-inventory-log-popper .log-popover-title {
@@ -1025,14 +1036,14 @@ getList()
 }
 
 .customs-inventory-log-popper .log-title-main strong {
-  color: #1f2937;
+  color: var(--jb-ink-700, #24334a);
   font-size: 15px;
 }
 
 .customs-inventory-log-popper .log-title-main span {
   overflow: hidden;
   max-width: 350px;
-  color: #6b7280;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1044,7 +1055,7 @@ getList()
 }
 
 .customs-inventory-log-popper .log-title-summary span {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 11px;
 }
 
@@ -1077,8 +1088,9 @@ getList()
   display: grid;
   gap: 9px;
   padding: 11px 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 12px;
+  box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16,42,90,.04), 0 4px 16px rgba(16,42,90,.05));
   background: #f8fafc;
 }
 
@@ -1110,7 +1122,7 @@ getList()
 
 .customs-inventory-log-popper .log-order strong {
   overflow: hidden;
-  color: #303133;
+  color: var(--jb-ink-700, #24334a);
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1162,7 +1174,7 @@ getList()
 }
 
 .customs-inventory-log-popper .log-meta-item span {
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
 }
 
 .customs-inventory-log-popper .log-meta-item strong {
@@ -1176,7 +1188,7 @@ getList()
 .customs-inventory-log-popper .log-row-footer {
   padding-top: 7px;
   border-top: 1px dashed #dbe3ec;
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   font-size: 11px;
 }
 
@@ -1193,7 +1205,7 @@ getList()
 
 .customs-inventory-log-popper .log-empty {
   padding: 18px 0;
-  color: #909399;
+  color: var(--jb-ink-300, #94a0b1);
   text-align: center;
 }
 </style>

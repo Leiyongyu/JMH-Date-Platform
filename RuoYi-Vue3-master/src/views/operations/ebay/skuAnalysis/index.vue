@@ -16,8 +16,8 @@
             :clearable="false" :disabled-date="disabledPaymentDate" style="width: 260px" @change="handleDateChange" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" icon="Search" @click="search">搜索</el-button>
-          <el-button icon="Refresh" @click="reset">重置</el-button>
+          <el-button type="primary" @click="search"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+          <el-button @click="reset"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
           <el-popover
             placement="bottom-start"
             :width="640"
@@ -26,7 +26,7 @@
             popper-class="ebay-order-upload-guide-popper"
           >
             <template #reference>
-              <el-button type="success" icon="Upload" v-hasPermi="['operations:ebaySkuAnalysis:import']" @click="openImport">上传订单</el-button>
+              <el-button type="success" v-hasPermi="['operations:ebaySkuAnalysis:import']" @click="openImport"><app-icon name="upload" :size="15" class="btn-icon" />上传订单</el-button>
             </template>
             <div class="order-upload-guide">
               <div class="order-upload-guide__title">订单文件下载指引</div>
@@ -46,7 +46,10 @@
 
     <div class="summary-grid">
       <div v-for="card in cards" :key="card.label" class="summary-card">
-        <span>{{ card.label }}</span><strong>{{ card.value }}</strong>
+        <span class="summary-card__badge" aria-hidden="true"><app-icon :name="card.icon" :size="20" /></span>
+        <div class="summary-card__meta">
+          <span>{{ card.label }}</span><strong>{{ card.value }}</strong>
+        </div>
       </div>
     </div>
 
@@ -88,7 +91,7 @@
       <template #header>
         <div class="card-title">
           <span>SKU销售基础表格</span>
-          <el-button icon="Setting" @click="openColumnConfig">自定义列</el-button>
+          <el-button @click="openColumnConfig"><app-icon name="columns" :size="15" class="btn-icon" />自定义列</el-button>
         </div>
       </template>
       <el-table :key="columnTableKey" v-loading="loading" :data="rows" stripe height="520">
@@ -106,7 +109,7 @@
           <template v-if="col.tip" #header>
             <span class="velocity-header">{{ col.label }}
               <el-tooltip :content="col.tip" placement="top">
-                <el-icon><QuestionFilled /></el-icon>
+                <app-icon name="help" :size="13" class="help-icon" />
               </el-tooltip>
             </span>
           </template>
@@ -136,7 +139,7 @@
 
     <el-dialog v-model="importVisible" title="上传数字酋长eBay订单文件" width="560px" append-to-body @closed="resetImportFile">
       <el-upload ref="uploadRef" drag accept=".xlsx" :auto-upload="false" :limit="1" :on-change="onFile" :on-remove="onRemove">
-        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <app-icon name="upload" :size="38" class="upload-icon" />
         <div class="el-upload__text">拖入文件，或<em>点击选择</em></div>
         <template #tip><div class="el-upload__tip">只接受数字酋长最新导出模板；按平台订单号＋付款日期增量覆盖。发货状态包含“已作废”的行不导入，重传时会移除对应订单旧明细；仅“已退款”仍保留。利润取“订单利润”字段（数字酋长 2026-11 起去掉了货币标注，数值仍是人民币）。</div></template>
       </el-upload>
@@ -238,9 +241,11 @@ const chartMetrics = [
   { label: '按利润率', value: 'profit_rate', percent: true }
 ]
 const cards = computed(() => [
-  { label: '已支付金额', value: money(summary.value.paid_amount) }, { label: '已售数量', value: number(summary.value.sold_quantity) },
-  { label: '已支付订单', value: number(summary.value.paid_order_count) }, { label: 'SKU数', value: number(summary.value.sku_count) },
-  { label: '买家数', value: number(summary.value.buyer_count) }
+  { label: '已支付金额', value: money(summary.value.paid_amount), icon: 'money' },
+  { label: '已售数量', value: number(summary.value.sold_quantity), icon: 'cart' },
+  { label: '已支付订单', value: number(summary.value.paid_order_count), icon: 'receipt' },
+  { label: 'SKU数', value: number(summary.value.sku_count), icon: 'box' },
+  { label: '买家数', value: number(summary.value.buyer_count), icon: 'users' }
 ])
 function money(value) { return `¥${Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
 function number(value) { return Number(value || 0).toLocaleString('zh-CN') }
@@ -284,11 +289,18 @@ function render() {
   const categories = chartRows.value.map(item => `${item.site_name} · ${item.inventory_sku}`)
   const values = chartRows.value.map(item => Number(item[metric.value] || 0))
   const valueLabel = value => metric.percent ? percentage(value) : `${metric.money ? '¥' : ''}${Number(value).toLocaleString('zh-CN')}`
+  const isLine = chartType.value === 'line'
+  const brandColor = new echarts.graphic.LinearGradient(0, 0, chartType.value === 'horizontalBar' ? 1 : 0, chartType.value === 'horizontalBar' ? 0 : 1, [
+    { offset: 0, color: '#2c74f0' }, { offset: 1, color: '#1257d6' }
+  ])
   const common = {
     grid: { left: chartType.value === 'horizontalBar' ? 150 : 70, right: 28, top: 28, bottom: chartType.value === 'horizontalBar' ? 35 : 100 },
-    tooltip: { trigger: 'axis', valueFormatter: valueLabel },
-    series: [{ name: metric.label.replace('按', ''), type: chartType.value === 'line' ? 'line' : 'bar', smooth: chartType.value === 'line',
-      barMaxWidth: 30, data: values, itemStyle: { color: '#409eff', borderRadius: chartType.value === 'line' ? 0 : [4, 4, 0, 0] } }]
+    tooltip: { trigger: 'axis', valueFormatter: valueLabel, backgroundColor: 'rgba(11, 31, 68, .92)', borderWidth: 0, textStyle: { color: '#e8eefb', fontSize: 12 }, padding: [8, 12], extraCssText: 'border-radius:8px;box-shadow:0 6px 20px rgba(11,31,68,.28);' },
+    series: [{ name: metric.label.replace('按', ''), type: isLine ? 'line' : 'bar', smooth: isLine,
+      barMaxWidth: 30, data: values,
+      itemStyle: { color: isLine ? '#1257d6' : brandColor, borderRadius: isLine ? 0 : [4, 4, 0, 0] },
+      ...(isLine ? { lineStyle: { width: 2.5, color: '#1257d6' }, symbolSize: 7, areaStyle: { color: 'rgba(18, 87, 214, 0.07)' } } : {})
+    }]
   }
   if (chartType.value === 'horizontalBar') {
     common.xAxis = { type: 'value', axisLabel: { formatter: valueLabel } }
@@ -296,7 +308,7 @@ function render() {
     common.series[0].itemStyle.borderRadius = [0, 4, 4, 0]
   } else {
     common.xAxis = { type: 'category', data: categories, axisLabel: { rotate: 35, interval: 0 } }
-    common.yAxis = { type: 'value', axisLabel: { formatter: valueLabel } }
+    common.yAxis = { type: 'value', axisLabel: { formatter: valueLabel }, splitLine: { lineStyle: { color: '#eef1f7' } } }
   }
   chart.clear(); chart.setOption(common, true)
 }
@@ -329,6 +341,42 @@ onBeforeUnmount(() => chart?.dispose())
 </script>
 
 <style scoped>
-.sku-analysis{background:#f5f7fa;min-height:calc(100vh - 84px)}.filter-card,.chart-card,.table-card{border:0;border-radius:10px;margin-bottom:14px}.filter-card :deep(.el-card__body){padding-bottom:2px}.range-separator{margin:0 8px;color:#909399}.summary-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px}.summary-card{background:#fff;border-radius:10px;padding:16px 20px;border-left:4px solid #409eff}.summary-card span{display:block;color:#909399;font-size:13px}.summary-card strong{display:block;margin-top:8px;font-size:22px;color:#303133}.card-title{display:flex;align-items:center;justify-content:space-between;font-weight:600}.card-title small{font-weight:400;color:#909399}.chart-title{gap:16px}.chart-controls{display:flex;align-items:center;gap:8px}.chart-switch :deep(.el-button){width:34px;height:32px;padding:0;color:#a8abb2;background:#fff}.chart-switch :deep(.el-button svg){width:18px;height:18px;fill:currentColor}.chart-switch :deep(.el-button.active){position:relative;z-index:1;color:#ff7a00;border-color:#ffad66;background:#fff7ed}.chart-switch :deep(.el-button:hover){color:#ff7a00;border-color:#ffc58f}.chart{height:500px}.sku-image{width:52px;height:52px;border-radius:6px}.sku-link{font-weight:600}.velocity-header{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}.velocity-header .el-icon{color:#909399;cursor:help}.no-image{color:#c0c4cc;font-size:12px}@media(max-width:1000px){.summary-grid{grid-template-columns:repeat(2,1fr)}}
-.order-upload-guide__title{font-size:15px;font-weight:600;color:#303133;margin-bottom:6px}.order-upload-guide__tip{font-size:13px;line-height:1.6;color:#606266;margin-bottom:10px}.order-upload-guide__image{display:block;width:100%;max-height:72vh;background:#f5f7fa;border-radius:6px;overflow:hidden}.order-upload-guide__image :deep(img){max-height:72vh}
+.sku-analysis{background:var(--jb-page,#f5f7fb);min-height:calc(100vh - 84px)}
+.filter-card,.chart-card,.table-card{border:1px solid var(--jb-line,#e3e9f2);border-radius:12px;margin-bottom:14px;box-shadow:var(--jb-sh-1,0 1px 2px rgba(16,42,90,.04),0 4px 16px rgba(16,42,90,.05))}
+.filter-card :deep(.el-card__body){padding-bottom:2px}
+.filter-card :deep(.el-form-item__label){color:var(--jb-ink-500,#5a6b85);font-weight:500}
+.filter-card :deep(.el-button){border-radius:8px;font-weight:500}
+.btn-icon{margin-right:5px;vertical-align:-2px}
+.range-separator{margin:0 8px;color:var(--jb-ink-300,#94a0b1)}
+
+/* 统计卡 */
+.summary-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:14px}
+.summary-card{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--jb-line,#e3e9f2);border-radius:12px;padding:16px 18px;box-shadow:var(--jb-sh-1,0 1px 2px rgba(16,42,90,.04),0 4px 16px rgba(16,42,90,.05));transition:transform .18s,box-shadow .18s}
+.summary-card:hover{transform:translateY(-2px);box-shadow:var(--jb-sh-2,0 6px 20px rgba(16,42,90,.09))}
+.summary-card__badge{display:flex;align-items:center;justify-content:center;width:42px;height:42px;flex-shrink:0;border-radius:11px;color:#fff;background:linear-gradient(135deg,var(--jb-brand-600,#0e45a8),var(--jb-brand-500,#1257d6) 55%,var(--jb-teal-500,#12b2a6));box-shadow:0 4px 10px rgba(18,87,214,.28)}
+.summary-card__meta{min-width:0}
+.summary-card__meta>span{display:block;color:var(--jb-ink-500,#5a6b85);font-size:12px}
+.summary-card__meta strong{display:block;margin-top:4px;font-size:20px;line-height:1.2;color:var(--jb-ink-700,#24334a);font-variant-numeric:tabular-nums}
+
+/* 卡片标题与图表控件 */
+.card-title{display:flex;align-items:center;justify-content:space-between;font-weight:600;color:var(--jb-ink-700,#24334a)}
+.card-title small{font-weight:400;color:var(--jb-ink-300,#94a0b1)}
+.chart-title{gap:16px}
+.chart-controls{display:flex;align-items:center;gap:8px}
+.chart-switch :deep(.el-button){width:34px;height:32px;padding:0;color:#a8abb2;background:#fff}
+.chart-switch :deep(.el-button svg){width:18px;height:18px;fill:currentColor}
+.chart-switch :deep(.el-button.active){position:relative;z-index:1;color:var(--jb-brand-500,#1257d6);border-color:var(--jb-brand-500,#1257d6);background:rgba(18,87,214,.07)}
+.chart-switch :deep(.el-button:hover){color:var(--jb-brand-500,#1257d6);border-color:#8fb2ef}
+.chart{height:500px}
+
+/* 表格 */
+.table-card :deep(.el-table){--el-table-header-bg-color:#f5f8fd;--el-table-header-text-color:#51627c;--el-table-border-color:var(--jb-line,#e3e9f2);--el-table-row-hover-bg-color:rgba(18,87,214,.055);border-radius:8px}
+.sku-image{width:52px;height:52px;border-radius:8px}
+.sku-link{font-weight:600}
+.velocity-header{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.velocity-header .help-icon{color:var(--jb-ink-300,#94a0b1);cursor:help}
+.no-image{color:#c0c4cc;font-size:12px}
+.upload-icon{color:var(--jb-brand-300,#7297cd);margin-bottom:12px}
+@media(max-width:1000px){.summary-grid{grid-template-columns:repeat(2,1fr)}}
+.order-upload-guide__title{font-size:15px;font-weight:600;color:var(--jb-ink-700,#24334a);margin-bottom:6px}.order-upload-guide__tip{font-size:13px;line-height:1.6;color:var(--jb-ink-500,#5a6b85);margin-bottom:10px}.order-upload-guide__image{display:block;width:100%;max-height:72vh;background:var(--jb-page,#f5f7fb);border-radius:8px;overflow:hidden}.order-upload-guide__image :deep(img){max-height:72vh}
 </style>

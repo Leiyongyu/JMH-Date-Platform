@@ -4,7 +4,41 @@ import fs from 'node:fs'
 import vm from 'node:vm'
 import { amzProfitColumnHelp } from '../src/views/finance/amzProfitReport/columnHelp.js'
 
+// 页面文件可能是 CRLF（改版时存成了 CRLF），下面按 '\n}\n' 截取函数源码，先统一成 LF。
 const source = fs.readFileSync(new URL('../src/views/finance/amzProfitReport/index.vue', import.meta.url), 'utf8')
+  .replace(/\r\n/g, '\n')
+const registry = fs.readFileSync(new URL('../src/components/AppIcon/registry.js', import.meta.url), 'utf8')
+// 把 #rgb / #rrggbb / rgb() / rgba() 解析成 { hue, alpha }，用色相判断「红」「绿」，不绑死具体色值。
+function colorInfo(text) {
+  const value = String(text).trim()
+  let r, g, b, alpha = 1
+  const hex = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)
+  const rgb = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i)
+  if (hex) {
+    const full = hex[1].length === 3 ? hex[1].replace(/./g, c => c + c) : hex[1]
+    ;[r, g, b] = [0, 2, 4].map(i => parseInt(full.slice(i, i + 2), 16))
+  } else if (rgb) {
+    ;[r, g, b] = rgb.slice(1, 4).map(Number)
+    if (rgb[4] !== undefined) alpha = Number(rgb[4])
+  } else {
+    assert.fail(`unrecognised color: ${value}`)
+  }
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  let hue = 0
+  if (max !== min) {
+    const d = max - min
+    if (max === r) hue = ((g - b) / d) % 6
+    else if (max === g) hue = (b - r) / d + 2
+    else hue = (r - g) / d + 4
+    hue = (hue * 60 + 360) % 360
+  }
+  return { hue, alpha, lightness: (max + min) / 2 / 255 }
+}
+const isRed = color => { const { hue } = colorInfo(color); return hue <= 20 || hue >= 340 }
+// 绿到青绿都算「跌」色：改版的跌色是青绿 #12b2a6（色相约 176°），旧的是 #16834a（约 145°）。
+const isGreen = color => { const { hue } = colorInfo(color); return hue >= 90 && hue <= 185 }
+
 const columnsSource = source.slice(source.indexOf('const columns = ['), source.indexOf('].map(column =>'))
 const columnKeys = Array.from(columnsSource.matchAll(/\{ key: '([^']+)', label:/g), match => match[1])
 
@@ -29,12 +63,16 @@ test('only order profit columns come from OrderProfit; the rest from settlement'
   assert.match(amzProfitColumnHelp.order_gross_margin.formula, /amount/)
 })
 
-test('trend uses the supplied up/down icons with the change shown inline', () => {
-  for (const name of ['trend-up', 'trend-down']) {
-    const svg = fs.readFileSync(new URL(`../src/assets/icons/svg/jmh/${name}.svg`, import.meta.url), 'utf8')
-    assert.doesNotMatch(svg, /fill=/, `${name} inherits currentColor`)
-  }
-  assert.ok(source.includes("'jmh-trend-up' : 'jmh-trend-down'"))
+test('trend uses up/down icons, red for up and green for down, with the change shown inline', () => {
+  // 改版后涨跌图标走 <app-icon> 的 trendUp / trendDown（Solar 线性图标，颜色跟随 currentColor）。
+  assert.ok(source.includes("<app-icon :name=\"trend(column, row) === 'up' ? 'trendUp' : 'trendDown'\""))
+  assert.match(registry, /^\s*trendUp: \w+,$/m)
+  assert.match(registry, /^\s*trendDown: \w+,$/m)
+  const up = source.match(/\.trend-up \{ color: ([^;]+);/)
+  const down = source.match(/\.trend-down \{ color: ([^;]+);/)
+  assert.ok(up && down, 'trend-up / trend-down set their own color')
+  assert.ok(isRed(up[1]), `up should be red, got ${up[1]}`)
+  assert.ok(isGreen(down[1]), `down should be green, got ${down[1]}`)
   assert.ok(source.includes('{{ changeLabel(column, row) }}'))
   assert.doesNotMatch(source, /changeText/)
   assert.doesNotMatch(source, /[↑↓]/)
@@ -66,8 +104,8 @@ test('currency defaults to CNY and drives display, query and export', () => {
 test('export is a permission-gated month-range dialog', () => {
   assert.ok(source.includes("v-hasPermi=\"['finance:amzProfitReport:export']\""))
   assert.doesNotMatch(source, /type="monthrange"/)
-  assert.ok(source.includes('icon-class="jmh-export"'))
-  assert.ok(source.includes('icon-class="jmh-refresh"'))
+  assert.match(source, /v-hasPermi="\['finance:amzProfitReport:export'\]"[^]*?<app-icon name="export"/)
+  assert.match(source, /<app-icon name="refresh"[^>]*:spin="loading"/)
   assert.doesNotMatch(source, />刷新<\/el-button>/)
   assert.ok(source.includes('exportAmzProfitReport(startMonth, endMonth'))
 })

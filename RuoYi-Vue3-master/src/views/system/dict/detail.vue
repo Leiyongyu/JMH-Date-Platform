@@ -3,7 +3,7 @@
     <!-- 自定义标题 -->
     <template #header>
       <div class="drawer-head">
-        <el-icon style="color:#5b9bd5;margin-right:8px;"><List /></el-icon>
+        <app-icon name="list" :size="14" style="color:#5b9bd5;margin-right:8px" />
         <span class="drawer-head-name">{{ row.dictName }}</span>
         <span class="drawer-head-type">{{ row.dictType }}</span>
       </div>
@@ -12,13 +12,13 @@
     <div class="drawer-wrap">
       <!-- 加载中 -->
       <div v-if="loading" class="drawer-loading">
-        <el-icon class="is-loading"><Loading /></el-icon>
+        <app-icon name="refresh" :size="14" spin />
         <span>加载中...</span>
       </div>
 
       <!-- 空数据 -->
       <div v-else-if="!dataList.length" class="drawer-empty">
-        <el-icon style="font-size:36px;"><Document /></el-icon>
+        <app-icon name="file" :size="14" style="font-size:36px" />
         <div>暂无字典数据</div>
       </div>
 
