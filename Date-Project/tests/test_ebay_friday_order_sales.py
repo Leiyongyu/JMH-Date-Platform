@@ -158,3 +158,29 @@ def test_migration_is_ascii_with_use_and_set_names():
     text = (Path(__file__).resolve().parents[1] / "migrations" / "20261113_ebay_friday_order_sales.sql").read_text("ascii")
     assert "USE `date-project`;" in text and "SET NAMES utf8mb4;" in text
     assert "`ebay_friday_order_upload`" in text and "`ebay_friday_order_line`" in text
+
+
+def test_import_endpoint_accepts_a_multipart_upload(monkeypatch):
+    """端到端的 Python 一段：Java 以 multipart 转发文件，接口按 file 字段收、带上操作人。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from backend.api.deps import require_internal_access
+    from backend.api.v1 import ebay_friday_report as api
+
+    seen = {}
+    monkeypatch.setattr(api.order_sales, "import_orders",
+                        lambda content, filename, operator: seen.update(size=len(content), name=filename, op=operator)
+                        or {"used_rows": 2})
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[require_internal_access] = lambda: None
+    content = workbook([order("1", "DAS-10174-0036")])
+    with TestClient(app) as client:
+        ok = client.post("/api/v1/finance/ebay-friday-report/order-sales/import", params={"operator": "admin"},
+                         files={"file": ("订单.xlsx", content,
+                                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+        assert ok.status_code == 200 and ok.json()["data"]["used_rows"] == 2
+        assert seen == {"size": len(content), "name": "订单.xlsx", "op": "admin"}
+        not_multipart = client.post("/api/v1/finance/ebay-friday-report/order-sales/import", json={"file": "x"})
+        assert not_multipart.status_code == 422, "不是 multipart 时直接拒绝，不会当成空文件导入"

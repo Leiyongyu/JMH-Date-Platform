@@ -10,6 +10,15 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.mock.web.MockMultipartFile;
+import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.system.service.operation.ebay.EbayFridayReportPythonClient;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class EbayFridayReportControllerTest
 {
@@ -41,5 +50,17 @@ class EbayFridayReportControllerTest
             PreAuthorize permission = method.getAnnotation(PreAuthorize.class);
             assertTrue(permission != null && permission.value().contains("operations:ebayFridayReport:"), method.getName());
         }
+    }
+
+    @Test
+    void orderUploadForwardsTheMultipartFileToPython()
+    {
+        EbayFridayReportPythonClient client = mock(EbayFridayReportPythonClient.class);
+        MockMultipartFile file = new MockMultipartFile("file", "订单.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", new byte[] { 1, 2, 3 });
+        when(client.importOrderSales(same(file), any(), any())).thenReturn(Map.of("data", Map.of("used_rows", 1713)));
+        AjaxResult result = new EbayFridayReportController(client).importOrderSales(file, "req-1");
+        assertEquals(200, result.get("code"));
+        verify(client).importOrderSales(same(file), any(), eq("req-1"));
     }
 }

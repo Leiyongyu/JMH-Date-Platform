@@ -41,5 +41,12 @@ export const getFridayOrderSales = () =>
 export const importFridayOrderSales = file => {
   const data = new FormData()
   data.append('file', file)
-  return request({ url: `${base}/order-sales/import`, method: 'post', data, timeout: 300000 })
+  // request.js 默认 Content-Type 是 application/json，上传必须显式改成 multipart，否则 Java 报「not a multipart request」。
+  return request({
+    url: `${base}/order-sales/import`,
+    method: 'post',
+    data,
+    timeout: 300000,
+    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false }
+  })
 }

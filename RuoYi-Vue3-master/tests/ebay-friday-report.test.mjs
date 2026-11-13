@@ -68,3 +68,8 @@ test('order sales tab: upload the ERP order export and show the pivot per owner'
   assert.ok(api.includes('/order-sales/import') && api.includes("data.append('file', file)"))
   assert.ok(sheetRules.some(sheet => sheet.title.startsWith('订单售出统计')))
 })
+
+test('order upload is sent as multipart (request.js defaults to JSON)', () => {
+  const upload = api.slice(api.indexOf('export const importFridayOrderSales'))
+  assert.ok(upload.includes("headers: { 'Content-Type': 'multipart/form-data'"), '缺这一行 Java 会报 Current request is not a multipart request')
+})
