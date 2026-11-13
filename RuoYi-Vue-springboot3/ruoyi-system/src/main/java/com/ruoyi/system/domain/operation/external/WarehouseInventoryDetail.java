@@ -46,6 +46,9 @@ public class WarehouseInventoryDetail implements Serializable
 
     public Integer getProductValidNum() { return parseOrNull(productValidNum); }
     public void setProductValidNum(String productValidNum) { this.productValidNum = productValidNum; }
+    /** 待检待上架量：已到仓、等待质检上架的数量。领星未返回时保持 null，与「0 件」区分。 */
+    public String getProductQcNum() { return productQcNum; }
+    public void setProductQcNum(String productQcNum) { this.productQcNum = productQcNum; }
     public Integer getProductLockNum() { return parseOrNull(productLockNum); }
     public void setProductLockNum(String productLockNum) { this.productLockNum = productLockNum; }
     public Integer getProductOnway() { return parseOrNull(productOnway); }

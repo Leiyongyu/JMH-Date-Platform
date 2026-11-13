@@ -39,6 +39,12 @@ from backend.services.feishu_bad_transaction_sync_service import (
     FeishuBadTransactionSyncError,
     sync_feishu_bad_transactions,
 )
+from backend.services.feishu_auto_parts_order_sync_service import (
+    TASK_CODE as FEISHU_AUTO_PARTS_ORDER_TASK_CODE,
+    TASK_NAME as FEISHU_AUTO_PARTS_ORDER_TASK_NAME,
+    FeishuAutoPartsOrderSyncError,
+    sync_feishu_auto_parts_orders,
+)
 from backend.services.amz_listing_raw_sync_service import (
     TASK_CODE as AMZ_LISTING_RAW_TASK_CODE,
     TASK_NAME as AMZ_LISTING_RAW_TASK_NAME,
@@ -213,6 +219,13 @@ TASK_SPECS: dict[str, TaskSpec] = {
             execute=lambda ctx: sync_feishu_bad_transactions(),
         ),
         TaskSpec(
+            code=FEISHU_AUTO_PARTS_ORDER_TASK_CODE,
+            name=FEISHU_AUTO_PARTS_ORDER_TASK_NAME,
+            period_args_error="飞书汽配订单按当前内容整表同步，不接受历史月份或日期",
+            lock_name=lambda ctx: "feishu:auto-parts-order:replace",
+            execute=lambda ctx: sync_feishu_auto_parts_orders(),
+        ),
+        TaskSpec(
             code=AMZ_LISTING_RAW_TASK_CODE,
             name=AMZ_LISTING_RAW_TASK_NAME,
             period_args_error="AMZ原始刊登只拉取当前完整数据，不接受历史月份或日期筛选",
@@ -334,6 +347,7 @@ _STAGED_ERRORS = (
     PurchaseOrderSyncError,
     EbayStoreListingSyncError,
     FeishuBadTransactionSyncError,
+    FeishuAutoPartsOrderSyncError,
     AmzListingRawSyncError,
     AmazonProfitEtlError,
     AmzProfitReportSyncError,

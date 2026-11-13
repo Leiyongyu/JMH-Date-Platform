@@ -242,6 +242,19 @@
               <span v-else-if="isRowRecalculating(scope.row)" class="lead-time-saving">计算中</span>
               <span v-else-if="isSkuRow(scope.row) && canEditLeadTime" class="lead-time-unit">天</span>
             </div>
+            <template v-else-if="col.purchaseLogistics">
+              <span v-if="!isSkuRow(scope.row) || !scope.row.purchaseLogistics" class="logistics-empty">--</span>
+              <span
+                v-else
+                class="logistics-trigger"
+                :class="{ 'logistics-trigger--overdue': scope.row.purchaseLogistics.overdueCount > 0 }"
+                @mouseenter="showLogisticsPopover($event, scope.row)"
+                @mouseleave="hideLogisticsPopover"
+              >
+                <span class="logistics-trigger__status">{{ scope.row.purchaseLogistics.statusSummary }}</span>
+                <span class="logistics-trigger__date">{{ logisticsDateText(scope.row.purchaseLogistics) }}</span>
+              </span>
+            </template>
             <span
               v-else-if="col.monthlyKey"
               class="monthly-metric-trigger"
@@ -330,6 +343,82 @@
       </div>
     </el-popover>
 
+
+    <!--
+      物流状态弹层：与月度明细一样全表只有一个实例，hover 时切换锚点与数据。
+      鼠标可以移进弹层里查看、滚动采购单明细，移出后才关闭。
+    -->
+    <el-popover
+      :virtual-ref="logisticsPopoverRef"
+      virtual-triggering
+      :visible="logisticsPopoverVisible"
+      placement="left"
+      :width="760"
+      :show-after="0"
+      :hide-after="0"
+      popper-class="replenishment-monthly-popper"
+    >
+      <div v-if="logisticsPopoverRow" class="monthly-history logistics-pop"
+        @mouseenter="keepLogisticsPopover" @mouseleave="hideLogisticsPopover">
+        <div class="monthly-history__title">{{ logisticsPopoverRow.site }} · {{ logisticsPopoverRow.sku }} · 物流状态</div>
+        <div class="logistics-phases">
+          <section v-for="(phase, phaseIndex) in logisticsPopoverRow.purchaseLogistics.phases" :key="phase.key" class="logistics-phase">
+            <div class="logistics-phase__title">阶段{{ phaseIndex + 1 }}：{{ phase.label }}</div>
+            <table class="quality-return-table logistics-phase__table">
+              <thead><tr><th>状态</th><th>单数</th><th>件数</th></tr></thead>
+              <tbody>
+                <tr v-for="item in phase.items" :key="`${item.key}-${item.label}`" :class="{ 'logistics-zero': item.quantity === '0' && !item.orderCount }">
+                  <td>{{ item.label }}</td>
+                  <td>{{ item.orderCount === null ? '' : `${item.orderCount}单` }}</td>
+                  <td>{{ item.quantity }}件</td>
+                </tr>
+              </tbody>
+              <tfoot><tr>
+                <td>小计</td>
+                <td>{{ phase.key === 'to_chengdu' ? `${phase.orderCount}单` : '' }}</td>
+                <td>{{ phase.quantity }}件</td>
+              </tr></tfoot>
+            </table>
+          </section>
+        </div>
+        <div class="logistics-phase__title">采购单明细（{{ logisticsPopoverRow.purchaseLogistics.orderCount }}单）</div>
+        <div v-if="logisticsPopoverRow.purchaseLogistics.orders.length" class="logistics-orders">
+          <table class="quality-return-table logistics-table">
+            <thead><tr><th>PO</th><th>订单状态</th><th>数量</th><th>下单日期</th><th>预计发货时间</th><th>采购员</th></tr></thead>
+            <tbody>
+              <tr v-for="(order, index) in logisticsPopoverRow.purchaseLogistics.orders" :key="`${order.po || ''}-${index}`">
+                <td>{{ order.po || '--' }}</td>
+                <td>{{ order.orderStatus }}</td>
+                <td>{{ order.quantity ?? 0 }}</td>
+                <td>{{ order.orderDate || '--' }}</td>
+                <td :class="{ 'logistics-overdue': order.overdue }">
+                  {{ order.expectedShipDate || '--' }}<span v-if="order.overdue">（已逾期）</span>
+                </td>
+                <td>{{ order.purchaser || '--' }}</td>
+              </tr>
+            </tbody>
+            <tfoot><tr>
+              <td>合计</td>
+              <td>{{ logisticsPopoverRow.purchaseLogistics.orderCount }}单</td>
+              <td>{{ logisticsPopoverRow.purchaseLogistics.totalQuantity }}</td>
+              <td></td><td></td><td></td>
+            </tr></tfoot>
+          </table>
+        </div>
+        <div v-else class="logistics-empty-orders">没有未完成的采购单</div>
+        <div class="logistics-total">
+          <span>全链路合计</span>
+          <strong>{{ logisticsPopoverRow.purchaseLogistics.chainTotalQuantity }}件</strong>
+          <span class="logistics-total__parts">
+            （{{ logisticsPopoverRow.purchaseLogistics.phases.map((phase, i) => `阶段${i + 1} ${phase.quantity}件`).join(' ＋ ') }}）
+          </span>
+        </div>
+        <div class="quality-return-note">
+          采购单来自飞书「汽配订单」CTUebay仓未完成的单{{ logisticsSyncedAt ? `（同步于 ${logisticsSyncedAt}）` : '' }}；
+          成都仓、谷仓数量来自领星库存明细{{ inventoryStockSyncedAt ? `（同步于 ${inventoryStockSyncedAt}）` : '' }}，美国谷仓为新泽西＋加州合计。
+        </div>
+      </div>
+    </el-popover>
 
     <div class="hierarchy-footer">共 {{ total }} 个SKU；展开行内可继续加载。汇总仅包含当前筛选结果，导出为SKU明细。</div>
 
@@ -514,6 +603,12 @@ const monthlyPopoverKey = ref('')
 const monthlyPopoverColumn = ref(null)
 const monthlyReturnSummary = ref({})
 let monthlyPopoverTimer = null
+const logisticsPopoverRef = ref(null)
+const logisticsPopoverVisible = ref(false)
+const logisticsPopoverRow = ref(null)
+const logisticsSyncedAt = ref('')
+const inventoryStockSyncedAt = ref('')
+let logisticsPopoverTimer = null
 const latestCompleteMonth = ref('')
 const canSubmitPurchase = checkPermi(['operations:ebayReplenishmentV2:purchase'])
 const canEditLeadTime = checkPermi(['operations:ebayReplenishmentV2:editLeadTime'])
@@ -628,6 +723,8 @@ const columnDefs = [
   { key: 'productNature', label: '产品性质', align: 'center', width: 105, tip: '按站点和完整MSKU精确匹配最早刊登时间；距今天数>90天为老品，≤90天为新品，查不到刊登记录时显示--。' },
   { key: 'salesType', label: '销售类型', align: 'center', width: 125,
     tip: '人工选择正常或刷单，按站点和完整SKU长期保存；未设置按正常。与新品/老品独立，本次不改变任何计算公式。' },
+  { key: 'purchaseLogistics', label: '物流状态', align: 'left', width: 260, purchaseLogistics: true,
+    tip: '从采购下单到成都仓再到谷仓的完整物流：采购段取飞书「汽配订单」未完成的单（每天8:00/13:00/18:00同步，不含已完成、已取消），按采购仓库认站点、按完整SKU匹配，显示各订单状态的单数和件数；成都仓段取领星库存明细成都eBay中转仓的待检待上架量和可用量；谷仓段取谷仓德国、英国、美国（新泽西＋加州）的可用锁定量（准备发往谷仓）、调拨在途（待到谷仓）和可用量（已到谷仓）。鼠标悬停查看各阶段件数、合计和每张单的明细；都没有时显示--。' },
   { key: 'chengduInTransitQty', label: '成都在途', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取成都中转仓待接收数' },
   { key: 'chengduSellableQty', label: '成都可售', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取成都中转仓可售数' },
   { key: 'overseasInTransitQty', label: '海外在途', align: 'right', width: 115, format: 'integer', tip: '原eBay补货库存源：按站点和完整SKU精确匹配，取海外仓在途数' },
@@ -654,7 +751,8 @@ const {
   openColumnConfig,
   initColumnConfig,
   applyColumnConfig
-} = useColumnConfig('operations:ebay:replenishment:v2', columnDefs, fixedColumnKeys, fixedColumnKeys, {}, { operationsNote: '__append__', developmentNote: '__append__', principalName: '__append__' })
+} = useColumnConfig('operations:ebay:replenishment:v2', columnDefs, fixedColumnKeys, fixedColumnKeys, {}, { operationsNote: '__append__', developmentNote: '__append__', principalName: '__append__',
+  purchaseLogistics: { before: 'chengduInTransitQty', after: 'salesType' } })
 
 const hierarchyColumns = computed(() => visibleColumns.value.filter(col => !['site', 'sku'].includes(col.key)))
 
@@ -739,6 +837,8 @@ async function loadRows(forceRefresh = false, restoreExpanded = false) {
     if (request !== rowsRequest || noteBusy.size || confirmingRows.size) return
     salesTypeAvailable.value = data.sales_type_available === true
     reviewAvailable.value = data.review_available === true
+    logisticsSyncedAt.value = data.purchase_logistics_synced_at || ''
+    inventoryStockSyncedAt.value = data.inventory_stock_synced_at || ''
     months.value = Array.isArray(data.months) ? data.months : []
     latestCompleteMonth.value = data.latest_complete_month || months.value[0] || ''
     siteOptions.value = Array.isArray(data.sites) ? data.sites : []
@@ -1022,6 +1122,7 @@ function normalizeRow(item) {
     productLevel: item.product_level || null,
     productNature: item.product_nature || null,
     salesType: item.sales_type || null,
+    purchaseLogistics: normalizeLogistics(item.purchase_logistics),
     chengduInTransitQty: numberOrNull(item.chengdu_in_transit_quantity),
     chengduSellableQty: numberOrNull(item.chengdu_sellable_quantity),
     overseasInTransitQty: numberOrNull(item.overseas_in_transit_quantity),
@@ -1041,6 +1142,65 @@ function normalizeRow(item) {
     operationsConfirmedBy: item.operations_confirmed_by || '',
     operationsConfirmedAt: item.operations_confirmed_at || ''
   }
+}
+
+function normalizeLogistics(value) {
+  if (!value || !Array.isArray(value.orders)) return null
+  return {
+    orderCount: Number(value.order_count || value.orders.length),
+    totalQuantity: value.total_quantity ?? '0',
+    chainTotalQuantity: value.chain_total_quantity ?? '0',
+    phases: Array.isArray(value.phases) ? value.phases.map(phase => ({
+      key: phase.key,
+      label: phase.label,
+      orderCount: Number(phase.order_count || 0),
+      quantity: phase.quantity ?? '0',
+      items: (phase.items || []).map(item => ({
+        key: item.key,
+        label: item.label,
+        orderCount: item.order_count ?? null,
+        quantity: item.quantity ?? '0'
+      }))
+    })) : [],
+    statusSummary: value.status_summary || '',
+    earliestExpectedShipDate: value.earliest_expected_ship_date || '',
+    overdueCount: Number(value.overdue_count || 0),
+    orders: value.orders.map(order => ({
+      po: order.po || '',
+      orderStatus: order.order_status || '状态未填',
+      quantity: order.quantity ?? null,
+      orderDate: order.order_date || '',
+      expectedShipDate: order.expected_ship_date || '',
+      purchaser: order.purchaser || '',
+      overdue: order.overdue === true
+    }))
+  }
+}
+
+function logisticsDateText(logistics) {
+  if (!logistics.orderCount) return `全链路${logistics.chainTotalQuantity ?? 0}件`
+  if (logistics.overdueCount > 0) return `${logistics.overdueCount}单逾期`
+  return logistics.earliestExpectedShipDate ? `预计${logistics.earliestExpectedShipDate.slice(5)}发货` : '未填预计发货'
+}
+
+function showLogisticsPopover(event, row) {
+  clearTimeout(logisticsPopoverTimer)
+  const anchor = event.currentTarget
+  logisticsPopoverTimer = setTimeout(() => {
+    logisticsPopoverRef.value = anchor
+    logisticsPopoverRow.value = row
+    logisticsPopoverVisible.value = true
+  }, 180)
+}
+
+/** 移出单元格后稍等再关，留时间把鼠标移进弹层；移进弹层就保持打开。 */
+function hideLogisticsPopover() {
+  clearTimeout(logisticsPopoverTimer)
+  logisticsPopoverTimer = setTimeout(() => { logisticsPopoverVisible.value = false }, 200)
+}
+
+function keepLogisticsPopover() {
+  clearTimeout(logisticsPopoverTimer)
 }
 
 /** 保留原 el-popover 的 180ms 延迟显示，手感与改造前一致。 */
@@ -1577,6 +1737,36 @@ onBeforeUnmount(() => {
 .quality-return-table tfoot { font-weight: 600; }
 .quality-return-note { margin-top: 8px; color: var(--jb-ink-300, #94a0b1); font-size: 12px; line-height: 1.6; }
 .quality-return-warning { margin-top: 6px; color: var(--jb-warn, #b88230); font-size: 12px; line-height: 1.6; }
+
+.logistics-empty { color: var(--jb-ink-300, #94a0b1); }
+.logistics-trigger {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 1px;
+  border-bottom: 1px dashed #a8abb2;
+  line-height: 1.35;
+  cursor: help;
+}
+.logistics-trigger__status { color: var(--jb-ink-700, #24334a); font-weight: 600; }
+.logistics-trigger__date { color: var(--jb-ink-500, #5a6b85); font-size: 12px; }
+.logistics-trigger--overdue .logistics-trigger__date,
+.logistics-overdue { color: var(--el-color-danger, #d64545); }
+.logistics-table th,
+.logistics-table td { text-align: left; }
+.logistics-phases { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 4px 0 10px; align-items: start; }
+.logistics-phase { padding: 8px 10px; border: 1px solid var(--jb-line, #e3e9f2); border-radius: 8px; }
+.logistics-phase__title { margin: 2px 0 6px; color: var(--jb-ink-700, #24334a); font-weight: 600; }
+.logistics-phase__table th:nth-child(n+2),
+.logistics-phase__table td:nth-child(n+2) { text-align: right; }
+.logistics-zero td { color: var(--jb-ink-300, #94a0b1); }
+.logistics-orders { max-height: 220px; overflow-y: auto; }
+.logistics-empty-orders { padding: 6px 0; color: var(--jb-ink-300, #94a0b1); }
+.logistics-total { display: flex; align-items: baseline; gap: 8px; margin-top: 10px; padding: 8px 10px;
+  border-radius: 8px; background: rgba(18, 87, 214, .07); color: var(--jb-ink-500, #5a6b85); }
+.logistics-total strong { color: var(--jb-ink-700, #24334a); font-size: 15px; font-variant-numeric: tabular-nums; }
+.logistics-total__parts { font-size: 12px; }
+.logistics-trigger__status { white-space: normal; }
 
 .suggested-qty {
   color: var(--jb-brand-500, #1257d6);

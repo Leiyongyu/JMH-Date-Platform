@@ -58,6 +58,7 @@ public class LingxingInventorySyncService
                     d.setFnsku(str(row, "fnsku"));
                     d.setProductValidNum(str(row, "product_valid_num", "productValidNum"));
                     d.setProductLockNum(str(row, "product_lock_num", "productLockNum"));
+                    d.setProductQcNum(str(row, "product_qc_num", "productQcNum"));
                     d.setProductOnway(str(row, "product_onway", "productOnway"));
                     d.setQuantityReceive(str(row, "quantity_receive", "quantityReceive"));
                     batch.add(d);

@@ -24,6 +24,7 @@ from backend.repositories import ebay_inventory_detail_repository as inventory_r
 from backend.services.ebay_order_product_key import product_orders_cte, product_sku
 from backend.services.ebay_inventory_shared import inventory_ctes
 from backend.services.ebay_replenishment_periods import rolling_periods, reference_today
+from backend.services import ebay_replenishment_purchase_logistics as purchase_logistics
 from backend.services.ebay_replenishment_sales_type_service import normalize_filter
 
 ENGINE_VERSION = 'rolling-read-model-v5'  # v5: 去掉 v4 的待出库字段，强制重算
@@ -391,6 +392,8 @@ def read_generation(generation, **filters):
         if filters.get('hierarchy_level'):
             from backend.services.ebay_replenishment_hierarchy import read_nodes
             items, node_total = read_nodes(cursor, source, args, filters, result, page, size)
+            # Live annotation like reviews: never stored in the generation payload.
+            result.update(purchase_logistics.attach(cursor, items))
             result.update(items=items, calculation_version=generation,
                 calculated_at=str(header['created_at']), level_summary=summary,
                 sales_type_available=True, review_available=True,
@@ -411,6 +414,7 @@ def read_generation(generation, **filters):
             item.update(reviews.review_values(row))
             item['sales_type'] = row['sales_type']
             items.append(item)
+        result.update(purchase_logistics.attach(cursor, items))
     result.update(items=items,calculation_version=generation,calculated_at=str(header['created_at']),
         level_summary=summary if filters['include_level_summary'] else None,
         sales_type_available=True,review_available=True,

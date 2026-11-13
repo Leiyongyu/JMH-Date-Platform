@@ -118,6 +118,12 @@ class Settings:
         "FEISHU_BAD_TRANSACTION_TABLE_ID", "tbl4j735kfsuqcHl")
     feishu_bad_transaction_view_id: str = os.getenv(
         "FEISHU_BAD_TRANSACTION_VIEW_ID", "vewohlM1T4")
+    # 汽配订单（MACH数据系统V2，开了高级权限：应用「店铺巡查」须在角色里授权这张表）。
+    # 整表同步，不用视图——视图的筛选条件会被人改掉。
+    feishu_auto_parts_order_app_token: str = os.getenv(
+        "FEISHU_AUTO_PARTS_ORDER_APP_TOKEN", "JPxQb2riHagsafsX7QVc6rSjn8f")
+    feishu_auto_parts_order_table_id: str = os.getenv(
+        "FEISHU_AUTO_PARTS_ORDER_TABLE_ID", "tblXybb1irZdGxGG")
     shop_source_database: str = os.getenv("SHOP_SOURCE_DATABASE", "jmh_data_platform")
     # eBay 补货 2.0 的规则/复核/销售类型表只由 Python 读写。留空时仍在 ERP 库（历史位置）；
     # 按 deploy/db/move_ebay_replenishment_rules.sql 迁到本库后设为 Date-Project。

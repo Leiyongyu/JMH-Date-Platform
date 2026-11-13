@@ -36,6 +36,8 @@ DEFAULT_THRESHOLDS = {
 TASK_THRESHOLDS: dict[str, dict[str, float]] = {
     # 飞书不良交易按周视图增量同步，周与周之间数量差异大。
     "feishu_bad_transaction_sync": {"min_volume_ratio": 0.1, "max_volume_ratio": 10.0},
+    # 飞书汽配订单只拉未完成的单，几百行、随下单和到货大起大落。
+    "feishu_auto_parts_order_sync": {"min_volume_ratio": 0.2, "max_volume_ratio": 5.0},
     # Token 健康检查不产生业务数据。
     "ebay_token_health_check": {"skip": 1},
     # 销售快照补偿只读已入库数据，不从接口抽取。

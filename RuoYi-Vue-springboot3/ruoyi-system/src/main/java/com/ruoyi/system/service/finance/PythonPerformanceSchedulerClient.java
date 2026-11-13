@@ -100,6 +100,12 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run("feishu_bad_transaction_sync", null, requestId);
     }
 
+    /** 飞书「汽配订单」整表同步，供 eBay 补货2.0 物流状态使用。 */
+    public Map<String, Object> runFeishuAutoPartsOrder(String requestId)
+    {
+        return run("feishu_auto_parts_order_sync", null, requestId);
+    }
+
     /** 负责人映射表从飞书多维表格同步；内容未变时 Python 直接跳过。 */
     public Map<String, Object> runOwnerRuleFeishu(String requestId)
     {
