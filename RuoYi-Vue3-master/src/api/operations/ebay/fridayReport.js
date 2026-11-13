@@ -32,3 +32,14 @@ export const exportFridayReport = reportDate =>
     responseType: 'blob',
     timeout: 300000
   })
+
+// 订单售出统计：最新一次上传的透视（按负责人）
+export const getFridayOrderSales = () =>
+  request({ url: `${base}/order-sales`, method: 'get' })
+
+// 上传数字酋长「Order-交易级别」导出，整份替换上一份
+export const importFridayOrderSales = file => {
+  const data = new FormData()
+  data.append('file', file)
+  return request({ url: `${base}/order-sales/import`, method: 'post', data, timeout: 300000 })
+}

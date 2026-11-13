@@ -46,14 +46,14 @@
               :loading="generating" @click="handleGenerate" />
           </span>
           <span v-hasPermi="['operations:ebayFridayReport:export']" class="action-entry">
-            <icon-btn icon="export" tooltip="导出 Excel（有货无货、海外仓库存两张表）" size="md"
+            <icon-btn icon="export" tooltip="导出 Excel（有货无货、海外仓库存；已上传订单时附订单售出统计）" size="md"
               :loading="exporting" :disabled="!reportDate" @click="handleExport" />
           </span>
         </div>
       </div>
 
-      <!-- 字段网格筛选 -->
-      <div class="filters">
+      <!-- 字段网格筛选（订单售出统计没有筛选） -->
+      <div v-if="view !== 'orders'" class="filters">
         <div class="field wide">
           <label>{{ view === 'listing' ? 'SKU / Item Number' : 'SKU / 谷仓商品编码' }}</label>
           <el-input v-model="query.keyword" clearable placeholder="模糊搜索" @keyup.enter="search" @clear="search" />
@@ -138,7 +138,7 @@
       </el-table>
 
       <!-- 海外仓库存 -->
-      <el-table v-else key="stock-table" v-loading="loading" class="report-table" :data="rows" max-height="620" empty-text="暂无数据"
+      <el-table v-else-if="view === 'stock'" key="stock-table" v-loading="loading" class="report-table" :data="rows" max-height="620" empty-text="暂无数据"
         @sort-change="handleSort">
         <el-table-column label="商品编码" prop="product_sku" min-width="160" fixed="left" show-overflow-tooltip />
         <el-table-column label="SKU" prop="sku" min-width="160" fixed="left" sortable="custom" show-overflow-tooltip>
@@ -179,10 +179,47 @@
         </el-table-column>
       </el-table>
 
+      <!-- 订单售出统计：手动上传数字酋长订单导出，只看透视 -->
+      <div v-else key="orders-block" v-loading="ordersLoading" class="orders-block">
+        <div class="orders-bar">
+          <div class="orders-meta">
+            <template v-if="orderSales?.upload">
+              <span><b>{{ orderSales.upload.file_name }}</b></span>
+              <span>付款时间 {{ shortTime(orderSales.upload.pay_time_from) }} ~ {{ shortTime(orderSales.upload.pay_time_to) }}</span>
+              <span>eBay 订单行 {{ formatNumber(orderSales.upload.used_rows) }} / 文件 {{ formatNumber(orderSales.upload.source_rows) }}</span>
+              <span v-if="excludedText">已排除 {{ excludedText }}</span>
+              <span>{{ orderSales.upload.uploaded_by || '--' }} 上传于 {{ orderSales.upload.uploaded_at }}</span>
+            </template>
+            <span v-else class="muted">还没有上传订单；上传数字酋长「Order-交易级别」导出后按负责人出透视</span>
+          </div>
+          <el-upload v-hasPermi="['operations:ebayFridayReport:edit']" :show-file-list="false" accept=".xlsx"
+            :http-request="handleOrderUpload" :disabled="uploading">
+            <el-button type="primary" :loading="uploading">
+              <app-icon name="upload" :size="15" class="btn-icon" />{{ orderSales?.upload ? '重新上传' : '上传订单' }}
+            </el-button>
+          </el-upload>
+        </div>
+        <el-table v-if="orderSales?.upload" class="report-table orders-table" :data="orderRows"
+          :row-class-name="orderRowClass" empty-text="暂无数据">
+          <el-table-column label="负责人" prop="principal_name" min-width="140">
+            <template #default="{ row }"><span :class="row.isTotal ? 'sum-label' : 'sku'">{{ row.principal_name }}</span></template>
+          </el-table-column>
+          <el-table-column label="非重复计数项:中间码+站点" min-width="200" align="right">
+            <template #default="{ row }"><span class="v">{{ formatNumber(row.distinct_mid_site) }}</span></template>
+          </el-table-column>
+          <el-table-column label="求和项:美金收入" min-width="180" align="right">
+            <template #default="{ row }"><span class="v">{{ formatMoney(row.usd_income) }}</span></template>
+          </el-table-column>
+          <el-table-column label="求和项:购买数量" min-width="160" align="right">
+            <template #default="{ row }"><span class="v">{{ formatNumber(row.quantity) }}</span></template>
+          </el-table-column>
+        </el-table>
+      </div>
+
       <div class="tc-foot">
         <span>{{ footNote }}</span>
-        <pagination v-show="total > 0" :total="total" v-model:page="query.pageNum" v-model:limit="query.pageSize"
-          @pagination="loadRows" />
+        <pagination v-if="view !== 'orders'" v-show="total > 0" :total="total" v-model:page="query.pageNum"
+          v-model:limit="query.pageSize" @pagination="loadRows" />
       </div>
     </div>
 
@@ -262,15 +299,16 @@
 import { computed, getCurrentInstance, onMounted, reactive, ref } from 'vue'
 import { sheetRules, sourceInfo } from './help'
 import {
-  deleteFridayReportStore, exportFridayReport, generateFridayReport, getFridayReportOverview,
-  listFridayReportListings, listFridayReportStocks, saveFridayReportStore
+  deleteFridayReportStore, exportFridayReport, generateFridayReport, getFridayOrderSales, getFridayReportOverview,
+  importFridayOrderSales, listFridayReportListings, listFridayReportStocks, saveFridayReportStore
 } from '@/api/operations/ebay/fridayReport'
 
 const { proxy } = getCurrentInstance()
 const sites = ['DE', 'UK', 'US']
 const views = [
   { value: 'listing', label: '有货无货' },
-  { value: 'stock', label: '海外仓库存' }
+  { value: 'stock', label: '海外仓库存' },
+  { value: 'orders', label: '订单售出统计' }
 ]
 const FLAGS = {
   listing: [
@@ -330,12 +368,15 @@ const kpis = computed(() => {
 })
 
 const subtitle = computed(() => {
+  if (view.value === 'orders') return '按负责人汇总上传的 eBay 订单：中间码 + 站点去重个数、美金收入、购买数量；只保留最新一次上传'
   if (!reportDate.value) return '还没有生成过周五数据'
   return view.value === 'listing'
     ? '每条在线 listing 一行：站点、负责人、海外仓实际库存（中间码 + 站点 + 是否二手汇总谷仓良品可售）与规划站点判断'
     : '谷仓良品可售 > 0 的每一行：谷仓库存字段 + 各店铺同站点同 SKU 的链接，「Item:数字」为挂错站点的链接（数字为历史售出）'
 })
-const footNote = computed(() => view.value === 'listing'
+const footNote = computed(() => view.value === 'orders'
+  ? '美金收入 = 收入 × 订单汇率 ÷ 领星当月美元汇率' + usdRateText.value + '；负责人按当月飞书负责人规则；作废、退款订单照原表一起算'
+  : view.value === 'listing'
   ? '判断 T：listing 站点与店铺主站点一致；F：不一致；未配置：店铺还没有维护主站点'
   : '店铺列按店铺主站点分组；没有任何同站点链接的 SKU 标「无链接」')
 
@@ -371,7 +412,56 @@ function switchView(value) {
   if (view.value === value) return
   changeView(value)
   Object.assign(query, emptyQuery())
-  loadRows()
+  if (value === 'orders') loadOrders()
+  else loadRows()
+}
+
+// ---------------- 订单售出统计
+const orderSales = ref(null)
+const ordersLoading = ref(false)
+const uploading = ref(false)
+const orderRows = computed(() => orderSales.value?.upload
+  ? [...(orderSales.value.rows || []), { ...orderSales.value.total, isTotal: true }]
+  : [])
+const excludedText = computed(() => Object.entries(orderSales.value?.upload?.excluded || {})
+  .map(([reason, count]) => `${reason} ${count} 行`).join('，'))
+const usdRateText = computed(() => {
+  const months = Object.entries(orderSales.value?.usd_rate_months || {})
+  return months.length ? `（${months.map(([month, info]) => `${month} 用 ${info.rate_month} 的 ${info.rate}`).join('，')}）` : ''
+})
+
+function orderRowClass({ row }) {
+  return row.isTotal ? 'report-total-row' : ''
+}
+
+function formatMoney(value) {
+  if (value === null || value === undefined || value === '') return '--'
+  return Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function shortTime(value) {
+  return value ? String(value).slice(0, 16) : '--'
+}
+
+async function loadOrders() {
+  ordersLoading.value = true
+  try {
+    const response = await getFridayOrderSales()
+    orderSales.value = response.data || null
+  } finally {
+    ordersLoading.value = false
+  }
+}
+
+async function handleOrderUpload({ file }) {
+  uploading.value = true
+  try {
+    const response = await importFridayOrderSales(file)
+    proxy.$modal.msgSuccess(`已上传：eBay 订单行 ${response.data?.used_rows ?? '--'} 条`)
+    await loadOrders()
+  } finally {
+    uploading.value = false
+  }
 }
 
 function search() {
@@ -613,6 +703,14 @@ onMounted(loadAll)
 .sku { color: var(--ink-900); font-weight: 500; }
 .muted { color: var(--ink-400); }
 .site-tag { display: inline-block; padding: 0 7px; line-height: 20px; border-radius: 999px; font-size: 11px; font-weight: 500; color: var(--sky-600); background: var(--sky-50); }
+.orders-block { padding: 14px 18px 4px; }
+.orders-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+.orders-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--ink-500); flex: 1; min-width: 0; }
+.orders-meta b { color: var(--ink-900); font-weight: 600; }
+.orders-table { max-width: 820px; }
+.orders-table :deep(.report-total-row) { background: #eef3fd; font-weight: 600; }
+.sum-label { font-weight: 650; color: var(--ink-900); }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
 .store-items { display: flex; flex-wrap: wrap; gap: 2px 8px; font-variant-numeric: tabular-nums; }
 .store-item--wrong { color: #a85c05; background: #fef4e6; border-radius: 4px; padding: 0 4px; }
 .tc-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 18px; font-size: 12px; color: var(--ink-400); border-top: 1px solid var(--line); flex-wrap: wrap; }

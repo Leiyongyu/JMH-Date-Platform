@@ -8,11 +8,13 @@ import logging
 from io import BytesIO
 from urllib.parse import quote
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
 from backend.api.deps import require_internal_access
 from backend.schemas.responses import success_response
+from backend.services import ebay_friday_order_sales_service as order_sales
 from backend.services import ebay_friday_report_service as service
 
 router = APIRouter(
@@ -81,6 +83,28 @@ def save_store(payload: dict = Body(...)):
 @router.delete("/stores/{store_key}")
 def delete_store(store_key: str):
     return _run(lambda: service.delete_store(store_key), "店铺主站点删除")
+
+
+@router.get("/order-sales")
+def order_sales_summary():
+    return _run(order_sales.summary, "订单售出统计查询")
+
+
+@router.post("/order-sales/import")
+async def import_order_sales(file: UploadFile = File(...), operator: str | None = Query(None, max_length=64)):
+    try:
+        content = await file.read(order_sales.MAX_FILE_BYTES + 1)
+        result = await run_in_threadpool(order_sales.import_orders, content, file.filename or "订单导出.xlsx", operator)
+        return success_response(result)
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+    except Exception as exc:
+        if exc.args and exc.args[0] == 1146:
+            raise HTTPException(400, detail=order_sales.MIGRATION_MESSAGE) from exc
+        LOG.exception("周五数据订单售出上传失败")
+        raise HTTPException(500, detail="订单售出统计上传失败，请检查服务日志") from exc
+    finally:
+        await file.close()
 
 
 @router.get("/exports")

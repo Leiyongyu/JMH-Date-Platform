@@ -16,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 运营中心 / eBay / 数据报表 /「周五数据」：有货无货、海外仓库存两张表的每周快照。
@@ -73,6 +74,25 @@ public class EbayFridayReportController extends BaseController
     public AjaxResult generate(@RequestHeader(value = "X-Request-ID", required = false) String requestId)
     {
         try { return success(client.generate(Map.of("operator", nvl(operator())), requestId).get("data")); }
+        catch (Exception e) { return error(e.getMessage()); }
+    }
+
+    @PreAuthorize("@ss.hasPermi('operations:ebayFridayReport:list')")
+    @GetMapping("/order-sales")
+    public AjaxResult orderSales(@RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        try { return success(client.orderSales(requestId).get("data")); }
+        catch (Exception e) { return error(e.getMessage()); }
+    }
+
+    /** 订单售出统计：上传数字酋长订单导出，整份替换上一份（沿用维护权限）。 */
+    @Log(title = "eBay周五数据订单售出上传", businessType = BusinessType.IMPORT)
+    @PreAuthorize("@ss.hasPermi('operations:ebayFridayReport:edit')")
+    @PostMapping("/order-sales/import")
+    public AjaxResult importOrderSales(@RequestParam("file") MultipartFile file,
+            @RequestHeader(value = "X-Request-ID", required = false) String requestId)
+    {
+        try { return success(client.importOrderSales(file, operator(), requestId).get("data")); }
         catch (Exception e) { return error(e.getMessage()); }
     }
 

@@ -8,7 +8,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * ERP 到 Python「eBay 周五数据」服务的内部客户端（/api/v1/finance/ebay-friday-report）。
@@ -57,6 +59,33 @@ public class EbayFridayReportPythonClient extends PythonHttpSupport
     {
         String key = URLEncoder.encode(storeKey, StandardCharsets.UTF_8).replace("+", "%20");
         return send(baseRequest(PREFIX + "/stores/" + key, requestId).DELETE().build());
+    }
+
+    public Map<String, Object> orderSales(String requestId)
+    {
+        return send(baseRequest(PREFIX + "/order-sales", requestId).GET().build());
+    }
+
+    /** 上传数字酋长「Order-交易级别」导出；只保留最新一份，整份替换。 */
+    public Map<String, Object> importOrderSales(MultipartFile file, String operator, String requestId)
+    {
+        if (file == null || file.isEmpty()) throw new IllegalArgumentException("请选择数字酋长订单导出文件");
+        if (file.getSize() > 20L * 1024 * 1024) throw new IllegalArgumentException("订单文件不能超过20MB");
+        try
+        {
+            String boundary = "----EbayFridayOrders" + UUID.randomUUID().toString().replace("-", "");
+            HttpRequest request = baseRequest(PREFIX + "/order-sales/import"
+                            + queryString(Map.of("operator", operator == null ? "" : operator)), requestId)
+                    .timeout(java.time.Duration.ofSeconds(180))
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .POST(multipartBodyPublisher(boundary, "file", new MultipartFile[] { file }))
+                    .build();
+            return send(request);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
     }
 
     public byte[] export(Map<String, String> query, String requestId)

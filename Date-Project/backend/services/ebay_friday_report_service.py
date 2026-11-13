@@ -479,7 +479,20 @@ def export(report_date: str | None) -> tuple[str, bytes]:
         stock_sheet.append([_cell(key, row.get(key)) for _, key in STOCK_HEADERS]
                            + [row["store_items"].get(store["key"], "") for store in stores])
 
-    for ws, header_rows in ((sheet, (1,)), (stock_sheet, (1, 2))):
+    sheets = [(sheet, (1,)), (stock_sheet, (1, 2))]
+    # 订单售出统计（透视）：有上传时附在最后一张 sheet；没上传或表未部署时不影响前两张。
+    from backend.services import ebay_friday_order_sales_service as order_sales
+    try:
+        orders = order_sales.summary()
+    except ValueError:
+        orders = {"upload": None}
+    if orders.get("upload"):
+        order_sheet = workbook.create_sheet("订单售出统计")
+        order_sheet.append(["负责人", "非重复计数项:中间码+站点", "求和项:美金收入", "求和项:购买数量"])
+        for row in [*orders["rows"], orders["total"]]:
+            order_sheet.append([row["principal_name"], row["distinct_mid_site"], float(row["usd_income"]), row["quantity"]])
+        sheets.append((order_sheet, (1,)))
+    for ws, header_rows in sheets:
         for r in header_rows:
             for cell in ws[r]:
                 cell.font, cell.fill = bold, header_fill

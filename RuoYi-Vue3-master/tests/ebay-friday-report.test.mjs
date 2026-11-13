@@ -27,7 +27,8 @@ test('toolbar uses semantic icon buttons and follows the three permissions', () 
   assert.ok(page.includes('<icon-btn icon="export"'))
   assert.ok(page.includes("v-hasPermi=\"['operations:ebayFridayReport:edit']\""))
   assert.ok(page.includes("v-hasPermi=\"['operations:ebayFridayReport:export']\""))
-  assert.equal(page.match(/<el-button type="primary"/g)?.length, 2, '实心主按钮只有查询和弹窗里的保存')
+  assert.equal(page.match(/<el-button type="primary"/g)?.length, 3, '实心主按钮：查询（前两张表）、上传订单（订单售出统计，那时不显示筛选）、弹窗保存')
+  assert.ok(page.includes(`<div v-if="view !== 'orders'" class="filters">`), '订单售出统计不显示筛选区，同一视图只有一个主按钮')
 })
 
 test('judge and status use pills; store columns grouped by main site with wrong-site items highlighted', () => {
@@ -55,4 +56,15 @@ test('switching sheets rebuilds the table and never renders one sheet with the o
   assert.ok(page.includes('function changeView(value) {') && page.includes('    rows.value = []'), '切换前先清空数据')
   assert.ok(page.includes('row.store_items?.[store.key]'), '店铺列读取加空值保护')
   assert.ok(page.includes('if (request !== rowsRequest) return'), '慢回来的旧请求不覆盖当前表')
+})
+
+test('order sales tab: upload the ERP order export and show the pivot per owner', () => {
+  assert.ok(page.includes("{ value: 'orders', label: '订单售出统计' }"))
+  assert.ok(page.includes('key="orders-block"'))
+  assert.ok(page.includes(':http-request="handleOrderUpload"') && page.includes('accept=".xlsx"'))
+  assert.ok(page.includes("v-hasPermi=\"['operations:ebayFridayReport:edit']\" :show-file-list=\"false\""), '上传沿用维护权限')
+  for (const label of ['非重复计数项:中间码+站点', '求和项:美金收入', '求和项:购买数量']) assert.ok(page.includes(label), label)
+  assert.ok(page.includes('{ ...orderSales.value.total, isTotal: true }'), '最下面是总计行')
+  assert.ok(api.includes('/order-sales/import') && api.includes("data.append('file', file)"))
+  assert.ok(sheetRules.some(sheet => sheet.title.startsWith('订单售出统计')))
 })
