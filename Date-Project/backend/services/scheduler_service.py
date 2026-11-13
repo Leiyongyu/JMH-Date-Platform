@@ -45,6 +45,12 @@ from backend.services.feishu_auto_parts_order_sync_service import (
     FeishuAutoPartsOrderSyncError,
     sync_feishu_auto_parts_orders,
 )
+from backend.services.ebay_friday_report_service import (
+    TASK_CODE as EBAY_FRIDAY_REPORT_TASK_CODE,
+    TASK_NAME as EBAY_FRIDAY_REPORT_TASK_NAME,
+    EbayFridayReportError,
+    generate as generate_ebay_friday_report,
+)
 from backend.services.amz_listing_raw_sync_service import (
     TASK_CODE as AMZ_LISTING_RAW_TASK_CODE,
     TASK_NAME as AMZ_LISTING_RAW_TASK_NAME,
@@ -226,6 +232,14 @@ TASK_SPECS: dict[str, TaskSpec] = {
             execute=lambda ctx: sync_feishu_auto_parts_orders(),
         ),
         TaskSpec(
+            code=EBAY_FRIDAY_REPORT_TASK_CODE,
+            name=EBAY_FRIDAY_REPORT_TASK_NAME,
+            period_args_error="周五数据按当天已有的 eBay 刊登与谷仓快照生成，不接受历史月份或日期",
+            # 读 listing 整表快照，与 listing 同步共锁，避免读到替换一半的数据。
+            lock_name=lambda ctx: "ebay:store-listing:replace",
+            execute=lambda ctx: generate_ebay_friday_report(operator="scheduler"),
+        ),
+        TaskSpec(
             code=AMZ_LISTING_RAW_TASK_CODE,
             name=AMZ_LISTING_RAW_TASK_NAME,
             period_args_error="AMZ原始刊登只拉取当前完整数据，不接受历史月份或日期筛选",
@@ -348,6 +362,7 @@ _STAGED_ERRORS = (
     EbayStoreListingSyncError,
     FeishuBadTransactionSyncError,
     FeishuAutoPartsOrderSyncError,
+    EbayFridayReportError,
     AmzListingRawSyncError,
     AmazonProfitEtlError,
     AmzProfitReportSyncError,

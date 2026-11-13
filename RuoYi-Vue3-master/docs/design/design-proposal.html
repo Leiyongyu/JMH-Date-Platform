@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JMH 跨境 ERP · 视觉重构方案</title>
+<style>
+  :root{
+    /* 品牌 */
+    --brand-900:#0A2A5E;
+    --brand-700:#0E45A8;
+    --brand-600:#1257D6;
+    --brand-500:#2C74F0;
+    --brand-100:#E7EFFF;
+    --brand-50:#F4F8FF;
+    --teal-600:#0E9E96;
+    --teal-500:#12B2A6;
+    --teal-100:#D9F5F2;
+    /* 中性 */
+    --ink-900:#0B1526;
+    --ink-700:#24334A;
+    --ink-500:#5A6B85;
+    --ink-400:#8A99B0;
+    --ink-300:#B4C0D2;
+    --line:#E3E9F2;
+    --line-strong:#CFD9E8;
+    --surface:#FFFFFF;
+    --canvas:#F5F7FB;
+    --hover:#F1F5FB;
+    /* 语义 */
+    --ok:#12A150;
+    --warn:#D97706;
+    --danger:#DC2626;
+    --up:#D93F3F;
+    --down:#12A150;
+
+    --r-sm:4px;
+    --r-md:6px;
+    --r-lg:10px;
+    --sh-1:0 1px 2px rgba(13,26,45,.06);
+    --sh-2:0 4px 16px -8px rgba(13,26,45,.16);
+    --sh-3:0 16px 40px -16px rgba(13,26,45,.28);
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--canvas);
+    color:var(--ink-700);
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",Inter,"Segoe UI",system-ui,sans-serif;
+    font-size:14px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+  /* ---------- 文档骨架 ---------- */
+  .doc{max-width:1240px;margin:0 auto;padding:0 32px 96px}
+  .doc-head{
+    padding:56px 0 32px;
+    border-bottom:1px solid var(--line);
+    display:flex;align-items:flex-end;justify-content:space-between;gap:32px;flex-wrap:wrap;
+  }
+  .doc-head h1{
+    margin:0 0 10px;font-size:30px;line-height:1.25;font-weight:600;
+    letter-spacing:-0.5px;color:var(--ink-900);
+  }
+  .doc-head .kicker{
+    font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--brand-600);margin-bottom:14px;
+  }
+  .doc-head p{margin:0;color:var(--ink-500);font-size:14px;max-width:640px}
+  .doc-meta{display:flex;gap:28px;flex-wrap:wrap}
+  .doc-meta div{font-size:12px;color:var(--ink-400)}
+  .doc-meta b{display:block;font-size:13px;color:var(--ink-700);font-weight:600;margin-top:2px}
+
+  section{padding-top:64px}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:8px}
+  .sec-num{
+    font-size:12px;font-weight:700;color:var(--brand-600);letter-spacing:.1em;
+    background:var(--brand-50);border:1px solid var(--brand-100);
+    padding:2px 8px;border-radius:var(--r-sm);
+  }
+  .sec-head h2{margin:0;font-size:20px;font-weight:600;color:var(--ink-900);letter-spacing:-0.2px}
+  .sec-desc{margin:0 0 28px;color:var(--ink-500);font-size:13.5px;max-width:760px}
+
+  /* ---------- 诊断 ---------- */
+  .diag{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .diag-card{
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:18px 18px 20px;box-shadow:var(--sh-1);
+  }
+  .diag-card .tag{
+    display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:3px;
+    background:#FEF2F2;color:#B42318;margin-bottom:10px;letter-spacing:.02em;
+  }
+  .diag-card h3{margin:0 0 6px;font-size:14px;font-weight:600;color:var(--ink-900)}
+  .diag-card p{margin:0;font-size:12.5px;line-height:1.65;color:var(--ink-500)}
+
+  /* ---------- 主题名 ---------- */
+  .theme-banner{
+    background:linear-gradient(112deg,#0A2A5E 0%,#0E45A8 46%,#0E9E96 100%);
+    border-radius:var(--r-lg);padding:36px 36px 32px;color:#fff;position:relative;overflow:hidden;
+    box-shadow:var(--sh-2);
+  }
+  .theme-banner::after{
+    content:"";position:absolute;inset:0;
+    background:
+      radial-gradient(600px 260px at 88% 8%,rgba(255,255,255,.16),transparent 70%),
+      radial-gradient(400px 240px at 10% 110%,rgba(18,178,166,.45),transparent 70%);
+    pointer-events:none;
+  }
+  .theme-banner .inner{position:relative;z-index:1}
+  .theme-banner .eyebrow{font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;opacity:.7;font-weight:600}
+  .theme-banner h2{margin:10px 0 12px;font-size:34px;font-weight:600;letter-spacing:-.6px}
+  .theme-banner p{margin:0;max-width:680px;font-size:14px;line-height:1.75;opacity:.86}
+  .theme-keys{display:flex;gap:8px;margin-top:22px;flex-wrap:wrap}
+  .theme-keys span{
+    font-size:12px;padding:5px 12px;border-radius:999px;
+    background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(4px);
+  }
+
+  /* ---------- 色板 ---------- */
+  .pal-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+  .sw{border-radius:var(--r-md);overflow:hidden;border:1px solid var(--line);background:#fff}
+  .sw .chip{height:76px;display:flex;align-items:flex-end;padding:8px 10px;font-size:10.5px;font-weight:600;letter-spacing:.04em}
+  .sw .meta{padding:9px 10px 10px}
+  .sw .meta b{display:block;font-size:12px;color:var(--ink-900);font-weight:600}
+  .sw .meta code{font-size:11px;color:var(--ink-400);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  .subhead{
+    font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink-400);margin:36px 0 14px;display:flex;align-items:center;gap:10px;
+  }
+  .subhead::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  .scale{display:flex;border-radius:var(--r-md);overflow:hidden;border:1px solid var(--line)}
+  .scale div{flex:1;height:60px;display:flex;flex-direction:column;justify-content:flex-end;padding:7px 9px;font-size:10px}
+
+  /* ---------- 字体规范 ---------- */
+  .type-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+  .type-table th{
+    text-align:left;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-400);
+    font-weight:600;padding:11px 16px;background:#F7F9FC;border-bottom:1px solid var(--line);
+  }
+  .type-table td{padding:14px 16px;border-bottom:1px solid var(--line);vertical-align:middle;font-size:12.5px;color:var(--ink-500)}
+  .type-table tr:last-child td{border-bottom:none}
+  .type-table td.spec{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--ink-400);white-space:nowrap}
+
+  /* ---------- 按钮 / 标签 ---------- */
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    height:32px;padding:0 14px;border-radius:var(--r-sm);font-size:13px;font-weight:500;
+    border:1px solid transparent;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s;
+    font-family:inherit;white-space:nowrap;
+  }
+  .btn-primary{background:var(--brand-600);color:#fff;box-shadow:0 1px 2px rgba(18,87,214,.28)}
+  .btn-primary:hover{background:var(--brand-700)}
+  .btn-ghost{background:#fff;border-color:var(--line-strong);color:var(--ink-700)}
+  .btn-ghost:hover{border-color:var(--brand-500);color:var(--brand-600);background:var(--brand-50)}
+  .btn-quiet{background:transparent;color:var(--ink-500)}
+  .btn-quiet:hover{background:var(--hover);color:var(--ink-900)}
+  .btn-danger{background:#fff;border-color:#F3C6C6;color:var(--danger)}
+  .btn-lg{height:38px;padding:0 18px;font-size:13.5px}
+
+  .pill{
+    display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:999px;
+    font-size:11.5px;font-weight:500;line-height:1;
+  }
+  .pill i{width:5px;height:5px;border-radius:50%;background:currentColor;display:block}
+  .pill-ok{background:#E7F6EC;color:#0E7A3D}
+  .pill-warn{background:#FEF4E6;color:#A85C05}
+  .pill-danger{background:#FDECEC;color:#B42318}
+  .pill-info{background:#EEF2F8;color:#4A5A73}
+  .pill-brand{background:var(--brand-50);color:var(--brand-600)}
+  .pill-teal{background:var(--teal-100);color:#0A7D76}
+
+  /* ---------- 局部对比 ---------- */
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+  .cmp{
+    background:#fff;border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;box-shadow:var(--sh-1);
+  }
+  .cmp .bar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:9px 14px;border-bottom:1px solid var(--line);background:#FBFCFE;
+    font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  }
+  .cmp .bar.old{color:#B42318;background:#FFF8F8}
+  .cmp .bar.new{color:#0E7A3D;background:#F6FCF8}
+  .cmp .body{padding:16px}
+
+  /* 旧样式复刻 */
+  .old-filter{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;align-items:center}
+  .old-filter label{font-weight:700;color:#606266;font-size:12px}
+  .old-input{
+    height:32px;border:1px solid #DCDFE6;border-radius:4px;background:#fff;
+    display:flex;align-items:center;padding:0 10px;color:#A8ABB2;font-size:12px;min-width:120px;
+  }
+  .old-btn{height:32px;padding:0 15px;border-radius:4px;background:#409EFF;color:#fff;font-size:12px;
+    display:inline-flex;align-items:center;border:none;font-weight:500}
+  .old-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:12px;border:1px solid #EBEEF5}
+  .old-table th{background:#FAFAFA;color:#606266;font-weight:700;padding:8px 10px;border:1px solid #EBEEF5;text-align:left;font-size:12px}
+  .old-table td{padding:8px 10px;border:1px solid #EBEEF5;color:#606266}
+  .old-table tr:nth-child(even) td{background:#FAFAFA}
+
+  /* 新样式 */
+  .new-filter{display:grid;grid-template-columns:repeat(2,1fr);gap:12px 16px}
+  .field label{display:block;font-size:11.5px;color:var(--ink-500);font-weight:500;margin-bottom:5px}
+  .field .ctl{
+    height:32px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:#fff;
+    display:flex;align-items:center;justify-content:space-between;padding:0 10px;
+    font-size:12.5px;color:var(--ink-700);
+  }
+  .field .ctl.placeholder{color:var(--ink-400)}
+  .field .ctl svg{opacity:.5}
+
+  .new-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .new-table thead th{
+    background:#F7F9FC;color:var(--ink-500);font-weight:600;font-size:11.5px;
+    letter-spacing:.02em;padding:9px 12px;text-align:left;
+    border-bottom:1px solid var(--line);white-space:nowrap;
+  }
+  .new-table tbody td{
+    padding:10px 12px;border-bottom:1px solid #EEF2F8;color:var(--ink-700);
+  }
+  .new-table tbody tr:hover td{background:#F7FAFF}
+  .new-table .r{text-align:right}
+  .new-table tbody tr:last-child td{border-bottom:none}
+
+  /* ---------- 整页效果图 ---------- */
+  .frame{
+    border-radius:var(--r-lg);overflow:hidden;border:1px solid var(--line-strong);
+    box-shadow:var(--sh-3);background:var(--surface);
+  }
+  .app{display:flex;height:720px;background:var(--canvas)}
+
+  /* 侧边栏 */
+  .sb{width:236px;flex:0 0 236px;background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column}
+  .sb-brand{
+    height:56px;display:flex;align-items:center;gap:9px;padding:0 16px;border-bottom:1px solid var(--line);
+  }
+  .sb-mark{
+    width:26px;height:26px;border-radius:7px;flex:0 0 26px;
+    background:linear-gradient(135deg,#0E45A8,#12B2A6);
+    display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:800;letter-spacing:-.5px;
+  }
+  .sb-brand b{font-size:13.5px;color:var(--ink-900);font-weight:600;letter-spacing:-.1px;display:block;line-height:1.15}
+  .sb-brand small{font-size:10px;color:var(--ink-400);letter-spacing:.06em}
+  .sb-nav{flex:1;overflow:hidden;padding:10px 10px 16px}
+  .nav-group{font-size:10.5px;font-weight:700;letter-spacing:.1em;color:var(--ink-300);padding:14px 8px 6px;text-transform:uppercase}
+  .nav-item{
+    display:flex;align-items:center;gap:9px;height:34px;padding:0 8px;border-radius:var(--r-sm);
+    font-size:12.5px;color:var(--ink-700);position:relative;cursor:pointer;
+  }
+  .nav-item svg{flex:0 0 15px;opacity:.65}
+  .nav-item:hover{background:var(--hover)}
+  .nav-item.active{background:var(--brand-50);color:var(--brand-600);font-weight:500}
+  .nav-item.active svg{opacity:1;color:var(--brand-600)}
+  .nav-item.active::before{
+    content:"";position:absolute;left:-10px;top:7px;bottom:7px;width:3px;
+    background:var(--brand-600);border-radius:0 3px 3px 0;
+  }
+  .nav-item .chev{margin-left:auto;opacity:.4}
+  .nav-sub{padding-left:26px}
+  .nav-sub .nav-item{height:31px;font-size:12px;color:var(--ink-500)}
+  .nav-sub .nav-item.active{color:var(--brand-600);background:transparent}
+  .nav-sub .nav-item.active::before{display:none}
+
+  /* 主区 */
+  .main{flex:1;display:flex;flex-direction:column;min-width:0}
+  .topbar{
+    height:56px;background:#fff;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;padding:0 20px;gap:14px;flex:0 0 56px;
+  }
+  .crumb{font-size:12.5px;color:var(--ink-400);display:flex;align-items:center;gap:7px}
+  .crumb b{color:var(--ink-900);font-weight:600}
+  .top-right{margin-left:auto;display:flex;align-items:center;gap:6px}
+  .icon-btn{
+    width:30px;height:30px;border-radius:var(--r-sm);display:flex;align-items:center;justify-content:center;
+    color:var(--ink-500);position:relative;cursor:pointer;
+  }
+  .icon-btn:hover{background:var(--hover);color:var(--ink-900)}
+  .icon-btn .dot{position:absolute;top:6px;right:6px;width:5px;height:5px;border-radius:50%;background:var(--danger);border:1.5px solid #fff}
+  .ava{
+    display:flex;align-items:center;gap:7px;padding-left:10px;margin-left:4px;border-left:1px solid var(--line);
+    font-size:12.5px;color:var(--ink-700);
+  }
+  .ava .img{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,#0E45A8,#12B2A6)}
+
+  .tags{
+    height:36px;flex:0 0 36px;background:#fff;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:4px;padding:0 14px;
+  }
+  .tag-tab{
+    height:24px;display:flex;align-items:center;gap:6px;padding:0 10px;border-radius:var(--r-sm);
+    font-size:12px;color:var(--ink-500);background:#F5F7FB;cursor:pointer;
+  }
+  .tag-tab.on{background:var(--brand-50);color:var(--brand-600);font-weight:500;box-shadow:inset 0 0 0 1px var(--brand-100)}
+  .tag-tab .x{opacity:.4;font-size:12px}
+
+  .content{flex:1;overflow:hidden;padding:16px 20px 20px;display:flex;flex-direction:column;gap:12px}
+  .page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+  .page-head h3{margin:0;font-size:17px;font-weight:600;color:var(--ink-900);letter-spacing:-.2px;display:flex;align-items:center;gap:9px}
+  .page-head p{margin:3px 0 0;font-size:12px;color:var(--ink-400)}
+  .head-actions{display:flex;gap:8px;align-items:center}
+
+  /* KPI */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .kpi{
+    background:#fff;border:1px solid var(--line);border-radius:var(--r-md);padding:12px 14px 13px;
+    position:relative;overflow:hidden;
+  }
+  .kpi .lb{font-size:11.5px;color:var(--ink-500);display:flex;align-items:center;gap:5px}
+  .kpi .vl{font-size:21px;font-weight:600;color:var(--ink-900);margin-top:5px;letter-spacing:-.4px;line-height:1.2}
+  .kpi .vl small{font-size:11px;color:var(--ink-400);font-weight:500;margin-left:3px}
+  .kpi .dt{font-size:11.5px;margin-top:4px;display:flex;align-items:center;gap:4px}
+  .kpi .dt.up{color:var(--up)}
+  .kpi .dt.down{color:var(--down)}
+  .kpi .dt span{color:var(--ink-400)}
+
+  /* 面板 */
+  .panel{background:#fff;border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--sh-1)}
+  .panel-head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:12px 14px;border-bottom:1px solid var(--line);gap:12px;
+  }
+  .panel-head .t{font-size:13px;font-weight:600;color:var(--ink-900)}
+  .filters{display:flex;gap:10px 14px;flex-wrap:wrap;align-items:flex-end;padding:14px}
+  .filters .field{min-width:132px}
+  .filters .field.wide{min-width:184px}
+
+  .tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+  .tbl thead th{
+    background:#F7F9FC;color:var(--ink-500);font-size:11.5px;font-weight:600;
+    padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;position:sticky;top:0;
+  }
+  .tbl thead th.r{text-align:right}
+  .tbl tbody td{padding:9px 12px;border-bottom:1px solid #EEF2F8;color:var(--ink-700);white-space:nowrap}
+  .tbl tbody tr:hover td{background:#F7FAFF}
+  .tbl .r{text-align:right}
+  .tbl .muted{color:var(--ink-400)}
+  .tbl .sku{color:var(--ink-900);font-weight:500}
+  .tbl tbody tr:last-child td{border-bottom:none}
+  .pager{
+    display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid var(--line);
+    font-size:12px;color:var(--ink-500);
+  }
+  .pager .pgs{display:flex;gap:4px;align-items:center}
+  .pg{min-width:26px;height:26px;border-radius:var(--r-sm);display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:#fff;font-size:12px}
+  .pg.on{background:var(--brand-600);border-color:var(--brand-600);color:#fff}
+
+  /* 规范列表 */
+  .spec-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .spec-card{background:#fff;border:1px solid var(--line);border-radius:var(--r-md);padding:18px;box-shadow:var(--sh-1)}
+  .spec-card h4{margin:0 0 10px;font-size:13px;font-weight:600;color:var(--ink-900);display:flex;align-items:center;gap:7px}
+  .spec-card ul{margin:0;padding-left:16px;font-size:12.5px;color:var(--ink-500);line-height:1.8}
+  .spec-card li::marker{color:var(--ink-300)}
+  .spec-card code{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;
+    background:#F4F7FC;color:var(--brand-700);padding:1px 5px;border-radius:3px;
+  }
+
+  .foot{
+    margin-top:64px;padding-top:24px;border-top:1px solid var(--line);
+    display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;
+    font-size:12px;color:var(--ink-400);
+  }
+
+  @media (max-width:1120px){
+    .diag{grid-template-columns:repeat(2,1fr)}
+    .pal-grid{grid-template-columns:repeat(3,1fr)}
+    .compare{grid-template-columns:1fr}
+    .spec-grid{grid-template-columns:1fr}
+    .kpis{grid-template-columns:repeat(2,1fr)}
+  }
+</style>
+</head>
+<body>
+<div class="doc">
+
+  <!-- ============ 页头 ============ -->
+  <header class="doc-head">
+    <div>
+      <div class="kicker">Design Proposal · v1</div>
+      <h1>JMH 跨境 ERP 视觉重构方案</h1>
+      <p>保留现有业务逻辑与全部接口调用，仅重构视觉系统、信息层级与页面骨架。目标是去掉模板化的「后台感」与通用 AI 风格，建立一套高密度但安静的跨境电商数据工作台。</p>
+    </div>
+    <div class="doc-meta">
+      <div>项目<b>RuoYi-Vue3 / JMH ERP</b></div>
+      <div>页面规模<b>85 个视图 · 52 个含独立样式</b></div>
+      <div>技术栈<b>Vue 3 · Element Plus · ECharts</b></div>
+    </div>
+  </header>
+
+  <!-- ============ 01 诊断 ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>现状诊断</h2></div>
+    <p class="sec-desc">当前界面是 RuoYi 标准模板的直接产物。它在功能上完整，但视觉上没有传达「跨境电商数据平台」的专业度，反而更像一套通用权限管理系统。</p>
+    <div class="diag">
+      <div class="diag-card">
+        <span class="tag">无品牌</span>
+        <h3>主色是框架默认蓝</h3>
+        <p>全局主色 <code>#409EFF</code> 是 Element Plus 出厂值，与 logo 的深蓝→青渐变毫无关联。任何 RuoYi 项目打开都是同一个颜色。</p>
+      </div>
+      <div class="diag-card">
+        <span class="tag">视觉噪音</span>
+        <h3>表格过载</h3>
+        <p>全量 1px 边框 + 斑马纹 + 居中混排，在 20+ 列的库存 / 利润报表里横向竖向都在抢注意力，数据本身反而看不清。</p>
+      </div>
+      <div class="diag-card">
+        <span class="tag">层级缺失</span>
+        <h3>区块全靠边框区分</h3>
+        <p>筛选、工具条、表格、分页都是白底加边框，缺少留白节奏与卡片层级，用户很难一眼定位「我在哪一步」。</p>
+      </div>
+      <div class="diag-card">
+        <span class="tag">布局僵硬</span>
+        <h3>内联样式割裂</h3>
+        <p>大量 <code>style="width:160px"</code> 散落在模板里，筛选区排布靠人肉对齐，窄屏下换行错位，无法统一响应式收敛。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 02 主题 ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>视觉主题</h2></div>
+    <p class="sec-desc">主题直接从你的 logo 提取基因：左侧深蓝代表跨境的「远」与信任，右侧青色代表数据与流动。两者组成一套冷色双主色系统，彻底摆脱紫色渐变这类典型 AI 审美。</p>
+
+    <div class="theme-banner">
+      <div class="inner">
+        <div class="eyebrow">Theme · 01</div>
+        <h2>深海蓝 · 潮汐青</h2>
+        <p>用深墨蓝承担结构（导航、标题、主操作），用青色承担数据反馈（正向增长、健康状态、图表辅助色）。页面底色改为极浅冷灰，让白色卡片浮起来，形成「纸与桌面」的关系，而不是一整块灰蓝。</p>
+        <div class="theme-keys">
+          <span>高密度 · 低噪音</span>
+          <span>小圆角 4–6px</span>
+          <span>极轻投影</span>
+          <span>等宽数字</span>
+          <span>1px 横向分隔线</span>
+          <span>深色模式重新调色</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="subhead">品牌主色</div>
+    <div class="pal-grid">
+      <div class="sw"><div class="chip" style="background:#0A2A5E;color:#fff">900</div><div class="meta"><b>深海墨</b><code>#0A2A5E</code></div></div>
+      <div class="sw"><div class="chip" style="background:#0E45A8;color:#fff">700</div><div class="meta"><b>深蓝</b><code>#0E45A8</code></div></div>
+      <div class="sw"><div class="chip" style="background:#1257D6;color:#fff">600 · 主色</div><div class="meta"><b>JMH 蓝</b><code>#1257D6</code></div></div>
+      <div class="sw"><div class="chip" style="background:#2C74F0;color:#fff">500</div><div class="meta"><b>交互蓝</b><code>#2C74F0</code></div></div>
+      <div class="sw"><div class="chip" style="background:#12B2A6;color:#fff">500 · 辅色</div><div class="meta"><b>潮汐青</b><code>#12B2A6</code></div></div>
+      <div class="sw"><div class="chip" style="background:#0E9E96;color:#fff">600</div><div class="meta"><b>深青</b><code>#0E9E96</code></div></div>
+    </div>
+
+    <div class="subhead">中性色阶（带 8% 蓝调的石板灰）</div>
+    <div class="scale">
+      <div style="background:#0B1526;color:#fff">900<br>正文标题</div>
+      <div style="background:#24334A;color:#fff">700<br>正文</div>
+      <div style="background:#5A6B85;color:#fff">500<br>次要文字</div>
+      <div style="background:#8A99B0;color:#fff">400<br>占位 / 图标</div>
+      <div style="background:#CFD9E8;color:#24334A">300<br>强边框</div>
+      <div style="background:#E3E9F2;color:#24334A">200<br>分隔线</div>
+      <div style="background:#F5F7FB;color:#24334A">100<br>页面底色</div>
+      <div style="background:#FFFFFF;color:#24334A;border-left:1px solid #E3E9F2">0<br>卡片</div>
+    </div>
+
+    <div class="subhead">语义色 · 含中国财务惯例</div>
+    <div class="pal-grid" style="grid-template-columns:repeat(5,1fr)">
+      <div class="sw"><div class="chip" style="background:#12A150;color:#fff">Success</div><div class="meta"><b>正常 / 有货</b><code>#12A150</code></div></div>
+      <div class="sw"><div class="chip" style="background:#D97706;color:#fff">Warning</div><div class="meta"><b>预警 / 待处理</b><code>#D97706</code></div></div>
+      <div class="sw"><div class="chip" style="background:#DC2626;color:#fff">Danger</div><div class="meta"><b>缺货 / 失败</b><code>#DC2626</code></div></div>
+      <div class="sw"><div class="chip" style="background:#D93F3F;color:#fff">Rise</div><div class="meta"><b>上涨（红）</b><code>#D93F3F</code></div></div>
+      <div class="sw"><div class="chip" style="background:#12A150;color:#fff">Fall</div><div class="meta"><b>下跌（绿）</b><code>#12A150</code></div></div>
+    </div>
+    <p style="font-size:12.5px;color:var(--ink-400);margin:12px 0 0">涨跌沿用国内大盘惯例：涨为红、跌为绿，直接替换现有 ECharts 与利润报表中的色值，避免运营同事误读。</p>
+  </section>
+
+  <!-- ============ 03 字体 ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>字体与数字规范</h2></div>
+    <p class="sec-desc">ERP 的核心是读数字。所有数值一律使用等宽数字（tabular-nums），保证列对齐后末位不抖动；正文字号整体下调 1px 换取信息密度，靠字重和颜色而不是字号建立层级。</p>
+
+    <table class="type-table">
+      <thead>
+        <tr><th style="width:180px">层级</th><th style="width:260px">规格</th><th>用途</th></tr>
+      </thead>
+      <tbody>
+        <tr><td style="font-size:22px;font-weight:600;color:var(--ink-900)">页面标题</td><td class="spec">17–20px / 600 / -0.2px</td><td>每个列表页顶部唯一主标题，配合 12px 灰色副标题说明口径</td></tr>
+        <tr><td style="font-size:14px;font-weight:600;color:var(--ink-900)">区块标题</td><td class="spec">13px / 600</td><td>卡片头、抽屉分组标题</td></tr>
+        <tr><td style="font-size:13px;color:var(--ink-700)">正文</td><td class="spec">12.5–13px / 400 / line-height 1.6</td><td>表格单元格、表单值</td></tr>
+        <tr><td style="font-size:11.5px;color:var(--ink-500)">辅助</td><td class="spec">11.5–12px / 400–500</td><td>表头、字段标签、单位、口径说明</td></tr>
+        <tr><td style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-300);font-weight:700">分组标签</td><td class="spec">10.5px / 700 / +0.1em</td><td>侧边栏模块分组、表格列族</td></tr>
+        <tr><td class="num" style="font-size:20px;font-weight:600;color:var(--ink-900)">1,284,930.00</td><td class="spec">tabular-nums / 右对齐</td><td>金额、数量、比率统一右对齐；负数与涨跌用色区分</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 04 组件 ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>组件语言</h2></div>
+    <p class="sec-desc">按钮只有四种权重，取消所有渐变与投影叠加；状态一律用胶囊标签，不加图标背景块。控件高度统一 32px，紧凑模式下 28px。</p>
+
+    <div class="subhead">按钮</div>
+    <div class="row">
+      <button class="btn btn-primary btn-lg">导出全部数据</button>
+      <button class="btn btn-ghost">重置</button>
+      <button class="btn btn-quiet">清空选择</button>
+      <button class="btn btn-danger">删除</button>
+      <button class="btn btn-primary" style="height:28px;font-size:12.5px;padding:0 11px">紧凑 28px</button>
+      <span style="font-size:12px;color:var(--ink-400);margin-left:8px">主按钮全页 ≤ 1 个，其余为描边或纯文字</span>
+    </div>
+
+    <div class="subhead">状态标签</div>
+    <div class="row">
+      <span class="pill pill-ok"><i></i>库存充足</span>
+      <span class="pill pill-warn"><i></i>低于安全线</span>
+      <span class="pill pill-danger"><i></i>断货</span>
+      <span class="pill pill-info"><i></i>待审核</span>
+      <span class="pill pill-brand"><i></i>Amazon US</span>
+      <span class="pill pill-teal"><i></i>eBay UK</span>
+    </div>
+
+    <div class="subhead">筛选区：从「Excel 行」改为「字段网格」</div>
+    <div class="compare">
+      <div class="cmp">
+        <div class="bar old"><span>改造前</span><span>label 700 加粗 · 控件宽度内联写死</span></div>
+        <div class="body">
+          <div class="old-filter">
+            <label>统计日期</label><div class="old-input" style="min-width:150px">开始日期 — 结束日期</div>
+            <label>站点</label><div class="old-input" style="min-width:90px">全部站点</div>
+            <label>核心码</label><div class="old-input" style="min-width:130px">请输入</div>
+            <div style="width:100%;height:1px"></div>
+            <label>品牌</label><div class="old-input" style="min-width:110px">全部品牌</div>
+            <label>等级</label><div class="old-input" style="min-width:80px">全部等级</div>
+            <button class="old-btn">查询</button>
+            <button class="old-btn" style="background:#fff;color:#606266;border:1px solid #DCDFE6">重置</button>
+          </div>
+        </div>
+      </div>
+      <div class="cmp">
+        <div class="bar new"><span>改造后</span><span>两行网格 · 标签轻量 · 操作右对齐</span></div>
+        <div class="body">
+          <div class="new-filter">
+            <div class="field"><label>统计日期</label><div class="ctl"><span>2026-11-01 — 2026-11-11</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg></div></div>
+            <div class="field"><label>站点</label><div class="ctl placeholder"><span>全部站点</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            <div class="field"><label>核心码</label><div class="ctl placeholder"><span>多个用英文逗号分隔</span></div></div>
+            <div class="field"><label>品牌 / 等级</label><div class="ctl placeholder"><span>全部（多选）</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div></div>
+          </div>
+          <div class="row" style="justify-content:flex-end;margin-top:14px">
+            <button class="btn btn-quiet" style="height:30px;font-size:12.5px">重置</button>
+            <button class="btn btn-primary" style="height:30px;font-size:12.5px">查询</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="subhead">表格：去竖线、去斑马纹，只保留横向分隔</div>
+    <div class="compare">
+      <div class="cmp">
+        <div class="bar old"><span>改造前</span><span>全边框 + 斑马纹 + 居中</span></div>
+        <div class="body">
+          <table class="old-table">
+            <thead><tr><th>SKU</th><th>站点</th><th>可用库存</th><th>日均销量</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td>10053</td><td>US</td><td>1,280</td><td>36.4</td><td>正常</td></tr>
+              <tr><td>10027Y</td><td>UK</td><td>86</td><td>12.1</td><td>预警</td></tr>
+              <tr><td>20041</td><td>DE</td><td>0</td><td>8.7</td><td>断货</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="cmp">
+        <div class="bar new"><span>改造后</span><span>横向细线 + 数字右对齐 + 胶囊状态</span></div>
+        <div class="body">
+          <table class="new-table">
+            <thead><tr><th>SKU</th><th>站点</th><th class="r">可用库存</th><th class="r">日均销量</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td class="sku">10053</td><td><span class="pill pill-brand" style="height:20px;font-size:11px">US</span></td><td class="r num">1,280</td><td class="r num">36.4</td><td><span class="pill pill-ok"><i></i>充足</span></td></tr>
+              <tr><td class="sku">10027Y</td><td><span class="pill pill-teal" style="height:20px;font-size:11px">UK</span></td><td class="r num">86</td><td class="r num">12.1</td><td><span class="pill pill-warn"><i></i>预警</span></td></tr>
+              <tr><td class="sku">20041</td><td><span class="pill pill-info" style="height:20px;font-size:11px">DE</span></td><td class="r num">0</td><td class="r num">8.7</td><td><span class="pill pill-danger"><i></i>断货</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 05 整页效果 ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>整页效果预览</h2></div>
+    <p class="sec-desc">以「库存明细」这类典型重数据页为样本：左侧浅色导航收窄一级信息，顶部只留面包屑与全局操作，页面主体按「页头 → 指标 → 筛选 → 数据」四段式排布。</p>
+
+    <div class="frame">
+      <div class="app">
+
+        <!-- 侧边栏 -->
+        <aside class="sb">
+          <div class="sb-brand">
+            <div class="sb-mark">JMH</div>
+            <div><b>JMH 跨境 ERP</b><small>CROSS-BORDER OPS</small></div>
+          </div>
+          <nav class="sb-nav">
+            <div class="nav-group">概览</div>
+            <div class="nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>工作台</div>
+
+            <div class="nav-group">商品与库存</div>
+            <div class="nav-item active"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/></svg>库存明细<svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6"/></svg></div>
+            <div class="nav-sub">
+              <div class="nav-item active">eBay 库存</div>
+              <div class="nav-item">Amazon 补货</div>
+              <div class="nav-item">海外仓库龄</div>
+            </div>
+            <div class="nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 7l-8-4-8 4v10l8 4 8-4V7z"/><path d="M4 7l8 4 8-4"/></svg>商品档案</div>
+            <div class="nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V7a2 2 0 012-2h9l5 5v9a2 2 0 01-2 2H6a2 2 0 01-2-2z"/><path d="M14 5v5h5"/></svg>价格分析</div>
+
+            <div class="nav-group">销售与财务</div>
+            <div class="nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17l6-6 4 4 7-7"/><path d="M14 8h6v6"/></svg>销售看板</div>
+            <div class="nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>利润报表</div>
+            <div class="nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M17 7H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>出口退税</div>
+
+            <div class="nav-group">采购与物流</div>
+            <div class="nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 4h3l2.5 11h11L21 8H6"/></svg>采购订单</div>
+            <div class="nav-item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 16l9-13 9 13H3z"/><path d="M8 16v5h8v-5"/></svg>报关与运费</div>
+          </nav>
+        </aside>
+
+        <!-- 主区 -->
+        <div class="main">
+          <div class="topbar">
+            <div class="crumb">运营 / 库存 / <b>库存明细</b></div>
+            <div class="top-right">
+              <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></div>
+              <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 3l1.9 4.6L18 9.5l-4.1 1.9L12 16l-1.9-4.6L6 9.5l4.1-1.9L12 3z"/></svg></div>
+              <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M18 8a6 6 0 10-12 0c0 6-2 7-2 7h16s-2-1-2-7"/><path d="M10.5 20a2 2 0 003 0"/></svg><span class="dot"></span></div>
+              <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg></div>
+              <div class="ava"><div class="img"></div>雷永玉</div>
+            </div>
+          </div>
+
+          <div class="tags">
+            <div class="tag-tab">工作台<span class="x">×</span></div>
+            <div class="tag-tab on">库存明细<span class="x">×</span></div>
+            <div class="tag-tab">利润报表<span class="x">×</span></div>
+          </div>
+
+          <div class="content">
+            <div class="page-head">
+              <div>
+                <h3>库存明细 <span class="pill pill-info" style="height:20px;font-size:11px">数据截至 11-11 08:00</span></h3>
+                <p>站点 + 中间码合并口径 · 历史日期读取冻结快照</p>
+              </div>
+              <div class="head-actions">
+                <button class="btn btn-ghost">刷新快照</button>
+                <button class="btn btn-primary">导出全部数据</button>
+              </div>
+            </div>
+
+            <div class="kpis">
+              <div class="kpi">
+                <div class="lb">可用库存总量</div>
+                <div class="vl num">128,493 <small>件</small></div>
+                <div class="dt up">▲ 3.2% <span>较昨日</span></div>
+              </div>
+              <div class="kpi">
+                <div class="lb">库存金额</div>
+                <div class="vl num">¥ 4,286,910</div>
+                <div class="dt down">▼ 1.1% <span>较昨日</span></div>
+              </div>
+              <div class="kpi">
+                <div class="lb">平均周转天数</div>
+                <div class="vl num">42.6 <small>天</small></div>
+                <div class="dt down">▼ 2.4 天 <span>较上周</span></div>
+              </div>
+              <div class="kpi">
+                <div class="lb">滞销 SKU</div>
+                <div class="vl num">86</div>
+                <div class="dt up">▲ 7 <span>较上周</span></div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="filters">
+                <div class="field wide"><label>统计日期</label><div class="ctl"><span>2026-11-01 — 2026-11-11</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg></div></div>
+                <div class="field"><label>站点</label><div class="ctl placeholder"><span>全部站点</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div></div>
+                <div class="field wide"><label>核心码</label><div class="ctl placeholder"><span>10053, 10027Y</span></div></div>
+                <div class="field"><label>品牌</label><div class="ctl placeholder"><span>全部品牌</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div></div>
+                <div style="margin-left:auto;display:flex;gap:8px">
+                  <button class="btn btn-quiet" style="height:32px;font-size:12.5px">重置</button>
+                  <button class="btn btn-primary" style="height:32px;font-size:12.5px">查询</button>
+                </div>
+              </div>
+
+              <div class="panel-head" style="border-top:1px solid var(--line)">
+                <div class="t" style="font-weight:500;font-size:12.5px;color:var(--ink-500)">共 <b class="num" style="color:var(--ink-900)">12,846</b> 条 · 已选 3 条（支持跨页）</div>
+                <div class="row" style="gap:6px">
+                  <button class="btn btn-quiet" style="height:28px;font-size:12px">列设置</button>
+                  <button class="btn btn-quiet" style="height:28px;font-size:12px">密度</button>
+                </div>
+              </div>
+
+              <div style="overflow:hidden">
+                <table class="tbl">
+                  <thead>
+                    <tr>
+                      <th style="width:36px"><input type="checkbox" style="accent-color:#1257D6"></th>
+                      <th>SKU</th>
+                      <th>站点</th>
+                      <th>品牌</th>
+                      <th class="r">可用库存</th>
+                      <th class="r">在途</th>
+                      <th class="r">日均销量</th>
+                      <th class="r">可售天数</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><input type="checkbox" style="accent-color:#1257D6"></td>
+                      <td class="sku">10053</td><td><span class="pill pill-brand" style="height:20px;font-size:11px">US</span></td>
+                      <td class="muted">PHILIPS</td>
+                      <td class="r num">1,280</td><td class="r num">420</td><td class="r num">36.4</td><td class="r num">35.2</td>
+                      <td><span class="pill pill-ok"><i></i>充足</span></td>
+                    </tr>
+                    <tr>
+                      <td><input type="checkbox" style="accent-color:#1257D6" checked></td>
+                      <td class="sku">10027Y</td><td><span class="pill pill-teal" style="height:20px;font-size:11px">UK</span></td>
+                      <td class="muted">PHILIPS</td>
+                      <td class="r num">86</td><td class="r num">0</td><td class="r num">12.1</td><td class="r num">7.1</td>
+                      <td><span class="pill pill-warn"><i></i>低于安全线</span></td>
+                    </tr>
+                    <tr>
+                      <td><input type="checkbox" style="accent-color:#1257D6"></td>
+                      <td class="sku">20041</td><td><span class="pill pill-info" style="height:20px;font-size:11px">DE</span></td>
+                      <td class="muted">BRAUN</td>
+                      <td class="r num">0</td><td class="r num">1,200</td><td class="r num">8.7</td><td class="r num">0</td>
+                      <td><span class="pill pill-danger"><i></i>断货</span></td>
+                    </tr>
+                    <tr>
+                      <td><input type="checkbox" style="accent-color:#1257D6" checked></td>
+                      <td class="sku">20088</td><td><span class="pill pill-brand" style="height:20px;font-size:11px">US</span></td>
+                      <td class="muted">OMRON</td>
+                      <td class="r num">3,940</td><td class="r num">0</td><td class="r num">18.2</td><td class="r num">216.5</td>
+                      <td><span class="pill pill-info"><i></i>滞销</span></td>
+                    </tr>
+                    <tr>
+                      <td><input type="checkbox" style="accent-color:#1257D6"></td>
+                      <td class="sku">30117</td><td><span class="pill pill-teal" style="height:20px;font-size:11px">UK</span></td>
+                      <td class="muted">TEFAL</td>
+                      <td class="r num">742</td><td class="r num">150</td><td class="r num">9.4</td><td class="r num">78.9</td>
+                      <td><span class="pill pill-ok"><i></i>充足</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="pager">
+                <div>共 12,846 条 · 每页 50 条</div>
+                <div class="pgs">
+                  <div class="pg">‹</div><div class="pg on">1</div><div class="pg">2</div><div class="pg">3</div><div class="pg">…</div><div class="pg">257</div><div class="pg">›</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 06 规范要点 ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>落地规范</h2></div>
+    <p class="sec-desc">全部改动集中在 <code style="font-family:ui-monospace,monospace;font-size:12px;background:#F4F7FC;padding:2px 6px;border-radius:3px;color:#0E45A8">src/assets/styles</code> 与视图层的模板结构，不触碰 <code style="font-family:ui-monospace,monospace;font-size:12px;background:#F4F7FC;padding:2px 6px;border-radius:3px;color:#0E45A8">src/api</code> 下任何请求、参数与返回处理。</p>
+
+    <div class="spec-grid">
+      <div class="spec-card">
+        <h4>布局骨架</h4>
+        <ul>
+          <li>侧边栏 200 → <code>236px</code>，浅色优先，收起 56px</li>
+          <li>顶部条 50 → <code>56px</code>，标签页 36px 一体化</li>
+          <li>内容区内边距统一 <code>16–20px</code></li>
+          <li>页面结构固定四段：页头 / 指标 / 筛选 / 数据</li>
+        </ul>
+      </div>
+      <div class="spec-card">
+        <h4>表格与数据</h4>
+        <ul>
+          <li>移除 <code>border</code> 与 <code>stripe</code>，仅保留横线</li>
+          <li>表头 11.5px / 600 / <code>#F7F9FC</code> 底</li>
+          <li>数值列右对齐 + <code>tabular-nums</code></li>
+          <li>行高 40px，hover <code>#F7FAFF</code>，首列固定</li>
+          <li>状态统一胶囊，不再用纯文字标签色块</li>
+        </ul>
+      </div>
+      <div class="spec-card">
+        <h4>深色模式</h4>
+        <ul>
+          <li>底色 <code>#0B1220</code>，卡片 <code>#111C2E</code>，不再用纯黑</li>
+          <li>主色自动提亮到 <code>#4D8DF5</code>，保证 4.5:1 对比</li>
+          <li>边框降为 <code>rgba(255,255,255,.08)</code></li>
+          <li>图表网格线与文字同步降噪</li>
+        </ul>
+      </div>
+      <div class="spec-card">
+        <h4>可访问性</h4>
+        <ul>
+          <li>正文对比度 ≥ <code>4.5:1</code>，大字 ≥ 3:1</li>
+          <li>焦点环统一 <code>2px #1257D6</code> + 2px 偏移</li>
+          <li>点击热区最小 <code>32×32</code>（移动 44）</li>
+          <li>颜色不作为唯一信息载体，状态胶囊带文字</li>
+        </ul>
+      </div>
+      <div class="spec-card">
+        <h4>图表色板</h4>
+        <ul>
+          <li>主序列 <code>#1257D6</code>，辅序列 <code>#12B2A6</code></li>
+          <li>扩展 6 色：<code>#5B8DEF #0E9E96 #D97706 #7C6CF0 #12A150 #8A99B0</code></li>
+          <li>网格线 <code>#EEF2F8</code>，去 3D 与阴影</li>
+          <li>涨红跌绿，与利润表口径一致</li>
+        </ul>
+      </div>
+      <div class="spec-card">
+        <h4>改造顺序</h4>
+        <ul>
+          <li>第 1 步：设计变量 + Element 主题覆盖（全局生效）</li>
+          <li>第 2 步：Layout 三件套（侧边栏 / 顶栏 / 标签页）</li>
+          <li>第 3 步：登录页与首页看板</li>
+          <li>第 4 步：高频业务页（库存 / 利润 / 补货）</li>
+          <li>第 5 步：其余页面样式收敛</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <span>JMH 跨境 ERP · 视觉重构方案 v1 · 待确认后进入实现</span>
+    <span>不改动接口层：src/api/**、utils/request.js、权限指令均保持原样</span>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JMH ERP · 图标与图标按钮规范</title>
+<style>
+  :root{
+    --b900:#0A2A5E; --b700:#0E45A8; --b600:#1257D6; --b500:#2C74F0; --b100:#E7EFFF; --b50:#F4F8FF;
+    --t600:#0E9E96; --t500:#12B2A6; --t100:#D9F5F2;
+    --accent:#1257D6; --accent-hover:#0E45A8; --accent-weak:#EAF1FE;
+    --i900:#0B1526; --i700:#24334A; --i500:#5A6B85; --i400:#8A99B0; --i300:#B4C0D2;
+    --line:#E3E9F2; --line2:#CFD9E8; --surface:#fff; --canvas:#F5F7FB; --hover:#F1F5FB; --pressed:#E7EDF7;
+    --ok:#12A150; --ok-bg:#E7F6EC; --warn:#D97706; --warn-bg:#FEF4E6; --danger:#DC2626; --danger-bg:#FDECEC;
+    --r4:4px; --r6:6px; --r10:10px;
+    --sh1:0 1px 2px rgba(13,26,45,.06); --sh2:0 4px 16px -8px rgba(13,26,45,.16); --sh3:0 16px 40px -16px rgba(13,26,45,.28);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--canvas);color:var(--i700);
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",Inter,"Segoe UI",system-ui,sans-serif;
+    font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased;
+  }
+  .doc{max-width:1240px;margin:0 auto;padding:56px 32px 96px}
+  .kicker{font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--b600);margin-bottom:12px}
+  h1{margin:0 0 10px;font-size:30px;font-weight:600;letter-spacing:-.5px;color:var(--i900)}
+  .lead{margin:0;color:var(--i500);font-size:14px;max-width:760px}
+  section{padding-top:56px}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:8px}
+  .sec-num{font-size:12px;font-weight:700;color:var(--b600);letter-spacing:.1em;background:var(--b50);border:1px solid var(--b100);padding:2px 8px;border-radius:4px}
+  h2{margin:0;font-size:20px;font-weight:600;color:var(--i900);letter-spacing:-.2px}
+  .sec-desc{margin:0 0 24px;color:var(--i500);font-size:13.5px;max-width:800px}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;background:#EDF2FA;color:var(--b700);padding:1px 5px;border-radius:3px}
+  .num{font-variant-numeric:tabular-nums}
+
+  /* ---------- 图标按钮（与 IconBtn/index.vue 保持一致） ---------- */
+  .icon-btn{
+    position:relative;display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    padding:0;border:1px solid transparent;border-radius:var(--r6);background:transparent;
+    color:var(--i500);font-family:inherit;font-size:13px;font-weight:500;line-height:1;
+    cursor:pointer;user-select:none;transition:background-color .15s ease,color .15s ease,border-color .15s ease;
+  }
+  .icon-btn svg{flex:none;display:block}
+  .icon-btn--xs{width:24px;height:24px}
+  .icon-btn--sm{width:28px;height:28px}
+  .icon-btn--md{width:32px;height:32px}
+  .icon-btn--lg{width:36px;height:36px}
+  .icon-btn--with-label{width:auto;padding:0 11px;gap:6px}
+  .icon-btn--default:hover{background:var(--hover);color:var(--i900)}
+  .icon-btn--default:active{background:var(--pressed)}
+  .icon-btn--primary{background:var(--accent);color:#fff}
+  .icon-btn--primary:hover{background:var(--accent-hover)}
+  .icon-btn--ghost{background:var(--surface);border-color:var(--line2);color:var(--i700)}
+  .icon-btn--ghost:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-weak)}
+  .icon-btn--danger{color:var(--danger)}
+  .icon-btn--danger:hover{background:var(--danger-bg)}
+  .icon-btn.is-active{background:var(--accent-weak);color:var(--accent)}
+  .icon-btn.is-disabled{opacity:.38;cursor:not-allowed;background:transparent}
+  .icon-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .icon-btn__badge{
+    position:absolute;top:-2px;right:-2px;min-width:15px;height:15px;padding:0 4px;border-radius:999px;
+    background:var(--danger);color:#fff;font-size:10px;font-weight:600;line-height:15px;text-align:center;
+    box-shadow:0 0 0 2px var(--surface);font-family:inherit;
+  }
+  .jb-toolbar{display:inline-flex;align-items:center;gap:2px}
+  .jb-toolbar__sep{width:1px;height:14px;margin:0 3px;background:var(--line)}
+
+  /* ---------- 旧样式对照 ---------- */
+  .old-circle{width:28px;height:28px;border-radius:50%;border:1px solid #DCDFE6;background:#fff;display:inline-flex;align-items:center;justify-content:center;color:#606266;margin-right:10px}
+  .old-text-btn{height:32px;padding:0 14px;border-radius:4px;border:1px solid #DCDFE6;background:#fff;color:#606266;font-size:12.5px;display:inline-flex;align-items:center;gap:6px;margin-right:6px;margin-bottom:6px}
+
+  /* ---------- 容器 ---------- */
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r6);box-shadow:var(--sh1)}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+  .spec-row{display:flex;align-items:center;gap:16px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .spec-row:last-child{border-bottom:none}
+  .spec-row .lb{width:132px;flex:none;font-size:12px;color:var(--i500)}
+  .spec-row .demo{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .spec-row .meta{font-size:11.5px;color:var(--i400);font-family:ui-monospace,monospace}
+  .bar-demo{padding:14px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+  .bar-demo:last-child{border-bottom:none}
+  .bar-hint{width:100%;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;margin-bottom:2px}
+
+  /* ---------- 表格 ---------- */
+  .tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+  .tbl thead th{background:#F7F9FC;color:var(--i500);font-size:11.5px;font-weight:600;padding:8px 12px;text-align:left;border-bottom:1px solid var(--line)}
+  .tbl thead th.r{text-align:right}
+  .tbl tbody td{padding:9px 12px;border-bottom:1px solid #EEF2F8;color:var(--i700)}
+  .tbl tbody tr:last-child td{border-bottom:none}
+  .tbl .r{text-align:right}
+  .tbl .sku{color:var(--i900);font-weight:500}
+  .pill{display:inline-flex;align-items:center;gap:5px;height:21px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:500}
+  .pill::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor}
+  .pill-ok{background:var(--ok-bg);color:#0E7A3D}
+  .pill-warn{background:var(--warn-bg);color:#A85C05}
+  .pill-danger{background:var(--danger-bg);color:#B42318}
+  .pill-info{background:#EEF2F8;color:#4A5A73}
+
+  /* ---------- 图标总表 ---------- */
+  .icon-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}
+  .icon-cell{background:var(--surface);border:1px solid var(--line);border-radius:var(--r6);padding:12px 8px 9px;text-align:center}
+  .icon-cell .ic{color:var(--i700);display:flex;justify-content:center;margin-bottom:7px;height:20px;align-items:center}
+  .icon-cell .nm{font-size:10.5px;color:var(--i700);font-weight:600;word-break:break-all;line-height:1.3}
+  .icon-cell .ds{font-size:10px;color:var(--i400);margin-top:1px;line-height:1.3}
+
+  .note{display:flex;gap:10px;align-items:flex-start;background:var(--b50);border:1px solid var(--b100);border-radius:var(--r6);padding:13px 15px;font-size:12.5px;color:var(--i700);line-height:1.75}
+  .note b{color:var(--b700)}
+
+  .code-block{background:#0E1A2B;border-radius:var(--r6);padding:16px 18px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.95;color:#C6D4E8;overflow:auto;white-space:pre}
+  .code-block .c{color:#6C8099}
+  .code-block .t{color:#7FD1C7}
+  .code-block .a{color:#8FB8F0}
+  .code-block .s{color:#D9B778}
+
+  .foot{margin-top:56px;padding-top:22px;border-top:1px solid var(--line);font-size:12px;color:var(--i400);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+  @media (max-width:1000px){
+    .grid-2{grid-template-columns:1fr}
+    .icon-grid{grid-template-columns:repeat(4,1fr)}
+  }
+</style>
+</head>
+<body>
+<div class="doc">
+
+  <div class="kicker">Design Spec · Icons v1</div>
+  <h1>图标与图标按钮规范</h1>
+  <p class="lead">刷新、导出、筛选、列设置这些动作用「纯图标按钮 + 悬停气泡」，不再用边框包文字。图标采用 Lucide 线性图标库（ISC 协议，按需打包），菜单与业务图标继续用你现有的 SVG 雪碧图，两套互不冲突。</p>
+
+  <!-- ============ 01 来源 ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>图标从哪来</h2></div>
+    <p class="sec-desc">组件只认一个 <code>name</code>，内部按三级顺序自动匹配。你写页面时不用关心来源。</p>
+
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="spec-row" style="align-items:flex-start;padding:16px">
+        <div class="lb" style="width:150px;color:var(--i900);font-weight:600">① 语义名 → Lucide</div>
+        <div style="flex:1;font-size:12.5px;color:var(--i500)">
+          <div style="margin-bottom:6px"><code>refresh</code> <code>export</code> <code>filter</code> <code>columns</code> 这类小驼峰名字，走 Lucide 线性图标。</div>
+          <div>新增依赖只有一个：<code>lucide-vue-next@0.577.0</code>，按需 tree-shake，实际打进包里的只有用到的那些。</div>
+        </div>
+        <div class="demo" style="width:260px;justify-content:flex-end">
+          <i data-ic="refresh" data-s="18"></i><i data-ic="export" data-s="18"></i><i data-ic="filter" data-s="18"></i><i data-ic="columns" data-s="18"></i><i data-ic="search" data-s="18"></i>
+        </div>
+      </div>
+      <div class="spec-row" style="align-items:flex-start;padding:16px">
+        <div class="lb" style="width:150px;color:var(--i900);font-weight:600">② PascalCase → Element Plus</div>
+        <div style="flex:1;font-size:12.5px;color:var(--i500)">
+          <div><code>Refresh</code> <code>Promotion</code> 这类大写开头，走已安装的 293 个 EP 图标，个别 EP 独有的图标（如 Promotion、SoldOut）还能继续用。</div>
+        </div>
+        <div class="demo" style="width:260px;justify-content:flex-end">
+          <svg viewBox="0 0 1024 1024" width="18" height="18" fill="currentColor" style="display:block;color:#24334A"><path fill="currentColor" d="M771.776 794.88A384 384 0 0 1 128 512h64a320 320 0 0 0 555.712 216.448H654.72a32 32 0 1 1 0-64h149.056a32 32 0 0 1 32 32v148.928a32 32 0 1 1-64 0v-50.56zM276.288 295.616h92.992a32 32 0 0 1 0 64H220.16a32 32 0 0 1-32-32V178.56a32 32 0 0 1 64 0v50.56A384 384 0 0 1 896.128 512h-64a320 320 0 0 0-555.776-216.384z"></path></svg><svg viewBox="0 0 1024 1024" width="18" height="18" fill="currentColor" style="display:block;color:#24334A"><path fill="currentColor" d="m64 448 832-320-128 704-446.08-243.328L832 192 242.816 545.472zm256 512V657.024L512 768z"></path></svg><svg viewBox="0 0 1024 1024" width="18" height="18" fill="currentColor" style="display:block;color:#24334A"><path fill="currentColor" d="M704 288h131.072a32 32 0 0 1 31.808 28.8L886.4 512h-64.384l-16-160H704v96a32 32 0 1 1-64 0v-96H384v96a32 32 0 0 1-64 0v-96H217.92l-51.2 512H512v64H131.328a32 32 0 0 1-31.808-35.2l57.6-576a32 32 0 0 1 31.808-28.8H320v-22.336C320 154.688 405.504 64 512 64s192 90.688 192 201.664v22.4zm-64 0v-22.336C640 189.248 582.272 128 512 128s-128 61.248-128 137.664v22.4h256zm201.408 476.16a32 32 0 1 1 45.248 45.184l-128 128a32 32 0 0 1-45.248 0l-128-128a32 32 0 1 1 45.248-45.248L704 837.504V608a32 32 0 1 1 64 0v229.504l73.408-73.408z"></path></svg><svg viewBox="0 0 1024 1024" width="18" height="18" fill="currentColor" style="display:block;color:#24334A"><path fill="currentColor" d="M640 384v256H384V384zm64 0h192v256H704zm-64 512H384V704h256zm64 0V704h192v192zm-64-768v192H384V128zm64 0h192v192H704zM320 384v256H128V384zm0 512H128V704h192zm0-768v192H128V128z"></path></svg><svg viewBox="0 0 1024 1024" width="18" height="18" fill="currentColor" style="display:block;color:#24334A"><path fill="currentColor" d="M432 928a48 48 0 1 1 0-96 48 48 0 0 1 0 96m320 0a48 48 0 1 1 0-96 48 48 0 0 1 0 96M96 128a32 32 0 0 1 0-64h160a32 32 0 0 1 31.36 25.728L320.64 256H928a32 32 0 0 1 31.296 38.72l-96 448A32 32 0 0 1 832 768H384a32 32 0 0 1-31.36-25.728L229.76 128zm314.24 576h395.904l82.304-384H333.44z"></path></svg><svg viewBox="0 0 1024 1024" width="18" height="18" fill="currentColor" style="display:block;color:#24334A"><path fill="currentColor" d="M256 640v192h640V384H768v-64h150.976c14.272 0 19.456 1.472 24.64 4.288a29.06 29.06 0 0 1 12.16 12.096c2.752 5.184 4.224 10.368 4.224 24.64v493.952c0 14.272-1.472 19.456-4.288 24.64a29.06 29.06 0 0 1-12.096 12.16c-5.184 2.752-10.368 4.224-24.64 4.224H233.024c-14.272 0-19.456-1.472-24.64-4.288a29.06 29.06 0 0 1-12.16-12.096c-2.688-5.184-4.224-10.368-4.224-24.576V640z"></path><path fill="currentColor" d="M768 192H128v448h640zm64-22.976v493.952c0 14.272-1.472 19.456-4.288 24.64a29.06 29.06 0 0 1-12.096 12.16c-5.184 2.752-10.368 4.224-24.64 4.224H105.024c-14.272 0-19.456-1.472-24.64-4.288a29.06 29.06 0 0 1-12.16-12.096C65.536 682.432 64 677.248 64 663.04V169.024c0-14.272 1.472-19.456 4.288-24.64a29.06 29.06 0 0 1 12.096-12.16C85.568 129.536 90.752 128 104.96 128h685.952c14.272 0 19.456 1.472 24.64 4.288a29.06 29.06 0 0 1 12.16 12.096c2.752 5.184 4.224 10.368 4.224 24.64z"></path><path fill="currentColor" d="M448 576a160 160 0 1 1 0-320 160 160 0 0 1 0 320m0-64a96 96 0 1 0 0-192 96 96 0 0 0 0 192"></path></svg>
+        </div>
+      </div>
+      <div class="spec-row" style="align-items:flex-start;padding:16px">
+        <div class="lb" style="width:150px;color:var(--i900);font-weight:600">③ 其他 → 你的 SVG 雪碧图</div>
+        <div style="flex:1;font-size:12.5px;color:var(--i500)">
+          <div><code>shopping</code> <code>money</code> <code>chart</code> <code>jmh</code> 这些你 <code>src/assets/icons/svg</code> 里已有的文件名，继续走 <code>&lt;svg-icon&gt;</code>，91 个全部保留可用。</div>
+        </div>
+        <div class="demo" style="width:260px;justify-content:flex-end">
+          <svg viewBox="0 0 128 128" width="16" height="16" fill="currentColor" style="display:block;color:#24334A"><path d="M42.913 101.36c1.642 0 3.198.332 4.667.996a12.28 12.28 0 0 1 3.89 2.772c1.123 1.184 1.987 2.582 2.592 4.193.605 1.612.908 3.318.908 5.118 0 1.8-.303 3.507-.908 5.118-.605 1.611-1.469 3.01-2.593 4.194a13.3 13.3 0 0 1-3.889 2.843 10.582 10.582 0 0 1-4.667 1.066c-1.729 0-3.306-.355-4.732-1.066a13.604 13.604 0 0 1-3.825-2.843c-1.123-1.185-1.988-2.583-2.593-4.194a14.437 14.437 0 0 1-.907-5.118c0-1.8.302-3.506.907-5.118.605-1.61 1.47-3.009 2.593-4.193a12.515 12.515 0 0 1 3.825-2.772c1.426-.664 3.003-.996 4.732-.996zm53.932.285c1.643 0 3.22.331 4.733.995a11.386 11.386 0 0 1 3.889 2.772c1.08 1.185 1.945 2.583 2.593 4.194.648 1.61.972 3.317.972 5.118 0 1.8-.324 3.506-.972 5.117-.648 1.611-1.513 3.01-2.593 4.194a12.253 12.253 0 0 1-3.89 2.843 11 11 0 0 1-4.732 1.066 10.58 10.58 0 0 1-4.667-1.066 12.478 12.478 0 0 1-3.824-2.843c-1.08-1.185-1.945-2.583-2.593-4.194a13.581 13.581 0 0 1-.973-5.117c0-1.801.325-3.507.973-5.118.648-1.611 1.512-3.01 2.593-4.194a11.559 11.559 0 0 1 3.824-2.772 11.212 11.212 0 0 1 4.667-.995zm21.781-80.747c2.42 0 4.3.355 5.64 1.066 1.34.71 2.29 1.587 2.852 2.63a6.427 6.427 0 0 1 .778 3.34c-.044 1.185-.195 2.204-.454 3.057-.26.853-.8 2.606-1.62 5.26a589.268 589.268 0 0 1-2.788 8.743 1236.373 1236.373 0 0 0-3.047 9.453c-.994 3.128-1.75 5.592-2.269 7.393-1.123 3.79-2.55 6.42-4.278 7.89-1.728 1.469-3.846 2.203-6.352 2.203H39.023l1.945 12.795h65.342c4.148 0 6.223 1.943 6.223 5.828 0 1.896-.41 3.53-1.232 4.905-.821 1.374-2.442 2.061-4.862 2.061H38.505c-1.729 0-3.176-.426-4.343-1.28-1.167-.852-2.14-1.966-2.917-3.34a21.277 21.277 0 0 1-1.88-4.478 44.128 44.128 0 0 1-1.102-4.55c-.087-.568-.324-1.942-.713-4.122-.39-2.18-.865-4.904-1.426-8.174l-1.88-10.947c-.692-4.027-1.383-8.079-2.075-12.154-1.642-9.572-3.5-20.234-5.574-31.986H6.87c-1.296 0-2.377-.356-3.24-1.067a9.024 9.024 0 0 1-2.14-2.558 10.416 10.416 0 0 1-1.167-3.2C.108 8.53 0 7.488 0 6.54c0-1.896.583-3.46 1.75-4.69C2.917.615 4.494 0 6.482 0h13.095c1.728 0 3.111.284 4.148.853 1.037.569 1.858 1.28 2.463 2.132a8.548 8.548 0 0 1 1.297 2.701c.26.948.475 1.754.648 2.417.173.758.346 1.825.519 3.199.173 1.374.345 2.772.518 4.193.26 1.706.519 3.507.778 5.403h88.678z"/></svg><svg viewBox="0 0 128 128" width="16" height="16" fill="currentColor" style="display:block;color:#24334A"><path d="M54.122 127.892v-28.68H7.513V87.274h46.609v-12.4H7.513v-12.86h38.003L.099 0h22.6l32.556 45.07c3.617 5.144 6.44 9.611 8.487 13.385 1.788-3.05 4.89-7.779 9.301-14.186L103.93 0h24.01L82.385 62.013h38.34v12.862h-46.41v12.4h46.41v11.937h-46.41v28.68H54.123z"/></svg><svg viewBox="0 0 128 128" width="16" height="16" fill="currentColor" style="display:block;color:#24334A"><path d="M0 54.857h36.571V128H0V54.857zM91.429 27.43H128V128H91.429V27.429zM45.714 0h36.572v128H45.714V0z"/></svg><svg viewBox="0 0 128 128" width="16" height="16" fill="currentColor" style="display:block;color:#24334A"><path d="M.006.064h127.988v31.104H.006V.064zm0 38.016h38.396v41.472H.006V38.08zm0 48.384h38.396v41.472H.006V86.464zM44.802 38.08h38.396v41.472H44.802V38.08zm0 48.384h38.396v41.472H44.802V86.464zM89.598 38.08h38.396v41.472H89.598zm0 48.384h38.396v41.472H89.598z"/><path d="M.006.064h127.988v31.104H.006V.064zm0 38.016h38.396v41.472H.006V38.08zm0 48.384h38.396v41.472H.006V86.464zM44.802 38.08h38.396v41.472H44.802V38.08zm0 48.384h38.396v41.472H44.802V86.464zM89.598 38.08h38.396v41.472H89.598zm0 48.384h38.396v41.472H89.598z"/></svg>
+        </div>
+      </div>
+      <div class="spec-row" style="align-items:flex-start;padding:16px">
+        <div class="lb" style="width:150px;color:var(--i900);font-weight:600">④ jmh- 前缀 → 业务图标</div>
+        <div style="flex:1;font-size:12.5px;color:var(--i500)">
+          <div>你已有的 <code>src/assets/icons/svg/jmh/</code> 子目录，引用名是 <code>jmh-refresh</code>、<code>jmh-export</code>、<code>jmh-trend-up</code> 这种。<code>AppIcon</code> 直接把名字透传给 <code>&lt;svg-icon&gt;</code>，所以这 5 个今天就能在 <code>icon-btn</code> 里用。</div>
+          <div style="margin-top:4px">新增业务图标仍放这个目录，记得同步 README 清单——<code>tests/jmh-icon-library.test.mjs</code> 会校验两者一一对应。</div>
+        </div>
+        <div class="demo" style="width:260px;justify-content:flex-end">
+          <svg viewBox="0 0 1024 1024" width="16" height="16" fill="currentColor" style="display:block;color:#24334A"><path d="M688 766.272a301.376 301.376 0 0 1-204.8 54.656c-3.392-0.32-6.72-0.896-10.24-1.344-6.464-0.896-12.992-1.728-19.328-3.008a220.608 220.608 0 0 1-11.648-2.688 261.44 261.44 0 0 1-18.56-4.8l-8.64-2.944a298.24 298.24 0 0 1-48.64-21.184l-1.024-0.512a311.744 311.744 0 0 1-89.152-74.432c-1.28-1.472-2.368-3.136-3.584-4.672a311.168 311.168 0 0 1-67.264-193.472h71.168a5.12 5.12 0 0 0 4.48-2.752 4.992 4.992 0 0 0-0.192-5.248L161.088 322.24a5.12 5.12 0 0 0-8.64 0L32.896 503.872a4.992 4.992 0 0 0-0.256 5.248 5.184 5.184 0 0 0 4.48 2.752h71.232c0 86.016 26.496 165.696 71.424 231.552 0.576 0.96 0.96 1.92 1.536 2.816 4.672 6.72 9.856 12.992 14.848 19.392 1.856 2.368 3.648 4.864 5.568 7.232 7.36 9.088 15.168 17.472 23.232 25.856l2.24 2.304c35.2 35.776 76.8 64.512 122.752 84.8l7.424 3.328c8.512 3.584 17.28 6.72 26.112 9.728 4.16 1.408 8.256 2.88 12.48 4.16 7.68 2.304 15.616 4.224 23.552 6.144 5.312 1.28 10.496 2.624 15.936 3.648 2.176 0.512 4.288 1.152 6.528 1.472 7.488 1.344 14.976 2.112 22.528 3.008l8.064 1.152a397.12 397.12 0 0 0 271.104-71.936 49.408 49.408 0 0 0 11.904-68.224 48.064 48.064 0 0 0-67.584-12.032z m227.776-254.4a409.856 409.856 0 0 0-71.104-231.04c-0.704-1.152-1.152-2.304-1.792-3.264a428.992 428.992 0 0 0-17.664-23.04l-2.112-2.752a399.68 399.68 0 0 0-150.656-114.624 161.28 161.28 0 0 1-4.8-2.24 503.04 503.04 0 0 0-28.352-10.56c-3.648-1.152-7.04-2.432-10.624-3.456a377.856 377.856 0 0 0-25.344-6.656c-4.672-1.088-9.408-2.304-14.208-3.264-2.368-0.448-4.544-1.152-6.912-1.6-6.4-1.152-12.8-1.6-19.2-2.432-4.352-0.576-8.768-1.28-13.184-1.728a413.568 413.568 0 0 0-32-1.6c-1.92 0-3.84-0.32-5.824-0.32a397.312 397.312 0 0 0-231.488 73.92 49.408 49.408 0 0 0-11.968 68.288 48.128 48.128 0 0 0 67.584 11.968 302.464 302.464 0 0 1 205.12-54.656l8.128 1.152c7.36 0.832 14.592 1.92 21.696 3.328 3.136 0.576 6.272 1.408 9.344 2.112 6.976 1.6 14.016 3.328 20.8 5.376l6.4 2.24c7.808 2.56 15.36 5.312 22.976 8.512l2.368 1.088c45.12 19.648 84.736 49.92 115.648 87.808l0.576 0.768a311.04 311.04 0 0 1 69.696 196.736h-71.104a5.12 5.12 0 0 0-4.288 8l119.616 181.568a5.12 5.12 0 0 0 8.576 0l119.488-181.568a5.12 5.12 0 1 0-4.288-8h-71.104v-0.064z"/></svg><svg viewBox="0 0 1024 1024" width="16" height="16" fill="currentColor" style="display:block;color:#24334A"><path d="M980.322411 166.909763a140.98426 140.98426 0 0 1 42.903265 87.469893V893.053268a130.946732 130.946732 0 0 1-130.774659 130.946732H131.434269A130.946732 130.946732 0 0 1 0.659609 893.053268V130.946732A130.946732 130.946732 0 0 1 131.434269 0h254.035512a135.076458 135.076458 0 0 1 95.442559 48.35221l41.813476 48.294852a84.028455 84.028455 0 0 0 21.967849 25.179858 53.399653 53.399653 0 0 0 32.693665 9.119812h308.754383a134.674957 134.674957 0 0 1 94.180698 35.963031z m-229.429228 439.012827a43.591553 43.591553 0 0 0-6.940234-47.49185L544.80838 342.881981a51.621576 51.621576 0 0 0-13.651039-9.922814 21.394275 21.394275 0 0 0-18.641125 1.26186 47.147706 47.147706 0 0 0-18.641125 5.735731 69.172912 69.172912 0 0 0-13.651039 10.553744L281.079482 558.602812a38.658825 38.658825 0 0 0-12.446535 22.942923 43.362124 43.362124 0 0 0 4.990086 24.319498 39.691256 39.691256 0 0 0 16.863048 18.067551 48.35221 48.35221 0 0 0 22.942923 5.735731h103.243152v143.393267a50.359715 50.359715 0 0 0 15.54383 32.980452 49.786142 49.786142 0 0 0 32.923094 15.601187h94.639557a42.960623 42.960623 0 0 0 48.524281-48.581639v-143.393267h95.729345a39.633899 39.633899 0 0 0 47.262421-23.745925z"/></svg><svg viewBox="0 0 1024 1024" width="16" height="16" fill="currentColor" style="display:block;color:#24334A"><path d="M912 560h-512c-25.6 0-44.8-22.4-44.8-48s19.2-48 44.8-48h508.8c25.6 0 44.8 22.4 44.8 48s-19.2 48-41.6 48zM908.8 227.2H128c-25.6 0-48-19.2-51.2-44.8 0-25.6 22.4-51.2 48-51.2h780.8c25.6 0 48 19.2 51.2 44.8 0 28.8-22.4 51.2-48 51.2z" /><path d="M76.8 668.8v-320l224 160-224 160z" /><path d="M124.8 787.2h780.8c25.6 0 48 19.2 51.2 48 0 28.8-19.2 48-48 48H128c-25.6 0-48-19.2-51.2-48-3.2-25.6 19.2-48 48-48z" /></svg><svg viewBox="0 0 1024 1024" width="16" height="16" fill="currentColor" style="display:block;color:#24334A"><path d="M325.312 576a32 32 0 0 1-25.856-50.88l186.688-256.032a32 32 0 0 1 51.712 0l186.688 256.064A32 32 0 0 1 698.688 576H640v160a32 32 0 0 1-32 32h-192a32 32 0 0 1-32-32v-160h-58.688z"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:14px">
+      <span>ℹ️</span>
+      <div>为什么工具条用 Lucide 而不是 EP？你现有 91 个菜单图标是<b>实心 1024 风格</b>，EP 也是实心，两者在 14px 工具条里都偏粗；Lucide 是统一 1.9px 线性，小尺寸更清晰。<br>但要注意上面第 ④ 行最后一个图标：<code>jmh-refresh</code> 是实心 1024，和线性图标并排会明显偏重。所以分工是——<b>通用动作 → Lucide</b>，<b>jmh-* 只用于独立的业务标记</b>（涨跌箭头、平台标识这类单独立着的图标），不混进同一条工具条。</div>
+    </div>
+  </section>
+
+  <!-- ============ 02 规格 ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>图标按钮规格</h2></div>
+    <p class="sec-desc">四尺寸、四类型、六状态。默认无边框无底色，只在悬停时出现浅底。</p>
+
+    <div class="card">
+      <div class="spec-row">
+        <div class="lb">尺寸</div>
+        <div class="demo">
+          <button class="icon-btn icon-btn--xs"><i data-ic="refresh" data-s="12"></i></button><span class="meta">xs 24 / 12</span>
+          <button class="icon-btn icon-btn--sm"><i data-ic="refresh" data-s="14"></i></button><span class="meta">sm 28 / 14（表格工具条默认）</span>
+          <button class="icon-btn icon-btn--md"><i data-ic="refresh" data-s="16"></i></button><span class="meta">md 32 / 16（页面动作）</span>
+          <button class="icon-btn icon-btn--lg"><i data-ic="refresh" data-s="18"></i></button><span class="meta">lg 36 / 18</span>
+        </div>
+      </div>
+      <div class="spec-row">
+        <div class="lb">类型</div>
+        <div class="demo">
+          <button class="icon-btn icon-btn--md icon-btn--default"><i data-ic="refresh" data-s="16"></i></button><span class="meta">default 透明</span>
+          <button class="icon-btn icon-btn--md icon-btn--primary"><i data-ic="export" data-s="16"></i></button><span class="meta">primary 实心</span>
+          <button class="icon-btn icon-btn--md icon-btn--ghost"><i data-ic="filter" data-s="16"></i></button><span class="meta">ghost 描边</span>
+          <button class="icon-btn icon-btn--md icon-btn--danger"><i data-ic="delete" data-s="16"></i></button><span class="meta">danger 危险</span>
+        </div>
+      </div>
+      <div class="spec-row">
+        <div class="lb">状态</div>
+        <div class="demo">
+          <button class="icon-btn icon-btn--md icon-btn--default"><i data-ic="refresh" data-s="16"></i></button><span class="meta">默认</span>
+          <button class="icon-btn icon-btn--md icon-btn--default" style="background:var(--hover);color:var(--i900)"><i data-ic="refresh" data-s="16"></i></button><span class="meta">悬停</span>
+          <button class="icon-btn icon-btn--md is-active"><i data-ic="eye" data-s="16"></i></button><span class="meta">选中</span>
+          <button class="icon-btn icon-btn--md icon-btn--default is-disabled"><i data-ic="refresh" data-s="16"></i></button><span class="meta">禁用</span>
+          <button class="icon-btn icon-btn--md icon-btn--default" style="opacity:.8"><i data-ic="loading" data-s="16" data-spin="1"></i></button><span class="meta">加载中</span>
+          <button class="icon-btn icon-btn--md icon-btn--default" style="outline:2px solid var(--accent);outline-offset:2px"><i data-ic="refresh" data-s="16"></i></button><span class="meta">键盘焦点</span>
+        </div>
+      </div>
+      <div class="spec-row">
+        <div class="lb">图标 + 文字</div>
+        <div class="demo">
+          <button class="icon-btn icon-btn--sm icon-btn--with-label"><i data-ic="export" data-s="14"></i>导出</button>
+          <button class="icon-btn icon-btn--md icon-btn--with-label"><i data-ic="resync" data-s="16"></i>刷新快照</button>
+          <span class="meta" style="margin-left:6px">图标已能表达的一律纯图标；有歧义的才配文字</span>
+        </div>
+      </div>
+      <div class="spec-row">
+        <div class="lb">角标</div>
+        <div class="demo">
+          <button class="icon-btn icon-btn--md icon-btn--default" style="color:var(--i700)"><i data-ic="bell" data-s="16"></i><span class="icon-btn__badge">3</span></button>
+          <span class="meta">消息、待办用数字角标，不用红点</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 03 对比 ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>工具条：改造前 / 改造后</h2></div>
+    <p class="sec-desc">左边四个圆形描边按钮并排，像一组开关，和筛选区的「查询/重置」抢同一层注意力；右边去掉边框，只留图标。</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="bar-demo" style="background:#FFF8F8">
+          <div class="bar-hint" style="color:#B42318">改造前 · el-button circle + 边框</div>
+          <span class="old-circle"><i data-ic="search" data-s="14"></i></span>
+          <span class="old-circle"><i data-ic="refresh" data-s="14"></i></span>
+          <span class="old-circle"><i data-ic="filter" data-s="14"></i></span>
+          <span class="old-circle" style="margin-right:0"><i data-ic="columns" data-s="14"></i></span>
+        </div>
+        <div class="bar-demo" style="background:#FFF8F8">
+          <div class="bar-hint" style="color:#B42318">改造前 · 三个同级文字按钮</div>
+          <span class="old-text-btn"><i data-ic="export" data-s="13"></i>导出全部数据</span>
+          <span class="old-text-btn">导入产品单价</span>
+          <span class="old-text-btn">导入历史数据</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="bar-demo" style="background:#F6FCF8">
+          <div class="bar-hint" style="color:#0E7A3D">改造后 · 纯图标 + 悬停气泡</div>
+          <div class="jb-toolbar">
+            <button class="icon-btn icon-btn--sm is-active"><i data-ic="eye" data-s="14"></i></button>
+            <button class="icon-btn icon-btn--sm"><i data-ic="refresh" data-s="14"></i></button>
+            <span class="jb-toolbar__sep"></span>
+            <button class="icon-btn icon-btn--sm"><i data-ic="filter" data-s="14"></i></button>
+            <button class="icon-btn icon-btn--sm" style="background:var(--hover);color:var(--i900)"><i data-ic="density" data-s="14"></i></button>
+            <button class="icon-btn icon-btn--sm"><i data-ic="columns" data-s="14"></i></button>
+            <span class="jb-toolbar__sep"></span>
+            <button class="icon-btn icon-btn--sm"><i data-ic="fullscreen" data-s="14"></i></button>
+          </div>
+        </div>
+        <div class="bar-demo" style="background:#F6FCF8">
+          <div class="bar-hint" style="color:#0E7A3D">改造后 · 主次分明</div>
+          <button class="icon-btn icon-btn--sm icon-btn--with-label icon-btn--primary"><i data-ic="export" data-s="14"></i>导出</button>
+          <button class="icon-btn icon-btn--sm"><i data-ic="more" data-s="14"></i></button>
+          <span style="font-size:11.5px;color:var(--i400);margin-left:4px">导入 ×2 收进下拉</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:14px;background:#FFF9F2;border-color:#F5E3CB">
+      <span>⚠️</span>
+      <div>热区说明：<b>28px 图标按钮只适合桌面端鼠标操作</b>。移动端或触屏场景会把同样的按钮放大到 36px（<code>size="lg"</code>），保证 ≥ 32px 的可点面积，不会为了好看牺牲可用性。</div>
+    </div>
+  </section>
+
+  <!-- ============ 04 场景 ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>放进真实页面的样子</h2></div>
+    <p class="sec-desc">工具条右侧只用图标，页面右上角只留一个实心主按钮。眼睛扫过去只有一条动线。</p>
+
+    <div class="card" style="padding:16px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px">
+        <div>
+          <div style="font-size:17px;font-weight:600;color:var(--i900);letter-spacing:-.2px;display:flex;align-items:center;gap:9px">
+            库存明细
+            <span class="pill pill-info" style="height:20px">数据截至 11-11 08:00</span>
+          </div>
+          <div style="font-size:12px;color:var(--i400);margin-top:3px">站点 + 中间码合并口径 · 历史日期读取冻结快照</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="icon-btn icon-btn--md icon-btn--with-label"><i data-ic="resync" data-s="16"></i>刷新快照</button>
+          <button class="icon-btn icon-btn--md icon-btn--with-label icon-btn--primary"><i data-ic="export" data-s="16"></i>导出全部数据</button>
+        </div>
+      </div>
+      <div style="height:1px;background:var(--line);margin:0 -16px"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0 8px">
+        <div style="font-size:12.5px;color:var(--i500)">共 <b class="num" style="color:var(--i900)">12,846</b> 条 · 已选 3 条（支持跨页）</div>
+        <div class="jb-toolbar">
+          <button class="icon-btn icon-btn--sm is-active"><i data-ic="eye" data-s="14"></i></button>
+          <button class="icon-btn icon-btn--sm"><i data-ic="refresh" data-s="14"></i></button>
+          <span class="jb-toolbar__sep"></span>
+          <button class="icon-btn icon-btn--sm"><i data-ic="density" data-s="14"></i></button>
+          <button class="icon-btn icon-btn--sm"><i data-ic="columns" data-s="14"></i></button>
+          <button class="icon-btn icon-btn--sm"><i data-ic="fullscreen" data-s="14"></i></button>
+        </div>
+      </div>
+      <table class="tbl">
+        <thead><tr><th style="width:34px"><input type="checkbox" style="accent-color:#1257D6"></th><th>SKU</th><th>站点</th><th class="r">可用库存</th><th class="r">日均销量</th><th>状态</th></tr></thead>
+        <tbody>
+          <tr><td><input type="checkbox" style="accent-color:#1257D6"></td><td class="sku">10053</td><td>US</td><td class="r num">1,280</td><td class="r num">36.4</td><td><span class="pill pill-ok">充足</span></td></tr>
+          <tr><td><input type="checkbox" style="accent-color:#1257D6" checked></td><td class="sku">10027Y</td><td>UK</td><td class="r num">86</td><td class="r num">12.1</td><td><span class="pill pill-warn">低于安全线</span></td></tr>
+          <tr><td><input type="checkbox" style="accent-color:#1257D6"></td><td class="sku">20041</td><td>DE</td><td class="r num">0</td><td class="r num">8.7</td><td><span class="pill pill-danger">断货</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 05 总表 ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>可用图标总表</h2></div>
+    <p class="sec-desc">下表 95 个语义名已全部登记在 <code>src/components/AppIcon/registry.js</code>，写页面直接引用名字即可。下面全部是按真实路径渲染的，所见即所得。</p>
+    <div class="icon-grid" id="iconGrid"></div>
+  </section>
+
+  <!-- ============ 06 用法 ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>怎么用</h2></div>
+    <p class="sec-desc">两个组件已在 <code>main.js</code> 全局注册，页面里不用 import。</p>
+    <div class="code-block">
+<span class="c">&lt;!-- 工具条：纯图标，悬停出气泡 --&gt;</span>
+&lt;<span class="t">icon-btn</span> <span class="a">icon</span>=<span class="s">"refresh"</span> <span class="a">tooltip</span>=<span class="s">"刷新"</span> <span class="a">size</span>=<span class="s">"sm"</span> @<span class="a">click</span>=<span class="s">"handleRefresh"</span> /&gt;
+
+<span class="c">&lt;!-- 带加载态 --&gt;</span>
+&lt;<span class="t">icon-btn</span> <span class="a">icon</span>=<span class="s">"refresh"</span> <span class="a">tooltip</span>=<span class="s">"重新计算"</span> :<span class="a">loading</span>=<span class="s">"recalculating"</span> /&gt;
+
+<span class="c">&lt;!-- 主操作：实心 + 文字 --&gt;</span>
+&lt;<span class="t">icon-btn</span> <span class="a">icon</span>=<span class="s">"export"</span> <span class="a">label</span>=<span class="s">"导出全部数据"</span> <span class="a">type</span>=<span class="s">"primary"</span> /&gt;
+
+<span class="c">&lt;!-- 开关类：active 表示开启 --&gt;</span>
+&lt;<span class="t">icon-btn</span> :<span class="a">icon</span>=<span class="s">"showSearch ? 'eye' : 'eyeOff'"</span> :<span class="a">active</span>=<span class="s">"showSearch"</span> <span class="a">tooltip</span>=<span class="s">"显示搜索"</span> /&gt;
+
+<span class="c">&lt;!-- 单纯要一个图标 --&gt;</span>
+&lt;<span class="t">app-icon</span> <span class="a">name</span>=<span class="s">"shopping"</span> :<span class="a">size</span>=<span class="s">"18"</span> /&gt;
+
+<span class="c">&lt;!-- 自定义图标（不在这张表里）--&gt;</span>
+<span class="c">// 1. 把 xxx.svg 丢进 src/assets/icons/svg/</span>
+<span class="c">// 2. 直接 &lt;icon-btn icon="xxx" /&gt;，自动兜底到雪碧图</span>
+    </div>
+  </section>
+
+  <div class="foot">
+    <span>JMH 跨境 ERP · 图标与图标按钮规范 v1</span>
+    <span>Lucide 0.577.0（ISC）+ Element Plus 2.13.1 + 项目 SVG 91 个</span>
+  </div>
+
+</div>
+
+<script>
+const ICONS = {"refresh":"<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"></path><path d=\"M21 3v5h-5\"></path><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"></path><path d=\"M8 16H3v5\"></path>","resync":"<path d=\"M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"></path><path d=\"M3 3v5h5\"></path><path d=\"M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16\"></path><path d=\"M16 16h5v5\"></path>","export":"<path d=\"M12 15V3\"></path><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><path d=\"m7 10 5 5 5-5\"></path>","import":"<path d=\"M12 3v12\"></path><path d=\"m17 8-5-5-5 5\"></path><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path>","save":"<path d=\"M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z\"></path><path d=\"M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7\"></path><path d=\"M7 3v4a1 1 0 0 0 1 1h7\"></path>","undo":"<path d=\"M9 14 4 9l5-5\"></path><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"></path>","filter":"<path d=\"M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z\"></path>","search":"<path d=\"m21 21-4.34-4.34\"></path><circle cx=\"11\" cy=\"11\" r=\"8\"></circle>","eye":"<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"></path><circle cx=\"12\" cy=\"12\" r=\"3\"></circle>","eyeOff":"<path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49\"></path><path d=\"M14.084 14.158a3 3 0 0 1-4.242-4.242\"></path><path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143\"></path><path d=\"m2 2 20 20\"></path>","columns":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"></rect><path d=\"M9 3v18\"></path><path d=\"M15 3v18\"></path>","density":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"></rect><path d=\"M21 9H3\"></path><path d=\"M21 15H3\"></path>","fullscreen":"<path d=\"M15 3h6v6\"></path><path d=\"m21 3-7 7\"></path><path d=\"m3 21 7-7\"></path><path d=\"M9 21H3v-6\"></path>","exitFullscreen":"<path d=\"m14 10 7-7\"></path><path d=\"M20 10h-6V4\"></path><path d=\"m3 21 7-7\"></path><path d=\"M4 14h6v6\"></path>","more":"<circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"19\" cy=\"12\" r=\"1\"></circle><circle cx=\"5\" cy=\"12\" r=\"1\"></circle>","moreVertical":"<circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"12\" cy=\"5\" r=\"1\"></circle><circle cx=\"12\" cy=\"19\" r=\"1\"></circle>","settings":"<path d=\"M14 17H5\"></path><path d=\"M19 7h-9\"></path><circle cx=\"17\" cy=\"17\" r=\"3\"></circle><circle cx=\"7\" cy=\"7\" r=\"3\"></circle>","sliders":"<path d=\"M10 5H3\"></path><path d=\"M12 19H3\"></path><path d=\"M14 3v4\"></path><path d=\"M16 17v4\"></path><path d=\"M21 12h-9\"></path><path d=\"M21 19h-5\"></path><path d=\"M21 5h-7\"></path><path d=\"M8 10v4\"></path><path d=\"M8 12H3\"></path>","sort":"<path d=\"m21 16-4 4-4-4\"></path><path d=\"M17 20V4\"></path><path d=\"m3 8 4-4 4 4\"></path><path d=\"M7 4v16\"></path>","sortAsc":"<path d=\"m3 8 4-4 4 4\"></path><path d=\"M7 4v16\"></path><path d=\"M11 12h4\"></path><path d=\"M11 16h7\"></path><path d=\"M11 20h10\"></path>","sortDesc":"<path d=\"m3 16 4 4 4-4\"></path><path d=\"M7 20V4\"></path><path d=\"M11 4h4\"></path><path d=\"M11 8h7\"></path><path d=\"M11 12h10\"></path>","plus":"<path d=\"M5 12h14\"></path><path d=\"M12 5v14\"></path>","minus":"<path d=\"M5 12h14\"></path>","close":"<path d=\"M18 6 6 18\"></path><path d=\"m6 6 12 12\"></path>","check":"<path d=\"M20 6 9 17l-5-5\"></path>","edit":"<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"></path><path d=\"m15 5 4 4\"></path>","delete":"<path d=\"M10 11v6\"></path><path d=\"M14 11v6\"></path><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"></path><path d=\"M3 6h18\"></path><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"></path>","copy":"<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"></rect><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"></path>","print":"<path d=\"M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2\"></path><path d=\"M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6\"></path><rect x=\"6\" y=\"14\" width=\"12\" height=\"8\" rx=\"1\"></rect>","link":"<path d=\"M9 17H7A5 5 0 0 1 7 7h2\"></path><path d=\"M15 7h2a5 5 0 1 1 0 10h-2\"></path><line x1=\"8\" x2=\"16\" y1=\"12\" y2=\"12\"></line>","share":"<circle cx=\"18\" cy=\"5\" r=\"3\"></circle><circle cx=\"6\" cy=\"12\" r=\"3\"></circle><circle cx=\"18\" cy=\"19\" r=\"3\"></circle><line x1=\"8.59\" x2=\"15.42\" y1=\"13.51\" y2=\"17.49\"></line><line x1=\"15.41\" x2=\"8.59\" y1=\"6.51\" y2=\"10.49\"></line>","external":"<path d=\"M15 3h6v6\"></path><path d=\"M10 14 21 3\"></path><path d=\"M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6\"></path>","send":"<path d=\"M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z\"></path><path d=\"m21.854 2.147-10.94 10.939\"></path>","pin":"<path d=\"M12 17v5\"></path><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"></path>","star":"<path d=\"M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z\"></path>","history":"<path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"></path><path d=\"M3 3v5h5\"></path><path d=\"M12 7v5l4 2\"></path>","clipboard":"<rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"></rect><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"></path><path d=\"M12 11h4\"></path><path d=\"M12 16h4\"></path><path d=\"M8 11h.01\"></path><path d=\"M8 16h.01\"></path>","log":"<path d=\"M15 12h-5\"></path><path d=\"M15 8h-5\"></path><path d=\"M19 17V5a2 2 0 0 0-2-2H4\"></path><path d=\"M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3\"></path>","success":"<circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"m9 12 2 2 4-4\"></path>","warning":"<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"></path><path d=\"M12 9v4\"></path><path d=\"M12 17h.01\"></path>","danger":"<circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"m15 9-6 6\"></path><path d=\"m9 9 6 6\"></path>","info":"<circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M12 16v-4\"></path><path d=\"M12 8h.01\"></path>","alert":"<circle cx=\"12\" cy=\"12\" r=\"10\"></circle><line x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\"></line><line x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\"></line>","loading":"<path d=\"M21 12a9 9 0 1 1-6.219-8.56\"></path>","dashboard":"<rect width=\"7\" height=\"9\" x=\"3\" y=\"3\" rx=\"1\"></rect><rect width=\"7\" height=\"5\" x=\"14\" y=\"3\" rx=\"1\"></rect><rect width=\"7\" height=\"9\" x=\"14\" y=\"12\" rx=\"1\"></rect><rect width=\"7\" height=\"5\" x=\"3\" y=\"16\" rx=\"1\"></rect>","box":"<path d=\"M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z\"></path><path d=\"M12 22V12\"></path><polyline points=\"3.29 7 12 12 20.71 7\"></polyline><path d=\"m7.5 4.27 9 5.15\"></path>","boxes":"<path d=\"M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z\"></path><path d=\"m7 16.5-4.74-2.85\"></path><path d=\"m7 16.5 5-3\"></path><path d=\"M7 16.5v5.17\"></path><path d=\"M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z\"></path><path d=\"m17 16.5-5-3\"></path><path d=\"m17 16.5 4.74-2.85\"></path><path d=\"M17 16.5v5.17\"></path><path d=\"M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z\"></path><path d=\"M12 8 7.26 5.15\"></path><path d=\"m12 8 4.74-2.85\"></path><path d=\"M12 13.5V8\"></path>","warehouse":"<path d=\"M18 21V10a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1v11\"></path><path d=\"M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 1.132-1.803l7.95-3.974a2 2 0 0 1 1.837 0l7.948 3.974A2 2 0 0 1 22 8z\"></path><path d=\"M6 13h12\"></path><path d=\"M6 17h12\"></path>","cart":"<circle cx=\"8\" cy=\"21\" r=\"1\"></circle><circle cx=\"19\" cy=\"21\" r=\"1\"></circle><path d=\"M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12\"></path>","bag":"<path d=\"M16 10a4 4 0 0 1-8 0\"></path><path d=\"M3.103 6.034h17.794\"></path><path d=\"M3.4 5.467a2 2 0 0 0-.4 1.2V20a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6.667a2 2 0 0 0-.4-1.2l-2-2.667A2 2 0 0 0 17 2H7a2 2 0 0 0-1.6.8z\"></path>","truck":"<path d=\"M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2\"></path><path d=\"M15 18H9\"></path><path d=\"M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14\"></path><circle cx=\"17\" cy=\"18\" r=\"2\"></circle><circle cx=\"7\" cy=\"18\" r=\"2\"></circle>","ship":"<path d=\"M12 10.189V14\"></path><path d=\"M12 2v3\"></path><path d=\"M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6\"></path><path d=\"M19.38 20A11.6 11.6 0 0 0 21 14l-8.188-3.639a2 2 0 0 0-1.624 0L3 14a11.6 11.6 0 0 0 2.81 7.76\"></path><path d=\"M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1s1.2 1 2.5 1c2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1\"></path>","route":"<circle cx=\"6\" cy=\"19\" r=\"3\"></circle><path d=\"M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15\"></path><circle cx=\"18\" cy=\"5\" r=\"3\"></circle>","money":"<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"></rect><circle cx=\"12\" cy=\"12\" r=\"2\"></circle><path d=\"M6 12h.01M18 12h.01\"></path>","wallet":"<path d=\"M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1\"></path><path d=\"M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4\"></path>","coins":"<path d=\"M13.744 17.736a6 6 0 1 1-7.48-7.48\"></path><path d=\"M15 6h1v4\"></path><path d=\"m6.134 14.768.866-.5 2 3.464\"></path><circle cx=\"16\" cy=\"8\" r=\"6\"></circle>","card":"<rect width=\"20\" height=\"14\" x=\"2\" y=\"5\" rx=\"2\"></rect><line x1=\"2\" x2=\"22\" y1=\"10\" y2=\"10\"></line>","percent":"<line x1=\"19\" x2=\"5\" y1=\"5\" y2=\"19\"></line><circle cx=\"6.5\" cy=\"6.5\" r=\"2.5\"></circle><circle cx=\"17.5\" cy=\"17.5\" r=\"2.5\"></circle>","tag":"<path d=\"M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z\"></path><circle cx=\"7.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"></circle>","trendUp":"<path d=\"M16 7h6v6\"></path><path d=\"m22 7-8.5 8.5-5-5L2 17\"></path>","trendDown":"<path d=\"M16 17h6v-6\"></path><path d=\"m22 17-8.5-8.5-5 5L2 7\"></path>","chart":"<path d=\"M3 3v16a2 2 0 0 0 2 2h16\"></path><path d=\"m19 9-5 5-4-4-3 3\"></path>","chartBar":"<path d=\"M3 3v16a2 2 0 0 0 2 2h16\"></path><path d=\"M18 17V9\"></path><path d=\"M13 17V5\"></path><path d=\"M8 17v-3\"></path>","chartPie":"<path d=\"M21 12c.552 0 1.005-.449.95-.998a10 10 0 0 0-8.953-8.951c-.55-.055-.998.398-.998.95v8a1 1 0 0 0 1 1z\"></path><path d=\"M21.21 15.89A10 10 0 1 1 8 2.83\"></path>","calculate":"<rect width=\"16\" height=\"20\" x=\"4\" y=\"2\" rx=\"2\"></rect><line x1=\"8\" x2=\"16\" y1=\"6\" y2=\"6\"></line><line x1=\"16\" x2=\"16\" y1=\"14\" y2=\"18\"></line><path d=\"M16 10h.01\"></path><path d=\"M12 10h.01\"></path><path d=\"M8 10h.01\"></path><path d=\"M12 14h.01\"></path><path d=\"M8 14h.01\"></path><path d=\"M12 18h.01\"></path><path d=\"M8 18h.01\"></path>","receipt":"<path d=\"M12 17V7\"></path><path d=\"M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8\"></path><path d=\"M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z\"></path>","users":"<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"></path><path d=\"M16 3.128a4 4 0 0 1 0 7.744\"></path><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"></path><circle cx=\"9\" cy=\"7\" r=\"4\"></circle>","user":"<path d=\"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2\"></path><circle cx=\"12\" cy=\"7\" r=\"4\"></circle>","building":"<path d=\"M10 12h4\"></path><path d=\"M10 8h4\"></path><path d=\"M14 21v-3a2 2 0 0 0-4 0v3\"></path><path d=\"M6 10H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2\"></path><path d=\"M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16\"></path>","store":"<path d=\"M15 21v-5a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v5\"></path><path d=\"M17.774 10.31a1.12 1.12 0 0 0-1.549 0 2.5 2.5 0 0 1-3.451 0 1.12 1.12 0 0 0-1.548 0 2.5 2.5 0 0 1-3.452 0 1.12 1.12 0 0 0-1.549 0 2.5 2.5 0 0 1-3.77-3.248l2.889-4.184A2 2 0 0 1 7 2h10a2 2 0 0 1 1.653.873l2.895 4.192a2.5 2.5 0 0 1-3.774 3.244\"></path><path d=\"M4 10.95V19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8.05\"></path>","globe":"<circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\"></path><path d=\"M2 12h20\"></path>","calendar":"<path d=\"M8 2v4\"></path><path d=\"M16 2v4\"></path><rect width=\"18\" height=\"18\" x=\"3\" y=\"4\" rx=\"2\"></rect><path d=\"M3 10h18\"></path>","clock":"<circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M12 6v6l4 2\"></path>","bell":"<path d=\"M10.268 21a2 2 0 0 0 3.464 0\"></path><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"></path>","mail":"<path d=\"m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7\"></path><rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"></rect>","phone":"<path d=\"M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384\"></path>","message":"<path d=\"M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z\"></path>","key":"<path d=\"M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z\"></path><circle cx=\"16.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"></circle>","lock":"<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"></rect><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"></path>","file":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"></path><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"></path><path d=\"M10 9H8\"></path><path d=\"M16 13H8\"></path><path d=\"M16 17H8\"></path>","excel":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"></path><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"></path><path d=\"M8 13h2\"></path><path d=\"M14 13h2\"></path><path d=\"M8 17h2\"></path><path d=\"M14 17h2\"></path>","folder":"<path d=\"m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2\"></path>","list":"<path d=\"M3 5h.01\"></path><path d=\"M3 12h.01\"></path><path d=\"M3 19h.01\"></path><path d=\"M8 5h13\"></path><path d=\"M8 12h13\"></path><path d=\"M8 19h13\"></path>","table":"<path d=\"M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18\"></path>","grid":"<rect width=\"7\" height=\"7\" x=\"3\" y=\"3\" rx=\"1\"></rect><rect width=\"7\" height=\"7\" x=\"14\" y=\"3\" rx=\"1\"></rect><rect width=\"7\" height=\"7\" x=\"14\" y=\"14\" rx=\"1\"></rect><rect width=\"7\" height=\"7\" x=\"3\" y=\"14\" rx=\"1\"></rect>","home":"<path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\"></path><path d=\"M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"></path>","database":"<ellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\"></ellipse><path d=\"M3 5V19A9 3 0 0 0 21 19V5\"></path><path d=\"M3 12A9 3 0 0 0 21 12\"></path>","location":"<path d=\"M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0\"></path><circle cx=\"12\" cy=\"10\" r=\"3\"></circle>","config":"<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"></path><circle cx=\"12\" cy=\"12\" r=\"3\"></circle>","chevronDown":"<path d=\"m6 9 6 6 6-6\"></path>","chevronRight":"<path d=\"m9 18 6-6-6-6\"></path>","chevronLeft":"<path d=\"m15 18-6-6 6-6\"></path>","arrowLeft":"<path d=\"m12 19-7-7 7-7\"></path><path d=\"M19 12H5\"></path>","arrowRight":"<path d=\"M5 12h14\"></path><path d=\"m12 5 7 7-7 7\"></path>","panelLeft":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"></rect><path d=\"M9 3v18\"></path>"};
+
+const DESC = {
+  refresh:'刷新', resync:'重新同步', export:'导出', import:'导入', save:'保存', undo:'撤销',
+  filter:'筛选', search:'搜索', eye:'显示', eyeOff:'隐藏', columns:'列设置', density:'行密度',
+  fullscreen:'全屏', exitFullscreen:'退出全屏', more:'更多', moreVertical:'更多(竖)', settings:'设置',
+  sliders:'参数配置', sort:'排序', sortAsc:'升序', sortDesc:'降序', plus:'新增', minus:'减少',
+  close:'关闭', check:'完成', edit:'编辑', delete:'删除', copy:'复制', print:'打印', link:'链接',
+  share:'分享', external:'新窗口', send:'发送', pin:'置顶', star:'收藏', history:'历史',
+  clipboard:'任务', log:'日志', success:'成功', warning:'警告', danger:'失败', info:'提示',
+  alert:'注意', loading:'加载中', dashboard:'工作台', box:'商品/库存', boxes:'批量库存',
+  warehouse:'仓库', cart:'采购', bag:'销售', truck:'物流', ship:'海运', route:'线路',
+  money:'金额', wallet:'钱包', coins:'成本', card:'结算', percent:'毛利', tag:'标签',
+  trendUp:'上涨', trendDown:'下跌', chart:'趋势', chartBar:'柱状', chartPie:'占比',
+  calculate:'计算', receipt:'票据', users:'团队', user:'用户', building:'公司', store:'店铺',
+  globe:'站点', calendar:'日期', clock:'时间', bell:'通知', mail:'邮件', phone:'电话',
+  message:'消息', key:'密钥', lock:'权限', file:'文档', excel:'表格', folder:'文件夹',
+  list:'列表', table:'明细', grid:'九宫格', home:'首页', database:'数据源', location:'地址',
+  config:'配置', chevronDown:'展开', chevronRight:'下一步', chevronLeft:'上一步',
+  arrowLeft:'返回', arrowRight:'前进', panelLeft:'侧栏'
+};
+
+function svg(name, size, sw, spin){
+  const inner = ICONS[name] || '';
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (sw||1.9) +
+    '" stroke-linecap="round" stroke-linejoin="round" width="' + (size||16) + '" height="' + (size||16) +
+    '"' + (spin ? ' style="animation:spin 1s linear infinite"' : '') + '>' + inner + '</svg>';
+}
+
+// 替换占位
+document.querySelectorAll('[data-ic]').forEach(el => {
+  el.innerHTML = svg(el.dataset.ic, +el.dataset.s || 16, 1.9, el.dataset.spin);
+  el.style.display = 'inline-flex';
+});
+
+// 生成总表
+const grid = document.getElementById('iconGrid');
+grid.innerHTML = Object.keys(ICONS).map(k =>
+  '<div class="icon-cell"><div class="ic">' + svg(k, 20) + '</div>' +
+  '<div class="nm">' + k + '</div><div class="ds">' + (DESC[k] || '') + '</div></div>'
+).join('');
+
+// spin keyframes
+const st = document.createElement('style');
+st.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+document.head.appendChild(st);
+</script>
+</body>
+</html>

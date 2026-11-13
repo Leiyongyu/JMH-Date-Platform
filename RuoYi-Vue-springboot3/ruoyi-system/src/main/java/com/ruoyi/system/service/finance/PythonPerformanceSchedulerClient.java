@@ -84,6 +84,12 @@ public class PythonPerformanceSchedulerClient extends PythonHttpSupport
         return run("goodcang_product_inventory_sync", null, requestId);
     }
 
+    /** eBay周五数据：用当前 eBay 刊登与谷仓快照生成「有货无货」「海外仓库存」两张表的当周快照。 */
+    public Map<String, Object> runEbayFridayReport(String requestId)
+    {
+        return run("ebay_friday_report_generate", null, requestId);
+    }
+
     /** eBay价格分析刷表：整表读当前在售刊登快照，重算 DWS 并事务替换。 */
     public Map<String, Object> runEbayPriceAnalysisRefresh(String requestId)
     {

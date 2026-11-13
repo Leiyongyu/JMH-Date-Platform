@@ -21,6 +21,7 @@ from backend.api.v1 import home_product_nature_snapshot
 from backend.api.v1 import sales_dashboard
 from backend.api.v1 import amz_profit_report
 from backend.api.v1 import amz_monthly_profit
+from backend.api.v1 import ebay_friday_report
 from backend.api.v1 import ebay_price_analysis
 
 
@@ -49,4 +50,5 @@ api_router.include_router(home_product_nature_snapshot.router)
 api_router.include_router(sales_dashboard.router)
 api_router.include_router(amz_profit_report.router)
 api_router.include_router(amz_monthly_profit.router)
+api_router.include_router(ebay_friday_report.router)
 api_router.include_router(ebay_price_analysis.router)

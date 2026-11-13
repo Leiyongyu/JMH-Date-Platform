@@ -38,6 +38,8 @@ TASK_THRESHOLDS: dict[str, dict[str, float]] = {
     "feishu_bad_transaction_sync": {"min_volume_ratio": 0.1, "max_volume_ratio": 10.0},
     # 飞书汽配订单只拉未完成的单，几百行、随下单和到货大起大落。
     "feishu_auto_parts_order_sync": {"min_volume_ratio": 0.2, "max_volume_ratio": 5.0},
+    # 周五数据只读已入库的 listing / 谷仓快照生成报表，抽取量就是两份快照的行数。
+    "ebay_friday_report_generate": {"min_volume_ratio": 0.3, "max_volume_ratio": 3.0},
     # Token 健康检查不产生业务数据。
     "ebay_token_health_check": {"skip": 1},
     # 销售快照补偿只读已入库数据，不从接口抽取。
