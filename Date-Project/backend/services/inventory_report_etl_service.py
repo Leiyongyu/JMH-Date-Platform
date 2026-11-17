@@ -1,0 +1,2669 @@
+from __future__ import annotations
+
+import json
+import logging
+import re
+from collections import defaultdict
+from datetime import datetime
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from typing import Any
+
+from backend.parsers.performance_common import (
+    EU_UK_FIXED_OWNER,
+    normalize_text,
+    parse_brand_code_from_sku,
+)
+from backend.parsers.inventory_report_purchase_order_parser import (
+    parse_inventory_report_purchase_order_excel,
+)
+from backend.services.inventory_report_group_rows import (
+    US3 as US3_DISPLAY_CODE,
+    with_group_display_rows,
+)
+from backend.repositories import clearance_repository as clearance_repo
+from backend.repositories import inventory_report_etl_repository as repo
+from backend.repositories import performance_repository as performance_repo
+
+
+logger = logging.getLogger(__name__)
+
+UNASSIGNED = "未分配"
+DEPARTMENTS = (
+    ("EBAY-1", "EBAY-1", 1),
+    ("AMZ-EU", "AMZ-EU", 2),
+    ("AMZ-US1", "AMZ-US1", 3),
+    ("AMZ-US2", "AMZ-US2", 4),
+    ("AMZ-US2-MJ", "AMZ-US2-MJ", 5),
+    ("AMZ-US1-ZXY", "AMZ-US1-ZXY", 6),
+)
+VALID_DEPARTMENTS = {code for code, _name, _order in DEPARTMENTS}
+# 月度库存组别映射到成都中转仓快照组；US3同时展示在两个业务组，前端合并单元格。
+CTU_GROUP_BY_DEPARTMENT = {
+    "EBAY-1": "EBAY-1",
+    "AMZ-EU": "EU",
+    "AMZ-US1": "US1",
+    "AMZ-US2": "US2",
+    "AMZ-US2-MJ": "US3",
+    "AMZ-US1-ZXY": "US3",
+}
+SALES_TARGET_FACTORS = {
+    "EBAY-1": Decimal("0.45"),
+    "AMZ-EU": Decimal("0.3"),
+    "AMZ-US1": Decimal("0.4"),
+    "AMZ-US2": Decimal("0.4"),
+    "AMZ-US2-MJ": Decimal("0.4"),
+    "AMZ-US1-ZXY": Decimal("0.4"),
+}
+SALES_TARGET_USD_RATE = Decimal("6.6")
+
+LOCAL_EXCLUDED_WIDS = {"19056", "1194"}
+# 月度库存永久排除的Amazon店铺SID；只作用于月度库存，绩效排名和滞销清货不受影响。
+INVENTORY_EXCLUDED_SIDS = {
+    "12518",
+    "12519",  # US2-主体21
+    "12598",
+    "12599",
+    "12600",
+    "12601",
+    "12602",
+    "12603",
+    "12604",
+    "12605",
+    "12662",  # EU-主体02
+    "12642",
+    "12643",
+    "12644",  # US1-主体13
+}
+LOCAL_AMZ_WIDS = {
+    "18677": "EU",
+    "19561": "EU",
+    "18678": "US1",
+    "18679": "US2",
+    "18680": "US3",
+}
+LOCAL_EBAY_WIDS = {"18676", "18675", "18674"}
+SPECIAL_STORE_NAMES = ("主体05", "主体27")
+SPECIAL_MSKU_MARKERS = ("zmy", "dsq")
+
+ZERO = Decimal("0")
+REPORT_MONEY_QUANTUM = Decimal("0.01")
+REPORT_RATE_QUANTUM = Decimal("0.000001")
+REPORT_MONEY_FIELDS = {
+    "sales_target_amount",
+    "sales_target_usd",
+    "actual_achievement_amount_usd",
+    "total_goods_value",
+}
+REPORT_RATE_FIELDS = {
+    "target_achievement_rate",
+    "turnover_days_by_value",
+    "turnover_days_by_sku",
+    "opening_inventory_sales_ratio",
+}
+METRIC_KEYS = (
+    "end_in_transit_qty",
+    "end_in_transit_total_cost",
+    "end_inventory_qty",
+    "end_inventory_total_cost",
+)
+
+SOURCE_NAMES = {
+    "fba": "FBA仓",
+    "overseas": "海外仓",
+    "local": "本地仓",
+}
+SNAPSHOT_DIMENSIONS = ("GROUP", "STORE", "OWNER")
+# 定向回填只允许改这些行字段；库存、在途、库龄、目标和归属沿用原快照。
+SALES_REFRESH_ROW_FIELDS = (
+    "monthly_sales_qty",
+    "actual_achievement_amount",
+    "actual_achievement_amount_usd",
+    "target_achievement_rate",
+    "turnover_days_by_value",
+    "turnover_days_by_sku",
+    "opening_inventory_sales_ratio",
+    "usd_rate",
+    "rate_month",
+    "sales_volume_month",
+    "actual_achievement_month",
+)
+# 这些来源字段由有值变为空，说明来源正在重导，回填放弃本次覆盖。
+SALES_SOURCE_FIELDS = (
+    "monthly_sales_qty",
+    "actual_achievement_amount",
+    "usd_rate",
+)
+
+
+def rebuild_monthly_inventory_report(
+    stat_month: str | None = None, *, preserve_sales_detail: bool = False,
+    refresh_view_snapshot: bool = True,
+) -> dict[str, Any]:
+    month = _month(stat_month)
+    report_month = _next_month(month)
+    sources = repo.source_rows(month)
+    _require_complete_sources(month, sources)
+    opening_inventory = repo.opening_inventory_by_department(month)
+    shops = repo.amazon_shop_map()
+    # Keep group/store classification on its original source-month rules.
+    source_amazon_rules = _amazon_rule_maps(repo.owner_rules(month, "amazon"))
+    # Inventory is sourced from the previous complete month, but its OWNER
+    # dimension belongs to the month displayed by the report.
+    amazon_rules = _amazon_rule_maps(repo.owner_rules(report_month, "amazon"))
+    ebay_rules = _ebay_rule_map(repo.owner_rules(report_month, "ebay"))
+    ebay_sku_map = _ebay_product_sku_map(month)
+    fba_rows, fba_stats = _clean_fba(
+        month, sources["fba"], shops, source_amazon_rules,
+        assignment_rules=amazon_rules,
+    )
+    overseas_included_wids = repo.overseas_included_wids()
+    if not overseas_included_wids:
+        raise ValueError(
+            "未能从warehouse表读取到第三方海外仓（type=3且sub_type=2），"
+            "未执行计算以免把海外仓数据清空；请先同步领星仓库列表"
+        )
+    overseas_rows, overseas_stats = _clean_overseas(
+        month,
+        sources["overseas"],
+        ebay_rules,
+        ebay_sku_map,
+        overseas_included_wids,
+    )
+    local_rows, local_stats = _clean_local(
+        month, sources["local"], source_amazon_rules, ebay_rules, ebay_sku_map,
+        assignment_rules=amazon_rules,
+    )
+    # Order-profit rows are sales for their own stat_month, not inventory for
+    # the following report month. Keep their assignment on that sales month.
+    amz_sales_rows, amz_sales_stats = _clean_amz_sales(
+        month, sources["order_profit"], shops, source_amazon_rules
+    )
+    dimension_rows = _dimension_summaries(
+        month,
+        fba_rows,
+        overseas_rows,
+        local_rows,
+        sources.get("purchase_order_transit", []),
+        amazon_rules,
+        ebay_rules,
+        ebay_sku_map=ebay_sku_map,
+        owner_rule_month=report_month,
+    )
+    department_rows = _department_summaries(
+        month,
+        fba_rows,
+        overseas_rows,
+        local_rows,
+        purchase_transit_rows=sources.get("purchase_order_transit", []),
+        amz_sales_rows=amz_sales_rows,
+        opening_inventory=opening_inventory,
+    )
+    persisted = repo.replace_clean_month(
+        month,
+        fba_rows,
+        overseas_rows,
+        local_rows,
+        amz_sales_rows,
+        dimension_rows,
+        department_rows,
+        replace_amz_sales=not preserve_sales_detail,
+    )
+    repo.save_view_snapshots(
+        month, _report_view_payloads(month),
+        only_missing=not refresh_view_snapshot,
+    )
+    return {
+        "stat_month": month,
+        "source_rows": sum(len(items) for items in sources.values()),
+        "source_fba_rows": len(sources["fba"]),
+        "source_overseas_rows": len(sources["overseas"]),
+        "source_local_rows": len(sources["local"]),
+        "source_order_profit_rows": len(sources["order_profit"]),
+        "source_purchase_order_transit_rows": len(
+            sources.get("purchase_order_transit", [])
+        ),
+        **fba_stats,
+        **overseas_stats,
+        **local_stats,
+        **amz_sales_stats,
+        **persisted,
+        "status": "completed",
+    }
+
+
+def rebuild_monthly_inventory_amz_sales(
+    stat_month: str,
+) -> dict[str, Any]:
+    """Rebuild only one month's AMZ sales DWD, safe for the month-end job."""
+    month = _month(stat_month)
+    sources = repo.order_profit_rows(month)
+    if not sources:
+        raise ValueError(f"{month} 缺少Amazon订单利润源数据")
+    shops = repo.amazon_shop_map()
+    rules = _amazon_rule_maps(repo.owner_rules(month, "amazon"))
+    rows, stats = _clean_amz_sales(month, sources, shops, rules)
+    persisted = repo.replace_amz_sales_detail_month(month, rows)
+    return {
+        "stat_month": month,
+        "source_rows": len(sources),
+        "dwd_rows": persisted["inserted_rows"],
+        "deleted_rows": persisted["deleted_rows"],
+        **stats,
+        "status": "completed",
+    }
+
+
+def fill_next_month_opening_inventory(
+    stat_month: str,
+) -> dict[str, Any]:
+    """将本月期末的海外仓/FBA仓库存回填为次月月初库存。"""
+    month = _month(stat_month)
+    result = repo.fill_next_month_opening_inventory(month)
+    return {
+        "stat_month": month,
+        "opening_month": _next_month(month),
+        "sync_batch_id": None,
+        "extract_rows": result["source_rows"],
+        "source_rows": result["source_rows"],
+        "ods_rows": 0,
+        "inserted_rows": 0,
+        "updated_rows": result["updated_rows"],
+        "deleted_rows": 0,
+        "skipped_rows": 0,
+        "status": "completed",
+    }
+
+
+def _require_complete_sources(
+    stat_month: str,
+    sources: dict[str, list[dict[str, Any]]],
+) -> None:
+    missing = [
+        SOURCE_NAMES[source]
+        for source in SOURCE_NAMES
+        if not sources.get(source)
+    ]
+    if missing:
+        raise ValueError(
+            f"{stat_month} 缺少{'、'.join(missing)}源数据，未执行计算，"
+            "已有清洗明细和汇总数据保持不变；请先执行月度库存源数据拉取任务"
+        )
+
+
+def list_months(limit: int = 24) -> list[dict[str, Any]]:
+    items = []
+    for source in repo.months(limit):
+        item = dict(source)
+        item["report_month"] = _next_month(str(item["stat_month"]))
+        items.append(_json_ready(item))
+    return items
+
+
+def _report_view_payloads(stat_month: str) -> dict[str, dict[str, Any]]:
+    return {
+        "GROUP": get_department_summary(stat_month, use_snapshot=False),
+        "STORE": get_dimension_summary("STORE", stat_month, use_snapshot=False),
+        "OWNER": get_dimension_summary("OWNER", stat_month, use_snapshot=False),
+    }
+
+
+def backfill_missing_monthly_inventory_snapshots() -> int:
+    """Freeze all existing months without changing their DWD rows."""
+    months = repo.missing_legacy_snapshot_months()
+    for month in months:
+        repo.save_view_snapshots(
+            month, _report_view_payloads(month), only_missing=True,
+        )
+    return len(months)
+
+
+def refresh_monthly_inventory_sales_snapshot(
+    report_month: str,
+    *,
+    trigger: str = "manual",
+    dry_run: bool = False,
+    lock_held_by_caller: bool = False,
+) -> dict[str, Any]:
+    """按页面展示月份定向回填已冻结快照里的销售字段。
+
+    展示月份即销售和汇率月份，快照分区是上一个库存月：传入2026-10，
+    读取10月销量、实际达成和USD汇率，更新stat_month=2026-09的
+    GROUP/STORE/OWNER。库存、在途、库龄、销售目标和归属只读不写。
+    """
+    sales_month = _month(report_month)
+    stat_month = _previous_month(sales_month)
+    base = {
+        "report_month": sales_month,
+        "sales_month": sales_month,
+        "stat_month": stat_month,
+        "trigger": trigger,
+        "dry_run": dry_run,
+    }
+    if dry_run:
+        snapshots = {
+            dimension: snapshot
+            for dimension in SNAPSHOT_DIMENSIONS
+            if (snapshot := repo.view_snapshot(stat_month, dimension)) is not None
+        }
+        return {**base, **_refresh_sales_snapshots(
+            stat_month, sales_month, snapshots, trigger, write=False,
+        )}
+    if lock_held_by_caller:
+        return {**base, **_refresh_sales_snapshots_in_transaction(
+            stat_month, sales_month, trigger,
+        )}
+    # Same lock as manual “计算”, source sync and purchase-order imports.
+    with performance_repo.named_lock(
+        f"inventory:monthly-report-source:{stat_month}"
+    ) as acquired:
+        if not acquired:
+            return {
+                **base,
+                "status": "locked",
+                "reason": f"{stat_month} 正在同步、计算或导入，本次未回填",
+            }
+        return {**base, **_refresh_sales_snapshots_in_transaction(
+            stat_month, sales_month, trigger,
+        )}
+
+
+def refresh_monthly_inventory_sales_snapshot_safely(
+    report_month: str, *, trigger: str, lock_held_by_caller: bool = False,
+) -> dict[str, Any]:
+    """数据源提交后调用；回填失败只记录结果，不否定已成功的数据同步。"""
+    try:
+        result = refresh_monthly_inventory_sales_snapshot(
+            report_month, trigger=trigger,
+            lock_held_by_caller=lock_held_by_caller,
+        )
+    except Exception as exc:
+        logger.exception(
+            "月度库存销售快照回填失败 report_month=%s trigger=%s",
+            report_month, trigger,
+        )
+        return {
+            "report_month": report_month,
+            "trigger": trigger,
+            "status": "failed",
+            "reason": str(exc),
+        }
+    if result["status"] not in {"refreshed", "unchanged"}:
+        logger.warning(
+            "月度库存销售快照未回填 report_month=%s trigger=%s status=%s reason=%s",
+            report_month, trigger, result["status"], result.get("reason"),
+        )
+    return result
+
+
+def _refresh_sales_snapshots_in_transaction(
+    stat_month: str, sales_month: str, trigger: str,
+) -> dict[str, Any]:
+    # Three dimensions are locked, compared and written in one transaction;
+    # any failure rolls back and leaves the previous snapshot untouched.
+    with repo.report_transaction():
+        snapshots = repo.view_snapshots_for_update(stat_month)
+        return _refresh_sales_snapshots(
+            stat_month, sales_month, snapshots, trigger, write=True,
+        )
+
+
+def _refresh_sales_snapshots(
+    stat_month: str,
+    sales_month: str,
+    snapshots: dict[str, dict[str, Any]],
+    trigger: str,
+    *,
+    write: bool,
+) -> dict[str, Any]:
+    group = snapshots.get("GROUP")
+    if group is None:
+        # Never rebuild a historical view from today's live inventory.
+        return {
+            "status": "no_snapshot",
+            "reason": f"{stat_month} 没有已保存的组别快照，未回填",
+        }
+    if group.get("historical_import"):
+        return {
+            "status": "skipped",
+            "reason": "历史Excel导入报表不自动回填",
+        }
+    for dimension, snapshot in snapshots.items():
+        if snapshot.get("report_month") not in (None, sales_month):
+            raise ValueError(
+                f"{dimension}快照展示月份{snapshot.get('report_month')}"
+                f"与回填月份{sales_month}不一致"
+            )
+    group_context = _group_sales_context(sales_month)
+    refreshed = {"GROUP": _refreshed_group_snapshot(
+        group, sales_month, group_context,
+    )}
+    for dimension in ("STORE", "OWNER"):
+        if dimension in snapshots:
+            refreshed[dimension] = _refreshed_dimension_snapshot(
+                snapshots[dimension], dimension, sales_month,
+                _dimension_sales_context(dimension, sales_month),
+            )
+    changes = [
+        change
+        for dimension, payload in refreshed.items()
+        for change in _sales_snapshot_changes(
+            dimension, snapshots[dimension], payload,
+        )
+    ]
+    pending_reasons = _sales_pending_reasons(group_context)
+    result: dict[str, Any] = {
+        "dimensions": sorted(refreshed),
+        "changed_fields": len(changes),
+        "changed_rows": len({
+            (change["dimension"], change["row"]) for change in changes
+        }),
+        "pending_reasons": pending_reasons,
+    }
+    if not write:
+        result["changes"] = changes
+    regressions = [
+        change for change in changes
+        if change["field"] in SALES_SOURCE_FIELDS
+        and change["before"] is not None and change["after"] is None
+    ]
+    if regressions:
+        # A platform that was ready before but is missing now is usually being
+        # re-imported. Keep the frozen values instead of turning them into blanks.
+        return {
+            **result,
+            "status": "source_incomplete",
+            "reason": "原快照已有销售数据但当前来源缺失，未覆盖",
+            "regressions": regressions[:20],
+        }
+    if not changes:
+        return {**result, "status": "unchanged"}
+    if not write:
+        return {**result, "status": "preview"}
+    metadata = {
+        "sales_month": sales_month,
+        "refreshed_at": datetime.now().isoformat(sep=" ", timespec="seconds"),
+        "trigger": trigger,
+        "pending_reasons": pending_reasons,
+    }
+    for payload in refreshed.values():
+        payload["sales_refresh"] = metadata
+    repo.save_view_snapshots(
+        stat_month, refreshed, touch_calculated_at=False,
+    )
+    return {
+        **result,
+        "status": "refreshed",
+        "refreshed_at": metadata["refreshed_at"],
+    }
+
+
+def _refreshed_group_snapshot(
+    snapshot: dict[str, Any], sales_month: str, context: dict[str, Any],
+) -> dict[str, Any]:
+    # US3 is a display row added after calculation; rebuild it from its two
+    # split groups instead of feeding it into totals a second time.
+    items = [
+        dict(item) for item in snapshot.get("items") or []
+        if item.get("department_code") != US3_DISPLAY_CODE
+    ]
+    _apply_group_sales_fields(items, sales_month, context)
+    computed = {"items": [_report_json_ready(item) for item in items]}
+    if any(
+        item.get("department_code") == US3_DISPLAY_CODE
+        for item in snapshot.get("items") or []
+    ):
+        computed = with_group_display_rows(computed)
+    return _merge_sales_snapshot(
+        snapshot, computed, "GROUP", sales_month, context["usd_rate"],
+    )
+
+
+def _refreshed_dimension_snapshot(
+    snapshot: dict[str, Any],
+    dimension: str,
+    sales_month: str,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    items = [dict(item) for item in snapshot.get("items") or []]
+    # Age/CTU-only OWNER rows never carried sales and are not in sales totals.
+    sales_items = [
+        item for item in items if not int(item.get("is_age_cost_only") or 0)
+    ]
+    for item in sales_items:
+        _apply_dimension_sales_fields(item, dimension, sales_month, context)
+    old_total = snapshot.get("total")
+    total = (
+        _dimension_total_item(
+            sales_items, dimension, sales_month, sales_month,
+            context["usd_rate"],
+        )
+        if old_total is not None
+        and not int(old_total.get("is_age_cost_only") or 0)
+        and sales_items
+        else old_total
+    )
+    computed = {
+        "items": [_report_json_ready(item) for item in items],
+        "total": _report_json_ready(total) if total is not None else None,
+    }
+    return _merge_sales_snapshot(
+        snapshot, computed, dimension, sales_month, context["usd_rate"],
+    )
+
+
+def _merge_sales_snapshot(
+    snapshot: dict[str, Any],
+    computed: dict[str, Any],
+    dimension: str,
+    sales_month: str,
+    usd_rate: Decimal | None,
+) -> dict[str, Any]:
+    """原快照逐行保留，只覆盖允许回填的销售字段。"""
+    computed_rows = _snapshot_rows(dimension, computed)
+    merged = dict(snapshot)
+    merged["rate_month"] = sales_month
+    merged["usd_rate"] = str(usd_rate) if usd_rate is not None else None
+    merged["items"] = [
+        _merge_sales_row(dimension, item, computed_rows)
+        for item in snapshot.get("items") or []
+    ]
+    if snapshot.get("total") is not None:
+        merged["total"] = _merge_sales_row(
+            dimension, snapshot["total"], computed_rows,
+        )
+    return merged
+
+
+def _merge_sales_row(
+    dimension: str,
+    row: dict[str, Any],
+    computed_rows: dict[tuple[Any, ...], dict[str, Any]],
+) -> dict[str, Any]:
+    key = _snapshot_row_key(dimension, row)
+    computed = computed_rows.get(key)
+    if computed is None:
+        raise ValueError(f"{dimension}快照行{key}无法重新计算，已停止回填")
+    for field, value in computed.items():
+        if (
+            field not in SALES_REFRESH_ROW_FIELDS
+            and field in row
+            and not _same_report_value(row[field], value)
+        ):
+            # Inputs come from the frozen row, so any other difference means the
+            # snapshot no longer reproduces under the current formulas.
+            raise ValueError(
+                f"{dimension}快照行{key}字段{field}重算结果"
+                f"{value}与原快照{row[field]}不一致，已停止回填"
+            )
+    merged = dict(row)
+    for field in SALES_REFRESH_ROW_FIELDS:
+        if field in computed or field in row:
+            merged[field] = computed.get(field)
+    return merged
+
+
+def _snapshot_rows(
+    dimension: str, payload: dict[str, Any],
+) -> dict[tuple[Any, ...], dict[str, Any]]:
+    rows = list(payload.get("items") or [])
+    if payload.get("total") is not None:
+        rows.append(payload["total"])
+    result: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for row in rows:
+        key = _snapshot_row_key(dimension, row)
+        if key in result:
+            raise ValueError(f"{dimension}快照存在重复行{key}，已停止回填")
+        result[key] = row
+    return result
+
+
+def _snapshot_row_key(dimension: str, row: dict[str, Any]) -> tuple[Any, ...]:
+    if dimension == "GROUP":
+        return (
+            normalize_text(row.get("department_code")).upper(),
+            int(row.get("is_total") or 0),
+        )
+    return (
+        normalize_text(row.get("platform_code")).upper(),
+        normalize_text(row.get("department_code")).upper(),
+        normalize_text(row.get("dimension_value")),
+        int(row.get("is_dimension_total") or 0),
+        int(row.get("is_age_cost_only") or 0),
+    )
+
+
+def _sales_snapshot_changes(
+    dimension: str, before: dict[str, Any], after: dict[str, Any],
+) -> list[dict[str, Any]]:
+    changes = [
+        {
+            "dimension": dimension,
+            "row": "-",
+            "field": field,
+            "before": before.get(field),
+            "after": after.get(field),
+        }
+        for field in ("rate_month", "usd_rate")
+        if not _same_report_value(before.get(field), after.get(field))
+    ]
+    after_rows = _snapshot_rows(dimension, after)
+    for key, old_row in _snapshot_rows(dimension, before).items():
+        new_row = after_rows[key]
+        for field in SALES_REFRESH_ROW_FIELDS:
+            if not _same_report_value(old_row.get(field), new_row.get(field)):
+                changes.append({
+                    "dimension": dimension,
+                    "row": "/".join(str(part) for part in key),
+                    "field": field,
+                    "before": old_row.get(field),
+                    "after": new_row.get(field),
+                })
+    return changes
+
+
+def _same_report_value(left: Any, right: Any) -> bool:
+    if left == right:
+        return True
+    if left is None or right is None:
+        return False
+    try:
+        return Decimal(str(left)) == Decimal(str(right))
+    except (InvalidOperation, ValueError):
+        return False
+
+
+def _sales_pending_reasons(context: dict[str, Any]) -> list[str]:
+    reasons = []
+    if (
+        context["amz_volume_by_department"] is None
+        or context["amz_actual_by_department"] is None
+    ):
+        reasons.append("Amazon销量及实际达成尚未同步")
+    if context["ebay_actual"] is None:
+        reasons.append("eBay月度利润尚未导入")
+    elif context["ebay_volume"] is None:
+        reasons.append("eBay销量来源缺失")
+    if context["usd_rate"] is None:
+        reasons.append("USD月度汇率缺失")
+    return reasons
+
+
+def _selected_view_month(stat_month: str | None, use_snapshot: bool) -> str | None:
+    if stat_month or not use_snapshot:
+        return stat_month
+    rows = repo.months(1)
+    return str(rows[0]["stat_month"]) if rows else None
+
+
+def get_department_summary(
+    stat_month: str | None = None, *, use_snapshot: bool = True,
+) -> dict[str, Any]:
+    selected_month = _selected_view_month(stat_month, use_snapshot)
+    if use_snapshot and selected_month:
+        snapshot = repo.view_snapshot(selected_month, "GROUP")
+        if snapshot is not None:
+            return with_group_display_rows(snapshot)
+    data = repo.department_summary(selected_month)
+    month = data["stat_month"]
+    report_month = _next_month(month) if month else None
+    age_cost_month = _next_month(month) if month else None
+    sales_volume_month = report_month
+    rate_month = sales_volume_month
+    sales_context = _group_sales_context(sales_volume_month)
+    usd_rate = sales_context["usd_rate"]
+    age_costs = (
+        repo.inventory_age_group_costs(age_cost_month)
+        if age_cost_month
+        else {}
+    )
+    ctu_costs = (
+        clearance_repo.ctu_over_30_costs(age_cost_month)
+        if age_cost_month
+        else {}
+    )
+    health_groups, _health_stores, _health_owners, health_platforms = (
+        _inventory_health_maps(age_cost_month)
+        if age_cost_month
+        else ({}, {}, {}, set())
+    )
+    expected_groups = {
+        code.removeprefix("AMZ-") if code.startswith("AMZ-") else code
+        for code in VALID_DEPARTMENTS
+    }
+    complete_age_costs = expected_groups.issubset(age_costs)
+    items = []
+    for source in data["items"]:
+        item = dict(source)
+        department = normalize_text(item.get("department_code")).upper()
+        if int(item.get("is_total") or 0) == 1:
+            # Sum the five CTU snapshot groups directly. Summing rendered rows
+            # would count US3 twice because MJ and ZXY share the same warehouse.
+            item["ctu_over_30_cost"] = (
+                sum((_num(value) for value in ctu_costs.values()), ZERO)
+                if ctu_costs
+                else None
+            )
+        else:
+            ctu_group = CTU_GROUP_BY_DEPARTMENT.get(department)
+            item["ctu_over_30_cost"] = (
+                ctu_costs.get(ctu_group) if ctu_group else None
+            )
+        item["ctu_cost_month"] = age_cost_month
+        if int(item.get("is_total") or 0) == 1:
+            item["inventory_age_90_180_cost"] = (
+                sum(
+                    (
+                        _num(age_costs[group]["inventory_91_180_cost"])
+                        for group in expected_groups
+                    ),
+                    ZERO,
+                )
+                if complete_age_costs
+                else None
+            )
+            item["inventory_age_180_plus_cost"] = (
+                sum(
+                    (
+                        _num(age_costs[group]["inventory_181_plus_cost"])
+                        for group in expected_groups
+                    ),
+                    ZERO,
+                )
+                if complete_age_costs
+                else None
+            )
+        elif department.startswith("AMZ-"):
+            costs = age_costs.get(department.removeprefix("AMZ-"))
+            item["inventory_age_90_180_cost"] = (
+                costs.get("inventory_91_180_cost") if costs else None
+            )
+            item["inventory_age_180_plus_cost"] = (
+                costs.get("inventory_181_plus_cost") if costs else None
+            )
+        elif department == "EBAY-1":
+            costs = age_costs.get(department)
+            item["inventory_age_90_180_cost"] = (
+                costs.get("inventory_91_180_cost") if costs else None
+            )
+            item["inventory_age_180_plus_cost"] = (
+                costs.get("inventory_181_plus_cost") if costs else None
+            )
+        else:
+            item["inventory_age_90_180_cost"] = None
+            item["inventory_age_180_plus_cost"] = None
+        item["inventory_age_cost_month"] = age_cost_month
+        expected_health_platforms = (
+            {"AMZ", "EBAY"}
+            if int(item.get("is_total") or 0) == 1
+            else {"EBAY"} if department == "EBAY-1" else {"AMZ"}
+        )
+        aged_sku_count = (
+            sum(health_groups.values(), ZERO)
+            if int(item.get("is_total") or 0) == 1
+            else _num(health_groups.get(department))
+        )
+        health_inventory_qty = (
+            _num(item.get("overseas_end_inventory_qty"))
+            + _num(item.get("fba_end_inventory_qty"))
+        )
+        health_available = expected_health_platforms.issubset(
+            health_platforms
+        )
+        item["inventory_181_plus_sku_count"] = (
+            aged_sku_count if health_available else None
+        )
+        item["inventory_health_rate"] = (
+            aged_sku_count / health_inventory_qty
+            if health_available and health_inventory_qty != ZERO
+            else None
+        )
+        item["inventory_health_month"] = age_cost_month
+        items.append(item)
+    _apply_group_sales_fields(items, sales_volume_month, sales_context)
+    return with_group_display_rows({
+        "stat_month": month,
+        "source_stat_month": month,
+        "report_month": report_month,
+        "rate_month": rate_month,
+        "usd_rate": str(usd_rate) if usd_rate is not None else None,
+        "items": [_report_json_ready(item) for item in items],
+    })
+
+
+def _group_sales_context(sales_month: str | None) -> dict[str, Any]:
+    """GROUP销量、实际达成和汇率来源；平台值为None表示该月数据未就绪。"""
+    context: dict[str, Any] = {
+        "usd_rate": repo.usd_rate(sales_month) if sales_month else None,
+        "amz_volume_by_department": None,
+        "amz_actual_by_department": None,
+        "ebay_volume": None,
+        "ebay_actual": None,
+    }
+    if not sales_month:
+        return context
+    stored_amz_volumes = repo.amz_sales_volume_by_department(sales_month)
+    if stored_amz_volumes is not None:
+        context["amz_volume_by_department"] = {
+            code: _num(stored_amz_volumes.get(code))
+            for code in VALID_DEPARTMENTS
+            if code.startswith("AMZ-")
+        }
+    context["ebay_volume"] = repo.ebay_sales_volume(sales_month)
+    context["amz_actual_by_department"] = repo.amz_sales_amount_by_department(
+        sales_month
+    )
+    context["ebay_actual"] = repo.ebay_sales_amount(sales_month)
+    return context
+
+
+def _apply_group_sales_fields(
+    items: list[dict[str, Any]],
+    sales_volume_month: str | None,
+    context: dict[str, Any],
+) -> None:
+    """只写销售及其派生字段；库存、在途等销售目标来源字段保持只读。"""
+    rate_month = sales_volume_month
+    usd_rate = context["usd_rate"]
+    amz_volume_by_department = context["amz_volume_by_department"]
+    amz_actual_by_department = context["amz_actual_by_department"]
+    ebay_volume = context["ebay_volume"]
+    ebay_actual = context["ebay_actual"]
+    for item in items:
+        department = normalize_text(item.get("department_code")).upper()
+        if int(item.get("is_total") or 0) == 1:
+            department_volumes = (
+                [ebay_volume, *amz_volume_by_department.values()]
+                if ebay_volume is not None
+                and amz_volume_by_department is not None
+                else []
+            )
+            item["monthly_sales_qty"] = (
+                sum(department_volumes, ZERO)
+                if len(department_volumes) == len(DEPARTMENTS)
+                else None
+            )
+        elif department == "EBAY-1":
+            item["monthly_sales_qty"] = ebay_volume
+        elif department.startswith("AMZ-"):
+            item["monthly_sales_qty"] = (
+                amz_volume_by_department.get(department, ZERO)
+                if amz_volume_by_department is not None
+                else None
+            )
+        else:
+            item["monthly_sales_qty"] = None
+        item["sales_volume_month"] = sales_volume_month
+        item["actual_achievement_month"] = sales_volume_month
+        item["rate_month"] = rate_month
+        item["usd_rate"] = usd_rate
+        if int(item.get("is_total") or 0) != 1:
+            if department == "EBAY-1":
+                item["actual_achievement_amount"] = (
+                    _num(ebay_actual) if ebay_actual is not None else None
+                )
+            elif department.startswith("AMZ-"):
+                item["actual_achievement_amount"] = (
+                    _num(amz_actual_by_department.get(department))
+                    if amz_actual_by_department is not None
+                    else None
+                )
+            else:
+                item["actual_achievement_amount"] = None
+            sales_target_usd = _sales_target(item)
+            actual_amount = item["actual_achievement_amount"]
+            actual_amount_usd = _usd_amount(actual_amount, usd_rate)
+            item["sales_target_usd"] = sales_target_usd
+            item["actual_achievement_amount_usd"] = actual_amount_usd
+            item["target_achievement_rate"] = (
+                actual_amount_usd / sales_target_usd
+                if actual_amount_usd is not None
+                and sales_target_usd is not None
+                and sales_target_usd != ZERO
+                else None
+            )
+    detail_items = [item for item in items if int(item.get("is_total") or 0) != 1]
+    total_item = next(
+        (item for item in items if int(item.get("is_total") or 0) == 1),
+        None,
+    )
+    if total_item is not None:
+        actual_values = [
+            item.get("actual_achievement_amount") for item in detail_items
+        ]
+        actual_complete = bool(actual_values) and all(
+            value is not None for value in actual_values
+        )
+        total_item["actual_achievement_amount"] = (
+            sum((_num(value) for value in actual_values), ZERO)
+            if actual_complete
+            else None
+        )
+        target_values = [item.get("sales_target_usd") for item in detail_items]
+        total_target_usd = (
+            sum((_num(value) for value in target_values), ZERO)
+            if target_values and all(value is not None for value in target_values)
+            else None
+        )
+        total_actual_usd = _usd_amount(
+            total_item["actual_achievement_amount"], usd_rate
+        )
+        total_item["sales_target_usd"] = total_target_usd
+        total_item["actual_achievement_amount_usd"] = total_actual_usd
+        total_item["target_achievement_rate"] = (
+            total_actual_usd / total_target_usd
+            if total_actual_usd is not None
+            and total_target_usd is not None
+            and total_target_usd != ZERO
+            else None
+        )
+        total_item["actual_achievement_month"] = sales_volume_month
+        total_item["rate_month"] = rate_month
+        total_item["usd_rate"] = usd_rate
+    _apply_report_derived_fields(items)
+
+
+def get_dimension_summary(
+    dimension_type: str,
+    stat_month: str | None = None,
+    *,
+    use_snapshot: bool = True,
+) -> dict[str, Any]:
+    """读取店铺或负责人维度汇总，并由后端统一计算展示派生字段。"""
+    dimension = normalize_text(dimension_type).upper()
+    if dimension not in {"STORE", "OWNER"}:
+        raise ValueError("dimension_type必须是STORE或OWNER")
+    selected_month = _selected_view_month(stat_month, use_snapshot)
+    if use_snapshot and selected_month:
+        snapshot = repo.view_snapshot(selected_month, dimension)
+        if snapshot is not None:
+            return snapshot
+        group_snapshot = repo.view_snapshot(selected_month, "GROUP")
+        if group_snapshot and group_snapshot.get("historical_import"):
+            # The uploaded workbook contains GROUP rows only. Never synthesize
+            # STORE/OWNER rows from unrelated live sources for that month.
+            return {
+                "stat_month": selected_month,
+                "report_month": _next_month(selected_month),
+                "historical_import": True,
+                "items": [],
+                "total": None,
+            }
+    data = repo.dimension_summary(dimension, selected_month)
+    report_month = (
+        _next_month(data["stat_month"]) if data["stat_month"] else None
+    )
+    rate_month = report_month
+    sales_context = _dimension_sales_context(dimension, report_month)
+    usd_rate = sales_context["usd_rate"]
+
+    age_cost_departments: set[str] = set()
+    owner_90_180, owner_180_plus = {}, {}
+    ctu_owner_costs, ctu_available = {}, set()
+    if dimension == "OWNER" and report_month:
+        # Historical rows without a saved rule month keep their original
+        # source-month attribution until that report month is recalculated.
+        owner_rule_month = next(
+            (normalize_text(row.get("owner_rule_month"))
+             for row in data["items"] if row.get("owner_rule_month")),
+            data["stat_month"],
+        )
+        owner_context = _inventory_owner_context(
+            report_month, rule_month=owner_rule_month,
+        )
+        health_groups, health_stores, health_owners, health_platforms = (
+            _inventory_health_maps(
+                report_month, owner_context=owner_context,
+                snapshot_departments=age_cost_departments,
+            )
+        )
+        owner_90_180, owner_180_plus = _inventory_age_cost_by_owner(
+            report_month, owner_context=owner_context,
+        )
+        ctu_owner_costs, ctu_available = _ctu_cost_by_owner(
+            report_month, owner_context=owner_context,
+        )
+    else:
+        health_groups, health_stores, health_owners, health_platforms = (
+            _inventory_health_maps(report_month)
+            if report_month
+            else ({}, {}, {}, set())
+        )
+    items: list[dict[str, Any]] = []
+    for source in data["items"]:
+        item = dict(source)
+        item["fba_transit_inventory_amount"] = (
+            _warehouse_inventory_amount(item) + _warehouse_transit_amount(item)
+        )
+        item["next_month_opening_inventory_qty"] = (
+            _warehouse_inventory_qty(item)
+        )
+        _apply_dimension_sales_fields(
+            item, dimension, report_month, sales_context
+        )
+        department = normalize_text(item.get("department_code")).upper()
+        platform = normalize_text(item.get("platform_code")).upper()
+        dimension_value = normalize_text(item.get("dimension_value"))
+        if dimension == "STORE":
+            aged_sku_count = _num(
+                health_stores.get((department, dimension_value))
+            )
+        else:
+            aged_sku_count = _num(
+                health_owners.get((platform, department, dimension_value))
+            )
+        health_inventory_qty = _warehouse_inventory_qty(item)
+        health_available = platform in health_platforms
+        item["inventory_181_plus_sku_count"] = (
+            aged_sku_count if health_available else None
+        )
+        item["inventory_health_rate"] = (
+            aged_sku_count / health_inventory_qty
+            if health_available and health_inventory_qty != ZERO
+            else None
+        )
+        item["inventory_health_month"] = report_month
+        items.append(item)
+    total = (
+        _dimension_total_item(
+            items, dimension, report_month, rate_month, usd_rate
+        )
+        if items
+        else None
+    )
+    if dimension == "OWNER":
+        total = _attach_owner_age_costs(
+            items, total, data["stat_month"], report_month,
+            owner_90_180, owner_180_plus, age_cost_departments,
+        )
+        total = _attach_owner_ctu_costs(
+            items, total, data["stat_month"], report_month,
+            ctu_owner_costs, ctu_available,
+        )
+        # GROUP uses the same _sales_target formula on department_summary rows.
+        # Read only that source here; re-running the full GROUP service would
+        # duplicate owner-rule and warehouse-age queries in this request.
+        group_data = repo.department_summary(data["stat_month"])
+        if group_data["stat_month"] != data["stat_month"]:
+            raise ValueError("个人与组别月度库存统计月份不一致")
+        group_targets = {
+            normalize_text(row.get("department_code")).upper(): _sales_target(row)
+            for row in group_data["items"]
+            if int(row.get("is_total") or 0) != 1
+        }
+        group_values = list(group_targets.values())
+        group_total = (
+            sum(group_values, ZERO)
+            if group_values and all(value is not None for value in group_values)
+            else None
+        )
+        for item in items:
+            department = normalize_text(item.get("department_code")).upper()
+            item["group_sales_target_usd"] = group_targets.get(department)
+        if total is not None:
+            total["group_sales_target_usd"] = group_total
+    return {
+        "stat_month": data["stat_month"],
+        "source_stat_month": data["stat_month"],
+        "report_month": report_month,
+        "rate_month": rate_month,
+        "usd_rate": str(usd_rate) if usd_rate is not None else None,
+        "dimension_type": dimension,
+        "total": _report_json_ready(total) if total is not None else None,
+        "items": [_report_json_ready(item) for item in items],
+    }
+
+
+def _dimension_sales_context(
+    dimension: str, report_month: str | None,
+) -> dict[str, Any]:
+    """STORE/OWNER销售来源；平台不在*_platforms中表示该月数据未就绪。"""
+    rate_month = report_month
+    usd_rate = repo.usd_rate(rate_month) if rate_month else None
+    actual_platforms: set[str] = set()
+    if report_month:
+        if repo.amz_sales_amount_by_department(report_month) is not None:
+            actual_platforms.add("AMZ")
+        if repo.ebay_sales_amount(report_month) is not None:
+            actual_platforms.add("EBAY")
+    sales_by_owner = (
+        repo.sales_amount_by_owner(report_month)
+        if dimension == "OWNER" and report_month
+        else {}
+    )
+    sales_by_store: dict[tuple[str, str], Decimal] = defaultdict(
+        lambda: ZERO
+    )
+    if dimension == "STORE" and report_month:
+        for sales_row in repo.amz_sales_amount_by_store(report_month):
+            key = (
+                normalize_text(sales_row.get("department_code")).upper(),
+                _store_dimension_name(sales_row.get("store_name")),
+            )
+            sales_by_store[key] += _num(sales_row.get("sales_amount"))
+
+    volume_platforms: set[str] = set()
+    volume_by_store: dict[tuple[str, str], Decimal] = defaultdict(
+        lambda: ZERO
+    )
+    volume_by_owner: dict[tuple[str, str, str], Decimal] = defaultdict(
+        lambda: ZERO
+    )
+    if report_month and dimension == "STORE":
+        amz_store_volumes = repo.amz_sales_volume_by_store(report_month)
+        if amz_store_volumes is not None:
+            volume_platforms.add("AMZ")
+            for volume_row in amz_store_volumes:
+                key = (
+                    normalize_text(
+                        volume_row.get("department_code")
+                    ).upper(),
+                    _store_dimension_name(volume_row.get("store_name")),
+                )
+                volume_by_store[key] += _num(
+                    volume_row.get("sales_volume")
+                )
+    elif report_month and dimension == "OWNER":
+        amz_owner_volumes = repo.amz_sales_volume_by_owner(report_month)
+        if amz_owner_volumes is not None:
+            volume_platforms.add("AMZ")
+            for volume_row in amz_owner_volumes:
+                key = (
+                    "AMZ",
+                    normalize_text(
+                        volume_row.get("department_code")
+                    ).upper(),
+                    _principal(volume_row.get("principal_name")),
+                )
+                volume_by_owner[key] += _num(
+                    volume_row.get("sales_volume")
+                )
+        ebay_volume_rows = repo.ebay_sales_volume_rows(report_month)
+        if ebay_volume_rows is not None:
+            volume_platforms.add("EBAY")
+            ebay_rules = _ebay_rule_map(
+                repo.owner_rules(report_month, "ebay")
+            )
+            ebay_sku_map = _ebay_product_sku_map(
+                report_month, include_next=False
+            )
+            for volume_row in ebay_volume_rows:
+                principal, _match_source = _ebay_assignment(
+                    volume_row.get("sku"), ebay_rules, ebay_sku_map
+                )
+                volume_by_owner[("EBAY", "EBAY-1", principal)] += _num(
+                    volume_row.get("sales_volume")
+                )
+    return {
+        "usd_rate": usd_rate,
+        "actual_platforms": actual_platforms,
+        "sales_by_owner": sales_by_owner,
+        "sales_by_store": sales_by_store,
+        "volume_platforms": volume_platforms,
+        "volume_by_store": volume_by_store,
+        "volume_by_owner": volume_by_owner,
+    }
+
+
+def _apply_dimension_sales_fields(
+    item: dict[str, Any],
+    dimension: str,
+    report_month: str | None,
+    context: dict[str, Any],
+) -> None:
+    """写入单行销售字段及派生指标；库存与在途字段只读。"""
+    usd_rate = context["usd_rate"]
+    sales_target_usd = _sales_target(item)
+    department = normalize_text(item.get("department_code")).upper()
+    platform = normalize_text(item.get("platform_code")).upper()
+    dimension_value = normalize_text(item.get("dimension_value"))
+    if dimension == "STORE":
+        sales_key = (department, dimension_value)
+        actual = _num(context["sales_by_store"].get(sales_key))
+        monthly_sales_qty = (
+            _num(context["volume_by_store"].get(sales_key))
+            if platform in context["volume_platforms"]
+            else None
+        )
+    else:
+        sales_key = (platform, department, dimension_value)
+        actual = _num(context["sales_by_owner"].get(sales_key))
+        monthly_sales_qty = (
+            _num(context["volume_by_owner"].get(sales_key))
+            if platform in context["volume_platforms"]
+            else None
+        )
+    item["sales_target_amount"] = sales_target_usd
+    item["sales_target_usd"] = sales_target_usd
+    actual_available = platform in context["actual_platforms"]
+    item["actual_achievement_amount"] = actual if actual_available else None
+    actual_amount_usd = (
+        _usd_amount(actual, usd_rate) if actual_available else None
+    )
+    item["actual_achievement_amount_usd"] = actual_amount_usd
+    item["rate_month"] = report_month
+    item["usd_rate"] = usd_rate
+    item["target_achievement_rate"] = (
+        actual_amount_usd / sales_target_usd
+        if actual_amount_usd is not None
+        and sales_target_usd is not None
+        and sales_target_usd != ZERO
+        else None
+    )
+    item["actual_achievement_month"] = report_month
+    item["sales_volume_month"] = report_month
+    item["monthly_sales_qty"] = monthly_sales_qty
+    _apply_detail_report_derived_fields(item)
+
+
+def list_details(
+    source_type: str,
+    stat_month: str | None = None,
+    department_code: str | None = None,
+    principal_name: str | None = None,
+    keyword: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    data = repo.detail_rows(
+        source_type,
+        stat_month,
+        department_code,
+        principal_name,
+        keyword,
+        page,
+        page_size,
+    )
+    data["items"] = [_json_ready(item) for item in data["items"]]
+    return data
+
+
+def import_inventory_report_purchase_order(
+    content: bytes,
+    file_name: str,
+    stat_month: str,
+    operator: str | None = None,
+) -> dict[str, Any]:
+    parsed = parse_inventory_report_purchase_order_excel(
+        content,
+        file_name,
+        _month(stat_month),
+        operator,
+    )
+    return publish_inventory_report_purchase_order(parsed)
+
+
+def publish_inventory_report_purchase_order(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Shared Excel/API assignment and report calculation rules."""
+    month = parsed["stat_month"]
+    report_month = _next_month(month)
+    owner_rows = _dimension_summaries(
+        month, [], [], [], parsed["rows"],
+        _amazon_rule_maps(repo.owner_rules(report_month, "amazon")),
+        _ebay_rule_map(repo.owner_rules(report_month, "ebay")),
+        ebay_sku_map=_ebay_product_sku_map(month),
+        owner_rule_month=report_month,
+    )
+    replace_stats = repo.replace_purchase_order_transit(
+        month, parsed["rows"], owner_rows
+    )
+    group_snapshot = repo.view_snapshot(month, "GROUP")
+    # Hand-imported history has no individual inventory detail. Its GROUP
+    # snapshot must not be reconstructed from unrelated live source tables.
+    if not (group_snapshot and group_snapshot.get("historical_import")):
+        group_data = repo.department_summary(month)
+        if group_data["items"]:
+            repo.save_view_snapshots(month, {
+                "GROUP": get_department_summary(month, use_snapshot=False),
+                "OWNER": get_dimension_summary("OWNER", month, use_snapshot=False),
+            })
+    return {
+        "stat_month": parsed["stat_month"],
+        "batch_id": parsed["batch_id"],
+        "source_rows": parsed["source_rows"],
+        "inserted_rows": replace_stats["inserted_rows"],
+        "deleted_rows": replace_stats["deleted_rows"],
+        "updated_summary_rows": replace_stats["updated_summary_rows"],
+        "skipped_rows": parsed["skipped_rows"],
+        "total_pending_arrival_qty": parsed["total_pending_arrival_qty"],
+        "total_pending_cost": parsed["total_pending_cost"],
+    }
+
+
+def _clean_fba(month, source_rows, shops, rules, *, assignment_rules=None):
+    rows: list[dict[str, Any]] = []
+    excluded_shop_rows = 0
+    excluded_special_msku_rows = 0
+    unmatched_department_rows = 0
+    for source in source_rows:
+        for child_index, item in _expanded_rows(source, "child_data"):
+            sid = str(item.get("sid") or source.get("sid") or "").strip()
+            if sid in INVENTORY_EXCLUDED_SIDS:
+                excluded_shop_rows += 1
+                continue
+            store_name = shops.get(sid, "")
+            msku = normalize_text(item.get("msku") or source.get("msku"))
+            if _exclude_special_store_msku(store_name, msku):
+                excluded_special_msku_rows += 1
+                continue
+            local_sku = normalize_text(
+                item.get("local_sku") or source.get("local_sku")
+            )
+            group_code = _amazon_group(store_name)
+            principal, match_source, matched_group = _amazon_assignment(
+                store_name, local_sku or msku, rules
+            )
+            if assignment_rules is not None:
+                principal, match_source, _ = _amazon_assignment(
+                    store_name, local_sku or msku, assignment_rules
+                )
+            group_code = group_code or matched_group
+            department_code = _department(group_code)
+            if not department_code:
+                unmatched_department_rows += 1
+            rows.append(
+                {
+                    "stat_month": month,
+                    "source_id": source["id"],
+                    "source_child_index": child_index,
+                    "sync_batch_id": source["sync_batch_id"],
+                    "sid": sid or None,
+                    "store_name": store_name or None,
+                    "group_code": group_code,
+                    "department_code": department_code,
+                    "principal_name": principal,
+                    "principal_match_source": match_source,
+                    "ware_house_name": _text(item, source, "ware_house_name"),
+                    "msku": msku or None,
+                    "asin": _text(item, source, "asin"),
+                    "fnsku": _text(item, source, "fnsku"),
+                    "local_sku": local_sku or None,
+                    "local_name": _text(item, source, "local_name"),
+                    "country_code": _text(item, source, "country_code"),
+                    "end_inventory_qty": _num(_value(item, source, "end_count"))
+                    + _num(_value(item, source, "transferring_out_count")),
+                    "end_inventory_total_cost": _num(
+                        _value(item, source, "end_total_amount")
+                    )
+                    + _num(_value(item, source, "transferring_out_total_amount")),
+                    "end_in_transit_qty": _num(
+                        _value(item, source, "end_on_way_count")
+                    ),
+                    "end_in_transit_total_cost": _num(
+                        _value(item, source, "end_on_way_total_amount")
+                    ),
+                }
+            )
+    return rows, {
+        "fba_excluded_shop_rows": excluded_shop_rows,
+        "fba_excluded_special_msku_rows": excluded_special_msku_rows,
+        "fba_unmatched_department_rows": unmatched_department_rows,
+    }
+
+
+def _clean_overseas(
+    month,
+    source_rows,
+    ebay_rules,
+    ebay_sku_map=None,
+    included_wids: set[str] | None = None,
+):
+    """清洗eBay海外仓明细；只保留included_wids中的第三方海外仓（谷仓）。
+
+    领星海外仓接口会返回自有账号仓和虚拟收货仓，它们不属于eBay海外仓业务范围，
+    计入会虚增期末库存与在途，并连带抬高销售目标、库销比和周转天数。
+    """
+    rows: list[dict[str, Any]] = []
+    excluded_wid_rows = 0
+    excluded_warehouses: dict[str, str] = {}
+    for source in source_rows:
+        for child_index, item in _expanded_rows(source, "child_list"):
+            sys_wid = str(
+                item.get("sys_wid") or source.get("sys_wid") or ""
+            ).strip()
+            if included_wids is not None and sys_wid not in included_wids:
+                excluded_wid_rows += 1
+                excluded_warehouses.setdefault(
+                    sys_wid,
+                    normalize_text(
+                        item.get("ware_house_name")
+                        or source.get("ware_house_name")
+                    ),
+                )
+                continue
+            sku = normalize_text(item.get("sku") or source.get("sku"))
+            principal, match_source = _ebay_assignment(
+                sku, ebay_rules, ebay_sku_map
+            )
+            rows.append(
+                _warehouse_detail(
+                    month,
+                    source,
+                    child_index,
+                    item,
+                    "EBAY",
+                    "EBAY-1",
+                    "EBAY-1",
+                    principal,
+                    match_source,
+                    include_api_sku=True,
+                )
+            )
+    if excluded_warehouses:
+        logger.warning(
+            "%s eBay海外仓已排除非第三方仓 %s 行；仓库=%s",
+            month,
+            excluded_wid_rows,
+            "、".join(
+                f"{wid}:{name or '未知仓库'}"
+                for wid, name in sorted(excluded_warehouses.items())
+            ),
+        )
+    return rows, {
+        "overseas_excluded_wid_rows": excluded_wid_rows,
+        "overseas_excluded_warehouses": sorted(excluded_warehouses),
+    }
+
+
+def _clean_amz_sales(month, source_rows, shops, rules):
+    rows: list[dict[str, Any]] = []
+    excluded_shop_rows = 0
+    excluded_special_msku_rows = 0
+    unmatched_department_rows = 0
+    for source in source_rows:
+        sid = str(source.get("sid") or "").strip()
+        if sid in INVENTORY_EXCLUDED_SIDS:
+            excluded_shop_rows += 1
+            continue
+        store_name = shops.get(sid, "")
+        msku = normalize_text(source.get("msku"))
+        if _exclude_special_store_msku(store_name, msku):
+            excluded_special_msku_rows += 1
+            continue
+        local_sku = normalize_text(source.get("local_sku"))
+        group_code = _amazon_group(store_name)
+        principal, match_source, matched_group = _amazon_assignment(
+            store_name, local_sku or msku, rules
+        )
+        group_code = group_code or matched_group
+        department_code = _department(group_code)
+        if not department_code:
+            unmatched_department_rows += 1
+        rows.append(
+            {
+                "stat_month": month,
+                "source_id": source["id"],
+                "sid": sid or None,
+                "store_name": store_name or None,
+                "group_code": group_code,
+                "department_code": department_code,
+                "principal_name": principal,
+                "principal_match_source": match_source,
+                "msku": msku or None,
+                "local_sku": local_sku or None,
+                "asin": normalize_text(source.get("asin")) or None,
+                "item_name": normalize_text(source.get("item_name")) or None,
+                "currency_code": normalize_text(
+                    source.get("currency_code")
+                ) or "CNY",
+                "amount": _num(source.get("amount")),
+                "volume": _num(source.get("volume")),
+            }
+        )
+    return rows, {
+        "amz_sales_excluded_shop_rows": excluded_shop_rows,
+        "amz_sales_excluded_special_msku_rows": excluded_special_msku_rows,
+        "amz_sales_unmatched_department_rows": unmatched_department_rows,
+    }
+
+
+def _clean_local(
+    month,
+    source_rows,
+    amazon_rules,
+    ebay_rules,
+    ebay_sku_map=None,
+    *,
+    assignment_rules=None,
+):
+    # 本地仓源数据只有seller_name、没有sid；当前永久排除店铺没有本地仓记录。
+    # 因店铺名并非稳定主键，此处不增加名称过滤；以后源数据出现对应记录时，
+    # 应先补齐sid再复用INVENTORY_EXCLUDED_SIDS。
+    rows: list[dict[str, Any]] = []
+    excluded_wid_rows = 0
+    unsupported_wid_rows = 0
+    zero_metric_rows = 0
+    for source in source_rows:
+        for child_index, item in _expanded_rows(source, "child_list"):
+            sys_wid = str(item.get("sys_wid") or source.get("sys_wid") or "").strip()
+            if sys_wid in LOCAL_EXCLUDED_WIDS:
+                excluded_wid_rows += 1
+                continue
+            seller_name = normalize_text(
+                item.get("seller_name") or source.get("seller_name")
+            )
+            warehouse_name = normalize_text(
+                item.get("ware_house_name") or source.get("ware_house_name")
+            )
+            sku = normalize_text(item.get("sku") or source.get("sku"))
+            if sys_wid in LOCAL_EBAY_WIDS:
+                platform = "EBAY"
+                group_code = "EBAY-1"
+                department_code = "EBAY-1"
+                principal, match_source = _ebay_assignment(
+                    sku, ebay_rules, ebay_sku_map
+                )
+            elif sys_wid in LOCAL_AMZ_WIDS:
+                platform = "AMZ"
+                configured_group = LOCAL_AMZ_WIDS[sys_wid]
+                principal, match_source, matched_group = _amazon_local_assignment(
+                    seller_name, sku, configured_group, amazon_rules
+                )
+                if assignment_rules is not None:
+                    principal, match_source, _ = _amazon_local_assignment(
+                        seller_name, sku, configured_group, assignment_rules
+                    )
+                if configured_group == "US3":
+                    group_code = (
+                        _amazon_group(seller_name)
+                        or (
+                            "US2-MJ" if matched_group == "US2"
+                            else "US1-ZXY" if matched_group == "US1"
+                            else None
+                        )
+                        or "US1-ZXY"
+                    )
+                    if group_code not in {"US2-MJ", "US1-ZXY"}:
+                        group_code = "US1-ZXY"
+                else:
+                    group_code = configured_group
+                department_code = _department(group_code)
+            else:
+                unsupported_wid_rows += 1
+                continue
+            row = _warehouse_detail(
+                month,
+                source,
+                child_index,
+                item,
+                platform,
+                group_code,
+                department_code,
+                principal,
+                match_source,
+                include_api_sku=False,
+            )
+            if platform == "EBAY" and all(
+                _num(row.get(metric)) == ZERO for metric in METRIC_KEYS
+            ):
+                zero_metric_rows += 1
+                continue
+            rows.append(row)
+    return rows, {
+        "local_excluded_wid_rows": excluded_wid_rows,
+        "local_unsupported_wid_rows": unsupported_wid_rows,
+        "local_ebay_zero_metric_rows": zero_metric_rows,
+    }
+
+
+def _warehouse_detail(
+    month,
+    source,
+    child_index,
+    item,
+    platform,
+    group_code,
+    department_code,
+    principal,
+    match_source,
+    *,
+    include_api_sku,
+):
+    row = {
+        "stat_month": month,
+        "source_id": source["id"],
+        "source_child_index": child_index,
+        "sync_batch_id": source["sync_batch_id"],
+        "sys_wid": _text(item, source, "sys_wid"),
+        "ware_house_name": _text(item, source, "ware_house_name"),
+        "seller_name": _text(item, source, "seller_name"),
+        "product_name": _text(item, source, "product_name"),
+        "sku": _text(item, source, "sku"),
+        "fnsku": _text(item, source, "fnsku"),
+        "spu": _text(item, source, "spu"),
+        "brand": _text(item, source, "brand"),
+        "platform_code": platform,
+        "group_code": group_code,
+        "department_code": department_code,
+        "principal_name": principal,
+        "principal_match_source": match_source,
+        "end_in_transit_qty": _num(
+            _value(item, source, "allocation_in_transit_count")
+        ),
+        "end_in_transit_total_cost": _num(
+            _value(item, source, "allocation_in_transit_cost")
+        ),
+        "end_inventory_qty": _num(_value(item, source, "day_end_count")),
+        "end_inventory_total_cost": _num(
+            _value(item, source, "day_end_cost")
+        ),
+    }
+    if include_api_sku:
+        row["api_sku"] = _text(item, source, "api_sku")
+    return row
+
+
+def _dimension_summaries(
+    month,
+    fba_rows,
+    overseas_rows,
+    local_rows,
+    purchase_transit_rows,
+    amazon_rules,
+    ebay_rules,
+    *,
+    ebay_sku_map=None,
+    owner_rule_month=None,
+):
+    aggregates: dict[tuple[str, str, str, str, str | None], dict[str, Any]] = {}
+
+    def add(
+        source_type,
+        platform,
+        dimension_type,
+        dimension_value,
+        department_code,
+        metrics,
+    ):
+        value = normalize_text(dimension_value) or (
+            "未知店铺" if dimension_type == "STORE" else UNASSIGNED
+        )
+        key = (
+            source_type,
+            platform,
+            dimension_type,
+            value,
+            department_code,
+        )
+        aggregate = aggregates.setdefault(
+            key,
+            {
+                "stat_month": month,
+                "source_type": source_type,
+                "platform_code": platform,
+                "dimension_type": dimension_type,
+                "dimension_value": value,
+                "department_code": department_code,
+                "owner_rule_month": owner_rule_month,
+                "source_rows": 0,
+                **{metric: ZERO for metric in METRIC_KEYS},
+            },
+        )
+        aggregate["source_rows"] += 1
+        for metric in METRIC_KEYS:
+            aggregate[metric] += _num(metrics.get(metric))
+
+    # 店铺仍只统计FBA；本地仓个人维度仅归属eBay/EU，US保留在组别汇总。
+    for source_type, rows in (
+        ("FBA", fba_rows),
+        ("OVERSEAS", overseas_rows),
+    ):
+        for row in rows:
+            if source_type == "FBA":
+                platform = "AMZ"
+                dimensions = (
+                    ("STORE", _store_dimension_name(row.get("store_name"))),
+                    ("OWNER", row.get("principal_name")),
+                )
+            elif source_type == "OVERSEAS":
+                platform = row["platform_code"]
+                # 海外仓当前全部为eBay，按要求不生成店铺维度。
+                dimensions = (("OWNER", row.get("principal_name")),)
+            metrics = dict(row)
+            for dimension_type, dimension_value in dimensions:
+                add(
+                    source_type,
+                    platform,
+                    dimension_type,
+                    dimension_value,
+                    row.get("department_code"),
+                    metrics,
+                )
+    for row in local_rows:
+        if row.get("department_code") not in {"EBAY-1", "AMZ-EU"}:
+            continue
+        add(
+            "LOCAL", row["platform_code"], "OWNER",
+            row.get("principal_name"), row.get("department_code"),
+            {**row, "end_in_transit_qty": ZERO,
+             "end_in_transit_total_cost": ZERO},
+        )
+    for row in purchase_transit_rows:
+        if row.get("department_code") not in {"EBAY-1", "AMZ-EU"}:
+            continue
+        platform = normalize_text(row.get("platform_code")).upper()
+        if platform == "AMZ":
+            principal, _source, _group = _amazon_local_assignment(
+                row.get("store_name"), row.get("sku"),
+                row.get("group_code"), amazon_rules
+            )
+        elif platform == "EBAY":
+            principal, _source = _ebay_assignment(
+                row.get("sku"), ebay_rules, ebay_sku_map
+            )
+        else:
+            principal = UNASSIGNED
+        add(
+            "LOCAL_PO", platform, "OWNER", principal,
+            row.get("department_code"),
+            {"end_in_transit_qty": row.get("pending_arrival_qty"),
+             "end_in_transit_total_cost": row.get("sku_pending_total_cost")},
+        )
+    return list(aggregates.values())
+
+
+def _department_summaries(
+    month,
+    fba_rows,
+    overseas_rows,
+    local_rows,
+    purchase_transit_rows=None,
+    amz_sales_rows=None,
+    opening_inventory=None,
+):
+    fields = (
+        "local_end_in_transit_qty",
+        "local_end_in_transit_total_cost",
+        "local_end_inventory_qty",
+        "local_end_inventory_total_cost",
+        "overseas_end_in_transit_qty",
+        "overseas_end_in_transit_total_cost",
+        "overseas_end_inventory_qty",
+        "overseas_end_inventory_total_cost",
+        "fba_end_inventory_qty",
+        "fba_end_inventory_total_cost",
+        "fba_end_in_transit_qty",
+        "fba_end_in_transit_total_cost",
+        "actual_achievement_amount",
+        "target_achievement_rate",
+    )
+    aggregates = {
+        code: {
+            "stat_month": month,
+            "department_code": code,
+            "department_name": name,
+            "display_order": order,
+            "is_total": 0,
+            **{field: ZERO for field in fields},
+        }
+        for code, name, order in DEPARTMENTS
+    }
+    for source_type, rows in (
+        ("local", local_rows),
+        ("overseas", overseas_rows),
+        ("fba", fba_rows),
+    ):
+        for row in rows:
+            department = row.get("department_code")
+            if department not in aggregates:
+                continue
+            target = aggregates[department]
+            if source_type == "fba":
+                target["fba_end_inventory_qty"] += row["end_inventory_qty"]
+                target["fba_end_inventory_total_cost"] += row[
+                    "end_inventory_total_cost"
+                ]
+                target["fba_end_in_transit_qty"] += row["end_in_transit_qty"]
+                target["fba_end_in_transit_total_cost"] += row[
+                    "end_in_transit_total_cost"
+                ]
+            elif source_type == "overseas":
+                for metric in METRIC_KEYS:
+                    target[f"{source_type}_{metric}"] += row[metric]
+            else:
+                # 本地仓API仅提供期末库存；本地仓在途统一以采购单上传为准。
+                target["local_end_inventory_qty"] += row["end_inventory_qty"]
+                target["local_end_inventory_total_cost"] += row[
+                    "end_inventory_total_cost"
+                ]
+    for row in purchase_transit_rows or []:
+        department = row.get("department_code")
+        if department not in aggregates:
+            continue
+        target = aggregates[department]
+        target["local_end_in_transit_qty"] += _num(
+            row.get("pending_arrival_qty")
+        )
+        target["local_end_in_transit_total_cost"] += _num(
+            row.get("sku_pending_total_cost")
+        )
+    for row in amz_sales_rows or []:
+        department = row.get("department_code")
+        if department in aggregates:
+            aggregates[department]["actual_achievement_amount"] += row["amount"]
+    opening_inventory = opening_inventory or {}
+    for department, target in aggregates.items():
+        sales_target = _sales_target_cny(target)
+        target["target_achievement_rate"] = (
+            target["actual_achievement_amount"] / sales_target
+            if sales_target != ZERO
+            else ZERO
+        )
+        target["next_month_opening_inventory_qty"] = opening_inventory.get(
+            department
+        )
+    rows = list(aggregates.values())
+    total = {
+        "stat_month": month,
+        "department_code": "AUTO-PARTS-TOTAL",
+        "department_name": "汽配小计",
+        "display_order": 99,
+        "is_total": 1,
+        **{
+            field: sum((row[field] for row in rows), ZERO)
+            for field in fields
+        },
+    }
+    opening_values = [
+        row.get("next_month_opening_inventory_qty") for row in rows
+    ]
+    total["next_month_opening_inventory_qty"] = (
+        sum((_num(value) for value in opening_values), ZERO)
+        if opening_values and all(value is not None for value in opening_values)
+        else None
+    )
+    # 汽配小计的销售目标是各组按各自系数计算后的目标之和。
+    total_sales_target = sum((_sales_target_cny(row) for row in rows), ZERO)
+    total["target_achievement_rate"] = (
+        total["actual_achievement_amount"] / total_sales_target
+        if total_sales_target != ZERO
+        else ZERO
+    )
+    rows.append(total)
+    return rows
+
+
+def _warehouse_transit_qty(row: dict[str, Any]) -> Decimal:
+    return _num(row.get("overseas_end_in_transit_qty")) + _num(
+        row.get("fba_end_in_transit_qty")
+    )
+
+
+def _warehouse_transit_amount(row: dict[str, Any]) -> Decimal:
+    return _num(row.get("overseas_end_in_transit_total_cost")) + _num(
+        row.get("fba_end_in_transit_total_cost")
+    )
+
+
+def _warehouse_inventory_qty(row: dict[str, Any]) -> Decimal:
+    return _num(row.get("overseas_end_inventory_qty")) + _num(
+        row.get("fba_end_inventory_qty")
+    )
+
+
+def _warehouse_inventory_amount(row: dict[str, Any]) -> Decimal:
+    return _num(row.get("overseas_end_inventory_total_cost")) + _num(
+        row.get("fba_end_inventory_total_cost")
+    )
+
+
+def _total_goods_value(row: dict[str, Any]) -> Decimal:
+    return (
+        _num(row.get("local_end_in_transit_total_cost"))
+        + _num(row.get("local_end_inventory_total_cost"))
+        + _warehouse_transit_amount(row)
+        + _warehouse_inventory_amount(row)
+    )
+
+
+def _department_factor(row: dict[str, Any]) -> Decimal:
+    return SALES_TARGET_FACTORS.get(
+        normalize_text(row.get("department_code")).upper(),
+        Decimal("0.4"),
+    )
+
+
+def _complete_metric_sum(
+    rows: list[dict[str, Any]], field: str
+) -> Decimal | None:
+    values = [row.get(field) for row in rows]
+    if not values or any(value is None for value in values):
+        return None
+    return sum((_num(value) for value in values), ZERO)
+
+
+def _apply_detail_report_derived_fields(item: dict[str, Any]) -> None:
+    item["total_goods_value"] = _total_goods_value(item)
+    item["fba_transit_inventory_amount"] = (
+        _warehouse_inventory_amount(item) + _warehouse_transit_amount(item)
+    )
+    actual_amount = item.get("actual_achievement_amount")
+    item["turnover_days_by_value"] = (
+        _warehouse_inventory_amount(item)
+        / Decimal("6.8")
+        / _department_factor(item)
+        / _num(actual_amount)
+        * Decimal("28")
+        if actual_amount is not None and _num(actual_amount) != ZERO
+        else None
+    )
+    opening_inventory_qty = item.get("next_month_opening_inventory_qty")
+    monthly_sales_qty = item.get("monthly_sales_qty")
+    if (
+        opening_inventory_qty is None
+        or monthly_sales_qty is None
+        or _num(monthly_sales_qty) == ZERO
+    ):
+        item["opening_inventory_sales_ratio"] = None
+        item["turnover_days_by_sku"] = None
+        return
+    sales_qty = _num(monthly_sales_qty)
+    opening_qty = _num(opening_inventory_qty)
+    transit_qty = _warehouse_transit_qty(item)
+    inventory_qty = _warehouse_inventory_qty(item)
+    item["opening_inventory_sales_ratio"] = (
+        opening_qty + transit_qty
+    ) / sales_qty
+    average_inventory_qty = (
+        opening_qty + inventory_qty + transit_qty / Decimal("2")
+    ) / Decimal("2")
+    item["turnover_days_by_sku"] = (
+        Decimal("28") / (sales_qty / average_inventory_qty)
+        if average_inventory_qty > ZERO
+        else ZERO
+    )
+
+
+def _apply_total_report_derived_fields(
+    total: dict[str, Any],
+    details: list[dict[str, Any]],
+) -> None:
+    total["total_goods_value"] = _total_goods_value(total)
+    total["fba_transit_inventory_amount"] = (
+        _warehouse_inventory_amount(total) + _warehouse_transit_amount(total)
+    )
+    actual_amount = _complete_metric_sum(
+        details, "actual_achievement_amount"
+    )
+    if actual_amount is None or actual_amount == ZERO:
+        total["turnover_days_by_value"] = None
+    else:
+        adjusted_inventory_amount = sum(
+            (
+                _warehouse_inventory_amount(item)
+                / _department_factor(item)
+                for item in details
+            ),
+            ZERO,
+        )
+        # 沿用既有6.8口径，与USD汇率无关。
+        total["turnover_days_by_value"] = (
+            adjusted_inventory_amount
+            / Decimal("6.8")
+            / actual_amount
+            * Decimal("28")
+        )
+    opening_inventory_qty = _complete_metric_sum(
+        details, "next_month_opening_inventory_qty"
+    )
+    monthly_sales_qty = _complete_metric_sum(details, "monthly_sales_qty")
+    total["next_month_opening_inventory_qty"] = opening_inventory_qty
+    total["monthly_sales_qty"] = monthly_sales_qty
+    if (
+        opening_inventory_qty is None
+        or monthly_sales_qty is None
+        or monthly_sales_qty == ZERO
+    ):
+        total["opening_inventory_sales_ratio"] = None
+        total["turnover_days_by_sku"] = None
+        return
+    transit_qty = _warehouse_transit_qty(total)
+    inventory_qty = _warehouse_inventory_qty(total)
+    total["opening_inventory_sales_ratio"] = (
+        opening_inventory_qty + transit_qty
+    ) / monthly_sales_qty
+    average_inventory_qty = (
+        opening_inventory_qty
+        + inventory_qty
+        + transit_qty / Decimal("2")
+    ) / Decimal("2")
+    total["turnover_days_by_sku"] = (
+        Decimal("28") / (monthly_sales_qty / average_inventory_qty)
+        if average_inventory_qty > ZERO
+        else ZERO
+    )
+
+
+def _apply_report_derived_fields(items: list[dict[str, Any]]) -> None:
+    details = [
+        item for item in items if int(item.get("is_total") or 0) != 1
+    ]
+    for item in details:
+        _apply_detail_report_derived_fields(item)
+    total = next(
+        (item for item in items if int(item.get("is_total") or 0) == 1),
+        None,
+    )
+    if total is not None:
+        _apply_total_report_derived_fields(total, details)
+
+
+def _dimension_total_item(
+    items: list[dict[str, Any]],
+    dimension: str,
+    report_month: str | None,
+    rate_month: str | None,
+    usd_rate: Decimal | None,
+) -> dict[str, Any]:
+    total: dict[str, Any] = {
+        "is_dimension_total": 1,
+        "dimension_type": dimension,
+        "dimension_value": "合计",
+        "platform_code": "",
+        "department_code": "",
+        "rate_month": rate_month,
+        "usd_rate": usd_rate,
+        "actual_achievement_month": report_month,
+        "sales_volume_month": report_month,
+        "inventory_health_month": report_month,
+    }
+    sum_fields = (
+        "source_rows",
+        "local_end_in_transit_qty",
+        "local_end_in_transit_total_cost",
+        "local_end_inventory_qty",
+        "local_end_inventory_total_cost",
+        "overseas_end_in_transit_qty",
+        "overseas_end_in_transit_total_cost",
+        "overseas_end_inventory_qty",
+        "overseas_end_inventory_total_cost",
+        "fba_end_in_transit_qty",
+        "fba_end_in_transit_total_cost",
+        "fba_end_inventory_qty",
+        "fba_end_inventory_total_cost",
+        "inventory_181_plus_sku_count",
+    )
+    for field in sum_fields:
+        values = [item.get(field) for item in items]
+        total[field] = (
+            None if field.startswith("local_") and all(v is None for v in values)
+            else sum((_num(v) for v in values), ZERO)
+        )
+    total_actual = _complete_metric_sum(items, "actual_achievement_amount")
+    total_actual_usd = _complete_metric_sum(
+        items, "actual_achievement_amount_usd"
+    )
+    total_target_usd = _complete_metric_sum(items, "sales_target_usd")
+    total["actual_achievement_amount"] = total_actual
+    total["actual_achievement_amount_usd"] = total_actual_usd
+    total["sales_target_amount"] = total_target_usd
+    total["sales_target_usd"] = total_target_usd
+    total["target_achievement_rate"] = (
+        total_actual_usd / total_target_usd
+        if total_actual_usd is not None
+        and total_target_usd is not None
+        and total_target_usd != ZERO
+        else None
+    )
+    health_inventory_qty = _warehouse_inventory_qty(total)
+    health_rows = [
+        item for item in items if _warehouse_inventory_qty(item) > ZERO
+    ]
+    health_complete = bool(health_rows) and all(
+        item.get("inventory_181_plus_sku_count") is not None
+        for item in health_rows
+    )
+    total["inventory_health_rate"] = (
+        _num(total.get("inventory_181_plus_sku_count"))
+        / health_inventory_qty
+        if health_complete and health_inventory_qty != ZERO
+        else None
+    )
+    _apply_total_report_derived_fields(total, items)
+    return total
+
+def _sales_target_cny(row: dict[str, Any]) -> Decimal:
+    inventory_amount = (
+        _num(row.get("overseas_end_inventory_total_cost"))
+        + _num(row.get("fba_end_inventory_total_cost"))
+    )
+    transit_amount = (
+        _num(row.get("overseas_end_in_transit_total_cost"))
+        + _num(row.get("fba_end_in_transit_total_cost"))
+    )
+    factor = SALES_TARGET_FACTORS.get(
+        normalize_text(row.get("department_code")).upper(),
+        Decimal("0.4"),
+    )
+    inventory_target = inventory_amount / Decimal("3") / factor
+    total_target = (
+        (inventory_amount + transit_amount)
+        / Decimal("5")
+        / factor
+    )
+    return (inventory_target + total_target) / Decimal("2")
+
+
+def _sales_target(row: dict[str, Any]) -> Decimal:
+    """按月度库存Excel的固定6.6汇率计算销售目标USD。"""
+    inventory_amount = _warehouse_inventory_amount(row)
+    combined_amount = inventory_amount + _warehouse_transit_amount(row)
+    factor = _department_factor(row)
+    inventory_target = (
+        inventory_amount / Decimal("3") / factor / SALES_TARGET_USD_RATE
+    )
+    combined_target = (
+        combined_amount / Decimal("5") / factor / SALES_TARGET_USD_RATE
+    )
+    return (inventory_target + combined_target) / Decimal("2")
+
+
+def _usd_amount(
+    amount: Decimal | None,
+    usd_rate: Decimal | None,
+) -> Decimal | None:
+    if amount is None or usd_rate is None or usd_rate <= ZERO:
+        return None
+    return _num(amount) / usd_rate
+
+
+def _inventory_owner_context(pull_month: str, *, rule_month: str | None = None):
+    """库龄快照月份与已保存的负责人规则月份分别指定。"""
+    selected_rule_month = rule_month or pull_month
+    return (
+        _amazon_rule_maps(repo.owner_rules(selected_rule_month, "amazon")),
+        _ebay_rule_map(repo.owner_rules(selected_rule_month, "ebay")),
+        _ebay_product_sku_map(pull_month, include_next=False),
+    )
+
+
+# 成都仓组别 → 个人维度的 (平台, 部门)。
+CTU_OWNER_KEYS = {"EBAY-1": ("EBAY", "EBAY-1"), "EU": ("AMZ", "AMZ-EU")}
+
+
+def _ctu_cost_by_owner(pull_month: str, *, owner_context):
+    """按本报表保存的负责人规则归属成都仓30天以上成本；保留所有批次及未分配。
+
+    eBay 按 eBay 规则；EU 没有店铺信息，按品牌 / OTH 规则（_amazon_local_assignment，与本地仓同口径，
+    UK 中转仓的货同样按品牌，不套 UK 店铺固定负责人）。返回 (成本, 有快照的(平台, 部门)集合)。
+    """
+    rows = clearance_repo.ctu_owner_cost_rows(pull_month)
+    costs = defaultdict(lambda: ZERO)
+    available = set()
+    amazon_rules, ebay_rules, ebay_sku_map = owner_context
+    for row in rows:
+        group = normalize_text(row.get("group_code")).upper() or "EBAY-1"
+        key = CTU_OWNER_KEYS.get(group)
+        if key is None:
+            continue
+        available.add(key)
+        if row.get("over_30_cost") is None:
+            continue  # LEFT JOIN占位仅证明快照存在，不是无SKU的真实成本。
+        if group == "EU":
+            principal, _source, _group = _amazon_local_assignment("", row.get("sku"), "EU", amazon_rules)
+        else:
+            principal, _ = _ebay_assignment(row.get("sku"), ebay_rules, ebay_sku_map)
+        costs[(*key, _principal(principal))] += _num(row["over_30_cost"])
+    return costs, available
+
+
+def _attach_owner_ctu_costs(items, total, stat_month, cost_month, costs, available):
+    """eBay、EU 个人展示成都仓货值（US 不参与，显示 --）；独立合计，不污染原库存/销量合计。
+
+    available 是有成都仓快照的 (平台, 部门) 集合；某组没有快照时该组显示 --，不当 0。
+    """
+    keys = {
+        (normalize_text(row.get("platform_code")).upper(),
+         normalize_text(row.get("department_code")).upper(),
+         _principal(row.get("dimension_value")))
+        for row in items
+    }
+    for platform, department, principal in sorted(set(costs) - keys):
+        items.append({
+            "stat_month": stat_month, "dimension_type": "OWNER",
+            "platform_code": platform, "department_code": department,
+            "dimension_value": principal, "is_age_cost_only": 1,
+        })
+    for item in items:
+        key = (normalize_text(item.get("platform_code")).upper(),
+               normalize_text(item.get("department_code")).upper(),
+               _principal(item.get("dimension_value")))
+        item["ctu_over_30_cost"] = costs.get(key, ZERO) if key[:2] in available else None
+        item["ctu_cost_month"] = cost_month
+    if items:
+        if total is None:
+            total = {"is_dimension_total": 1, "dimension_type": "OWNER",
+                     "dimension_value": "合计", "platform_code": "", "department_code": "",
+                     "is_age_cost_only": 1}
+        total["ctu_over_30_cost"] = sum(costs.values(), ZERO) if available else None
+        total["ctu_cost_month"] = cost_month
+    order = {code: position for code, _name, position in DEPARTMENTS}
+    items.sort(key=lambda row: (order.get(row.get("department_code"), 99),
+                               row.get("platform_code") or "", row.get("dimension_value") or ""))
+    return total
+
+
+def _inventory_age_cost_by_owner(pull_month: str, *, owner_context=None):
+    """按既有归属规则累加每条分档成本，不按比例分摊、不按SKU去重金额。"""
+    rows = repo.inventory_age_cost_rows(pull_month)
+    owner_90_180 = defaultdict(lambda: ZERO)
+    owner_180_plus = defaultdict(lambda: ZERO)
+    if not rows:
+        return owner_90_180, owner_180_plus
+    amazon_rules, ebay_rules, ebay_sku_map = (
+        owner_context if owner_context is not None else _inventory_owner_context(pull_month)
+    )
+    for row in rows:
+        platform = normalize_text(row.get("platform_code")).upper()
+        sku = normalize_text(row.get("sku"))
+        if platform == "EBAY":
+            department = "EBAY-1"
+            principal, _ = _ebay_assignment(sku, ebay_rules, ebay_sku_map)
+        elif platform == "AMZ":
+            department = _department(normalize_text(row.get("group_code")).upper())
+            principal, _, _ = _amazon_assignment(
+                normalize_text(row.get("store_name")), sku, amazon_rules
+            )
+        else:
+            continue
+        if not department:
+            logger.warning("月度库存库龄成本组别无法映射: month=%s platform=%s group=%s",
+                           pull_month, platform, row.get("group_code"))
+            continue
+        key = (platform, department, _principal(principal))
+        owner_90_180[key] += _num(row.get("cost_91_180"))
+        owner_180_plus[key] += _num(row.get("cost_181_plus"))
+    return owner_90_180, owner_180_plus
+
+
+def _attach_owner_age_costs(
+    items, total, stat_month, age_cost_month,
+    owner_90_180, owner_180_plus, snapshot_departments,
+):
+    """补充成本归属行，但不重算或污染既有库存/销量/健康度合计。"""
+    keys = {
+        (normalize_text(row.get("platform_code")).upper(),
+         normalize_text(row.get("department_code")).upper(),
+         _principal(row.get("dimension_value")))
+        for row in items
+    }
+    for platform, department, principal in sorted(
+        (set(owner_90_180) | set(owner_180_plus)) - keys
+    ):
+        items.append({
+            "stat_month": stat_month, "dimension_type": "OWNER",
+            "platform_code": platform, "department_code": department,
+            "dimension_value": principal, "is_age_cost_only": 1,
+        })
+    # Health and cost SELECTs can straddle a just-completed sync. Cost rows also
+    # prove snapshot existence; a zero-cost month is proved by health rows.
+    available = set(snapshot_departments) | {
+        key[1] for key in set(owner_90_180) | set(owner_180_plus)
+    }
+    for item in items:
+        key = (
+            normalize_text(item.get("platform_code")).upper(),
+            normalize_text(item.get("department_code")).upper(),
+            _principal(item.get("dimension_value")),
+        )
+        item["inventory_age_90_180_cost"] = (
+            owner_90_180.get(key, ZERO) if key[1] in available else None
+        )
+        item["inventory_age_180_plus_cost"] = (
+            owner_180_plus.get(key, ZERO) if key[1] in available else None
+        )
+        item["inventory_age_cost_month"] = age_cost_month
+    if items:
+        if total is None:
+            total = {
+                "is_dimension_total": 1, "dimension_type": "OWNER",
+                "dimension_value": "合计", "platform_code": "", "department_code": "",
+                "is_age_cost_only": 1,
+            }
+        # Match GROUP's full-department completeness requirement.
+        complete = VALID_DEPARTMENTS.issubset(available)
+        total["inventory_age_90_180_cost"] = (
+            sum(owner_90_180.values(), ZERO) if complete else None
+        )
+        total["inventory_age_180_plus_cost"] = (
+            sum(owner_180_plus.values(), ZERO) if complete else None
+        )
+        total["inventory_age_cost_month"] = age_cost_month
+    order = {code: position for code, _name, position in DEPARTMENTS}
+    items.sort(key=lambda row: (
+        order.get(row.get("department_code"), 99),
+        row.get("platform_code") or "", row.get("dimension_value") or "",
+    ))
+    return total
+
+
+def _inventory_health_maps(
+    pull_month: str, *, owner_context=None, snapshot_departments=None,
+):
+    """按组别、店铺和负责人分别统计181天以上去重SKU数。"""
+    rows = repo.inventory_age_health_rows(pull_month)
+    group_skus: dict[str, set[str]] = defaultdict(set)
+    store_skus: dict[tuple[str, str], set[str]] = defaultdict(set)
+    owner_skus: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+    platforms: set[str] = set()
+    # 快照月份和负责人规则月份可能不同，取本报表保存的规则版本。
+    amazon_rules, ebay_rules, ebay_sku_map = (
+        owner_context if owner_context is not None else _inventory_owner_context(pull_month)
+    )
+    for row in rows:
+        platform = normalize_text(row.get("platform_code")).upper()
+        platforms.add(platform)
+        sku = normalize_text(row.get("sku"))
+        is_aged_sku = int(row.get("is_aged_sku") or 0) == 1
+        if platform == "EBAY":
+            department = "EBAY-1"
+            principal, _match_source = _ebay_assignment(
+                sku, ebay_rules, ebay_sku_map
+            )
+        else:
+            group = normalize_text(row.get("group_code")).upper()
+            department = _department(group)
+            store_name = normalize_text(row.get("store_name"))
+            principal, _match_source, _matched_group = _amazon_assignment(
+                store_name, sku, amazon_rules
+            )
+        if snapshot_departments is not None and department:
+            snapshot_departments.add(department)
+        if not department or not sku or not is_aged_sku:
+            continue
+        group_skus[department].add(sku)
+        if platform == "AMZ":
+            store_skus[
+                (department, _store_dimension_name(store_name))
+            ].add(sku)
+        owner_skus[(platform, department, principal)].add(sku)
+    group_totals = {
+        key: Decimal(len(values)) for key, values in group_skus.items()
+    }
+    store_totals = {
+        key: Decimal(len(values)) for key, values in store_skus.items()
+    }
+    owner_totals = {
+        key: Decimal(len(values)) for key, values in owner_skus.items()
+    }
+    return group_totals, store_totals, owner_totals, platforms
+
+
+def _amazon_rule_maps(rows):
+    rules: dict[tuple[str, str, str], str] = {}
+    store_rules: dict[str, tuple[str, str]] = {}
+    for row in rows:
+        group = normalize_text(row.get("group_code")).upper()
+        rule_type = normalize_text(row.get("rule_type")).upper()
+        key = normalize_text(row.get("match_key"))
+        if rule_type in {"BRAND", "OTH_CODE"}:
+            key = key.upper()
+        principal = _principal(row.get("principal_name"))
+        rules[(group, rule_type, key)] = principal
+        if rule_type == "STORE" and key and group != "EU":
+            store_rules[key] = (principal, group)
+    return rules, store_rules
+
+
+def _ebay_rule_map(rows):
+    return {
+        normalize_text(row.get("match_key")).upper(): _principal(
+            row.get("principal_name")
+        )
+        for row in rows
+        if normalize_text(row.get("rule_type")).upper() == "EBAY_BRAND"
+    }
+
+
+def _amazon_assignment(store_name, sku, rule_maps):
+    rules, store_rules = rule_maps
+    store = normalize_text(store_name)
+    normalized_sku = normalize_text(sku).upper()
+    group = _amazon_group(store)
+    if not store:
+        return UNASSIGNED, "MISSING_STORE", group
+    if store.startswith("EU-") or group == "EU":
+        if store.upper().endswith("-UK"):
+            return EU_UK_FIXED_OWNER, "AMAZON_EU_UK_FIXED", "EU"
+        if normalized_sku.startswith("OTH-"):
+            key = _sku_segment(normalized_sku, 1)
+            return (
+                rules.get(("EU", "OTH_CODE", key), UNASSIGNED),
+                "AMAZON_EU_OTH" if key else "UNMATCHED",
+                "EU",
+            )
+        key = _sku_segment(normalized_sku, 0)
+        return (
+            rules.get(("EU", "BRAND", key), UNASSIGNED),
+            "AMAZON_EU_BRAND" if key else "UNMATCHED",
+            "EU",
+        )
+    store_key = _store_segment(store)
+    matched = store_rules.get(store_key)
+    if matched is None and store_key == "主体16":
+        matched = store_rules.get("员工05")
+    if matched:
+        return matched[0], "AMAZON_STORE", group or matched[1]
+    return UNASSIGNED, "UNMATCHED", group
+
+
+def _amazon_local_assignment(store_name, sku, group_code, rule_maps):
+    """Known EU warehouse permits brand matching even without a store name.
+
+    US owner rules are store-based; a missing US store cannot be inferred from
+    warehouse or SKU, so it remains unassigned.
+    """
+    store = normalize_text(store_name)
+    if not store and normalize_text(group_code).upper() == "EU":
+        principal, source, group = _amazon_assignment("EU-", sku, rule_maps)
+        return principal, (
+            "EU_BRAND_FROM_WAREHOUSE" if principal != UNASSIGNED
+            else "EU_BRAND_UNMATCHED_FROM_WAREHOUSE"
+        ), group
+    return _amazon_assignment(store, sku, rule_maps)
+
+
+def _ebay_product_sku_map(
+    stat_month: str,
+    *,
+    include_next: bool = True,
+) -> dict[str, str]:
+    """读取产品映射；月度报表优先使用展示月（源月的次月）快照。"""
+    mapping = repo.ebay_product_sku_map(stat_month)
+    if include_next:
+        mapping.update(repo.ebay_product_sku_map(_next_month(stat_month)))
+    return mapping
+
+
+def _resolve_ebay_sku(sku, sku_map=None) -> str:
+    """将JMH仓库SKU还原成带真实品牌前缀的领星完整SKU。"""
+    original = normalize_text(sku).upper()
+    if not original.startswith("JMH-") or not sku_map:
+        return original
+    middle = original[4:]
+    candidate = middle
+    while candidate:
+        resolved = sku_map.get(candidate)
+        if resolved:
+            return normalize_text(resolved).upper()
+        parts = candidate.rsplit("-", 1)
+        if len(parts) < 2 or candidate.count("-") <= 1:
+            break
+        candidate = parts[0]
+    return original
+
+
+# eBay 固定归属的品牌（不看月度规则）。绩效排名的 SQL（performance_repository）与此保持一致。
+EBAY_FIXED_BRAND_OWNERS = {"FLL": "员工01", "LEJ": "员工01"}
+
+
+def _ebay_assignment(sku, rules, sku_map=None, fallback_rules=None):
+    original_sku = normalize_text(sku).upper()
+    resolved_sku = _resolve_ebay_sku(original_sku, sku_map)
+    brand_code = parse_brand_code_from_sku(resolved_sku)
+    # 只有 FLL/LEJ 固定归员工01。CL 曾固定归员工06，但规则表自 2026-08 起已改为其他负责人，
+    # 写死会让当月规则失效，现与其他品牌一样按当月 EBAY_BRAND 规则匹配（2026-11-12 用户确认）。
+    if brand_code in EBAY_FIXED_BRAND_OWNERS:
+        return EBAY_FIXED_BRAND_OWNERS[brand_code], "EBAY_FIXED_BRAND"
+    # Only this caller-supplied month may be used as a fallback. An explicit
+    # current-month assignment (including 未分配) must not be overwritten.
+    if brand_code not in rules and fallback_rules and brand_code in fallback_rules:
+        fallback_owner = fallback_rules[brand_code]
+        if fallback_owner != UNASSIGNED:
+            source = (
+                "EBAY_PRODUCT_SKU_BRAND_PREVIOUS_MONTH"
+                if resolved_sku != original_sku
+                else "EBAY_BRAND_PREVIOUS_MONTH"
+            )
+            return fallback_owner, source
+    principal = rules.get(brand_code, UNASSIGNED)
+    if principal == UNASSIGNED:
+        return principal, "UNMATCHED"
+    match_source = (
+        "EBAY_PRODUCT_SKU_BRAND"
+        if resolved_sku != original_sku
+        else "EBAY_BRAND"
+    )
+    return principal, match_source
+
+
+def _amazon_group(store_name: str) -> str | None:
+    store = normalize_text(store_name)
+    upper = store.upper()
+    for code in ("EU", "US1", "US2"):
+        if upper.startswith(code + "-") or f"AMZ-{code}" in upper:
+            return code
+    if upper.startswith("US3-") or "AMZ-US3" in upper:
+        if any(name in store for name in ("主体26", "主体23", "富林顿")):
+            return "US2-MJ"
+        return "US1-ZXY"
+    return None
+
+
+def _department(group_code: str | None) -> str | None:
+    if not group_code:
+        return None
+    code = f"AMZ-{group_code}"
+    return code if code in VALID_DEPARTMENTS else None
+
+
+def _platform(seller_name: str, warehouse_name: str) -> str:
+    text = f"{seller_name} {warehouse_name}".lower()
+    return "EBAY" if "ebay" in text else "AMZ"
+
+
+def _exclude_special_store_msku(store_name: str, msku: str) -> bool:
+    if not any(name in normalize_text(store_name) for name in SPECIAL_STORE_NAMES):
+        return False
+    value = normalize_text(msku).lower()
+    return not any(marker in value for marker in SPECIAL_MSKU_MARKERS)
+
+
+def _expanded_rows(source: dict[str, Any], child_field: str):
+    value = source.get(child_field)
+    if isinstance(value, str) and value.strip():
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            value = None
+    if isinstance(value, list):
+        children = [item for item in value if isinstance(item, dict)]
+        if children:
+            for index, child in enumerate(children, start=1):
+                yield index, child
+            return
+    yield 0, source
+
+
+def _value(item, source, field):
+    value = item.get(field)
+    return source.get(field) if value is None else value
+
+
+def _text(item, source, field):
+    text = normalize_text(_value(item, source, field))
+    return text or None
+
+
+def _num(value) -> Decimal:
+    text = (
+        normalize_text(value)
+        .replace(",", "")
+        .replace("￥", "")
+        .replace("¥", "")
+        .replace("$", "")
+    )
+    if not text or text == "-":
+        return ZERO
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        return ZERO
+
+
+def _principal(value) -> str:
+    text = normalize_text(value)
+    return UNASSIGNED if text.lower() in {"", "nan", "none", "待定", "待到"} else text
+
+
+def _sku_segment(sku: str, index: int) -> str:
+    parts = [part for part in sku.split("-") if part]
+    return parts[index].upper() if len(parts) > index else ""
+
+
+def _store_segment(store_name: str) -> str:
+    parts = [part for part in store_name.split("-") if part]
+    return parts[1] if len(parts) > 1 else store_name
+
+
+def _store_dimension_name(store_name: str | None) -> str:
+    """店铺维度忽略组别前缀和国家站点后缀，只保留中间店铺主体。"""
+    store = normalize_text(store_name)
+    return _store_segment(store) if store else ""
+
+
+def _month(value: str | None) -> str:
+    month = value or datetime.now().strftime("%Y-%m")
+    if not re.fullmatch(r"20\d{2}-(0[1-9]|1[0-2])", month):
+        raise ValueError("stat_month必须使用YYYY-MM格式")
+    return month
+
+
+def _next_month(stat_month: str) -> str:
+    year, month = (int(part) for part in stat_month.split("-", 1))
+    if month == 12:
+        return f"{year + 1:04d}-01"
+    return f"{year:04d}-{month + 1:02d}"
+
+
+def _previous_month(stat_month: str) -> str:
+    year, month = (int(part) for part in stat_month.split("-", 1))
+    if month == 1:
+        return f"{year - 1:04d}-12"
+    return f"{year:04d}-{month - 1:02d}"
+
+
+def _json_ready(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: str(value) if isinstance(value, Decimal) else value
+        for key, value in row.items()
+    }
+
+
+def _report_json_ready(row: dict[str, Any]) -> dict[str, Any]:
+    """只规范报表展示字段精度，不降低内部Decimal计算精度。"""
+    result = dict(row)
+    for field in REPORT_MONEY_FIELDS:
+        value = result.get(field)
+        if isinstance(value, Decimal):
+            result[field] = value.quantize(
+                REPORT_MONEY_QUANTUM,
+                rounding=ROUND_HALF_UP,
+            )
+    for field in REPORT_RATE_FIELDS:
+        value = result.get(field)
+        if isinstance(value, Decimal):
+            result[field] = value.quantize(
+                REPORT_RATE_QUANTUM,
+                rounding=ROUND_HALF_UP,
+            )
+    return _json_ready(result)

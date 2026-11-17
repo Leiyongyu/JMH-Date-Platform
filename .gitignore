@@ -1,0 +1,38 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# 构建产物与依赖
+target/
+build/
+dist/
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# 本地配置与密钥
+.env
+.env.local
+.env.*.local
+*.local
+*.pem
+*.key
+
+# 运行期文件
+logs/
+*.log
+*.tmp
+*.bak
+outputs/
+exports/
+tmp/
+Date-Project/data/
+
+# 系统文件
+.DS_Store
+Thumbs.db

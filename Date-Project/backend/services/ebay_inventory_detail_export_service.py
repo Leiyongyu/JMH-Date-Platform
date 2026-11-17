@@ -1,0 +1,151 @@
+"""库存明细Excel导出，使用页面同一数据服务，不接受客户端金额。"""
+from datetime import datetime
+from decimal import Decimal
+from io import BytesIO
+import re
+
+from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.worksheet import Worksheet
+
+from backend.services.ebay_inventory_detail_service import CHINA, list_inventory
+
+EXCEL_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+COLUMNS = (
+    ("site", "站点", "text"), ("sku", "SKU", "text"),
+    ("sku_middle_site_code", "中间码+站点", "text"),
+    ("sku_middle_code", "中间码", "text"), ("brand", "品牌", "text"),
+    ("product_name", "产品名称", "text"), ("grade", "等级", "text"),
+    ("overseas_in_transit_quantity", "海外在途", "qty"),
+    ("overseas_sellable_quantity", "海外可售", "qty"),
+    ("overseas_total_quantity", "海外总库存", "qty"),
+    ("chengdu_in_transit_quantity", "成都在途", "qty"),
+    ("chengdu_sellable_quantity", "成都可售", "qty"),
+    ("procurement_plan_quantity", "采购计划", "qty"),
+    ("pending_outbound_quantity", "待出库", "qty"),
+    ("cycle_total_quantity", "周期总库存", "qty"),
+    ("overseas_max_age_days", "海外最高库龄", "qty"),
+    ("sales_qty_30d", "近30天销量", "qty"),
+    ("average_monthly_sales_3m", "近3个月均销量", "decimal2"),
+    ("profit_rate", "利润率", "percent"),
+    ("max_monthly_sales", "历史最大月销", "qty"),
+    ("in_stock_sales_ratio", "在库库销比", "percent"),
+    ("total_stock_sales_ratio", "总库销比", "percent"),
+    ("unit_price_tax", "单价（含税）", "money"),
+    ("overseas_sellable_value", "海外可售货值", "money"),
+    ("overseas_total_value", "海外总货值", "money"),
+    ("owner", "负责人", "text"),
+    ("warehouse_rent_30d_cny", "30天谷仓仓租（人民币）", "money"),
+    ("total_duration_months", "总时长（月）", "decimal2"),
+    ("total_stock_sales_ratio_months", "总库销比（月）", "percent"),
+    ("purchase_quantity", "申购量", "qty"),
+    ("last_sold_at", "最后售出时间", "text"),
+    ("stat_date", "统计日期", "text"),
+)
+_ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_STOCK_RATIO_QUANTITIES = {
+    "in_stock_sales_ratio": "overseas_sellable_quantity",
+    "total_stock_sales_ratio": "overseas_total_quantity",
+}
+
+
+def _has_zero_sales_with_stock(item, key, value):
+    stock_key = _STOCK_RATIO_QUANTITIES.get(key)
+    if not stock_key or value is None:
+        return False
+    sales, stock = item.get("sales_qty_30d"), item.get(stock_key)
+    if sales is None or stock is None:
+        return False
+    return Decimal(str(value)) == 0 and Decimal(str(sales)) == 0 and Decimal(str(stock)) > 0
+
+
+def export_inventory(**filters) -> tuple[str, bytes]:
+    # Keep the displayed snapshot and ordering only. Legacy callers may still send
+    # row filters/selection/page parameters; none may narrow this full export.
+    export_options = {key: filters[key] for key in (
+        "stat_date", "start_date", "end_date", "sort_field", "sort_order") if key in filters}
+    data = list_inventory(**export_options, paginate=False)
+    if not data["items"]:
+        raise ValueError("所选统计日期或范围没有可导出的库存数据")
+    if filters.get("start_date") is not None or filters.get("end_date") is not None:
+        # Stable sort keeps the selected within-day ordering and every historical row.
+        data["items"].sort(key=lambda item: item["stat_date"])
+    workbook = Workbook(write_only=True)
+    append_inventory_sheet(workbook, data["items"])
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    stat_date = data.get("metadata", {}).get("stat_date") or data["items"][0].get("stat_date")
+    date_label = str(stat_date) if stat_date else datetime.now(CHINA).strftime("%Y-%m-%d")
+    if filters.get("start_date") and filters.get("end_date"):
+        start, end = filters["start_date"], filters["end_date"]
+        date_label = start if start == end else f"{start}_至_{end}"
+    filename = f"库存明细持续更新-ebay-{date_label}.xlsx"
+    return filename, output.getvalue()
+
+
+def append_inventory_sheet(workbook, items, *, title="Ebay库存明细"):
+    sheet = workbook.create_sheet(title)
+    sheet.freeze_panes = "C2"
+    sheet.sheet_view.showGridLines = False
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.paperSize = Worksheet.PAPERSIZE_A3
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.print_title_rows = "1:1"
+    sheet.row_dimensions[1].height = 36
+    sheet.sheet_format.defaultRowHeight = 22
+    body_font = Font(name="Arial", size=10, color="243247")
+    header_font = Font(name="Arial", size=10, color="FFFFFF", bold=True)
+    body_alignment = Alignment(vertical="center", horizontal="right")
+    text_alignment = Alignment(vertical="center", horizontal="left")
+    stripe = PatternFill("solid", fgColor="F4F7FB")
+    header = []
+    for index, (key, label, _) in enumerate(COLUMNS, 1):
+        width = 42 if key == "product_name" else 26 if key == "sku" else 21 if key == "warehouse_rent_30d_cny" else 16
+        sheet.column_dimensions[get_column_letter(index)].width = width
+        cell = WriteOnlyCell(sheet, label)
+        cell.font = header_font
+        color = "24486D" if index <= 7 else "346A70" if index <= 16 else "806031" if index <= 20 else "625B83"
+        cell.fill = PatternFill("solid", fgColor=color)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        header.append(cell)
+    sheet.append(header)
+    for row_no, item in enumerate(items, 2):
+        cells = []
+        for key, _, kind in COLUMNS:
+            value = item.get(key)
+            cell = WriteOnlyCell(sheet)
+            if _has_zero_sales_with_stock(item, key, value):
+                cell.value = "0销量"
+                cell.data_type = "s"
+            elif (key == "grade" and (value is None or not str(value).strip())) or (
+                key in _STOCK_RATIO_QUANTITIES and value is None
+            ) or (
+                value is None and item.get("history_origin") == "EXCEL_IMPORT"
+            ):
+                cell.value = "--"
+                cell.data_type = "s"
+            elif value is not None:
+                if kind == "text":
+                    cell.value = _ILLEGAL_XML.sub("", str(value))
+                    cell.data_type = "s"  # SKU/品名以=开头时仍是文本，不执行公式。
+                else:
+                    number = Decimal(str(value))
+                    cell.value = number
+                    # Excel scales percentages for display; keep the original numeric ratio.
+                    cell.number_format = (
+                        "0.00%" if kind == "percent" else "#,##0.00" if kind == "money"
+                        else "0.00" if kind == "decimal2" else "0.000000" if kind == "ratio"
+                        else "#,##0" if number == number.to_integral_value() else "#,##0.00"
+                    )
+            cell.font = body_font
+            cell.alignment = text_alignment if kind == "text" else body_alignment
+            if row_no % 2 == 0:
+                cell.fill = stripe
+            cells.append(cell)
+        sheet.append(cells)
+    sheet.auto_filter.ref = f"A1:{get_column_letter(len(COLUMNS))}{len(items) + 1}"

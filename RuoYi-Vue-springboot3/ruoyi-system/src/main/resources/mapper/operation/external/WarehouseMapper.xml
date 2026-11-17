@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.WarehouseMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.Warehouse" id="WarehouseResult">
+        <id property="id" column="id" />
+        <result property="wid" column="wid" />
+        <result property="name" column="name" />
+        <result property="type" column="type" />
+        <result property="subType" column="sub_type" />
+        <result property="isDelete" column="is_delete" />
+        <result property="countryCode" column="country_code" />
+        <result property="wpId" column="wp_id" />
+        <result property="wpName" column="wp_name" />
+        <result property="tWarehouseName" column="t_warehouse_name" />
+        <result property="tWarehouseCode" column="t_warehouse_code" />
+        <result property="tCountryAreaName" column="t_country_area_name" />
+        <result property="tStatus" column="t_status" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="WarehouseResult">
+        SELECT * FROM warehouse WHERE is_delete = 0
+    </select>
+
+    <select id="selectByWid" resultMap="WarehouseResult" parameterType="Integer">
+        SELECT * FROM warehouse WHERE wid = #{wid}
+    </select>
+
+    <select id="selectByWids" resultMap="WarehouseResult">
+        SELECT * FROM warehouse WHERE wid IN
+        <foreach collection="wids" item="wid" open="(" separator="," close=")">
+            #{wid}
+        </foreach>
+    </select>
+
+    <insert id="insertWarehouse" parameterType="com.ruoyi.system.domain.operation.external.Warehouse"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO warehouse (
+            wid, name, type, sub_type, is_delete, country_code,
+            wp_id, wp_name, t_warehouse_name, t_warehouse_code,
+            t_country_area_name, t_status, sync_time
+        ) VALUES (
+            #{wid}, #{name}, #{type}, #{subType}, #{isDelete}, #{countryCode},
+            #{wpId}, #{wpName}, #{tWarehouseName}, #{tWarehouseCode},
+            #{tCountryAreaName}, #{tStatus}, NOW()
+        )
+    </insert>
+
+    <insert id="batchInsert" parameterType="java.util.List" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO warehouse (
+            wid, name, type, sub_type, is_delete, country_code,
+            wp_id, wp_name, t_warehouse_name, t_warehouse_code,
+            t_country_area_name, t_status, sync_time
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+        (
+            #{item.wid}, #{item.name}, #{item.type}, #{item.subType}, #{item.isDelete}, #{item.countryCode},
+            #{item.wpId}, #{item.wpName}, #{item.tWarehouseName}, #{item.tWarehouseCode},
+            #{item.tCountryAreaName}, #{item.tStatus}, NOW()
+        )
+        </foreach>
+    </insert>
+
+    <update id="updateWarehouse" parameterType="com.ruoyi.system.domain.operation.external.Warehouse">
+        UPDATE warehouse SET
+            name = #{name},
+            type = #{type},
+            sub_type = #{subType},
+            is_delete = #{isDelete},
+            country_code = #{countryCode},
+            wp_id = #{wpId},
+            wp_name = #{wpName},
+            t_warehouse_name = #{tWarehouseName},
+            t_warehouse_code = #{tWarehouseCode},
+            t_country_area_name = #{tCountryAreaName},
+            t_status = #{tStatus},
+            sync_time = NOW()
+        WHERE wid = #{wid}
+    </update>
+
+</mapper>

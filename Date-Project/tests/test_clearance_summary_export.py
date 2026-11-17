@@ -1,0 +1,159 @@
+from decimal import Decimal
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from openpyxl import load_workbook
+
+from backend.services import clearance_export_service as service
+from backend.services.clearance_metrics import total_metrics
+
+
+@pytest.fixture(autouse=True)
+def no_live_database(monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError('Export unit tests must not access the database')
+    monkeypatch.setattr(service.repo, 'db_connection', forbidden)
+
+
+def test_four_sheets_share_selected_month_and_page_data(monkeypatch, tmp_path):
+    calls = []
+    groups = [{"group_code": code, "total_inventory_cost": Decimal("12.34"),
+               "ctu_over_30_cost": Decimal("50"), "ctu_over_30_qty": 2,
+               "inventory_91_180_cost": 0, "previous_month_91_180_cost": None}
+              for code in ("EBAY-1", "EU", "US1", "US2", "US2-MJ", "US1-ZXY")]
+
+    source_rows = [dict(group_code=g['group_code'], platform_code='EBAY' if g['group_code'] == 'EBAY-1' else 'AMZ',
+                        pull_month='2026-09', sku=f'BRAND-70327-{g["group_code"]}', total_inventory_qty=3,
+                        total_inventory_cost=Decimal('12.34')) for g in groups]
+    def group_data(month):
+        assert month == "2026-09"
+        return {"items": groups, "summary": {**total_metrics(source_rows, month), 'ctu_over_30_cost':250}}
+
+    def dimensions(month, group, *, dimension=None):
+        calls.append((month, group, dimension))
+        return {"items": [{"dimension_name": '=HYPERLINK("bad")', "brands": ["FRD"],
+                           "previous_brands": ["BMW"], "total_inventory_qty": 3,
+                           "total_inventory_cost": Decimal("12.34"),
+                           "inventory_91_180_cost": 0, "previous_month_91_180_cost": None}]}
+
+    monkeypatch.setattr(service.repo, "list_groups", group_data)
+    monkeypatch.setattr(service.repo, 'metric_source_rows', lambda month: source_rows)
+    monkeypatch.setattr(service, "list_dimensions", dimensions)
+    monkeypatch.setattr(service, "settings", SimpleNamespace(export_output_dir=str(tmp_path)))
+    path, name = service.export_monthly_summary("2026-09")
+    assert "2026-09" in name
+    with Path(path).open("rb") as source:
+        wb = load_workbook(source)
+        assert wb.sheetnames == [f"{label}-2026-09" for label in ("组别", "店铺", "个人", "站点")]
+        for sheet in wb:
+            headers = [c.value for c in sheet[1]]
+            assert not any("品牌" in header for header in headers)
+            rows = [dict(zip(headers, row)) for row in sheet.iter_rows(min_row=2, values_only=True)]
+            assert all(row["快照月份"] == "2026-09" for row in rows)
+            assert rows[-1]['海外仓/FBA合计去重SKU数（中间码）'] == 1
+            assert all(row["海外仓/FBA合计库龄成本"] == 12.34 for row in rows[:-1])
+            assert all(row["91–180天库龄成本"] == 0 for row in rows)
+            assert all(row["91–180天上月库龄成本"] is None for row in rows)
+            assert not any(cell.data_type == "f" for row in sheet for cell in row)
+        group_sheet = wb.worksheets[0]
+        assert sum(row[5] or 0 for row in group_sheet.iter_rows(min_row=2, max_row=7, values_only=True)) == 250
+        assert group_sheet['F8'].value == 250
+        assert group_sheet["F7"].value is None  # US3 shared value appears once.
+        assert wb.worksheets[1].max_row == 7  # Five Amazon groups plus total.
+        assert wb.worksheets[2].max_row == 8  # Owners in all six groups plus total.
+        owner_headers = [c.value for c in wb.worksheets[2][1]]
+        assert owner_headers[4:6] == ["成都仓30天以上库存数量", "成都仓30天以上库龄成本"]
+        assert "成都仓30天以上库龄成本" not in [c.value for c in wb.worksheets[1][1]]
+        assert "成都仓30天以上库龄成本" not in [c.value for c in wb.worksheets[3][1]]
+        wb.close()
+    assert groups[-1]["ctu_over_30_cost"] == 50  # No mutation of source data.
+    assert len(calls) == 12
+    assert all(call[0] == "2026-09" for call in calls)
+    assert ("2026-09", "EBAY-1", "OWNER") in calls
+    assert ("2026-09", "EU", "OWNER") in calls
+
+
+def test_no_data_and_invalid_month_do_not_export(monkeypatch, tmp_path):
+    monkeypatch.setattr(service.repo, "list_groups", lambda month: {"items": []})
+    monkeypatch.setattr(service, "settings", SimpleNamespace(export_output_dir=str(tmp_path)))
+    with pytest.raises(ValueError, match="没有可导出"):
+        service.export_monthly_summary("2026-01")
+    with pytest.raises(ValueError, match="有效"):
+        service.export_monthly_summary("2026-13")
+    assert not list(tmp_path.iterdir())
+
+
+def test_empty_dimensions_still_have_headers_and_single_us3_keeps_ctu(monkeypatch, tmp_path):
+    monkeypatch.setattr(service.repo, "list_groups", lambda month: {"items": [
+        {"group_code": "US1-ZXY", "ctu_over_30_cost": 7}], 'summary': {'ctu_over_30_cost':7}})
+    monkeypatch.setattr(service.repo, 'metric_source_rows', lambda month: [])
+    monkeypatch.setattr(service, "list_dimensions", lambda *args, **kwargs: {"items": []})
+    monkeypatch.setattr(service, "settings", SimpleNamespace(export_output_dir=str(tmp_path)))
+    path, _ = service.export_monthly_summary("2026-09")
+    wb = load_workbook(path)
+    assert len(wb.worksheets) == 4
+    assert wb.worksheets[0]["F2"].value == 7
+    assert all(sheet.max_row == 1 for sheet in wb.worksheets[1:])
+    wb.close()
+
+
+def test_export_api_permission_validation_download_and_cleanup(monkeypatch, tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api import deps
+    from backend.api.v1 import finance
+
+    monkeypatch.setattr(deps, "settings", SimpleNamespace(python_internal_api_token="test-internal"))
+    output = tmp_path / "test.xlsx"
+    calls = []
+
+    def export(month):
+        calls.append(month)
+        if month == "2026-08":
+            raise ValueError("没有可导出的滞销清货数据")
+        wb = service.Workbook()
+        wb.save(output)
+        wb.close()
+        return str(output), f"{month}-汇总.xlsx"
+
+    monkeypatch.setattr(finance, "export_monthly_summary", export)
+    app = FastAPI()
+    app.include_router(finance.router)
+    url = "/api/v1/finance/slow-moving-clearance/monthly-summary-exports"
+    headers = {"X-Internal-Token": "test-internal"}
+    with TestClient(app) as client:
+        assert client.get(url, params={"pull_month": "2026-09"}).status_code == 401
+        assert client.get(url, headers=headers, params={"pull_month": "2026-13"}).status_code == 422
+        assert client.get(url, headers=headers, params={"pull_month": "2026-08"}).status_code == 404
+        response = client.get(url, headers=headers, params={"pull_month": "2026-09"})
+        assert response.status_code == 200
+        assert response.content.startswith(b"PK")
+        assert "2026-09" in response.headers["content-disposition"]
+        assert not output.exists()
+    assert calls == ["2026-08", "2026-09"]
+
+
+def test_owner_sheet_total_sums_ctu_and_keeps_dash_when_no_group_has_it(monkeypatch, tmp_path):
+    groups = [{"group_code": code, "total_inventory_cost": 1} for code in ("EBAY-1", "EU", "US1")]
+    ctu = {"EBAY-1": (2, Decimal("20")), "EU": (1, Decimal("5")), "US1": (None, None)}
+
+    def dimensions(month, group, *, dimension=None):
+        item = {"dimension_name": "甲", "total_inventory_cost": 1}
+        if dimension == "OWNER":
+            item.update(ctu_over_30_qty=ctu[group][0], ctu_over_30_cost=ctu[group][1])
+        return {"items": [item]}
+
+    monkeypatch.setattr(service.repo, "list_groups", lambda month: {"items": groups, "summary": {}})
+    monkeypatch.setattr(service.repo, "metric_source_rows", lambda month: [])
+    monkeypatch.setattr(service, "list_dimensions", dimensions)
+    monkeypatch.setattr(service, "settings", SimpleNamespace(export_output_dir=str(tmp_path)))
+    path, _ = service.export_monthly_summary("2026-09")
+    with Path(path).open("rb") as source:
+        wb = load_workbook(source)
+        sheet = wb.worksheets[2]
+        headers = [c.value for c in sheet[1]]
+        rows = [dict(zip(headers, row)) for row in sheet.iter_rows(min_row=2, values_only=True)]
+        assert [row["成都仓30天以上库龄成本"] for row in rows] == [20, 5, None, 25]
+        assert rows[-1]["成都仓30天以上库存数量"] == 3
+        wb.close()

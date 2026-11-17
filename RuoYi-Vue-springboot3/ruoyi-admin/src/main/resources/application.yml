@@ -1,0 +1,323 @@
+# 项目相关配置
+ruoyi:
+  # 名称
+  name: RuoYi
+  # 版本
+  version: 3.9.2
+  # 版权年份
+  copyrightYear: 2026
+  # 文件路径 示例（ Windows配置D:/ruoyi/uploadPath，Linux配置 /home/ruoyi/uploadPath）
+  profile: D:/ruoyi/uploadPath
+  # 获取ip地址开关
+  addressEnabled: false
+  # 验证码类型 math 数字计算 char 字符验证
+  captchaType: math
+  security:
+    # 开发环境允许匿名访问 Swagger/Druid；生产环境在 application-prod.yml 中关闭
+    public-monitor-enabled: true
+
+# 开发环境配置
+server:
+  # 服务器的HTTP端口，默认为8080
+  port: 8080
+  servlet:
+    # 应用的访问路径
+    context-path: /
+  tomcat:
+    # tomcat的URI编码
+    uri-encoding: UTF-8
+    # 连接数满后的排队数。线程打满后排队过长只会把慢请求变成全站超时，宁可快速拒绝
+    accept-count: ${SERVER_TOMCAT_ACCEPT_COUNT:200}
+    threads:
+      # tomcat最大线程数。需与数据库连接池 maxActive 保持同一量级（当前约 4:1），
+      # 800 线程抢 20 个连接时请求会在连接池排队，表现为全站雪崩式变慢
+      max: ${SERVER_TOMCAT_MAX_THREADS:200}
+      # Tomcat启动初始化的线程数
+      min-spare: ${SERVER_TOMCAT_MIN_SPARE_THREADS:20}
+
+# 日志配置
+logging:
+  level:
+    com.ruoyi: ${LOG_LEVEL_RUOYI:info}
+    com.ruoyi.system.mapper.operation: info
+    org.springframework: warn
+
+# 用户配置
+user:
+  password:
+    # 密码最大错误次数
+    maxRetryCount: 5
+    # 密码锁定时间（默认10分钟）
+    lockTime: 10
+
+# Spring配置
+spring:
+  config:
+    import: optional:file:${SYNC_ALERT_MAIL_CONFIG:${user.home}/.jmh-platform/alert-mail.properties}
+  # 资源信息
+  messages:
+    # 国际化资源文件路径
+    basename: i18n/messages
+  profiles:
+    active: druid
+  # 文件上传
+  servlet:
+    multipart:
+      # 单个文件大小
+      max-file-size: 50MB
+      # 设置总上传的文件大小
+      max-request-size: 60MB
+  # 服务模块
+  devtools:
+    restart:
+      # 热部署开关
+      enabled: true
+  data:
+    # redis 配置
+    redis:
+      # 地址
+      host: localhost
+      # 端口，默认为6379
+      port: 6379
+      # 数据库索引
+      database: 0
+      # 密码
+      password:
+      # 连接超时时间
+      timeout: 10s
+      lettuce:
+        pool:
+          # 连接池中的最小空闲连接
+          min-idle: 0
+          # 连接池中的最大空闲连接
+          max-idle: 8
+          # 连接池的最大数据库连接数
+          max-active: 8
+          # #连接池最大阻塞等待时间（使用负值表示没有限制）
+          max-wait: -1ms
+
+# token配置
+token:
+  # 令牌自定义标识
+  header: Authorization
+  # 令牌密钥
+  secret: ${TOKEN_SECRET:change-me-to-a-long-random-string}
+  # 令牌有效期（分钟）：960分钟 = 16小时，沿用临近到期自动续期逻辑
+  expireTime: 960
+
+# MyBatis配置
+mybatis:
+  # 搜索指定包别名
+  typeAliasesPackage: com.ruoyi.**.domain
+  # 配置mapper的扫描，找到所有的mapper.xml映射文件
+  mapperLocations: classpath*:mapper/**/*Mapper.xml
+  # 加载全局的配置文件
+  configLocation: classpath:mybatis/mybatis-config.xml
+
+# PageHelper分页插件
+pagehelper:
+  helperDialect: mysql
+  supportMethodsArguments: true
+  params: count=countSql
+
+# Springdoc配置
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    tags-sorter: alpha
+  group-configs:
+    - group: 'default'
+      display-name: '测试模块'
+      paths-to-match: '/**'
+      packages-to-scan: com.ruoyi.web.controller.tool
+
+    - group: 'operation'
+      display-name: '运营中心'
+      paths-to-match: '/operations/**'
+      packages-to-scan: com.ruoyi.web.controller.operation
+
+    - group: 'finance'
+      display-name: '财务模块'
+      paths-to-match: '/finance/**'
+      packages-to-scan: com.ruoyi.web.controller.finance
+
+# 防盗链配置
+referer:
+  # 防盗链开关
+  enabled: false
+  # 允许的域名列表
+  allowed-domains: localhost,127.0.0.1,ruoyi.vip,www.ruoyi.vip
+
+# 防止XSS攻击
+xss:
+  # 过滤开关
+  enabled: true
+  # 排除链接（多个用逗号分隔）
+  excludes: /system/notice
+  # 匹配链接
+  urlPatterns: /system/*,/monitor/*,/tool/*,/operations/**
+
+# Lingxing OpenAPI configuration
+lingxing:
+  restock:
+    # 0 combines all active shops; a positive value explicitly enables shop batches.
+    sid-batch-size: ${LINGXING_RESTOCK_SID_BATCH_SIZE:0}
+  endpoint: ${LINGXING_ENDPOINT:http://203.0.113.10/lingxing-proxy}
+  # 生产凭据只能通过服务器环境变量注入，与 eBay 一致：仓库里不留默认值，
+  # 否则轮换后的密钥又会进提交历史。缺失时 LingxingAuthService 直接报错。
+  app-id: ${LINGXING_APP_ID:}
+  app-secret: ${LINGXING_APP_SECRET:}
+  connect-timeout: 60000
+  read-timeout: 120000
+  token-refresh-skew-seconds: 300
+  inventory-wids: "18676,18701,18675,18674,18702,18700,18699"
+
+# eBay 官方 Buy Browse API。生产密钥只能通过服务器环境变量注入。
+ebay:
+  base-url: ${EBAY_BASE_URL:https://api.ebay.com}
+  client-id: ${EBAY_CLIENT_ID:}
+  client-secret: ${EBAY_CLIENT_SECRET:}
+  end-user-context: ${EBAY_END_USER_CONTEXT:}
+  connect-timeout: ${EBAY_CONNECT_TIMEOUT:10s}
+  request-timeout: ${EBAY_REQUEST_TIMEOUT:30s}
+  detail-max-retries: ${EBAY_DETAIL_MAX_RETRIES:3}
+
+# Goodcang WMS API configuration
+goodcang:
+  endpoint: ${GOODCANG_ENDPOINT:https://oms.goodcang.net/public_open}
+  app-token: ${GOODCANG_APP_TOKEN:}
+  app-key: ${GOODCANG_APP_KEY:}
+  # 谷仓对同一密钥限流；所有接口统一串行节流，429时指数退避重试。
+  min-request-interval-ms: ${GOODCANG_MIN_REQUEST_INTERVAL_MS:1200}
+  max-rate-limit-retries: ${GOODCANG_MAX_RATE_LIMIT_RETRIES:6}
+  rate-limit-initial-backoff-ms: ${GOODCANG_RATE_LIMIT_INITIAL_BACKOFF_MS:3000}
+  rate-limit-max-backoff-ms: ${GOODCANG_RATE_LIMIT_MAX_BACKOFF_MS:30000}
+
+# 同步告警 - SMTP邮件（不再发送企微群）
+sync:
+  alert:
+    enabled: ${SYNC_ALERT_ENABLED:true}
+    mail:
+      host: ${SYNC_ALERT_SMTP_HOST:smtp.exmail.qq.com}
+      port: ${SYNC_ALERT_SMTP_PORT:465}
+      ssl: ${SYNC_ALERT_SMTP_SSL:true}
+      username: ${SYNC_ALERT_SMTP_USERNAME:}
+      password: ${SYNC_ALERT_SMTP_PASSWORD:}
+      to: ${SYNC_ALERT_MAIL_TO:}
+    # 默认只发送失败、异常和卡死告警，正常开始/成功/恢复不推送。
+    notify-started: ${SYNC_ALERT_NOTIFY_STARTED:false}
+    notify-success: ${SYNC_ALERT_NOTIFY_SUCCESS:false}
+    notify-recovery: ${SYNC_ALERT_NOTIFY_RECOVERY:false}
+    # 任务超过该时长未结束时发送卡死告警，设为0可关闭。
+    max-runtime-minutes: ${SYNC_ALERT_MAX_RUNTIME_MINUTES:90}
+  connect-timeout: 30000
+  read-timeout: 30000
+
+# Python 外汇退税数据服务
+# 所有 Python 模块默认共用 JMH_PYTHON_BASE_URL；原模块变量继续作为兼容性覆盖项。
+tax-refund:
+  data-project:
+    base-url: ${TAX_REFUND_DATA_PROJECT_BASE_URL:${jmh.python.base-url}}
+    connect-timeout: ${jmh.python.connect-timeout}
+    read-timeout: ${jmh.python.timeout.long}
+    internal-token: ${jmh.python.internal-token}
+
+# ERP AI助手通过Java安全代理访问Python，浏览器不接触内部Token和DeepSeek密钥
+ai-assistant:
+  python:
+    base-url: ${AI_ASSISTANT_PYTHON_BASE_URL:${jmh.python.base-url}}
+    connect-timeout: ${jmh.python.connect-timeout}
+    read-timeout: ${jmh.python.timeout.report}
+    internal-token: ${jmh.python.internal-token}
+
+# 图片SOP通过Java安全代理访问Python；支持多图片上传、长时间AI生成和二进制下载
+image-sop:
+  python:
+    base-url: ${IMAGE_SOP_PYTHON_BASE_URL:${jmh.python.base-url}/image-sop}
+    workbench-url: ${PYTHON_SCRIPT_WORKBENCH_URL:${jmh.python.base-url}/script-tools/}
+    connect-timeout: ${jmh.python.connect-timeout}
+    read-timeout: ${jmh.python.timeout.long}
+    internal-token: ${jmh.python.internal-token}
+
+# 报关单页面已并入Date-Project；浏览器通过ERP短期会话和白名单代理使用。
+customs-declaration:
+  legacy:
+    base-url: ${CUSTOMS_DECLARATION_LEGACY_BASE_URL:${jmh.python.base-url}/customs-declaration}
+    connect-timeout: ${CUSTOMS_DECLARATION_LEGACY_CONNECT_TIMEOUT:${jmh.python.connect-timeout}}
+    read-timeout: ${CUSTOMS_DECLARATION_LEGACY_READ_TIMEOUT:${jmh.python.timeout.fast}}
+    internal-token: ${jmh.python.internal-token}
+
+# eBay价格工具通过Java安全代理访问Python；与其他Python模块复用JMH_PYTHON_BASE_URL。
+ebay-tool:
+  python:
+    base-url: ${jmh.python.base-url}/ebay-tool
+    connect-timeout: ${jmh.python.connect-timeout}
+    read-timeout: ${jmh.python.timeout.long}
+    internal-token: ${jmh.python.internal-token}
+
+# Python 绩效排名服务
+performance:
+  python:
+    base-url: ${PERFORMANCE_PYTHON_BASE_URL:${jmh.python.base-url}/api/v1/finance}
+    connect-timeout: ${jmh.python.connect-timeout}
+    read-timeout: ${jmh.python.timeout.report}
+    internal-token: ${jmh.python.internal-token}
+
+
+jmh:
+  # Java 调用 Python 的统一入口。上面各模块的 base-url / token / 超时都引用这里，
+  # 部署时只需配置 JMH_PYTHON_BASE_URL 与 PYTHON_INTERNAL_API_TOKEN；
+  # 各模块原有的 *_BASE_URL 环境变量仍可单独覆盖。
+  python:
+    base-url: ${JMH_PYTHON_BASE_URL:http://127.0.0.1:8010}
+    internal-token: ${PYTHON_INTERNAL_API_TOKEN:${PYTHON_PERFORMANCE_INTERNAL_TOKEN:}}
+    connect-timeout: ${JMH_PYTHON_CONNECT_TIMEOUT_MS:5000}
+    # 读超时档位（毫秒）：fast 普通查询，report 报表/AI，long 批量导入导出，etl 同步型定时任务
+    timeout:
+      fast: ${JMH_PYTHON_TIMEOUT_FAST_MS:120000}
+      report: ${JMH_PYTHON_TIMEOUT_REPORT_MS:300000}
+      long: ${JMH_PYTHON_TIMEOUT_LONG_MS:900000}
+      etl: ${JMH_PYTHON_TIMEOUT_ETL_MS:10800000}
+  python-performance:
+    base-url: ${PYTHON_PERFORMANCE_BASE_URL:${jmh.python.base-url}}
+    connect-timeout: ${jmh.python.connect-timeout}
+    read-timeout: ${jmh.python.timeout.etl}
+    internal-token: ${jmh.python.internal-token}
+  mysql-backup:
+    enabled: ${MYSQL_BACKUP_ENABLED:true}
+    mysqldump-path: ${MYSQLDUMP_PATH:C:/Program Files/MySQL/MySQL Server 9.7/bin/mysqldump.exe}
+    login-path: ${MYSQL_BACKUP_LOGIN_PATH:jmh_backup}
+    databases:
+      - ${MYSQL_BACKUP_DATABASE_DATE_PROJECT:Date-Project}
+      - ${MYSQL_BACKUP_DATABASE_ERP:jmh_data_platform}
+      - ${MYSQL_BACKUP_DATABASE_AI_AGENT:jmh_ai_agent}
+    local-temp-dir: ${MYSQL_BACKUP_TEMP_DIR:D:/JMH_Backup_Temp}
+    target-dir: '${MYSQL_BACKUP_TARGET_DIR://NAS-HOST/backup/MySQL_Backup}'
+    retention-days: ${MYSQL_BACKUP_RETENTION_DAYS:30}
+    timeout-minutes: ${MYSQL_BACKUP_TIMEOUT_MINUTES:120}
+    minimum-dump-bytes: ${MYSQL_BACKUP_MINIMUM_DUMP_BYTES:1024}
+
+# 运维端点：独立端口且只监听本机，由 Prometheus / 监控脚本在部署机本地抓取
+management:
+  server:
+    port: ${MANAGEMENT_PORT:8081}
+    address: ${MANAGEMENT_ADDRESS:127.0.0.1}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    # 告警邮件服务器不可达不应让整体健康检查失败
+    mail:
+      enabled: false
+  metrics:
+    tags:
+      application: jmh-erp

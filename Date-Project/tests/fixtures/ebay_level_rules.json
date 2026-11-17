@@ -1,0 +1,65 @@
+[
+  {
+    "rule_no": 1,
+    "condition_expr": "return_rate > 0.06",
+    "result_level": "C",
+    "status": 1,
+    "remark": "初始规则"
+  },
+  {
+    "rule_no": 2,
+    "condition_expr": "return_rate >= 0.03 and profit_rate < 0.18",
+    "result_level": "C",
+    "status": 1,
+    "remark": "初始规则"
+  },
+  {
+    "rule_no": 3,
+    "condition_expr": "return_rate >= 0.03",
+    "result_level": "B",
+    "status": 1,
+    "remark": "初始规则"
+  },
+  {
+    "rule_no": 4,
+    "condition_expr": "profit_rate < 0.12 and sell_through_ratio <= 0.12",
+    "result_level": "C",
+    "status": 1,
+    "remark": "初始规则"
+  },
+  {
+    "rule_no": 5,
+    "condition_expr": "profit_rate < 0.12",
+    "result_level": "B",
+    "status": 1,
+    "remark": "初始规则"
+  },
+  {
+    "rule_no": 6,
+    "condition_expr": "profit_rate < 0.22 and sell_through_ratio < 0.12",
+    "result_level": "B",
+    "status": 1,
+    "remark": "初始规则"
+  },
+  {
+    "rule_no": 7,
+    "condition_expr": "profit_rate < 0.22",
+    "result_level": "A",
+    "status": 1,
+    "remark": "初始规则"
+  },
+  {
+    "rule_no": 8,
+    "condition_expr": "sell_through_ratio < 0.15",
+    "result_level": "B",
+    "status": 1,
+    "remark": "初始规则"
+  },
+  {
+    "rule_no": 9,
+    "condition_expr": "true",
+    "result_level": "S",
+    "status": 1,
+    "remark": "初始规则"
+  }
+]

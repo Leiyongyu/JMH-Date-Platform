@@ -1,0 +1,85 @@
+package com.ruoyi.system.service.operation.sync;
+
+import com.ruoyi.common.utils.spring.SpringUtils;
+import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Component;
+
+/**
+ * Separated bean so that {@code @Async} works through the Spring proxy.
+ * <p>
+ * <b>Do NOT call these methods from within this class</b> — self-invocation
+ * bypasses the AOP proxy and the call runs synchronously.
+ * Always call through the injected {@code SyncTaskRunner} bean reference.
+ */
+@Component
+public class SyncTaskRunner
+{
+    private static final Logger LOG = LoggerFactory.getLogger(SyncTaskRunner.class);
+
+    @Async("syncTaskExecutor")
+    public void runEbay(SyncTaskAsyncService.SyncSubmission sub, String triggerType, String operator, String scope)
+    {
+        sub.markRunning();
+        LOG.info("eBay async sync started: submissionId={}, scope={}", sub.submissionId, scope);
+        try
+        {
+            EbayUnifiedSyncService svc = SpringUtils.getBean(EbayUnifiedSyncService.class);
+            // eBay 已无本地快照需要刷新（跟价与旧补货1.0已下线），只有全量拉取。
+            Map<String, Object> result = svc.syncAll(triggerType, operator);
+            sub.completeFrom(result);
+        }
+        catch (Exception e)
+        {
+            LOG.error("eBay async sync failed: submissionId={}, error={}", sub.submissionId, e.getMessage(), e);
+            sub.markFailed(e.getMessage());
+        }
+    }
+
+    @Async("syncTaskExecutor")
+    public void runAmz(SyncTaskAsyncService.SyncSubmission sub, String triggerType, String operator, String scope)
+    {
+        sub.markRunning();
+        LOG.info("AMZ async sync started: submissionId={}, scope={}", sub.submissionId, scope);
+        try
+        {
+            if ("refresh".equals(scope))
+            {
+                Map<String, Object> result = SpringUtils.getBean(AmzUnifiedSyncService.class)
+                        .refreshOnly(triggerType, operator);
+                sub.completeFrom(result);
+            }
+            else
+            {
+                OperationSyncResult result = SpringUtils.getBean(SyncOrchestratorService.class)
+                        .execute("amz", triggerType, operator);
+                sub.completeFrom(result);
+            }
+        }
+        catch (Exception e)
+        {
+            LOG.error("AMZ async sync failed: submissionId={}, error={}", sub.submissionId, e.getMessage(), e);
+            sub.markFailed(e.getMessage());
+        }
+    }
+
+    @Async("syncTaskExecutor")
+    public void runStockOrder(SyncTaskAsyncService.SyncSubmission sub, String operator)
+    {
+        sub.markRunning();
+        LOG.info("Stock-order async sync started: submissionId={}", sub.submissionId);
+        try
+        {
+            OperationSyncResult result = SpringUtils.getBean(SyncOrchestratorService.class)
+                    .execute("stock_order", "MANUAL", operator);
+            sub.completeFrom(result);
+        }
+        catch (Exception e)
+        {
+            LOG.error("Stock-order async sync failed: submissionId={}, error={}", sub.submissionId, e.getMessage(), e);
+            sub.markFailed(e.getMessage());
+        }
+    }
+}

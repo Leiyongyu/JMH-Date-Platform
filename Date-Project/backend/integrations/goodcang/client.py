@@ -1,0 +1,185 @@
+"""GoodCang V1 open API (warehouse storage, product inventory, billing); credentials never enter logs."""
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import ssl
+import time
+from decimal import Decimal
+from urllib.parse import urlsplit
+
+import httpx
+
+from backend.config import settings
+
+PATH = "/finance/get_wh_inventory_storage"
+DETAIL_PATH = "/finance/get_wh_inventory_storage_detail"
+INVENTORY_PATH = "/inventory/get_product_inventory"
+BILL_LIST_PATH = "/finance/billing_list"
+BILL_EXPORT_PATH = "/finance/billing_export"
+BILL_PAGE_SIZE = 200
+# 账单下载返回 base64 的 xlsx / zip，单张半月账单约 2MB，一次下两张约 4MB；限流严格，只请求一次。
+MAX_BILL_EXPORT_BYTES = 64 * 1024 * 1024
+INVENTORY_PAGE_SIZE = 200
+PAGE_SIZE = 200
+DETAIL_PAGE_SIZE = 200
+LOG = logging.getLogger(__name__)
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+
+
+class GoodcangRequestError(ValueError):
+    pass
+
+
+def source_json(value):
+    """Encode decoded JSON without rounding numeric literals through float."""
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ValueError("谷仓返回非有限数值")
+        return str(value)
+    if isinstance(value, dict):
+        return "{" + ",".join(json.dumps(k, ensure_ascii=False) + ":" + source_json(v)
+                              for k, v in value.items()) + "}"
+    if isinstance(value, list):
+        return "[" + ",".join(source_json(v) for v in value) + "]"
+    return json.dumps(value, ensure_ascii=False, allow_nan=False)
+
+
+def _invalid_constant(_value):
+    raise ValueError("non-finite JSON constant")
+
+
+def _temporary_transport(exc):
+    current, seen = exc, set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ssl.SSLCertVerificationError):
+            return False
+        current = current.__cause__ or current.__context__
+    return isinstance(exc, (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError))
+
+
+class GoodcangClient:
+    def __init__(self, config=settings, *, transport=None):
+        endpoint = config.goodcang_endpoint.rstrip("/")
+        parsed = urlsplit(endpoint)
+        if (parsed.scheme != "https" or not parsed.hostname or parsed.username
+                or parsed.password or parsed.query or parsed.fragment):
+            raise ValueError("GOODCANG_ENDPOINT必须是无凭证、无查询参数的HTTPS地址")
+        if not config.goodcang_app_token or not config.goodcang_app_key:
+            raise ValueError("请配置Python服务的GOODCANG_APP_TOKEN和GOODCANG_APP_KEY")
+        self.endpoint = endpoint
+        self.retries = max(0, min(config.goodcang_max_retries, 6))
+        self.interval = max(0, config.goodcang_min_request_interval_sec)
+        self.next_request_at = 0.0
+        self.http = httpx.Client(
+            timeout=config.goodcang_request_timeout_sec,
+            follow_redirects=False,
+            headers={"app-token": config.goodcang_app_token, "app-key": config.goodcang_app_key},
+            transport=transport,
+        )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.http.close()
+
+    def fetch_storage_page(self, date_from, date_to, page):
+        body = {"dateFrom": date_from, "dateTo": date_to, "page": page, "pageSize": PAGE_SIZE}
+        return self._request_page(PATH, body, page)
+
+    def fetch_storage_detail_page(self, wis_code, page):
+        if not isinstance(wis_code, str) or not wis_code.strip() or len(wis_code.strip()) > 32:
+            raise ValueError("谷仓仓租明细请求单号必须为1至32位字符串")
+        code = wis_code.strip()
+        # This V1 endpoint uses different pagination keys from the summary endpoint.
+        body = {"wis_code": code, "page_index": page, "page_size": DETAIL_PAGE_SIZE}
+        bill_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()[:12]
+        return self._request_page(DETAIL_PATH, body, page, f" bill_hash={bill_hash}")
+
+    def fetch_product_inventory_page(self, page, warehouse_codes=None):
+        """区域仓维度商品库存（V1）。不传仓库时返回全部区域仓；每页最多 200 条。"""
+        body = {"page": page, "pageSize": INVENTORY_PAGE_SIZE}
+        if warehouse_codes:
+            body["warehouse_code_arr"] = list(warehouse_codes)
+        return self._request_page(INVENTORY_PATH, body, page)
+
+    def fetch_bill_page(self, begin_bill_to_time, end_bill_to_time, page, account_code=""):
+        """账单列表（按账单截止时间，北京时间，跨度不超过 186 天）。"""
+        body = {"account_code": account_code or "", "begin_bill_to_time": begin_bill_to_time,
+                "end_bill_to_time": end_bill_to_time, "page": page, "page_size": BILL_PAGE_SIZE}
+        return self._request_page(BILL_LIST_PATH, body, page)
+
+    def export_bills(self, bill_numbers):
+        """下载账单文件：一个账单号返回 xlsx，多个返回 zip（base64）。该接口限流严格，调用方拿到即保存，不重试。"""
+        numbers = [str(item).strip() for item in bill_numbers if str(item).strip()]
+        if not numbers or len(numbers) > 500:
+            raise ValueError("账单号数量必须为 1 至 500 个")
+        wait = self.next_request_at - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        self.next_request_at = time.monotonic() + self.interval
+        try:
+            response = self.http.post(self.endpoint + BILL_EXPORT_PATH, json={"bill_number_list": numbers},
+                                      timeout=max(120, self.http.timeout.read or 0))
+        except httpx.TransportError as exc:
+            raise GoodcangRequestError(f"谷仓账单下载失败；reason={type(exc).__name__}") from None
+        if response.status_code != 200:
+            raise GoodcangRequestError(f"谷仓账单下载失败；HTTP {response.status_code}")
+        if len(response.content) > MAX_BILL_EXPORT_BYTES:
+            raise GoodcangRequestError("谷仓账单下载响应超过安全大小")
+        try:
+            result = json.loads(response.content.decode("utf-8-sig"))
+        except (UnicodeError, ValueError):
+            raise GoodcangRequestError("谷仓账单下载响应不是 JSON") from None
+        if not isinstance(result, dict):
+            raise GoodcangRequestError("谷仓账单下载响应不是对象")
+        return result
+
+    def _request_page(self, path, body, page, context=""):
+        for attempt in range(1, self.retries + 2):
+            wait = self.next_request_at - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            self.next_request_at = time.monotonic() + self.interval
+            delay = min(30, 2 ** attempt)
+            temporary = False
+            try:
+                with self.http.stream("POST", self.endpoint + path, json=body) as response:
+                    status = response.status_code
+                    if status != 200:
+                        reason = f"HTTP {status}"
+                        temporary = status in {429, 500, 502, 503, 504}
+                        retry_after = response.headers.get("Retry-After", "")
+                        if retry_after.isdigit():
+                            delay = min(30, max(delay, int(retry_after)))
+                    else:
+                        chunks, size = [], 0
+                        for chunk in response.iter_bytes():
+                            size += len(chunk)
+                            if size > MAX_RESPONSE_BYTES:
+                                raise GoodcangRequestError(f"谷仓接口响应超过安全大小；接口={path} page={page}{context}")
+                            chunks.append(chunk)
+                        result = json.loads(b"".join(chunks).decode("utf-8-sig"),
+                                            parse_float=Decimal, parse_constant=_invalid_constant)
+                        if not isinstance(result, dict):
+                            raise GoodcangRequestError(f"谷仓接口响应不是对象；接口={path} page={page}{context}")
+                        return result
+            except GoodcangRequestError:
+                raise
+            except (UnicodeError, ValueError, RecursionError):
+                reason = "JSON响应结构或编码异常"
+            except httpx.TransportError as exc:
+                temporary = _temporary_transport(exc)
+                reason = type(exc).__name__
+            if not temporary or attempt > self.retries:
+                raise GoodcangRequestError(
+                    f"谷仓接口请求失败；接口={path} page={page}{context} "
+                    f"attempt={attempt}/{self.retries + 1} reason={reason}"
+                ) from None
+            LOG.warning("谷仓接口有限重试 path=%s page=%s%s attempt=%s/%s reason=%s delay=%ss",
+                        path, page, context, attempt, self.retries + 1, reason, delay)
+            time.sleep(delay)
+        raise AssertionError("unreachable")

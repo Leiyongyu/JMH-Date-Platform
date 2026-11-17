@@ -1,0 +1,659 @@
+package com.ruoyi.system.service.finance;
+
+import com.ruoyi.system.service.python.PythonHttpSupport;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.UUID;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
+
+/** ERP 到 Python 绩效排名 REST 服务的适配客户端。 */
+@Service
+public class PerformancePythonClient extends PythonHttpSupport
+{
+    private static final String SERVICE_NAME = "Python绩效服务";
+    private static final String EXCEL_CONTENT_TYPE =
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+    public PerformancePythonClient(
+            PerformancePythonProperties properties,
+            ObjectMapper objectMapper)
+    {
+        super(properties, objectMapper);
+    }
+
+    public Map<String, Object> rankings(
+            Map<String, ?> params, String requestId)
+    {
+        return get("/performance-rankings", params, requestId);
+    }
+
+    /** 未匹配到负责人的明细及原因，供绩效排名页排查用。 */
+    public Map<String, Object> rankingUnmatched(
+            Map<String, ?> params, String requestId)
+    {
+        return get("/performance-unmatched", params, requestId);
+    }
+
+    public Map<String, Object> salesDashboardOptions(String requestId)
+    {
+        return get("/sales-dashboard/options", Map.of(), requestId);
+    }
+
+    public Map<String, Object> salesDashboardReport(Map<String, ?> params, String requestId)
+    {
+        return get("/sales-dashboard/report", params, requestId);
+    }
+
+    public Map<String, Object> amzProfitReportMonths(String requestId)
+    {
+        return get("/amz-profit-report/months", Map.of(), requestId);
+    }
+
+    public Map<String, Object> amzProfitReport(
+            String startMonth, String endMonth, String dimension, String currency, String requestId)
+    {
+        return get("/amz-profit-report/report",
+                Map.of("start_month", startMonth, "end_month", endMonth, "dimension", dimension,
+                        "currency", currency),
+                requestId);
+    }
+
+    public byte[] exportAmzProfitReport(
+            String startMonth, String endMonth, String dimensions, String currency, String requestId)
+    {
+        try
+        {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("start_month", startMonth);
+            params.put("end_month", endMonth);
+            params.put("dimensions", dimensions);
+            params.put("currency", currency);
+            HttpRequest request = baseRequest(
+                    "/amz-profit-report/exports" + queryString(params), requestId)
+                    .setHeader("Accept", EXCEL_CONTENT_TYPE)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 400)
+            {
+                String body = new String(response.body(), StandardCharsets.UTF_8);
+                throw new IllegalStateException(errorMessage(
+                        parseJson(body), response.statusCode(), SERVICE_NAME));
+            }
+            return response.body();
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    public Map<String, Object> previewSalesHistory(MultipartFile file, String requestId)
+    {
+        return upload("/sales-dashboard/preview", Map.of(), file, requestId, null);
+    }
+
+    public Map<String, Object> importSalesHistory(MultipartFile file, String sha256, String operator, String requestId)
+    {
+        return upload("/sales-dashboard/import", Map.of("file_sha256", sha256, "operator", operator), file, requestId, null);
+    }
+
+    public Map<String, Object> amzOwnerSkuSummary(String requestId)
+    {
+        return get("/amz-owner-sku/summary", Map.of(), requestId);
+    }
+
+    /** Only fixed report paths may be proxied to Python. */
+    public Map<String, Object> productNature(String platform, String view, Map<String, String> params, String requestId)
+    {
+        if (!java.util.Set.of("amz", "ebay").contains(platform)
+                || !java.util.Set.of("summary", "groups", "owners", "details", "history", "compare").contains(view))
+            throw new IllegalArgumentException("商品性质报表路径无效");
+        Map<String, String> allowed = new LinkedHashMap<>();
+        for (String key : java.util.List.of("month", "group_code", "owner_key", "nature", "sku", "page", "page_size",
+                "base_month", "target_month", "scope", "start_month", "end_month", "include_current", "segment_key", "batch_id"))
+        {
+            if (StringUtils.hasText(params.get(key))) allowed.put(key, params.get(key));
+        }
+        return get("/" + platform + "-owner-sku/nature/" + view, allowed, requestId);
+    }
+
+    public Map<String, Object> captureHomeProductNature(String requestId)
+    {
+        try
+        {
+            HttpRequest request = baseRequest("/product-nature/snapshot", requestId)
+                    .POST(HttpRequest.BodyPublishers.noBody()).build();
+            return sendJson(request, false);
+        }
+        catch (Exception e) { throw asRuntime(e); }
+    }
+
+    public Map<String, Object> ebayOwnerSkuSummary(String requestId)
+    {
+        return get("/ebay-owner-sku/summary", Map.of(), requestId);
+    }
+
+    public Map<String, Object> ebayPriceTierSummary(String month, String shop, String requestId)
+    {
+        return get("/ebay-price-tier/summary",
+                Map.of("month", month == null ? "" : month, "shop", shop == null ? "" : shop), requestId);
+    }
+
+    /** shops 为逗号分隔的店铺名，留空表示整个eBay合计。 */
+    public Map<String, Object> ebayProductStructure(String year, String shops, String requestId)
+    {
+        return get("/ebay-price-tier/product-structure",
+                Map.of("year", year == null ? "" : year, "shops", shops == null ? "" : shops), requestId);
+    }
+
+    public Map<String, Object> amzPriceTierSummary(String requestId)
+    {
+        return get("/amz-price-tier/summary", Map.of(), requestId);
+    }
+
+    public Map<String, Object> refreshAmzPriceTier(String requestId)
+    {
+        try
+        {
+            HttpRequest request = baseRequest("/amz-price-tier/refresh", requestId)
+                    .POST(HttpRequest.BodyPublishers.noBody()).build();
+            return sendJson(request, false);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    /** 只重新计算本地统计仓库；POST不自动重试，避免重复计算。 */
+    public Map<String, Object> refreshEbayPriceTier(String requestId)
+    {
+        try
+        {
+            HttpRequest request = baseRequest("/ebay-price-tier/refresh", requestId)
+                    .POST(HttpRequest.BodyPublishers.noBody()).build();
+            return sendJson(request, false);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    public Map<String, Object> months(int limit, String requestId)
+    {
+        return get("/performance-months", Map.of("limit", limit), requestId);
+    }
+
+    public byte[] exportAmazonPerformanceSource(
+            String statMonth,
+            String requestId)
+    {
+        try
+        {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("stat_month", statMonth);
+            HttpRequest request = baseRequest(
+                    "/amz-performance-source-exports" + queryString(params),
+                    requestId)
+                    .setHeader("Accept", EXCEL_CONTENT_TYPE)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 400)
+            {
+                String body = new String(
+                        response.body(), StandardCharsets.UTF_8);
+                Map<String, Object> json = parseJson(body);
+                throw new IllegalStateException(errorMessage(
+                        json, response.statusCode(), SERVICE_NAME));
+            }
+            return response.body();
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    public Map<String, Object> ownerRuleSummary(
+            String platform, String statMonth, String requestId)
+    {
+        return get("/performance-owner-rule-summaries", Map.of(
+                "platform", platform,
+                "stat_month", statMonth), requestId);
+    }
+
+    public Map<String, Object> clearanceGroups(
+            String pullMonth, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pull_month", pullMonth);
+        return get("/slow-moving-clearance/groups", params, requestId);
+    }
+
+    public Map<String, Object> clearanceSummary(
+            String pullMonth, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pull_month", pullMonth);
+        return get("/slow-moving-clearance/summary", params, requestId);
+    }
+
+    public Map<String, Object> clearanceDimensions(
+            String pullMonth, String groupCode, String siteCode, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pull_month", pullMonth);
+        params.put("group_code", groupCode);
+        params.put("site_code", siteCode);
+        return get("/slow-moving-clearance/dimensions", params, requestId);
+    }
+
+    public Map<String, Object> clearanceMonths(int limit, String requestId)
+    {
+        return get("/slow-moving-clearance/months",
+                Map.of("limit", limit), requestId);
+    }
+
+    public Map<String, Object> clearanceOwners(
+            String pullMonth, String siteCode, String requestId)
+    {
+        return clearanceOwners(pullMonth, siteCode, "EBAY-1", requestId);
+    }
+
+    public Map<String, Object> clearanceOwners(
+            String pullMonth, String siteCode, String groupCode, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pull_month", pullMonth);
+        params.put("site_code", siteCode);
+        params.put("group_code", groupCode);
+        return get("/slow-moving-clearance/owners", params, requestId);
+    }
+
+    public Map<String, Object> monthlyInventoryReportMonths(
+            int limit, String requestId)
+    {
+        return get("/monthly-inventory-report/months",
+                Map.of("limit", limit), requestId);
+    }
+
+    public Map<String, Object> previewMonthlyInventoryHistory(
+            MultipartFile file, String requestId)
+    {
+        return upload("/monthly-inventory-report/history-preview",
+                Map.of(), file, requestId, null);
+    }
+
+    public Map<String, Object> importMonthlyInventoryHistory(
+            MultipartFile file, String fileSha256, String requestId)
+    {
+        return upload("/monthly-inventory-report/history-imports",
+                Map.of("file_sha256", fileSha256), file, requestId, null);
+    }
+
+    public Map<String, Object> monthlyInventoryReportSummary(
+            String statMonth, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("stat_month", statMonth);
+        return get("/monthly-inventory-report/summary", params, requestId);
+    }
+
+    public Map<String, Object> monthlyInventoryReportDimensionSummary(
+            String dimensionType, String statMonth, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("dimension_type", dimensionType);
+        params.put("stat_month", statMonth);
+        return get("/monthly-inventory-report/dimension-summary",
+                params, requestId);
+    }
+
+    /** 月度库存个人维度趋势：每个负责人逐月销售额、毛利、周转天数、181天以上库龄成本。 */
+    public Map<String, Object> monthlyInventoryReportOwnerTrend(
+            String startMonth, String endMonth, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("start_month", startMonth);
+        params.put("end_month", endMonth);
+        return get("/monthly-inventory-report/owner-trend", params, requestId);
+    }
+
+    public byte[] exportMonthlyInventoryReport(
+            String statMonth,
+            String dimensionType,
+            String requestId)
+    {
+        try
+        {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("stat_month", statMonth);
+            params.put("dimension_type", dimensionType);
+            HttpRequest request = baseRequest(
+                    "/monthly-inventory-report/exports"
+                            + queryString(params),
+                    requestId)
+                    .setHeader("Accept", EXCEL_CONTENT_TYPE)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 400)
+            {
+                String body = new String(
+                        response.body(), StandardCharsets.UTF_8);
+                Map<String, Object> json = parseJson(body);
+                throw new IllegalStateException(errorMessage(
+                        json, response.statusCode(), SERVICE_NAME));
+            }
+            return response.body();
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+    public Map<String, Object> monthlyInventoryReportDetails(
+            Map<String, ?> params, String requestId)
+    {
+        return get("/monthly-inventory-report/details", params, requestId);
+    }
+
+    public Map<String, Object> rebuildMonthlyInventoryReport(
+            String statMonth, String requestId)
+    {
+        try
+        {
+            String json = objectMapper.writeValueAsString(
+                    Map.of("stat_month", statMonth));
+            HttpRequest request = baseRequest(
+                    "/monthly-inventory-report/rebuilds", requestId)
+                    .header("Content-Type", "application/json;charset=utf-8")
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            json, StandardCharsets.UTF_8))
+                    .build();
+            return sendJson(request, false);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    public Map<String, Object> syncMonthlyInventoryOrderProfit(
+            String statMonth, String requestId)
+    {
+        try
+        {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("stat_month", statMonth);
+            String json = objectMapper.writeValueAsString(payload);
+            HttpRequest request = baseRequest(
+                    "/monthly-inventory-report/order-profit-syncs",
+                    requestId)
+                    .header("Content-Type", "application/json;charset=utf-8")
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            json, StandardCharsets.UTF_8))
+                    .build();
+            return sendJson(request, false);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    public Map<String, Object> importMonthlyInventoryPurchaseOrder(
+            String statMonth,
+            MultipartFile file,
+            String operator,
+            String requestId,
+            String idempotencyKey)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("stat_month", statMonth);
+        params.put("operator", operator);
+        return upload(
+                "/monthly-inventory-report/purchase-order-imports",
+                params, file, requestId, idempotencyKey);
+    }
+
+    public Map<String, Object> syncMonthlyInventoryPurchaseOrder(String requestId)
+    {
+        try
+        {
+            return sendJson(baseRequest("/monthly-inventory-report/purchase-order-syncs", requestId)
+                    .POST(HttpRequest.BodyPublishers.noBody()).build(), false);
+        }
+        catch (Exception e) { throw asRuntime(e); }
+    }
+
+    public Map<String, Object> monthlyInventoryPurchaseOrderStatus(
+            String statMonth, String syncRequestId, String requestId)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("stat_month", statMonth);
+        params.put("sync_request_id", syncRequestId);
+        return get("/monthly-inventory-report/purchase-order-sync-status", params, requestId);
+    }
+
+    public byte[] exportInventoryAgeDetails(
+            String pullMonth,
+            String requestId)
+    {
+        return exportClearanceWorkbook("/slow-moving-clearance/inventory-age-detail-exports", pullMonth, requestId);
+    }
+
+    public byte[] exportClearanceMonthlySummary(String pullMonth, String requestId)
+    {
+        return exportClearanceWorkbook("/slow-moving-clearance/monthly-summary-exports", pullMonth, requestId);
+    }
+
+    private byte[] exportClearanceWorkbook(String path, String pullMonth, String requestId)
+    {
+        try
+        {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("pull_month", pullMonth);
+            HttpRequest request = baseRequest(
+                    path + queryString(params),
+                    requestId)
+                    .setHeader("Accept", EXCEL_CONTENT_TYPE)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 400)
+            {
+                String body = new String(
+                        response.body(), StandardCharsets.UTF_8);
+                Map<String, Object> json = parseJson(body);
+                throw new IllegalStateException(errorMessage(
+                        json, response.statusCode(), SERVICE_NAME));
+            }
+            return response.body();
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    public Map<String, Object> refresh(
+            String statMonth,
+            String platform,
+            boolean requireAllPlatforms,
+            String requestId)
+    {
+        try
+        {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("stat_month", statMonth);
+            payload.put("platform", platform);
+            payload.put("require_all_platforms", requireAllPlatforms);
+            String json = objectMapper.writeValueAsString(payload);
+            HttpRequest request = baseRequest(
+                    "/performance-refreshes", requestId)
+                    .header("Content-Type", "application/json;charset=utf-8")
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            json, StandardCharsets.UTF_8))
+                    .build();
+            return sendJson(request, false);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    public Map<String, Object> importEbayProfit(
+            MultipartFile file,
+            boolean rebuild,
+            String statMonth,
+            String operator,
+            String requestId,
+            String idempotencyKey)
+    {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("rebuild", rebuild);
+        params.put("stat_month", statMonth);
+        params.put("operator", operator);
+        return upload(
+                "/ebay-profit-imports", params, file,
+                requestId, idempotencyKey);
+    }
+
+    private Map<String, Object> upload(
+            String path,
+            Map<String, ?> params,
+            MultipartFile file,
+            String requestId,
+            String idempotencyKey)
+    {
+        try
+        {
+            if (file == null || file.isEmpty())
+                throw new IllegalArgumentException("请选择有效文件");
+
+            String boundary = "----JmhPerformance"
+                    + UUID.randomUUID().toString().replace("-", "");
+            HttpRequest.BodyPublisher body = multipartBodyPublisher(boundary, "file",
+                    new MultipartFile[] { file });
+            HttpRequest.Builder builder = baseRequest(
+                    path + queryString(params), requestId)
+                    .header("Content-Type",
+                            "multipart/form-data; boundary=" + boundary)
+                    .POST(body);
+            if (StringUtils.hasText(idempotencyKey))
+                builder.header("Idempotency-Key", idempotencyKey);
+            return sendJson(builder.build(), false);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    private byte[] downloadExcel(
+            String path, Map<String, ?> params, String requestId)
+    {
+        try
+        {
+            HttpRequest request = baseRequest(
+                    path + queryString(params), requestId)
+                    .setHeader("Accept", EXCEL_CONTENT_TYPE)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 400)
+            {
+                String body = new String(
+                        response.body(), StandardCharsets.UTF_8);
+                throw new IllegalStateException(errorMessage(
+                        parseJson(body), response.statusCode(), SERVICE_NAME));
+            }
+            return response.body();
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    private Map<String, Object> get(
+            String path, Map<String, ?> params, String requestId)
+    {
+        try
+        {
+            HttpRequest request = baseRequest(
+                    path + queryString(params), requestId)
+                    .GET()
+                    .build();
+            return sendJson(request, true);
+        }
+        catch (Exception e)
+        {
+            throw asRuntime(e);
+        }
+    }
+
+    /** GET 查询类接口在网关层（502/503/504）与网络异常时重试，写操作不重试。 */
+    private Map<String, Object> sendJson(
+            HttpRequest request, boolean retryable)
+            throws IOException, InterruptedException
+    {
+        IOException lastException = null;
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                HttpResponse<String> response = httpClient.send(
+                        request,
+                        HttpResponse.BodyHandlers.ofString(
+                                StandardCharsets.UTF_8));
+                int status = response.statusCode();
+                if (retryable && attempt < 2
+                        && (status == 502 || status == 503 || status == 504))
+                {
+                    retryPause(attempt);
+                    continue;
+                }
+                String body = response.body() == null ? "" : response.body();
+                Map<String, Object> json = body.isBlank()
+                        ? Map.of()
+                        : objectMapper.readValue(body, MAP_TYPE);
+                if (status >= 400 || integer(json.get("code"), -1) != 0)
+                    throw new IllegalStateException(
+                            errorMessage(json, status, SERVICE_NAME));
+                return json;
+            }
+            catch (IOException e)
+            {
+                lastException = e;
+                if (!retryable || attempt >= 2) throw e;
+                retryPause(attempt);
+            }
+        }
+        throw lastException == null
+                ? new IOException(SERVICE_NAME + "请求失败")
+                : lastException;
+    }
+
+    private void retryPause(int attempt) throws InterruptedException
+    {
+        Thread.sleep(250L * (attempt + 1));
+    }
+}

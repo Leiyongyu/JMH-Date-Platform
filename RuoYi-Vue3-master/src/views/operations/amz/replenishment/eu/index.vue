@@ -1,0 +1,859 @@
+<template>
+  <div class="app-container amz-replenishment-page">
+    <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" label-width="82px">
+      <el-form-item label="国家代码" prop="countryCode">
+        <el-select
+          v-model="queryParams.countryCode"
+          filterable
+          clearable
+          placeholder="全部代码"
+          style="width: 150px"
+          @change="handleCountryCodeChange"
+        >
+          <el-option v-for="code in countryCodeOptions" :key="code" :label="code" :value="code" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="店铺国家" prop="storeCountryCode">
+        <el-select v-model="queryParams.storeCountryCode" multiple filterable collapse-tags collapse-tags-tooltip placeholder="全部" clearable style="width: 160px" @change="handleQuery">
+          <el-option v-for="c in storeCountryOptions" :key="c.value" :label="c.label" :value="c.value" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="店铺" prop="storeName">
+        <el-select
+          v-model="queryParams.storeName"
+          multiple
+          filterable
+          :filter-method="onStoreFilter"
+          @change="handleQuery"
+          collapse-tags
+          collapse-tags-tooltip
+          placeholder="全部店铺"
+          clearable
+          style="width: 260px"
+        >
+          <div style="padding: 6px 12px; border-bottom: 1px solid #e4e7ed; display:flex; gap:8px; position:sticky; top:0; background:#fff; z-index:1">
+            <el-button type="primary" link size="small" @click="selectAllStores">全选</el-button>
+            <el-button type="primary" link size="small" @click="invertStoreSelection">反选</el-button>
+            <el-button type="primary" link size="small" @click="deselectAllStores">取消</el-button>
+            <el-checkbox v-model="storeExcludeMode" size="small" style="margin-left:6px" @change="handleQuery">排除</el-checkbox>
+          </div>
+          <el-option v-for="store in filteredStoreOptions" :key="store" :label="store" :value="store" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="MSKU" prop="sellerSku">
+        <el-input
+          v-model="queryParams.sellerSku"
+          placeholder="请输入Seller SKU"
+          clearable
+          style="width: 220px"
+          @keyup.enter="handleQuery"
+        />
+      </el-form-item>
+      <el-form-item label="仓库" prop="warehouseName">
+        <el-select
+          v-model="queryParams.warehouseName"
+          multiple
+          filterable
+          collapse-tags
+          collapse-tags-tooltip
+          placeholder="全部仓库"
+          clearable
+          style="width: 220px"
+          @change="handleQuery"
+        >
+          <el-option v-for="w in warehouseOptions" :key="w" :label="w" :value="w" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="仓库SKU" prop="warehouseSku">
+        <el-input
+          v-model="queryParams.warehouseSku"
+          placeholder="请输入仓库SKU"
+          clearable
+          style="width: 220px"
+          @keyup.enter="handleQuery"
+        />
+      </el-form-item>
+      <el-form-item label="ASIN" prop="asin">
+        <el-input
+          v-model="queryParams.asin"
+          placeholder="请输入ASIN"
+          clearable
+          style="width: 170px"
+          @keyup.enter="handleQuery"
+        />
+      </el-form-item>
+      <el-form-item label="负责人" prop="principalName">
+        <el-input
+          v-model="queryParams.principalName"
+          placeholder="请输入负责人"
+          clearable
+          style="width: 180px"
+          @keyup.enter="handleQuery"
+        />
+      </el-form-item>
+      <el-form-item label="产品分类" prop="productCategory">
+        <el-input
+          v-model="queryParams.productCategory"
+          placeholder="请输入分类"
+          clearable
+          style="width: 180px"
+          @keyup.enter="handleQuery"
+        />
+      </el-form-item>
+      <el-form-item label="产品性质" prop="productNature">
+        <el-select v-model="queryParams.productNature" placeholder="全部" clearable style="width: 110px" @change="handleQuery">
+          <el-option label="新品" value="2" />
+          <el-option label="老品" value="1" />
+        </el-select>
+      </el-form-item>
+      <el-form-item>
+        <el-button type="primary" @click="handleQuery"><app-icon name="search" :size="15" class="btn-icon" />搜索</el-button>
+        <el-button @click="resetQuery"><app-icon name="undo" :size="15" class="btn-icon" />重置</el-button>
+      </el-form-item>
+    </el-form>
+
+    <el-row :gutter="10" class="mb8 amz-action-toolbar">
+      <el-col :span="1.5">
+        <el-button type="primary" plain @click="handleSyncAll"
+          :loading="syncing" v-hasPermi="['operations:amzReplenishment:sync']"><app-icon v-if="!syncing" name="resync" :size="15" class="btn-icon" />拉取AMZ最新数据</el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button type="primary" plain :loading="exporting" @click="handleExport"
+          v-hasPermi="['operations:amzReplenishment:export']"><app-icon v-if="!exporting" name="export" :size="15" class="btn-icon" />{{ exporting ? '导出中…' : '导出' }}</el-button>
+      </el-col>
+      <el-col :span="1.5" class="profit-source-note">
+        鼠标停留在列名上可查看字段的数据来源和计算规则。
+      </el-col>
+      <right-toolbar
+        v-model:showSearch="showSearch"
+        :show-column-config="true"
+        @queryTable="handleRefresh"
+        @columnConfig="openColumnConfig"
+      ></right-toolbar>
+    </el-row>
+
+    <el-table
+      ref="tableRef"
+      v-if="columnConfigLoaded"
+      :key="columnTableKey"
+      v-loading="loading"
+      :data="replenishmentList"
+      border stripe height="640"
+      show-summary :summary-method="getSummaries"
+      :row-key="(row) => (row.sid||'') + '|' + (row.sellerSku||'') + '|' + (row.warehouseSku||'') + '|' + (row.warehouseName||'')"
+      @selection-change="handleSelectionChange"
+      @sort-change="handleSortChange"
+    >
+      <el-table-column type="selection" width="45" fixed />
+      <template v-for="col in visibleColumns" :key="col.key">
+        <el-table-column
+          v-if="col.format === 'percentNumber'"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          sortable="custom" :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope">{{ formatPercentNumber(scope.row[col.key]) }}</template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'money'"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          sortable="custom" :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope">{{ formatGrossProfit(scope.row[col.key]) }}</template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'number'"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          sortable="custom" :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope">
+            <el-popover
+              v-if="isSalesColumn(col.key)"
+              placement="right"
+              :width="260"
+              trigger="hover"
+              :show-after="300"
+              @show="loadBreakdown(scope.row, col.key)"
+            >
+              <template #reference>
+                <span class="sales-cell" :class="{ 'negative-value': Number(scope.row[col.key]) < 0 }">{{ formatNumber(scope.row[col.key]) }}</span>
+              </template>
+              <div class="breakdown-popover">
+                <div class="bd-title">{{ col.label }} - 店铺明细</div>
+                <div v-if="bdLoading" class="bd-loading">加载中...</div>
+                <div v-else-if="bdList.length === 0" class="bd-empty">暂无数据</div>
+                <div v-else class="bd-list" :class="{ 'bd-scroll': bdList.length > 10 }">
+                  <div v-for="item in bdList" :key="item.storeName" class="bd-item">
+                    <span class="bd-store">{{ item.storeName }}</span>
+                    <span class="bd-val">{{ item.value }}</span>
+                  </div>
+                </div>
+                <div v-if="bdList.length" class="bd-total">
+                  <span>合计</span>
+                  <span class="bd-total-val">{{ bdTotal }}</span>
+                </div>
+              </div>
+            </el-popover>
+            <span v-else :class="{ 'negative-value': Number(scope.row[col.key]) < 0 }">{{ formatNumber(scope.row[col.key]) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'time'"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope"><span>{{ parseTime(scope.row[col.key]) }}</span></template>
+        </el-table-column>
+        <!-- 产品分类：内联编辑 -->
+        <el-table-column
+          v-else-if="col.format === 'productCategory'"
+          :label="col.label" :align="col.align" :width="col.width"
+          :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope">
+            <el-input v-model="editCache[amzKey(scope.row,'cat')]" size="small" placeholder="分类" clearable style="width:110px"
+              @blur="onAmzCellBlur(scope.row,'cat')" @keyup.enter="onAmzCellBlur(scope.row,'cat')" @clear="onAmzCellClear(scope.row,'cat')" />
+          </template>
+        </el-table-column>
+        <!-- 已采购数量：内联编辑 -->
+        <el-table-column
+          v-else-if="col.format === 'purchasedQty'"
+          :label="col.label" :align="col.align" :width="col.width" sortable="custom"
+          :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope">
+            <el-input v-model="editCache[amzKey(scope.row,'pqty')]" size="small" placeholder="数量" clearable style="width:100px"
+              @blur="onAmzCellBlur(scope.row,'pqty')" @keyup.enter="onAmzCellBlur(scope.row,'pqty')" @clear="onAmzCellClear(scope.row,'pqty')" />
+          </template>
+        </el-table-column>
+        <!-- 备注：内联编辑 -->
+        <el-table-column
+          v-else-if="col.key === 'imageUrl'"
+          :label="col.label" :align="col.align" :width="col.width"
+          :fixed="col.fixed || false" :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope">
+            <img v-if="scope.row.imageUrl" :src="scope.row.imageUrl" style="width:50px;height:50px;object-fit:contain" />
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.format === 'remark'"
+          :label="col.label" :align="col.align" :width="col.width" sortable="custom"
+          :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope">
+            <el-input v-model="editCache[amzKey(scope.row,'rem')]" size="small" placeholder="备注" clearable
+              @blur="onAmzCellBlur(scope.row,'rem')" @keyup.enter="onAmzCellBlur(scope.row,'rem')" @clear="onAmzCellClear(scope.row,'rem')" />
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-else-if="col.key === 'productNature'"
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          :fixed="col.fixed || false" :sortable="col.sortable ? 'custom' : false"
+          :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope">
+            <el-tag :type="scope.row.productNature === 2 ? 'success' : 'info'" size="small">
+              {{ scope.row.productNature === 2 ? '新品' : '老品' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-else
+          :label="col.label" :align="col.align" :prop="col.key" :width="col.width"
+          :fixed="col.fixed || false" :sortable="col.sortable ? 'custom' : false"
+          :show-overflow-tooltip="col.tooltip"
+          :render-header="renderColumnHeader(col)"
+        >
+          <template #default="scope">
+            <span>{{ formatCell(col, scope.row[col.key]) }}</span>
+          </template>
+        </el-table-column>
+      </template>
+    </el-table>
+
+    <pagination
+      v-show="total > 0"
+      :total="total"
+      v-model:page="queryParams.pageNum"
+      v-model:limit="queryParams.pageSize"
+      @pagination="getList"
+    />
+
+    <column-config-drawer
+      v-model="showColumnDrawer"
+      :columns="columnDefs"
+      :fixed-keys="fixedColumnKeys"
+      :required-keys="requiredColumnKeys"
+      :visible-keys="visibleKeys"
+      @apply="handleColumnApply"
+    />
+
+    <Teleport to="body">
+      <div v-if="filterPopoverVisible" class="number-filter-overlay" @click.self="filterPopoverVisible = false">
+        <div class="number-filter-popover" :style="popoverStyle" @click.stop>
+          <div class="popover-header">
+            <span>{{ filterEditingCol?.label || '' }} 筛选</span>
+            <app-icon name="close" :size="14" class="close-btn" @click="filterPopoverVisible = false" />
+          </div>
+          <div class="popover-body">
+            <el-select v-model="filterEditingData.operator" size="small" style="width:100%" :teleported="false" popper-class="number-filter-select-popper">
+              <el-option v-for="op in OPERATOR_OPTIONS" :key="op.value" :label="op.label" :value="op.value" />
+            </el-select>
+            <el-input v-if="filterEditingData.operator !== 'isNull' && filterEditingData.operator !== 'isNotNull'" v-model="filterEditingData.value" size="small" :placeholder="filterEditingData.operator === 'between' ? '最小值' : '请输入数值'" style="margin-top:8px" @keyup.enter="applyFilter" />
+            <el-input v-if="filterEditingData.operator === 'between'" v-model="filterEditingData.value2" size="small" placeholder="最大值" style="margin-top:8px" @keyup.enter="applyFilter" />
+          </div>
+          <div class="popover-footer">
+            <el-button size="small" @click="clearFilter(filterEditingCol?.key)">清除</el-button>
+            <el-button size="small" type="primary" @click="applyFilter">确定</el-button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <div v-if="activeFilterTags.length > 0" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+      <span style="font-size:12px;color:#909399">列筛选:</span>
+      <el-tag v-for="tag in activeFilterTags" :key="tag.field" size="small" closable type="info" @close="clearFilter(tag.field)">{{ tag.label }}</el-tag>
+      <el-button size="small" text type="danger" @click="clearAllColumnFilters">清空全部</el-button>
+    </div>
+  </div>
+</template>
+
+<script setup name="AmzEuReplenishment">
+import { ref, reactive, toRefs, h, resolveComponent, getCurrentInstance, computed, watch } from 'vue'
+import { searchEuReplenishment, refreshEuReplenishment } from '@/api/operations/amz/euReplenishment'
+import { syncAmzAll } from '@/api/operations/sync'
+import request from '@/utils/request'
+import { parseTime, blobValidate } from '@/utils/ruoyi'
+import { ElTooltip } from 'element-plus'
+import { getAmzReplenishmentFieldHelp } from '../fieldHelp'
+import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
+import { useColumnConfig } from '@/composables/useColumnConfig'
+import { useTaskPoller } from '@/composables/useTaskPoller'
+
+const router = useRouter()
+const { proxy } = getCurrentInstance()
+
+const loading = ref(false)
+const tableRef = ref(null)
+const showSearch = ref(true)
+const total = ref(0)
+const replenishmentList = ref([])
+const checkedRows = ref([])
+const storeOptions = ref([])
+const warehouseOptions = ref([])
+const storeCountryOptions = [
+  { label: '英国', value: 'UK' }, { label: '加拿大', value: 'CA' }, { label: '瑞典', value: 'SE' },
+  { label: '德国', value: 'DE' }, { label: '比利时', value: 'BE' }, { label: '荷兰', value: 'NL' },
+  { label: '波兰', value: 'PL' }, { label: '墨西哥', value: 'MX' }, { label: '意大利', value: 'IT' },
+  { label: '西班牙', value: 'ES' }, { label: '法国', value: 'FR' }, { label: '美国', value: 'US' }
+]
+const countryCodeOptions = computed(() => {
+  return [...new Set(storeOptions.value.map(getStoreCountryCode).filter(Boolean))].sort()
+})
+const storeSearchText = ref('')
+const storeExcludeMode = ref(false)
+const filteredStoreOptions = computed(() => {
+  let list = storeOptions.value
+  const code = queryParams.value.countryCode
+  if (code) list = list.filter(store => getStoreCountryCode(store) === code)
+  const kw = storeSearchText.value.trim().toLowerCase()
+  if (kw) list = list.filter(store => String(store || '').toLowerCase().includes(kw))
+  return list
+})
+function getStoreCountryCode(store) {
+  return String(store || '').split('-')[0]?.trim()
+}
+
+// ---- 销量弹窗 ----
+const salesColKeys = new Set(['sales7d','sales14d','sales30d','sales60d','salesSpeed14d','salesSpeed30d','salesSpeed60d','avgMonthlySales'])
+const bdList = ref([])
+const bdLoading = ref(false)
+const bdTotal = computed(() => Number(bdList.value.reduce((s, i) => s + Number(i.value || 0), 0)).toFixed(2))
+let bdCache = {}
+function isSalesColumn(key) { return salesColKeys.has(key) }
+async function loadBreakdown(row, field) {
+  const filters = buildFilters()
+  const cacheKey = row.warehouseSku + '|' + field + '|' + JSON.stringify(filters)
+  if (bdCache[cacheKey]) { bdList.value = bdCache[cacheKey]; return }
+  bdLoading.value = true; bdList.value = []
+  try {
+    const res = await request({
+      url: '/operations/amz/replenishment/eu/sales-breakdown/search',
+      method: 'post',
+      data: { warehouseSku: row.warehouseSku, field, filters }
+    })
+    bdList.value = res.data || []
+    bdCache[cacheKey] = bdList.value
+  } finally { bdLoading.value = false }
+}
+// 加载店铺选项
+function loadStoreOptions() {
+  request({ url: '/operations/amz/replenishment/eu/store-names', method: 'get' }).then(res => {
+    storeOptions.value = res.data || []
+  })
+}
+function loadWarehouseOptions() {
+  request({ url: '/operations/amz/replenishment/eu/warehouse-names', method: 'get' }).then(res => {
+    warehouseOptions.value = (res.data || []).filter(Boolean)
+  })
+}
+function onStoreFilter(v) { storeSearchText.value = v; return true }
+function selectAllStores() {
+  queryParams.value.storeName = [...filteredStoreOptions.value]
+}
+function invertStoreSelection() {
+  queryParams.value.storeName = filteredStoreOptions.value.filter(s => !queryParams.value.storeName.includes(s))
+}
+function deselectAllStores() {
+  queryParams.value.storeName = []
+}
+function handleCountryCodeChange() {
+  const allowed = new Set(filteredStoreOptions.value)
+  queryParams.value.storeName = queryParams.value.storeName.filter(store => allowed.has(store))
+  handleQuery()
+}
+const editCache = reactive({})
+function amzKey(row, field) { return (row.sid || '') + '|' + (row.sellerSku || '') + '|' + (row.warehouseName || '') + '_' + field }
+function initAmzEditCache() {
+  for (const row of replenishmentList.value) {
+    const cat = amzKey(row, 'cat'); if (!(cat in editCache)) editCache[cat] = row.productCategory ?? ''
+    const pq = amzKey(row, 'pqty'); if (!(pq in editCache)) editCache[pq] = row.purchasedQty ?? ''
+    const rem = amzKey(row, 'rem'); if (!(rem in editCache)) editCache[rem] = row.remark ?? ''
+  }
+}
+watch(replenishmentList, initAmzEditCache, { flush: 'post' })
+async function onAmzCellBlur(row, field) {
+  const k = amzKey(row, field)
+  const v = editCache[k] || ''; const oldV = field === 'cat' ? (row.productCategory ?? '') : String(row.purchasedQty ?? '')
+  if (v === oldV || row._saving) return; row._saving = true
+  try {
+    if (field === 'cat') {
+      await request({ url: '/operations/amz/replenishment/eu/override', method: 'post', data: { sid: String(row.sid||''), sellerSku: row.sellerSku, productCategory: v || '' } })
+    } else if (field === 'rem') {
+      await request({ url: '/operations/amz/replenishment/eu/override', method: 'post', data: { sid: String(row.sid||''), sellerSku: row.sellerSku, remark: v || '' } })
+    } else {
+      await request({
+        url: '/operations/amz/replenishment/eu/update-qty-receive',
+        method: 'post',
+        data: { warehouseSku: row.warehouseSku, warehouseName: row.warehouseName, value: v || null }
+      })
+    }
+    if (field === 'cat') row.productCategory = v || ''
+    else row.purchasedQty = v || ''
+  } catch { editCache[k] = oldV } finally { row._saving = false }
+}
+function onAmzCellClear(row, field) { editCache[amzKey(row, field)] = ''; onAmzCellBlur(row, field) }
+
+const fixedColumnKeys = ['storeName', 'sellerSku', 'imageUrl']
+const requiredColumnKeys = ['storeName', 'sellerSku']
+const columnDefs = [
+  { key: 'storeName', label: '店铺', align: 'left', width: 160, fixed: true, sortable: true, tooltip: true },
+  { key: 'sellerSku', label: 'Seller SKU', align: 'left', width: 180, fixed: true, sortable: true, tooltip: true },
+  { key: 'imageUrl', label: '图片', align: 'center', width: 80, fixed: true },
+  { key: 'warehouseSku', label: '仓库SKU', align: 'left', width: 170, sortable: true, tooltip: true },
+  { key: 'warehouseName', label: '仓库', align: 'left', width: 170, tooltip: true },
+  { key: 'asin', label: 'ASIN', align: 'center', width: 130, sortable: true, tooltip: true },
+  { key: 'price', label: '价格', align: 'right', width: 95, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'tagName', label: '标签', align: 'left', width: 140, tooltip: true },
+  { key: 'regionGroup', label: '区域组', align: 'center', width: 80 },
+  { key: 'principalName', label: '负责人', align: 'center', width: 120, tooltip: true },
+  { key: 'productCategory', label: '产品分类', align: 'center', width: 130, format: 'productCategory' },
+  { key: 'productNature', label: '产品性质', align: 'center', width: 95, sortable: true },
+  { key: 'rating', label: '评分', align: 'right', width: 80, sortable: true, filterType: 'number' },
+  { key: 'reviewCount', label: '评论数', align: 'right', width: 100, sortable: true, filterType: 'number' },
+  { key: 'adRate', label: '广告费率', align: 'right', width: 105, sortable: true, format: 'percentNumber', filterType: 'number' },
+  { key: 'profitRate30d', label: '30天利润率', align: 'right', width: 120, sortable: true, format: 'percentNumber', filterType: 'number' },
+  { key: 'refundRate90d', label: '90天退款率', align: 'right', width: 120, sortable: true, format: 'percentNumber', filterType: 'number' },
+  { key: 'purchasedQty', label: '已采购数量', align: 'right', width: 120, sortable: true, format: 'purchasedQty', filterType: 'number' },
+  { key: 'domesticStock', label: '国内仓库存', align: 'right', width: 120, sortable: true, filterType: 'number' },
+  { key: 'pendingShipQty', label: '待出库', align: 'right', width: 95, sortable: true, filterType: 'number' },
+  { key: 'fbaStock', label: 'FBA在库', align: 'right', width: 105, sortable: true, filterType: 'number' },
+  { key: 'fbaInbound', label: 'FBA在途', align: 'right', width: 105, sortable: true, filterType: 'number' },
+  { key: 'fbaInboundWorking', label: 'FBA计划入库', align: 'right', width: 125, sortable: true, filterType: 'number' },
+  { key: 'totalInventory', label: '总库存', align: 'right', width: 105, sortable: true, filterType: 'number' },
+  { key: 'sales7d', label: '7天销量', align: 'right', width: 95, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'sales14d', label: '14天销量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'sales30d', label: '30天销量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'sales60d', label: '60天销量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'salesSpeed14d', label: '14日均销', align: 'right', width: 105, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'salesSpeed30d', label: '30日均销', align: 'right', width: 105, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'salesSpeed60d', label: '60日均销', align: 'right', width: 105, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'avgMonthlySales', label: '平均月销量', align: 'right', width: 120, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'safetyStock', label: '安全库存', align: 'right', width: 110, sortable: true, filterType: 'number' },
+  { key: 'shipQty', label: '发货量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'replenishQty', label: '补货量', align: 'right', width: 100, sortable: true, format: 'number', filterType: 'number' },
+  { key: 'restockDays', label: '补货时间', align: 'right', width: 105, sortable: true, filterType: 'number' },
+  { key: 'remark', label: '备注', align: 'left', width: 160, format: 'remark' },
+  { key: 'calcTime', label: '计算时间', align: 'center', width: 170, format: 'time' },
+  { key: 'grossProfit30d', label: '30天毛利润（元）', align: 'right', width: 155, sortable: true, format: 'money' },
+  { key: 'grossProfit90d', label: '90天毛利润（元）', align: 'right', width: 155, sortable: true, format: 'money' }
+]
+const {
+  showColumnDrawer,
+  columnConfigLoaded,
+  columnTableKey,
+  visibleKeys,
+  visibleColumns,
+  exportColumns,
+  openColumnConfig,
+  initColumnConfig: loadColumnConfig,
+  applyColumnConfig
+} = useColumnConfig('operations:amz:replenishment:eu', columnDefs, fixedColumnKeys, requiredColumnKeys)
+
+async function initColumnConfig() {
+  await loadColumnConfig()
+  // Apply the new placement to saved layouts too, without unhiding columns or
+  // resetting the user's ordering of any other field. Exports use this order.
+  const trailing = ['grossProfit30d', 'grossProfit90d']
+  visibleKeys.value = [
+    ...visibleKeys.value.filter(key => !trailing.includes(key)),
+    ...trailing.filter(key => visibleKeys.value.includes(key))
+  ]
+}
+const data = reactive({
+  queryParams: {
+    pageNum: 1,
+    pageSize: 50,
+    countryCode: undefined,
+    storeCountryCode: [],
+    storeName: [],
+    warehouseName: [],
+    sellerSku: undefined,
+    warehouseSku: undefined,
+    asin: undefined,
+    principalName: undefined,
+    productCategory: undefined,
+    productNature: undefined,
+    sortField: undefined,
+    sortOrder: undefined
+  }
+})
+
+const { queryParams } = toRefs(data)
+const summaryFields = ['reviewCount','sales7d','sales14d','sales30d','sales60d','fbaStock','fbaInbound','fbaInboundWorking']
+function getSummaries({ columns, data }) {
+  const sums = {}
+  if (!data || !data.length) return []
+  summaryFields.forEach(f => { sums[f] = data.reduce((s, r) => s + (Number(r[f]) || 0), 0) })
+  return columns.map((col, i) => {
+    if (i === 0) return ''
+    const key = col.property
+    if (summaryFields.includes(key)) return sums[key]
+    return ''
+  })
+}
+
+// ---- 数值列头筛选 ----
+const OPERATOR_OPTIONS = [
+  { label: '等于', value: '=' }, { label: '大于', value: '>' }, { label: '大于等于', value: '>=' },
+  { label: '小于', value: '<' }, { label: '小于等于', value: '<=' }, { label: '介于', value: 'between' },
+  { label: '为空', value: 'isNull' }, { label: '不为空', value: 'isNotNull' }
+]
+const columnFilters = reactive({})
+const filterPopoverVisible = ref(false)
+const filterEditingCol = ref(null)
+const filterEditingData = reactive({ operator: '>', value: '', value2: '' })
+const filterPopoverPos = ref({ top: 200, left: 400 })
+
+function hasActiveFilter(field) {
+  const f = columnFilters[field]; if (!f) return false
+  if (f.operator === 'isNull' || f.operator === 'isNotNull') return true
+  return f.value !== '' && f.value != null
+}
+function openFilter(col, triggerEl) {
+  filterEditingCol.value = col
+  const existing = columnFilters[col.key]
+  if (existing) { filterEditingData.operator = existing.operator || '>'; filterEditingData.value = existing.value != null ? String(existing.value) : ''; filterEditingData.value2 = existing.value2 != null ? String(existing.value2) : '' }
+  else { filterEditingData.operator = '>'; filterEditingData.value = ''; filterEditingData.value2 = '' }
+  if (triggerEl) { const rect = triggerEl.getBoundingClientRect(); filterPopoverPos.value = { top: rect.bottom + 4, left: rect.left } }
+  filterPopoverVisible.value = true
+}
+function applyFilter() {
+  const col = filterEditingCol.value; if (!col) return
+  const op = filterEditingData.operator; const needsValue = op !== 'isNull' && op !== 'isNotNull'; const needsValue2 = op === 'between'
+  if (needsValue && !filterEditingData.value) { delete columnFilters[col.key]; filterPopoverVisible.value = false; return }
+  if (needsValue2 && !filterEditingData.value2) { delete columnFilters[col.key]; filterPopoverVisible.value = false; return }
+  columnFilters[col.key] = { operator: op, value: needsValue ? filterEditingData.value : undefined, value2: needsValue2 ? filterEditingData.value2 : undefined }
+  filterPopoverVisible.value = false; handleQuery()
+}
+function clearFilter(field) { delete columnFilters[field]; filterPopoverVisible.value = false; handleQuery() }
+function clearAllColumnFilters() { Object.keys(columnFilters).forEach(k => delete columnFilters[k]); handleQuery() }
+const popoverStyle = computed(() => ({ position: 'fixed', top: filterPopoverPos.value.top + 'px', left: filterPopoverPos.value.left + 'px', zIndex: 3000 }))
+const activeFilterTags = computed(() => {
+  return Object.entries(columnFilters).filter(([field]) => hasActiveFilter(field)).map(([field, f]) => {
+    const col = columnDefs.find(c => c.key === field); const opLabel = OPERATOR_OPTIONS.find(o => o.value === f.operator)?.label || f.operator
+    let label = (col?.label || field) + ' ' + opLabel
+    if (f.value != null) label += ' ' + f.value; if (f.operator === 'between' && f.value2 != null) label += ' ~ ' + f.value2
+    return { field, label }
+  })
+})
+function buildFilters() {
+  const filters = []; const p = queryParams.value
+  if (p.storeName && p.storeName.length) {
+    if (storeExcludeMode.value) {
+      filters.push({ field: 'storeNameExclude', value: p.storeName.join(',') })
+    } else {
+      filters.push({ field: 'storeName', value: p.storeName.join(',') })
+    }
+  }
+  else if (p.countryCode) filters.push({ field: 'storeName', value: filteredStoreOptions.value.join(',') })
+  if (p.storeCountryCode && p.storeCountryCode.length) filters.push({ field: 'storeCountryCode', value: p.storeCountryCode.join(',') })
+  if (p.sellerSku) filters.push({ field: 'sellerSku', value: p.sellerSku })
+  if (p.warehouseSku) filters.push({ field: 'warehouseSku', value: p.warehouseSku })
+  if (p.asin) filters.push({ field: 'asin', value: p.asin })
+  if (p.principalName) filters.push({ field: 'principalName', value: p.principalName })
+  if (p.productCategory) filters.push({ field: 'productCategory', value: p.productCategory })
+  if (p.productNature) filters.push({ field: 'productNature', value: p.productNature })
+  if (p.warehouseName && p.warehouseName.length) filters.push({ field: 'warehouseName', value: p.warehouseName.join(',') })
+  Object.entries(columnFilters).forEach(([field, f]) => {
+    if (hasActiveFilter(field)) { filters.push({ field, type: 'number', operator: f.operator, value: f.value != null ? String(f.value) : undefined, value2: f.value2 != null ? String(f.value2) : undefined }) }
+  })
+  return filters
+}
+function renderColumnHeader(col) {
+  return ({ column }) => {
+    const label = column.label || col.label
+    const help = getAmzReplenishmentFieldHelp(col.key, 'EU')
+    const labelNode = h(ElTooltip, { placement: 'top', effect: 'light', showAfter: 250, popperClass: 'amz-field-help-popper' }, {
+      default: () => h('span', { class: 'amz-field-help-trigger', 'aria-label': `${label}的数据来源和计算规则` }, [
+        label, h(resolveComponent('AppIcon'), { name: 'help', size: 12, class: 'amz-field-help-icon' })
+      ]),
+      content: () => h('div', { class: 'amz-field-help-content' }, [
+        h('strong', label),
+        h('div', [h('b', '数据来源：'), help?.source || '当前代码未登记来源']),
+        h('div', [h('b', '计算逻辑：'), help?.logic || '当前代码未登记规则']),
+        h('small', '页面显示当前补货快照；上游同步与快照计算为两个步骤。')
+      ])
+    })
+    if (col.filterType !== 'number') return labelNode
+    const active = hasActiveFilter(col.key)
+    const appIcon = resolveComponent('AppIcon')
+    return h('div', { class: 'col-header-cell', style: 'display:inline-flex;align-items:center;justify-content:flex-start;gap:2px;overflow:hidden' }, [
+      h('span', { class: 'col-filter-trigger', style: `color:${active ? '#1257d6' : '#94a0b1'}`, onClick: (e) => { e.stopPropagation(); openFilter(col, (e && e.currentTarget) || null) } }, [h(appIcon, { name: 'filter', size: 13 })]),
+      labelNode
+    ])
+  }
+}
+
+function getList() {
+  loading.value = true
+  const body = {
+    pageNum: queryParams.value.pageNum,
+    pageSize: queryParams.value.pageSize,
+    sortField: queryParams.value.sortField || undefined,
+    sortOrder: queryParams.value.sortOrder || undefined
+  }
+  const filters = buildFilters()
+  if (filters.length) body.filters = filters
+  searchEuReplenishment(body).then(response => {
+    replenishmentList.value = response.rows || []
+    total.value = response.total || 0
+  }).finally(() => { loading.value = false })
+}
+
+async function handleRefresh() {
+  if (loading.value) return
+  loading.value = true
+  try { await refreshEuReplenishment(); await getList() }
+  finally { loading.value = false }
+}
+
+const syncing = ref(false)
+const { startPolling } = useTaskPoller()
+
+async function handleSyncAll() {
+  if (syncing.value) { proxy.$modal.msgWarning('AMZ数据同步正在执行中，请稍后再试'); return }
+  syncing.value = true
+  try {
+    const res = await syncAmzAll()
+    if (res.code !== 200) { proxy.$modal.msgError(res.msg || '提交失败'); syncing.value = false; return }
+    const sid = res.data?.submissionId || (res.data && res.data.submissionId)
+    if (!sid) { proxy.$modal.msgError('未获取到任务ID'); syncing.value = false; return }
+    proxy.$modal.msgSuccess('AMZ同步任务已提交，正在后台执行…')
+    startPolling(sid, (result) => {
+      syncing.value = false
+      getList()
+      if (result.status === 'SUCCESS') {
+        proxy.$modal.msgSuccess(`AMZ同步完成: ${result.successSteps || '?'}/${result.totalSteps || '?'} 步成功`)
+      } else if (result.status === 'PARTIAL') {
+        proxy.$modal.msgWarning(`AMZ同步部分完成: ${result.successSteps || '?'}/${result.totalSteps || '?'} 步成功, 查看同步日志了解详情`)
+      } else {
+        proxy.$modal.msgError('AMZ同步失败: ' + (result.errorMessage || '未知错误'))
+      }
+    })
+  } catch (e) {
+    proxy.$modal.msgError('提交失败: ' + (e.message || e))
+    syncing.value = false
+  }
+}
+
+function handleQuery() {
+  bdCache = {}
+  queryParams.value.pageNum = 1
+  getList()
+}
+
+function resetQuery() {
+  proxy.resetForm('queryRef')
+  queryParams.value.storeName = []
+  queryParams.value.warehouseName = []
+  queryParams.value.countryCode = undefined
+  queryParams.value.storeCountryCode = []
+  queryParams.value.productNature = undefined
+  storeExcludeMode.value = false
+  queryParams.value.sortField = undefined
+  queryParams.value.sortOrder = undefined
+  Object.keys(columnFilters).forEach(k => delete columnFilters[k])
+  tableRef.value?.clearSort()
+  handleQuery()
+}
+
+function handleSortChange({ prop, order }) {
+  queryParams.value.sortField = order ? prop : undefined
+  queryParams.value.sortOrder = order || undefined
+  queryParams.value.pageNum = 1
+  getList()
+}
+
+function handleSelectionChange(rows) { checkedRows.value = rows }
+
+async function handleColumnApply(keys) {
+  await applyColumnConfig(keys)
+  proxy.$modal.msgSuccess('列配置已保存')
+}
+
+// 全量导出数据量大（欧洲组约 2.7 万行），不能用默认 10 秒超时；与刷新同为 10 分钟。
+const EXPORT_TIMEOUT = 600000
+const exporting = ref(false)
+
+async function handleExport() {
+  if (exporting.value) return
+  const sel = checkedRows.value.length > 0
+  const body = { scope: sel ? 'SELECTED' : 'FILTERED',
+    rowKeys: sel ? checkedRows.value.map(r => (r.sid||'') + '|' + (r.sellerSku||'') + '|' + (r.warehouseSku||'') + '|' + (r.warehouseName||'')) : undefined,
+    columns: exportColumns.value }
+  if (!sel) {
+    body.filters = buildFilters()
+    if (queryParams.value.sortField) { body.sortField = queryParams.value.sortField; body.sortOrder = queryParams.value.sortOrder || 'descending' }
+  }
+  exporting.value = true
+  try {
+    const res = await request({ url: '/operations/amz/replenishment/eu/export', method: 'post', data: body,
+      responseType: 'blob', timeout: EXPORT_TIMEOUT })
+    // 后端出错（如另一次导出仍在执行）返回的是 JSON，不能当成 xlsx 保存。
+    if (!blobValidate(res)) {
+      const result = JSON.parse(await res.text())
+      proxy.$modal.msgError(result.msg || '导出失败')
+      return
+    }
+    const blob = new Blob([res]); const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+    a.download = `amz_eu_replenishment_${new Date().getTime()}.xlsx`; a.click()
+    URL.revokeObjectURL(a.href)
+  } finally {
+    exporting.value = false
+  }
+}
+
+function formatCell(col, value) {
+  if (value === null || value === undefined) return col.filterType === 'number' ? '0' : ''
+  return value
+}
+
+function formatPercentNumber(value) {
+  if (value === null || value === undefined || value === '') return '0.0%'
+  const num = Number(value)
+  return Number.isFinite(num) ? `${num.toFixed(1)}%` : '0.0%'
+}
+
+function formatGrossProfit(value) {
+  if (value === null || value === undefined || value === '') return '--'
+  const num = Number(value)
+  return Number.isFinite(num) ? num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--'
+}
+
+function formatNumber(value) {
+  if (value === null || value === undefined || value === '') return '0'
+  const num = Number(value)
+  return Number.isFinite(num) ? num.toFixed(2).replace(/\.?0+$/, '') : '0'
+}
+
+async function initPage() {
+  loadStoreOptions()
+  loadWarehouseOptions()
+  await initColumnConfig()
+  getList()
+}
+
+initPage()
+</script>
+
+<style scoped>
+.amz-action-toolbar {
+  align-items: center;
+  row-gap: 8px;
+}
+
+.profit-source-note {
+  flex: 1;
+  min-width: 260px;
+  max-width: 100%;
+  color: var(--jb-ink-500, #5a6b85);
+  font-size: 14px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+
+.amz-replenishment-page { background: var(--jb-page, #f5f7fb); }
+.amz-replenishment-page .query-form, .amz-replenishment-page :deep(.el-card) { border-radius: 12px; }
+.amz-replenishment-page :deep(.el-form-item__label) { color: var(--jb-ink-500, #5a6b85); font-weight: 500; }
+.amz-replenishment-page :deep(.el-button) { border-radius: 8px; font-weight: 500; }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+.amz-replenishment-page :deep(.el-table) {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+}
+
+.sales-cell { cursor: pointer; color: var(--jb-brand-500, #1257d6); border-bottom: 1.5px dashed var(--jb-brand-500, #1257d6); padding-bottom: 1px; }
+.sales-cell:hover { color: var(--jb-brand-600, #0e45a8); border-bottom-color: var(--jb-brand-600, #0e45a8); font-weight: 600; }
+.negative-value { color: #f56c6c; font-weight: 600; }
+.sales-cell.negative-value { color: #f56c6c; border-bottom-color: #f56c6c; }
+.negative-value { color: #f56c6c; font-weight: 600; }
+.breakdown-popover { max-height: 360px; }
+.breakdown-popover .bd-title { font-size: 13px; font-weight: 600; color: var(--jb-ink-700, #24334a); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--jb-line, #e3e9f2); }
+.breakdown-popover .bd-loading, .breakdown-popover .bd-empty { text-align: center; color: var(--jb-ink-300, #94a0b1); padding: 12px 0; font-size: 13px; }
+.breakdown-popover .bd-list { max-height: 300px; overflow: hidden; }
+.breakdown-popover .bd-list.bd-scroll { overflow-y: auto; }
+.breakdown-popover .bd-item { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; color: var(--jb-ink-500, #5a6b85); border-bottom: 1px solid #f2f3f5; }
+.breakdown-popover .bd-item:last-child { border-bottom: none; }
+.breakdown-popover .bd-store { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.breakdown-popover .bd-val { font-weight: 600; color: var(--jb-ink-700, #24334a); margin-left: 12px; flex-shrink: 0; }
+.breakdown-popover .bd-total { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 6px; border-top: 1.5px solid #dcdfe6; font-size: 13px; font-weight: 600; color: var(--jb-ink-700, #24334a); }
+.breakdown-popover .bd-total-val { color: #e6a23c; font-size: 14px; }
+
+:deep(.el-table .cell) { white-space: nowrap; }
+:deep(.col-header-cell) { cursor: default; user-select: none; }
+:deep(.col-filter-trigger) { opacity: .45; transition: opacity .2s; cursor: pointer; display: inline-flex; flex-shrink: 0; }
+:deep(.col-header-cell:hover .col-filter-trigger) { opacity: 1; }
+:deep(.amz-field-help-trigger) { display: inline-flex; align-items: center; gap: 3px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
+:deep(.amz-field-help-icon) { flex-shrink: 0; color: var(--jb-ink-300, #94a0b1); }
+</style>
+
+<style>
+.number-filter-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 2999; background: transparent; }
+.number-filter-popover { position: fixed; background: #fff; border-radius: 10px; box-shadow: 0 6px 24px rgba(16,42,90,.16); min-width: 240px; z-index: 3000; }
+.number-filter-popover { border: 1px solid #e3e9f2; }
+.number-filter-popover .popover-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px 6px; font-size: 14px; font-weight: 600; color: #24334a; border-bottom: 1px solid #e3e9f2; }
+.number-filter-popover .popover-header .close-btn { cursor: pointer; color: #94a0b1; display: inline-flex; }
+.number-filter-popover .popover-header .close-btn:hover { color: #1257d6; }
+.number-filter-popover .popover-body { padding: 12px 14px; overflow: visible; }
+.number-filter-popover .popover-footer { padding: 8px 14px 12px; display: flex; justify-content: flex-end; gap: 8px; }
+.number-filter-select-popper { z-index: 3100 !important; }
+.amz-field-help-popper { max-width: 420px; white-space: normal; line-height: 1.6; }
+.amz-field-help-content { overflow-wrap: anywhere; }
+.amz-field-help-content strong { display: block; margin-bottom: 6px; color: #24334a; }
+.amz-field-help-content > div { margin-top: 4px; }
+.amz-field-help-content small { display: block; margin-top: 8px; color: #94a0b1; }
+</style>

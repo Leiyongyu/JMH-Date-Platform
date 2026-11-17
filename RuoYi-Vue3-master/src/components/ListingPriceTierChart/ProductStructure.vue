@@ -1,0 +1,273 @@
+<template>
+  <el-dialog v-model="visible" title="产品结构" width="min(1560px, 97vw)" append-to-body @opened="renderAll">
+    <div class="toolbar">
+      <span>年份</span>
+      <el-select v-model="year" size="small" style="width: 116px" @change="load">
+        <el-option v-for="y in years" :key="y" :label="`${y} 年`" :value="y" />
+      </el-select>
+      <span>店铺</span>
+      <el-select v-model="shops" multiple collapse-tags collapse-tags-tooltip clearable
+                 size="small" placeholder="全部店铺（整个eBay合计）" style="width: 260px"
+                 @change="load">
+        <template #header>
+          <el-checkbox :model-value="allChecked" :indeterminate="someChecked"
+                       :title="allHint" @change="toggleAll">
+            全选（{{ shopOptions.length }} 家）
+          </el-checkbox>
+        </template>
+        <el-option v-for="s in shopOptions" :key="s.value" :label="s.label" :value="s.value">
+          <span>{{ s.label }}</span>
+          <small v-if="s.missing" class="opt-hint">{{ s.missing }}</small>
+        </el-option>
+      </el-select>
+      <el-button size="small" :disabled="loading" @click="load">刷新</el-button>
+      <em v-if="noOrderAccounts" class="warn">订单尚未按新模板上传，按店铺筛只有不良交易率有数据</em>
+      <span class="legend">
+        <i v-for="(label, i) in labels" :key="label" :style="{ background: COLORS[i] }" :title="label" />
+        <em>{{ labels.join(' · ') }}</em>
+      </span>
+    </div>
+
+    <el-alert v-if="error" :title="error" type="error" :closable="false" />
+    <div v-else v-loading="loading" class="panels">
+      <section v-for="panel in panels" :key="panel.key" class="panel">
+        <h3>{{ panel.title }}<small v-if="panel.subtitle">{{ panel.subtitle }}</small></h3>
+        <div v-if="panel.ready" :ref="el => setChart(panel.key, el)" class="chart" />
+        <el-empty v-else :image-size="38" :description="panel.empty" />
+        <p class="note">{{ panel.note }}</p>
+      </section>
+    </div>
+
+    <template #footer><el-button @click="visible = false">关闭</el-button></template>
+  </el-dialog>
+</template>
+
+<script setup>
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import * as echarts from 'echarts/core'
+import { BarChart, LineChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+import { getEbayProductStructure } from '@/api/operations/listingPriceTier'
+echarts.use([BarChart, LineChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
+
+// 与后端 USD_LABELS 同序；第8个留给不良率图里的「总体」基准线。
+const COLORS = ['#4a72b0', '#e8913a', '#d6564f', '#6fbfb4', '#5aa25c', '#e5c04a', '#9d6fa8', '#b6bcc4']
+const visible = defineModel({ type: Boolean, default: false })
+const loading = ref(false), error = ref(''), data = ref(null)
+const year = ref(''), years = ref([])
+// 多选店铺；空数组=整个eBay合计。选项值是 eBay 卖家账号（订单和在售刊登
+// 用的都是它），飞书那套带公司前缀的店名由后端按归一键推导，这里只管把
+// 用户选的名字原样传回去。
+const shops = ref([])
+const charts = new Map(), elements = new Map()
+let observer = null
+
+const defect = computed(() => data.value || {})
+const sales = computed(() => data.value?.sales || {})
+const labels = computed(() => (defect.value.series || []).filter(s => s.tier_no !== 0).map(s => s.label))
+// 标题右边直接给出这一年的合计，省得逐月悬浮去加。
+const salesTotal = computed(() => {
+  const rows = sales.value.quantities || []
+  if (!rows.length) return ''
+  const qty = rows.reduce((sum, x) => sum + (x.matched_qty || 0), 0)
+  const orders = rows.reduce((sum, x) => sum + (x.matched_orders || 0), 0)
+  return `　全年 ${qty.toLocaleString()} 件 / ${orders.toLocaleString()} 单`
+})
+
+// 一条订单都没带账号时，逐个标40遍"无销量"是噪音，还会被读成"这店没卖东西"。
+// 这种情况在选择器旁边说一次就够了，原因也只有一个：文件还没按新模板传。
+const noOrderAccounts = computed(() => {
+  const list = data.value?.shops || []
+  return list.length > 0 && list.every(s => !s.has_sales)
+})
+
+// 选项后面标一句话：哪家店在哪个源里没有数据，选了才不会以为是算错了。
+// 说"订单里无此账号"而不是"无销量"——差别在于前者是对不上，后者是真没卖。
+const shopOptions = computed(() => (data.value?.shops || []).map(s => ({
+  ...s,
+  missing: [!s.has_sales && !noOrderAccounts.value && '订单里无此账号',
+            !s.has_defect && '无不良交易', !s.has_tier && '无在售刊登']
+    .filter(Boolean).join(' · '),
+})))
+
+// 全选/清空。注意「全选40家」和「一家不选」不是一回事：全选只算这40个账号
+// 名下的行，账号为空的那些行（旧模板传的批次）会被排除；不选则是整个eBay合计，
+// 那些行也算进去。所以两者的数字可能不同，鼠标悬浮在全选上会说明这点。
+const allChecked = computed(() =>
+  shopOptions.value.length > 0 && shops.value.length === shopOptions.value.length)
+const someChecked = computed(() => shops.value.length > 0 && !allChecked.value)
+const allHint = computed(() =>
+  '全选=只统计这些账号名下的数据；一家不选=整个eBay合计，'
+  + '连账号为空的行（旧模板上传的批次）也算进去。两者的数字可能不同。')
+
+function toggleAll(checked) {
+  shops.value = checked ? shopOptions.value.map(item => item.value) : []
+  load()
+}
+
+// 订单里带平台账号的销量占比。这一列是2026-09-24随数字酋长模板才加上的，
+// 之前上传的批次一律没有，按店铺筛时那些月份会整月为空——这不是算错，
+// 是源文件当时就没有这一列，得用新模板重传。
+const shopDataHint = computed(() => {
+  if (!shops.value.length) return ''
+  const rows = (data.value?.shop_coverage || []).filter(x => x.rate != null)
+  const bad = rows.filter(x => Number(x.rate) < 0.5).map(x => x.stat_month)
+  if (!bad.length) return ''
+  return `　${bad.join('、')} 这些月份的订单还是旧模板（没有「平台账号」列），`
+    + '按店铺筛会偏少或为空，需用新模板重传。'
+})
+
+// 覆盖率 = 能配上价格档的销量 ÷ 当月总销量。配不上的是当月在售刊登里没有的
+// SKU（已下架、或从没在配置的账号里上过架），它们不进任何一档，所以这个数
+// 必须写在图下面，否则占比看着像是全部销量的结构。
+const salesCoverage = computed(() => {
+  const rows = (sales.value.coverage || []).filter(x => x.rate != null)
+  if (!rows.length) return ''
+  const rates = rows.map(x => Number(x.rate) * 100)
+  const low = Math.min(...rates), high = Math.max(...rates)
+  return `　本图覆盖当年 ${low.toFixed(1)}%~${high.toFixed(1)}% 的销量。`
+})
+
+const panels = computed(() => [
+  { key: 'sales', title: '不同价格段销售数量占比',
+    subtitle: salesTotal.value,
+    ready: (sales.value.months || []).length > 0,
+    empty: '该年份没有可统计的销量',
+    note: (sales.value.note || '') + salesCoverage.value + shopDataHint.value },
+  { key: 'defect', title: '不同价格段不良交易率',
+    ready: (defect.value.months || []).length > 0,
+    empty: '该年份没有可统计的不良交易',
+    note: defect.value.note || '' },
+])
+
+function setChart(key, el) {
+  if (el) elements.set(key, el)
+}
+
+// 年份已经在上面筛过了，横坐标只留月份数字；类目值仍是完整的 2026-08，
+// 悬浮提示里看到的还是年月，不会丢上下文。
+const monthLabel = value => String(Number(String(value).slice(5)) || value)
+
+function salesOption() {
+  const months = sales.value.months || []
+  const qty = Object.fromEntries((sales.value.quantities || []).map(x => [x.stat_month, x]))
+  return {
+    // 占比之外把绝对量也带上：光看百分比分不清是"卖得多"还是"基数小"。
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+      formatter: params => {
+        if (!params.length) return ''
+        const month = params[0].axisValue
+        const info = qty[month] || { tiers: {} }
+        const lines = params.filter(p => p.value !== null && p.value !== undefined).map(p => {
+          const tier = (sales.value.series || []).find(s => s.label === p.seriesName)
+          const cell = info.tiers?.[tier?.tier_no] || {}
+          return `${p.marker}${p.seriesName}　<b>${(p.value * 100).toFixed(1)}%</b>`
+            + `　${cell.qty ?? 0} 件 / ${cell.order_rows ?? 0} 单`
+        })
+        return `${month}　合计 ${info.matched_qty ?? 0} 件 / ${info.matched_orders ?? 0} 单<br/>`
+          + lines.join('<br/>')
+      } },
+    legend: { bottom: 0, itemWidth: 12, itemHeight: 8, textStyle: { fontSize: 10 } },
+    grid: { left: 46, right: 12, top: 12, bottom: 44 },
+    xAxis: { type: 'category', data: months, axisLabel: { fontSize: 11, formatter: monthLabel } },
+    yAxis: { type: 'value', max: 1, axisLabel: { fontSize: 10, formatter: v => (v * 100).toFixed(0) + '%' } },
+    // 堆叠百分比柱：每个月各档相加为100%，看的是结构而不是绝对量。
+    series: (sales.value.series || []).map((item, i) => ({
+      name: item.label, type: 'bar', stack: 'total', barMaxWidth: 30,
+      data: item.points.map(p => p === null ? null : Number(p)),
+      itemStyle: { color: COLORS[i] },
+      // 段太薄时标不下，只在占比够大的段上直接标销量件数。
+      label: {
+        show: true, fontSize: 9, color: '#fff', formatter: p => {
+          const cell = qty[months[p.dataIndex]]?.tiers?.[item.tier_no] || {}
+          return p.value >= 0.08 && cell.qty ? cell.qty : ''
+        },
+      },
+    })),
+  }
+}
+
+function defectOption() {
+  const months = defect.value.months || []
+  return {
+    tooltip: { trigger: 'axis',
+      valueFormatter: v => v === null || v === undefined ? '--' : (v * 100).toFixed(2) + '%' },
+    legend: { bottom: 0, itemWidth: 12, itemHeight: 8, textStyle: { fontSize: 10 } },
+    grid: { left: 46, right: 12, top: 12, bottom: 44 },
+    xAxis: { type: 'category', data: months, axisLabel: { fontSize: 11, formatter: monthLabel } },
+    yAxis: { type: 'value', axisLabel: { fontSize: 10, formatter: v => (v * 100).toFixed(0) + '%' } },
+    series: (defect.value.series || []).map((item, i) => ({
+      // 点到点直线：平滑会在两个月之间插出实际不存在的取值。
+      name: item.label, type: 'line', smooth: false,
+      showSymbol: true, symbol: 'circle', symbolSize: 4,
+      // null 保持断开，不用 connectNulls，否则没有成交的月份会连出假趋势。
+      data: item.points.map(p => p === null ? null : Number(p)),
+      lineStyle: { width: item.tier_no === 0 ? 3.5 : 1.8 },
+      itemStyle: { color: item.tier_no === 0 ? COLORS[7] : COLORS[i] },
+      z: item.tier_no === 0 ? 1 : 2,
+    })),
+  }
+}
+
+const OPTIONS = { sales: salesOption, defect: defectOption }
+
+function renderAll() {
+  nextTick(() => {
+    if (!observer) observer = new ResizeObserver(() => charts.forEach(c => c.resize()))
+    for (const panel of panels.value) {
+      const el = elements.get(panel.key)
+      if (!panel.ready || !el || !OPTIONS[panel.key]) continue
+      let chart = charts.get(panel.key)
+      if (!chart) {
+        chart = echarts.init(el)
+        charts.set(panel.key, chart)
+        observer.observe(el)
+      }
+      chart.setOption(OPTIONS[panel.key](), true)
+      chart.resize()
+    }
+  })
+}
+
+async function load() {
+  loading.value = true
+  error.value = ''
+  try {
+    const response = await getEbayProductStructure(year.value, shops.value)
+    data.value = response.data
+    years.value = response.data?.years || []
+    // 首次打开时后端还不知道要哪一年，拿它给的最新一年回填选择器。
+    if (!year.value && years.value.length) year.value = years.value[0]
+    renderAll()
+  } catch (e) {
+    error.value = e?.message || '产品结构加载失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(visible, open => { if (open) load() })
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  charts.forEach(c => c.dispose())
+  charts.clear()
+})
+</script>
+
+<style scoped>
+.toolbar { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 8px; }
+.legend { display: flex; align-items: center; gap: 4px; margin-left: auto; color: var(--el-text-color-secondary); }
+.legend i { width: 11px; height: 8px; border-radius: 2px; display: inline-block; }
+.legend em { font-style: normal; margin-left: 6px; font-size: 11px; }
+/* 两图并排；窄屏自动落到一列，不横向滚动。 */
+.panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }
+.panel { min-width: 0; }
+.panel h3 { font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+.panel h3 small { font-weight: 400; font-size: 11px; color: var(--el-text-color-secondary); }
+.chart { width: 100%; height: 320px; }
+.note { font-size: 11px; color: var(--el-text-color-secondary); line-height: 1.6; margin: 6px 0 0; }
+.opt-hint { margin-left: 8px; color: var(--el-text-color-secondary); font-size: 11px; }
+.warn { font-style: normal; font-size: 11px; color: var(--el-color-warning-dark-2); }
+</style>

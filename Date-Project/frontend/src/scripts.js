@@ -1,0 +1,76 @@
+// JMH Python 脚本注册表。
+// 后续新增组件只需追加一项，页面会自动完成权限过滤、分类和卡片布局。
+//
+// code/permission：唯一标识及对应的 ERP sys_menu.perms。
+// category/tags：用于工作台分类和搜索。
+// transport：proxy=通过 Java 安全代理；direct=直接地址。
+// page/proxyBase/devBase/needSession：组件地址及安全会话配置。
+export default [
+  {
+    code: 'image-sop',
+    name: '图片 SOP',
+    description: '生成图片需求，匹配 NAS 素材并导出标准 Excel。',
+    icon: 'IS',
+    category: '图片工具',
+    tags: ['NAS 素材', 'Excel 导出', 'Amazon', 'eBay'],
+    permission: 'sop:imageSop:use',
+    transport: 'proxy',
+    page: '/index.html',
+    proxyBase: '',
+    devBase: '/image-sop',
+    needSession: true,
+  },
+  {
+    code: 'daily-workspace',
+    name: '每日工作台',
+    description: '任务进度跟踪与工作结果导出。',
+    icon: 'DW',
+    category: '效率工具',
+    tags: ['任务管理', 'Excel 导出'],
+    permission: 'sop:dailyWorkspace:use',
+    transport: 'direct',
+    page: '/script-tools/daily-workspace/index.html',
+    needSession: false,
+  },
+  {
+    code: 'ebay-tool',
+    name: 'eBay 价格查询',
+    description: '两遍搜索 + 类目锁定，查询 eBay 全网最低价并导出 Excel。',
+    icon: 'EP',
+    category: '价格工具',
+    tags: ['eBay', 'OE号', '价格查询', 'Excel 导出'],
+    permission: 'sop:ebayTool:use',
+    transport: 'proxy',
+    page: '/index.html',
+    proxyBase: '/sop/ebay-tool/proxy',
+    devBase: '/ebay-tool',
+    needSession: true,
+  },
+  {
+    code: 'weekly-inventory-export',
+    name: '仓位库存明细周报',
+    description: '全仓库存、仓位与库龄周快照，后台生成并永久留底 Excel。',
+    icon: 'WI',
+    category: '库存工具',
+    tags: ['库存', '周报', 'Excel 导出'],
+    permission: 'sop:weeklyInventory:use',
+    transport: 'proxy',
+    page: '/index.html',
+    proxyBase: '/sop/weekly-inventory/proxy',
+    needSession: true,
+  },
+  {
+    code: 'customs-declaration',
+    name: '报关单生成器',
+    description: '查询、维护并导出报关商品和报关单。',
+    icon: 'CD',
+    category: '报关工具',
+    tags: ['SKU 查询', '商品资料', 'Excel 导出'],
+    permission: 'customs:declaration:query',
+    transport: 'proxy',
+    page: '/index.html',
+    proxyBase: '/sop/customs-declaration/proxy',
+    devBase: 'http://127.0.0.1:5000',
+    needSession: true,
+  },
+]

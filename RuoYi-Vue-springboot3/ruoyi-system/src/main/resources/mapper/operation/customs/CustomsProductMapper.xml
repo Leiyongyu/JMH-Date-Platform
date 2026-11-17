@@ -1,0 +1,738 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.customs.CustomsProductMapper">
+
+    <resultMap id="CustomsProductResult" type="com.ruoyi.system.domain.operation.customs.CustomsProduct">
+        <id property="id" column="id"/>
+        <result property="sku" column="sku"/>
+        <result property="productCode" column="product_code"/>
+        <result property="descriptionCn" column="description_cn"/>
+        <result property="model" column="model"/>
+        <result property="unit" column="unit"/>
+        <result property="unitPriceUsd" column="unit_price_usd"/>
+        <result property="currency" column="currency"/>
+        <result property="singleWeight" column="single_weight"/>
+        <result property="packingNetWeight" column="packing_net_weight"/>
+        <result property="packingGrossWeight" column="packing_gross_weight"/>
+        <result property="packingCbm" column="packing_cbm"/>
+        <result property="boxLength" column="box_length"/>
+        <result property="boxWidth" column="box_width"/>
+        <result property="boxHeight" column="box_height"/>
+        <result property="boxNo" column="box_no"/>
+        <result property="hsCode" column="hs_code"/>
+        <result property="hsDescription" column="hs_description"/>
+        <result property="originCountry" column="origin_country"/>
+        <result property="destinationCountry" column="destination_country"/>
+        <result property="sourceLocation" column="source_location"/>
+        <result property="exemption" column="exemption"/>
+        <result property="isTax" column="is_tax"/>
+        <result property="sourceType" column="source_type"/>
+        <result property="sourceFileName" column="source_file_name"/>
+        <result property="sourceSheet" column="source_sheet"/>
+        <result property="sourceRowNo" column="source_row_no"/>
+        <result property="updatedBy" column="updated_by"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="CustomsDeclarationItemResult" type="com.ruoyi.system.domain.operation.customs.CustomsDeclarationItem" extends="CustomsProductResult">
+        <result property="quantity" column="quantity"/>
+        <result property="boxCount" column="box_count"/>
+        <result property="sourceOrderNo" column="source_order_no"/>
+        <result property="declarationSourceType" column="declaration_source_type"/>
+        <result property="sourceLineId" column="source_line_id"/>
+        <result property="rawSku" column="raw_sku"/>
+        <result property="warehouseBucket" column="warehouse_bucket"/>
+        <result property="warehouseName" column="warehouse_name"/>
+        <result property="matchStatus" column="match_status"/>
+        <result property="inventoryMatched" column="inventory_matched"/>
+        <result property="productMatched" column="product_matched"/>
+        <result property="orderTotalCbm" column="order_total_cbm"/>
+    </resultMap>
+
+    <sql id="columns">
+        id, sku, product_code, description_cn, model, unit, unit_price_usd, currency, single_weight,
+        packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height, box_no,
+        hs_code, hs_description, origin_country, destination_country, source_location,
+        exemption, is_tax, source_type, source_file_name, source_sheet, source_row_no, updated_by,
+        created_at, updated_at
+    </sql>
+
+    <sql id="pColumns">
+        p.id, p.sku, p.product_code, p.description_cn, p.model, p.unit, p.unit_price_usd, p.currency, p.single_weight,
+        p.packing_net_weight, p.packing_gross_weight, p.packing_cbm, p.box_length, p.box_width, p.box_height, p.box_no,
+        p.hs_code, p.hs_description, p.origin_country, p.destination_country, p.source_location,
+        p.exemption, p.is_tax, p.source_type, p.source_file_name, p.source_sheet, p.source_row_no, p.updated_by,
+        p.created_at, p.updated_at
+    </sql>
+
+    <!--
+      数据源关联专用商品列。只读取已经按 sku_match_key 选出的库存行及其一条历史记录，
+      避免 customs_declaration_product_view 为每次关联物化全部库存和历史商品。
+    -->
+    <sql id="linkedProductColumns">
+        CASE WHEN il.id IS NOT NULL THEN il.id WHEN h.id IS NOT NULL THEN -h.id ELSE NULL END AS id,
+        COALESCE(il.sku, h.sku) AS sku,
+        COALESCE(il.product_code, h.product_code, '') AS product_code,
+        COALESCE(NULLIF(il.product_name, ''), h.description_cn, '') AS description_cn,
+        COALESCE(NULLIF(h.model, ''), '无型号') AS model,
+        COALESCE(NULLIF(il.customs_unit, ''), NULLIF(il.unit, ''), h.unit, '个') AS unit,
+        COALESCE(h.unit_price_usd,
+          CASE WHEN il.tax_included_price REGEXP '^[0-9.]+(/[0-9.]+)*$'
+               THEN CAST(SUBSTRING_INDEX(il.tax_included_price, '/', -1) AS DECIMAL(18,4)) END) AS unit_price_usd,
+        COALESCE(NULLIF(h.currency, ''), 'USD') AS currency,
+        h.single_weight,
+        h.packing_net_weight,
+        h.packing_gross_weight,
+        h.packing_cbm,
+        h.box_length,
+        h.box_width,
+        h.box_height,
+        h.box_no,
+        COALESCE(NULLIF(il.hs_code, ''),
+          NULLIF(REGEXP_SUBSTR(TRIM(IFNULL(il.declaration_elements, '')), '^[0-9]{6,13}'), ''),
+          h.hs_code, '') AS hs_code,
+        COALESCE(NULLIF(il.hs_description, ''),
+          NULLIF(TRIM(REGEXP_REPLACE(TRIM(IFNULL(il.declaration_elements, '')), '^[0-9]{6,13}[[:space:]]*', '')), ''),
+          h.hs_description, '') AS hs_description,
+        COALESCE(NULLIF(h.origin_country, ''), '中国') AS origin_country,
+        COALESCE(NULLIF(h.destination_country, ''), '美国') AS destination_country,
+        COALESCE(NULLIF(h.source_location, ''), NULLIF(il.product_code, ''), '') AS source_location,
+        COALESCE(NULLIF(h.exemption, ''), '照章') AS exemption,
+        COALESCE(h.source_type, CASE WHEN il.id IS NOT NULL THEN 'INVENTORY' END) AS source_type,
+        h.source_file_name,
+        h.source_sheet,
+        h.source_row_no,
+        h.updated_by,
+        COALESCE(h.created_at, il.created_at) AS created_at,
+        GREATEST(COALESCE(h.updated_at, '1970-01-01'), COALESCE(il.updated_at, '1970-01-01')) AS updated_at
+    </sql>
+
+    <!-- 当前自动剩余库存：入库数量 - 全部仓库的累计有效报关日志；手动值不更新。 -->
+    <sql id="candidateAvailableRemaining">
+        (
+          COALESCE(i2.inbound_quantity, 0)
+          - COALESCE((
+            SELECT SUM(l.quantity)
+            FROM customs_declaration_generate_log l
+            WHERE l.standard_sku COLLATE utf8mb4_unicode_ci = i2.sku COLLATE utf8mb4_unicode_ci
+              AND IFNULL(l.product_code, '') COLLATE utf8mb4_unicode_ci = IFNULL(i2.product_code, '') COLLATE utf8mb4_unicode_ci
+              AND l.match_status IN ('MATCHED', 'UNKNOWN_WAREHOUSE')
+          ), 0)
+        )
+    </sql>
+
+    <select id="search" resultMap="CustomsProductResult">
+        SELECT <include refid="columns"/>
+        FROM customs_declaration_product_view
+        WHERE (
+            sku LIKE CONCAT('%', #{keyword}, '%')
+            OR sku_key LIKE CONCAT('%', normalize_customs_sku_key(#{keyword}), '%')
+            <if test="!skuOnly">
+                OR description_cn LIKE CONCAT('%', #{keyword}, '%')
+            </if>
+        )
+        ORDER BY CASE WHEN sku = #{keyword} THEN 0 WHEN sku LIKE CONCAT(#{keyword}, '%') THEN 1 ELSE 2 END,
+                 CASE WHEN id &gt; 0 THEN 0 ELSE 1 END,
+                 sku
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectBySku" resultMap="CustomsProductResult">
+        SELECT <include refid="columns"/> FROM customs_declaration_product_view
+        WHERE sku = #{sku} OR sku_key = normalize_customs_sku_key(#{sku})
+        ORDER BY CASE WHEN sku = #{sku} THEN 0 ELSE 1 END,
+                 CASE WHEN id &gt; 0 THEN 0 ELSE 1 END,
+                 updated_at DESC
+        LIMIT 1
+    </select>
+
+    <select id="selectBySkus" resultMap="CustomsProductResult">
+        SELECT <include refid="columns"/> FROM customs_declaration_product_view
+        WHERE sku IN
+        <foreach collection="skus" item="sku" open="(" separator="," close=")">#{sku}</foreach>
+           OR sku_key IN
+        <foreach collection="skus" item="sku" open="(" separator="," close=")">normalize_customs_sku_key(#{sku})</foreach>
+        ORDER BY CASE WHEN id &gt; 0 THEN 0 ELSE 1 END, updated_at DESC
+    </select>
+
+    <select id="selectExistingBySkuSource" resultMap="CustomsProductResult">
+        SELECT <include refid="columns"/>
+        FROM customs_declaration_history
+        WHERE
+        <foreach collection="products" item="p" open="(" separator=" OR " close=")">
+            (sku = #{p.sku} AND IFNULL(product_code, '') = IFNULL(#{p.productCode}, ''))
+        </foreach>
+    </select>
+
+    <select id="searchStockOrders" resultType="com.ruoyi.system.domain.operation.customs.CustomsStockOrderOption">
+        SELECT
+            od.overseas_order_no AS overseasOrderNo,
+            MAX(o.inbound_order_no) AS inboundOrderNo,
+            COUNT(DISTINCT od.sku) AS productCount,
+            CAST(IFNULL(MAX(od.order_total_box_num), SUM(GREATEST(IFNULL(od.box_number, 0), 0))) AS SIGNED) AS totalBoxCount,
+            SUM(GREATEST(IFNULL(od.quantity_in_case, 1), 1) * GREATEST(IFNULL(od.box_number, 1), 1)) AS totalQuantity,
+            IFNULL(MAX(od.order_total_box_weight), SUM(IFNULL(od.cg_box_weight, 0) * GREATEST(IFNULL(od.box_number, 1), 1))) AS totalGrossWeight
+        FROM overseas_stock_order_detail od
+        LEFT JOIN overseas_stock_order o ON o.overseas_order_no COLLATE utf8mb4_unicode_ci = od.overseas_order_no COLLATE utf8mb4_unicode_ci
+        WHERE od.overseas_order_no IS NOT NULL AND od.overseas_order_no != ''
+        <if test="keyword != null and keyword != ''">
+            AND od.overseas_order_no LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+        <if test="inboundOrderNo != null and inboundOrderNo != ''">
+            AND o.inbound_order_no LIKE CONCAT('%', #{inboundOrderNo}, '%')
+        </if>
+        GROUP BY od.overseas_order_no
+        ORDER BY od.overseas_order_no DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectStockOrderSkuOptions" resultType="com.ruoyi.system.domain.operation.customs.CustomsStockOrderSkuOption">
+        SELECT
+            od.overseas_order_no AS overseasOrderNo,
+            od.sku AS sku,
+            SUM(GREATEST(IFNULL(od.quantity_in_case, 1), 1) * GREATEST(IFNULL(od.box_number, 1), 1)) AS totalQuantity,
+            SUM(GREATEST(IFNULL(od.box_number, 1), 1)) AS totalBoxCount,
+            MAX(tax.is_tax) AS isTax
+        FROM overseas_stock_order_detail od
+        LEFT JOIN (
+            SELECT sku_key, MAX(is_tax) AS is_tax
+            FROM (
+                SELECT item_sku_match_key AS sku_key, is_tax
+                FROM purchase_order
+                WHERE item_sku IS NOT NULL AND item_sku != ''
+                  AND is_tax IS NOT NULL AND item_sku_match_key IS NOT NULL
+                  AND wid IN (18674, 18675, 18676)
+            ) ebay_tax
+            GROUP BY sku_key
+        ) tax ON tax.sku_key = od.sku_match_key
+        WHERE od.overseas_order_no IN
+        <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
+          AND od.sku IS NOT NULL AND od.sku != ''
+        GROUP BY od.overseas_order_no, od.sku
+        ORDER BY FIELD(od.overseas_order_no,
+        <foreach collection="orders" item="order" separator=",">#{order}</foreach>
+        ), od.sku
+    </select>
+
+    <select id="selectProductsByStockOrders" resultMap="CustomsDeclarationItemResult">
+        SELECT
+            <include refid="linkedProductColumns"/>,
+            ROUND(IFNULL(h.single_weight, 0) * GREATEST(IFNULL(od.quantity_in_case, 1), 1) * GREATEST(IFNULL(od.box_number, 1), 1), 4) AS packing_net_weight,
+            od.cg_box_weight AS packing_gross_weight,
+            od.box_cbm AS packing_cbm,
+            od.cg_box_length AS box_length,
+            od.cg_box_width AS box_width,
+            od.cg_box_height AS box_height,
+            od.box_range AS box_no,
+            COALESCE(tax.is_tax, h.is_tax, 0) AS is_tax,
+            (il.id IS NOT NULL) AS inventory_matched,
+            (il.id IS NOT NULL OR h.id IS NOT NULL) AS product_matched,
+            CAST(GREATEST(IFNULL(od.quantity_in_case, 1), 1) * GREATEST(IFNULL(od.box_number, 1), 1) AS SIGNED) AS quantity,
+            CAST(GREATEST(IFNULL(od.box_number, 1), 1) AS SIGNED) AS box_count,
+            od.overseas_order_no AS source_order_no,
+            'EBAY' AS declaration_source_type,
+            CAST(od.id AS CHAR) AS source_line_id,
+            od.sku AS raw_sku,
+            CASE
+                WHEN od.r_wid = 18699 THEN 'DE'
+                WHEN od.r_wid = 18702 THEN 'UK'
+                WHEN od.r_wid IN (18700, 18701) THEN 'US_GC'
+                ELSE 'UNKNOWN'
+            END AS warehouse_bucket,
+            COALESCE(w.name, CONCAT('r_wid=', od.r_wid), '未知仓') AS warehouse_name,
+            CASE
+                WHEN od.r_wid IN (18699, 18702, 18700, 18701) THEN 'MATCHED'
+                ELSE 'UNKNOWN_WAREHOUSE'
+            END AS match_status,
+            od.order_total_box_volume AS order_total_cbm
+        FROM overseas_stock_order_detail od
+        LEFT JOIN warehouse w ON w.wid = od.r_wid
+        LEFT JOIN (
+            SELECT sku_key, MAX(is_tax) AS is_tax
+            FROM (
+                SELECT item_sku_match_key AS sku_key, is_tax
+                FROM purchase_order
+                WHERE item_sku IS NOT NULL AND item_sku != ''
+                  AND is_tax IS NOT NULL AND item_sku_match_key IS NOT NULL
+                  AND wid IN (18674, 18675, 18676)
+            ) ebay_tax
+            GROUP BY sku_key
+        ) tax ON tax.sku_key COLLATE utf8mb4_unicode_ci = od.sku_match_key COLLATE utf8mb4_unicode_ci
+        LEFT JOIN customs_inventory_list il ON il.id = (
+            SELECT i2.id
+            FROM customs_inventory_list i2
+            WHERE i2.sku IS NOT NULL AND i2.sku != ''
+              AND i2.sku_match_key = od.sku_match_key
+            <!-- 按当前自动剩余库存：JMH 有库存优先，其次无 JMH 有库存；都耗尽时固定选择无 JMH。 -->
+            ORDER BY
+              CASE
+                WHEN UPPER(i2.sku) LIKE 'JMH%' AND <include refid="candidateAvailableRemaining"/> &gt; 0 THEN 0
+                WHEN UPPER(i2.sku) NOT LIKE 'JMH%' AND <include refid="candidateAvailableRemaining"/> &gt; 0 THEN 1
+                WHEN UPPER(i2.sku) NOT LIKE 'JMH%' THEN 2
+                ELSE 3
+              END,
+              CASE WHEN UPPER(i2.sku) COLLATE utf8mb4_unicode_ci = UPPER(od.sku_match_key) COLLATE utf8mb4_unicode_ci THEN 0 ELSE 1 END,
+              i2.id DESC
+            LIMIT 1
+        )
+        LEFT JOIN customs_declaration_history h ON h.id = (
+            SELECT h2.id FROM customs_declaration_history h2
+            WHERE h2.sku_key COLLATE utf8mb4_0900_ai_ci = od.sku_match_key COLLATE utf8mb4_0900_ai_ci
+              AND (il.id IS NULL OR h2.product_code COLLATE utf8mb4_0900_ai_ci = IFNULL(il.product_code, '') COLLATE utf8mb4_0900_ai_ci OR h2.product_code = '')
+            ORDER BY
+              CASE WHEN il.id IS NOT NULL AND h2.sku COLLATE utf8mb4_0900_ai_ci = il.sku COLLATE utf8mb4_0900_ai_ci THEN 0 ELSE 1 END,
+              CASE WHEN il.id IS NOT NULL AND h2.product_code COLLATE utf8mb4_0900_ai_ci = IFNULL(il.product_code, '') COLLATE utf8mb4_0900_ai_ci THEN 0 ELSE 1 END,
+              h2.updated_at DESC, h2.id DESC
+            LIMIT 1
+        )
+        WHERE od.overseas_order_no IN
+        <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
+        <if test="stockSkuKeys != null and stockSkuKeys.size() > 0">
+          AND CONCAT(od.overseas_order_no, '|', od.sku) IN
+          <foreach collection="stockSkuKeys" item="skuKey" open="(" separator="," close=")">#{skuKey}</foreach>
+        </if>
+        ORDER BY FIELD(od.overseas_order_no,
+        <foreach collection="orders" item="order" separator=",">#{order}</foreach>
+        ), od.id
+    </select>
+
+    <select id="selectMissingSkusByStockOrders" resultType="string">
+        SELECT DISTINCT od.sku
+        FROM overseas_stock_order_detail od
+        LEFT JOIN customs_inventory_list il ON il.id = (
+            SELECT i2.id
+            FROM customs_inventory_list i2
+            WHERE i2.sku IS NOT NULL AND i2.sku != ''
+              AND normalize_customs_sku_key(i2.sku) COLLATE utf8mb4_unicode_ci = normalize_customs_sku_key(od.sku) COLLATE utf8mb4_unicode_ci
+            ORDER BY
+              CASE
+                WHEN UPPER(i2.sku) LIKE 'JMH%' AND (
+                  CASE
+                    WHEN od.r_wid = 18699 THEN COALESCE(i2.auto_de_warehouse_qty, i2.de_warehouse_qty, 0)
+                    WHEN od.r_wid = 18702 THEN COALESCE(i2.auto_uk_warehouse_qty, i2.uk_warehouse_qty, 0)
+                    WHEN od.r_wid IN (18700, 18701) THEN COALESCE(i2.auto_us_warehouse_qty, i2.us_warehouse_qty, 0)
+                    ELSE COALESCE(i2.auto_remaining_stock, i2.remaining_stock, 0)
+                  END
+                  - COALESCE((
+                    SELECT SUM(l.quantity)
+                    FROM customs_declaration_generate_log l
+                    WHERE l.standard_sku COLLATE utf8mb4_unicode_ci = i2.sku COLLATE utf8mb4_unicode_ci
+                      AND IFNULL(l.product_code, '') COLLATE utf8mb4_unicode_ci = IFNULL(i2.product_code, '') COLLATE utf8mb4_unicode_ci
+                      AND l.warehouse_bucket COLLATE utf8mb4_unicode_ci = (CASE
+                        WHEN od.r_wid = 18699 THEN 'DE'
+                        WHEN od.r_wid = 18702 THEN 'UK'
+                        WHEN od.r_wid IN (18700, 18701) THEN 'US_GC'
+                        ELSE 'UNKNOWN'
+                      END) COLLATE utf8mb4_unicode_ci
+                  ), 0)
+                ) &gt; 0 THEN 0
+                WHEN UPPER(i2.sku) NOT LIKE 'JMH%' AND (
+                  CASE
+                    WHEN od.r_wid = 18699 THEN COALESCE(i2.auto_de_warehouse_qty, i2.de_warehouse_qty, 0)
+                    WHEN od.r_wid = 18702 THEN COALESCE(i2.auto_uk_warehouse_qty, i2.uk_warehouse_qty, 0)
+                    WHEN od.r_wid IN (18700, 18701) THEN COALESCE(i2.auto_us_warehouse_qty, i2.us_warehouse_qty, 0)
+                    ELSE COALESCE(i2.auto_remaining_stock, i2.remaining_stock, 0)
+                  END
+                  - COALESCE((
+                    SELECT SUM(l.quantity)
+                    FROM customs_declaration_generate_log l
+                    WHERE l.standard_sku COLLATE utf8mb4_unicode_ci = i2.sku COLLATE utf8mb4_unicode_ci
+                      AND IFNULL(l.product_code, '') COLLATE utf8mb4_unicode_ci = IFNULL(i2.product_code, '') COLLATE utf8mb4_unicode_ci
+                      AND l.warehouse_bucket COLLATE utf8mb4_unicode_ci = (CASE
+                        WHEN od.r_wid = 18699 THEN 'DE'
+                        WHEN od.r_wid = 18702 THEN 'UK'
+                        WHEN od.r_wid IN (18700, 18701) THEN 'US_GC'
+                        ELSE 'UNKNOWN'
+                      END) COLLATE utf8mb4_unicode_ci
+                  ), 0)
+                ) &gt; 0 THEN 1
+                WHEN UPPER(i2.sku) NOT LIKE 'JMH%' THEN 2
+                ELSE 3
+              END,
+              i2.id
+            LIMIT 1
+        )
+        LEFT JOIN customs_declaration_product_view p
+            ON ((il.sku IS NOT NULL
+                 AND p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
+                 AND IFNULL(p.product_code, '') COLLATE utf8mb4_unicode_ci = IFNULL(il.product_code, '') COLLATE utf8mb4_unicode_ci)
+                OR (il.sku IS NULL AND p.sku_key COLLATE utf8mb4_unicode_ci = normalize_customs_sku_key(od.sku) COLLATE utf8mb4_unicode_ci))
+        WHERE od.overseas_order_no IN
+        <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
+          <if test="stockSkuKeys != null and stockSkuKeys.size() > 0">
+          AND CONCAT(od.overseas_order_no, '|', od.sku) IN
+          <foreach collection="stockSkuKeys" item="skuKey" open="(" separator="," close=")">#{skuKey}</foreach>
+          </if>
+          AND od.sku IS NOT NULL AND od.sku != ''
+          AND p.sku IS NULL
+        ORDER BY od.sku
+    </select>
+
+    <select id="selectMissingInventorySkusByStockOrders" resultType="string">
+        SELECT DISTINCT od.sku
+        FROM overseas_stock_order_detail od
+        LEFT JOIN (
+            SELECT match_key FROM (
+                SELECT normalize_customs_sku_key(sku) AS match_key,
+                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku) ORDER BY id) AS rn
+                FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
+            ) ranked WHERE rn = 1
+        ) il ON normalize_customs_sku_key(od.sku) COLLATE utf8mb4_unicode_ci = il.match_key COLLATE utf8mb4_unicode_ci
+        WHERE od.overseas_order_no IN
+        <foreach collection="orders" item="order" open="(" separator="," close=")">#{order}</foreach>
+          <if test="stockSkuKeys != null and stockSkuKeys.size() > 0">
+          AND CONCAT(od.overseas_order_no, '|', od.sku) IN
+          <foreach collection="stockSkuKeys" item="skuKey" open="(" separator="," close=")">#{skuKey}</foreach>
+          </if>
+          AND od.sku IS NOT NULL AND od.sku != ''
+          AND il.match_key IS NULL
+        ORDER BY od.sku
+    </select>
+
+    <select id="searchFbaShipments" resultType="com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentOption">
+        SELECT
+            t.shipment_id AS shipmentId,
+            SUM(t.productCount) AS productCount,
+            MAX(t.totalBoxCount) AS totalBoxCount,
+            SUM(t.totalQuantity) AS totalQuantity,
+            SUM(t.totalGrossWeight) AS totalGrossWeight
+        FROM (
+            SELECT
+                b.shipment_id,
+                COUNT(DISTINCT b.sku) AS productCount,
+                MAX(b.box_num) AS totalBoxCount,
+                SUM(IF(b.quantity_in_case IS NOT NULL AND b.quantity_in_case REGEXP '^[0-9.]+$',
+                       CAST(b.quantity_in_case AS DECIMAL(12,4)),
+                       1)) * MAX(GREATEST(IFNULL(b.box_num, 1), 1)) AS totalQuantity,
+                MAX(IF(b.box_weight IS NOT NULL AND b.box_weight REGEXP '^[0-9.]+$',
+                       CAST(b.box_weight AS DECIMAL(12,4)) *
+                           IF(UPPER(IFNULL(b.box_weight_unit, 'KG')) IN ('LB', 'LBS'), 0.45359237, 1),
+                       0)) * MAX(GREATEST(IFNULL(b.box_num, 1), 1)) AS totalGrossWeight
+            FROM amz_fba_shipment_box b
+            WHERE b.shipment_id IS NOT NULL AND b.shipment_id != ''
+            <if test="keyword != null and keyword != ''">
+                AND b.shipment_id LIKE CONCAT('%', #{keyword}, '%')
+            </if>
+            GROUP BY b.shipment_id, b.box_num, b.box_weight, COALESCE(b.box_length,''), COALESCE(b.box_width,''), COALESCE(b.box_height,'')
+        ) t
+        GROUP BY t.shipment_id
+        ORDER BY MAX(t.shipment_id) DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectFbaShipmentSkuOptions" resultType="com.ruoyi.system.domain.operation.customs.CustomsFbaShipmentSkuOption">
+        SELECT
+            b.shipment_id AS shipmentId,
+            b.sku AS sku,
+            SUM(IF(b.quantity_in_case IS NOT NULL AND b.quantity_in_case REGEXP '^[0-9.]+$',
+                   CAST(b.quantity_in_case AS DECIMAL(12,4)),
+                   1) * GREATEST(IFNULL(b.box_num, 1), 1)) AS totalQuantity,
+            MAX(GREATEST(IFNULL(b.box_num, 1), 1)) AS totalBoxCount,
+            MAX(tax.is_tax) AS isTax
+        FROM amz_fba_shipment_box b
+        LEFT JOIN (
+            SELECT shipment_id, sku_key, is_tax
+            FROM (
+                SELECT
+                    base.shipment_id,
+                    base.sku_key,
+                    po.is_tax,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY base.shipment_id, base.sku_key
+                        ORDER BY
+                            CASE
+                                WHEN po.order_time IS NOT NULL
+                                  AND ref.gmt_create IS NOT NULL
+                                  AND po.order_time &lt;= ref.gmt_create THEN 0
+                                ELSE 1
+                            END,
+                            CASE WHEN po.order_time IS NULL THEN 1 ELSE 0 END,
+                            ABS(TIMESTAMPDIFF(SECOND, po.order_time, COALESCE(ref.gmt_create, NOW()))),
+                            po.order_time DESC,
+                            po.create_time DESC,
+                            po.id DESC
+                    ) AS rn
+                FROM (
+                    SELECT DISTINCT shipment_id, sku_match_key AS sku_key
+                    FROM amz_fba_shipment_box
+                    WHERE shipment_id IN
+                    <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
+                      AND sku IS NOT NULL AND sku != ''
+                ) base
+                LEFT JOIN (
+                    SELECT shipment_id, MAX(gmt_create) AS gmt_create
+                    FROM amz_fba_shipment
+                    WHERE shipment_id IN
+                    <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
+                    GROUP BY shipment_id
+                ) ref ON ref.shipment_id COLLATE utf8mb4_unicode_ci = base.shipment_id COLLATE utf8mb4_unicode_ci
+                INNER JOIN purchase_order po
+                    ON po.item_sku_match_key = base.sku_key
+                   AND po.item_sku IS NOT NULL
+                   AND po.item_sku != ''
+                   AND po.is_tax IS NOT NULL
+                   AND po.wid IN (18677, 18678, 18679, 18680, 19561)
+            ) ranked_tax
+            WHERE rn = 1
+        ) tax ON tax.shipment_id COLLATE utf8mb4_unicode_ci = b.shipment_id COLLATE utf8mb4_unicode_ci
+             AND tax.sku_key = b.sku_match_key
+        WHERE b.shipment_id IN
+        <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
+        GROUP BY b.shipment_id, b.sku
+        ORDER BY FIELD(b.shipment_id,
+        <foreach collection="shipments" item="shipment" separator=",">#{shipment}</foreach>
+        ), b.sku
+    </select>
+
+    <select id="selectProductsByFbaShipments" resultMap="CustomsDeclarationItemResult">
+        SELECT
+            <include refid="linkedProductColumns"/>,
+            COALESCE(h.is_tax, 0) AS is_tax,
+            (il.id IS NOT NULL) AS inventory_matched,
+            (il.id IS NOT NULL OR h.id IS NOT NULL) AS product_matched,
+            CAST(IF(b.quantity_in_case IS NOT NULL AND b.quantity_in_case REGEXP '^[0-9.]+$',
+                    CAST(b.quantity_in_case AS DECIMAL(12,4)), 1)
+                 * GREATEST(IFNULL(b.box_num, 1), 1) AS SIGNED) AS quantity,
+            CAST(GREATEST(IFNULL(b.box_num, 1), 1) AS SIGNED) AS box_count,
+            b.shipment_id AS source_order_no,
+            'FBA' AS declaration_source_type,
+            CAST(b.id AS CHAR) AS source_line_id,
+            b.sku AS raw_sku,
+            CASE
+                WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'DE' THEN 'FBA_DE'
+                WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci IN ('UK', 'GB') THEN 'FBA_UK'
+                WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'US' THEN 'FBA_US'
+                WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'FR' THEN 'FBA_FR'
+                ELSE 'UNKNOWN'
+            END AS warehouse_bucket,
+            COALESCE(CONCAT('FBA(', s.ship_to_country_code, ')'), 'FBA未知仓') AS warehouse_name,
+            CASE
+                WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci IN ('DE', 'UK', 'GB', 'US', 'FR') THEN 'MATCHED'
+                ELSE 'UNKNOWN_WAREHOUSE'
+            END AS match_status,
+            b.box_no AS box_no,
+            IF(b.box_weight REGEXP '^[0-9.]+$',
+               CAST(b.box_weight AS DECIMAL(12,4)) *
+               IF(UPPER(IFNULL(b.box_weight_unit, 'KG')) IN ('LB', 'LBS'), 0.45359237, 1),
+               h.packing_gross_weight) AS packing_gross_weight,
+            IF(b.box_length REGEXP '^[0-9.]+$', CAST(b.box_length AS DECIMAL(12,4)) *
+               IF(UPPER(IFNULL(b.box_dimensions_unit, 'CM')) IN ('IN', 'INCH'), 2.54, 1), h.box_length) AS box_length,
+            IF(b.box_width REGEXP '^[0-9.]+$', CAST(b.box_width AS DECIMAL(12,4)) *
+               IF(UPPER(IFNULL(b.box_dimensions_unit, 'CM')) IN ('IN', 'INCH'), 2.54, 1), h.box_width) AS box_width,
+            IF(b.box_height REGEXP '^[0-9.]+$', CAST(b.box_height AS DECIMAL(12,4)) *
+               IF(UPPER(IFNULL(b.box_dimensions_unit, 'CM')) IN ('IN', 'INCH'), 2.54, 1), h.box_height) AS box_height,
+            COALESCE(
+              IF(b.box_volume REGEXP '^[0-9.]+$', CAST(b.box_volume AS DECIMAL(12,6)), NULL),
+              IF(b.box_length REGEXP '^[0-9.]+$' AND b.box_width REGEXP '^[0-9.]+$' AND b.box_height REGEXP '^[0-9.]+$',
+                 CAST(b.box_length AS DECIMAL(12,4)) * CAST(b.box_width AS DECIMAL(12,4)) * CAST(b.box_height AS DECIMAL(12,4)) *
+                 POW(IF(UPPER(IFNULL(b.box_dimensions_unit, 'CM')) IN ('IN', 'INCH'), 2.54, 1), 3) / 1000000,
+                 h.packing_cbm)
+            ) AS packing_cbm
+        FROM amz_fba_shipment_box b
+        LEFT JOIN (
+            SELECT shipment_id, MAX(ship_to_country_code) AS ship_to_country_code
+            FROM amz_fba_shipment
+            GROUP BY shipment_id
+        ) s ON s.shipment_id COLLATE utf8mb4_unicode_ci = b.shipment_id COLLATE utf8mb4_unicode_ci
+        LEFT JOIN customs_inventory_list il ON il.id = (
+            SELECT i2.id
+            FROM customs_inventory_list i2
+            WHERE i2.sku IS NOT NULL AND i2.sku != ''
+              AND i2.sku_match_key = b.sku_match_key
+            <!-- FBA 与备货单都只比较当前自动剩余库存。 -->
+            ORDER BY
+              CASE
+                WHEN UPPER(i2.sku) LIKE 'JMH%' AND <include refid="candidateAvailableRemaining"/> &gt; 0 THEN 0
+                WHEN UPPER(i2.sku) NOT LIKE 'JMH%' AND <include refid="candidateAvailableRemaining"/> &gt; 0 THEN 1
+                WHEN UPPER(i2.sku) NOT LIKE 'JMH%' THEN 2
+                ELSE 3
+              END,
+              CASE WHEN UPPER(i2.sku) COLLATE utf8mb4_unicode_ci = UPPER(b.sku_match_key) COLLATE utf8mb4_unicode_ci THEN 0 ELSE 1 END,
+              i2.id DESC
+            LIMIT 1
+        )
+        LEFT JOIN customs_declaration_history h ON h.id = (
+            SELECT h2.id FROM customs_declaration_history h2
+            WHERE h2.sku_key COLLATE utf8mb4_0900_ai_ci = b.sku_match_key COLLATE utf8mb4_0900_ai_ci
+              AND (il.id IS NULL OR h2.product_code COLLATE utf8mb4_0900_ai_ci = IFNULL(il.product_code, '') COLLATE utf8mb4_0900_ai_ci OR h2.product_code = '')
+            ORDER BY
+              CASE WHEN il.id IS NOT NULL AND h2.sku COLLATE utf8mb4_0900_ai_ci = il.sku COLLATE utf8mb4_0900_ai_ci THEN 0 ELSE 1 END,
+              CASE WHEN il.id IS NOT NULL AND h2.product_code COLLATE utf8mb4_0900_ai_ci = IFNULL(il.product_code, '') COLLATE utf8mb4_0900_ai_ci THEN 0 ELSE 1 END,
+              h2.updated_at DESC, h2.id DESC
+            LIMIT 1
+        )
+        WHERE b.shipment_id IN
+        <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
+        <if test="fbaSkuKeys != null and fbaSkuKeys.size() > 0">
+          AND CONCAT(b.shipment_id, '|', b.sku) IN
+          <foreach collection="fbaSkuKeys" item="skuKey" open="(" separator="," close=")">#{skuKey}</foreach>
+        </if>
+        ORDER BY FIELD(b.shipment_id,
+        <foreach collection="shipments" item="shipment" separator=",">#{shipment}</foreach>
+        ), b.id
+    </select>
+
+    <select id="selectMissingSkusByFbaShipments" resultType="string">
+        SELECT DISTINCT b.sku
+        FROM amz_fba_shipment_box b
+        LEFT JOIN (
+            SELECT shipment_id, MAX(ship_to_country_code) AS ship_to_country_code
+            FROM amz_fba_shipment
+            GROUP BY shipment_id
+        ) s ON s.shipment_id COLLATE utf8mb4_unicode_ci = b.shipment_id COLLATE utf8mb4_unicode_ci
+        LEFT JOIN customs_inventory_list il ON il.id = (
+            SELECT i2.id
+            FROM customs_inventory_list i2
+            WHERE i2.sku IS NOT NULL AND i2.sku != ''
+              AND normalize_customs_sku_key(i2.sku) COLLATE utf8mb4_unicode_ci = normalize_customs_sku_key(b.sku) COLLATE utf8mb4_unicode_ci
+            ORDER BY
+              CASE
+                WHEN UPPER(i2.sku) LIKE 'JMH%' AND (
+                  CASE
+                    WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'DE' THEN COALESCE(i2.auto_fba_de_qty, i2.fba_de_qty, 0)
+                    WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci IN ('UK', 'GB') THEN COALESCE(i2.auto_fba_uk_qty, i2.fba_uk_qty, 0)
+                    WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'US' THEN COALESCE(i2.auto_fba_us_qty, i2.fba_us_qty, 0)
+                    WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'FR' THEN COALESCE(i2.auto_fba_fr_qty, i2.fba_fr_qty, 0)
+                    ELSE COALESCE(i2.auto_remaining_stock, i2.remaining_stock, 0)
+                  END
+                  - COALESCE((
+                    SELECT SUM(l.quantity)
+                    FROM customs_declaration_generate_log l
+                    WHERE l.standard_sku COLLATE utf8mb4_unicode_ci = i2.sku COLLATE utf8mb4_unicode_ci
+                      AND IFNULL(l.product_code, '') COLLATE utf8mb4_unicode_ci = IFNULL(i2.product_code, '') COLLATE utf8mb4_unicode_ci
+                      AND l.warehouse_bucket COLLATE utf8mb4_unicode_ci = (CASE
+                        WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'DE' THEN 'FBA_DE'
+                        WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci IN ('UK', 'GB') THEN 'FBA_UK'
+                        WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'US' THEN 'FBA_US'
+                        WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'FR' THEN 'FBA_FR'
+                        ELSE 'UNKNOWN'
+                      END) COLLATE utf8mb4_unicode_ci
+                  ), 0)
+                ) &gt; 0 THEN 0
+                WHEN UPPER(i2.sku) NOT LIKE 'JMH%' AND (
+                  CASE
+                    WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'DE' THEN COALESCE(i2.auto_fba_de_qty, i2.fba_de_qty, 0)
+                    WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci IN ('UK', 'GB') THEN COALESCE(i2.auto_fba_uk_qty, i2.fba_uk_qty, 0)
+                    WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'US' THEN COALESCE(i2.auto_fba_us_qty, i2.fba_us_qty, 0)
+                    WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'FR' THEN COALESCE(i2.auto_fba_fr_qty, i2.fba_fr_qty, 0)
+                    ELSE COALESCE(i2.auto_remaining_stock, i2.remaining_stock, 0)
+                  END
+                  - COALESCE((
+                    SELECT SUM(l.quantity)
+                    FROM customs_declaration_generate_log l
+                    WHERE l.standard_sku COLLATE utf8mb4_unicode_ci = i2.sku COLLATE utf8mb4_unicode_ci
+                      AND IFNULL(l.product_code, '') COLLATE utf8mb4_unicode_ci = IFNULL(i2.product_code, '') COLLATE utf8mb4_unicode_ci
+                      AND l.warehouse_bucket COLLATE utf8mb4_unicode_ci = (CASE
+                        WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'DE' THEN 'FBA_DE'
+                        WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci IN ('UK', 'GB') THEN 'FBA_UK'
+                        WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'US' THEN 'FBA_US'
+                        WHEN UPPER(IFNULL(s.ship_to_country_code, '')) COLLATE utf8mb4_unicode_ci = 'FR' THEN 'FBA_FR'
+                        ELSE 'UNKNOWN'
+                      END) COLLATE utf8mb4_unicode_ci
+                  ), 0)
+                ) &gt; 0 THEN 1
+                WHEN UPPER(i2.sku) NOT LIKE 'JMH%' THEN 2
+                ELSE 3
+              END,
+              i2.id
+            LIMIT 1
+        )
+        LEFT JOIN customs_declaration_product_view p
+            ON ((il.sku IS NOT NULL
+                 AND p.sku COLLATE utf8mb4_unicode_ci = il.sku COLLATE utf8mb4_unicode_ci
+                 AND IFNULL(p.product_code, '') COLLATE utf8mb4_unicode_ci = IFNULL(il.product_code, '') COLLATE utf8mb4_unicode_ci)
+                OR (il.sku IS NULL AND p.sku_key COLLATE utf8mb4_unicode_ci = normalize_customs_sku_key(b.sku) COLLATE utf8mb4_unicode_ci))
+        WHERE b.shipment_id IN
+        <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
+          <if test="fbaSkuKeys != null and fbaSkuKeys.size() > 0">
+          AND CONCAT(b.shipment_id, '|', b.sku) IN
+          <foreach collection="fbaSkuKeys" item="skuKey" open="(" separator="," close=")">#{skuKey}</foreach>
+          </if>
+          AND b.sku IS NOT NULL AND b.sku != ''
+          AND p.sku IS NULL
+        ORDER BY b.sku
+    </select>
+
+    <select id="selectMissingInventorySkusByFbaShipments" resultType="string">
+        SELECT DISTINCT b.sku
+        FROM amz_fba_shipment_box b
+        LEFT JOIN (
+            SELECT match_key FROM (
+                SELECT normalize_customs_sku_key(sku) AS match_key,
+                    ROW_NUMBER() OVER (PARTITION BY normalize_customs_sku_key(sku) ORDER BY id) AS rn
+                FROM customs_inventory_list WHERE sku IS NOT NULL AND sku != ''
+            ) ranked WHERE rn = 1
+        ) il ON normalize_customs_sku_key(b.sku) COLLATE utf8mb4_unicode_ci = il.match_key COLLATE utf8mb4_unicode_ci
+        WHERE b.shipment_id IN
+        <foreach collection="shipments" item="shipment" open="(" separator="," close=")">#{shipment}</foreach>
+          <if test="fbaSkuKeys != null and fbaSkuKeys.size() > 0">
+          AND CONCAT(b.shipment_id, '|', b.sku) IN
+          <foreach collection="fbaSkuKeys" item="skuKey" open="(" separator="," close=")">#{skuKey}</foreach>
+          </if>
+          AND b.sku IS NOT NULL AND b.sku != ''
+          AND il.match_key IS NULL
+        ORDER BY b.sku
+    </select>
+
+    <sql id="productInsertColumns">
+        sku, sku_key, product_code, description_cn, model, unit, unit_price_usd, currency, single_weight,
+        packing_net_weight, packing_gross_weight, packing_cbm, box_length, box_width, box_height, box_no,
+        hs_code, hs_description, origin_country, destination_country, source_location, exemption, is_tax,
+        source_type, source_file_name, source_sheet, source_row_no, updated_by
+    </sql>
+
+    <sql id="productInsertValues">
+        #{p.sku}, normalize_customs_sku_key(#{p.sku}), IFNULL(#{p.productCode}, ''), #{p.descriptionCn}, #{p.model}, #{p.unit}, #{p.unitPriceUsd}, #{p.currency},
+        #{p.singleWeight}, #{p.packingNetWeight}, #{p.packingGrossWeight}, #{p.packingCbm},
+        #{p.boxLength}, #{p.boxWidth}, #{p.boxHeight}, #{p.boxNo}, IFNULL(#{p.hsCode}, ''), #{p.hsDescription}, IFNULL(#{p.originCountry}, '中国'),
+        IFNULL(#{p.destinationCountry}, ''), IFNULL(#{p.sourceLocation}, ''), IFNULL(#{p.exemption}, ''), IFNULL(#{p.isTax}, 0),
+        IFNULL(#{p.sourceType}, 'IMPORT'), #{p.sourceFileName}, #{p.sourceSheet}, #{p.sourceRowNo}, #{p.updatedBy}
+    </sql>
+
+    <insert id="batchInsert">
+        INSERT INTO customs_declaration_history
+        (<include refid="productInsertColumns"/>)
+        VALUES
+        <foreach collection="products" item="p" separator=",">
+            (<include refid="productInsertValues"/>)
+        </foreach>
+    </insert>
+
+    <insert id="batchUpsert">
+        INSERT INTO customs_declaration_history
+        (<include refid="productInsertColumns"/>)
+        VALUES
+        <foreach collection="products" item="p" separator=",">
+            (<include refid="productInsertValues"/>)
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+            description_cn = VALUES(description_cn),
+            model = VALUES(model),
+            unit = VALUES(unit),
+            unit_price_usd = VALUES(unit_price_usd),
+            currency = VALUES(currency),
+            single_weight = VALUES(single_weight),
+            packing_net_weight = VALUES(packing_net_weight),
+            packing_gross_weight = VALUES(packing_gross_weight),
+            packing_cbm = VALUES(packing_cbm),
+            box_length = VALUES(box_length),
+            box_width = VALUES(box_width),
+            box_height = VALUES(box_height),
+            box_no = VALUES(box_no),
+            hs_code = VALUES(hs_code),
+            hs_description = VALUES(hs_description),
+            origin_country = VALUES(origin_country),
+            destination_country = VALUES(destination_country),
+            source_location = VALUES(source_location),
+            exemption = VALUES(exemption),
+            is_tax = VALUES(is_tax),
+            sku_key = VALUES(sku_key),
+            source_type = VALUES(source_type),
+            source_file_name = VALUES(source_file_name),
+            source_sheet = VALUES(source_sheet),
+            source_row_no = VALUES(source_row_no),
+            updated_by = VALUES(updated_by),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+</mapper>

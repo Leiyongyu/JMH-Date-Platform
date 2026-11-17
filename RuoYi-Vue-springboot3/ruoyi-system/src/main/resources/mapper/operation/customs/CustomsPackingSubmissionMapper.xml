@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.customs.CustomsPackingSubmissionMapper">
+
+    <resultMap id="SubmissionResult"
+               type="com.ruoyi.system.domain.operation.customs.CustomsPackingSubmission">
+        <id property="id" column="id"/>
+        <result property="inboundPlanId" column="inbound_plan_id"/>
+        <result property="sid" column="sid"/>
+        <result property="positionType" column="position_type"/>
+        <result property="status" column="status"/>
+        <result property="taskId" column="task_id"/>
+        <result property="payloadHash" column="payload_hash"/>
+        <result property="requestBody" column="request_body"/>
+        <result property="initialResponseBody" column="initial_response_body"/>
+        <result property="finalResponseBody" column="final_response_body"/>
+        <result property="requestId" column="request_id"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="attemptCount" column="attempt_count"/>
+        <result property="operator" column="operator"/>
+        <result property="submitTime" column="submit_time"/>
+        <result property="successTime" column="success_time"/>
+        <result property="failedTime" column="failed_time"/>
+        <result property="lastPollTime" column="last_poll_time"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="savedShipmentCount" column="saved_shipment_count"/>
+        <result property="expectedShipmentCount" column="expected_shipment_count"/>
+        <result property="boxCount" column="box_count"/>
+        <result property="lastSavedTime" column="last_saved_time"/>
+    </resultMap>
+
+    <resultMap id="SavedPayloadResult"
+               type="com.ruoyi.system.domain.operation.customs.CustomsPackingSavedPayload">
+        <id property="logId" column="log_id"/>
+        <result property="inboundPlanId" column="inbound_plan_id"/>
+        <result property="shipmentId" column="shipment_id"/>
+        <result property="sid" column="sid"/>
+        <result property="requestBody" column="request_body"/>
+        <result property="successTime" column="success_time"/>
+    </resultMap>
+
+    <sql id="LatestSavedCte">
+        WITH saved_source AS (
+            SELECT
+                l.id AS log_id,
+                JSON_UNQUOTE(JSON_EXTRACT(l.request_body, '$.inboundPlanId'))
+                    AS inbound_plan_id,
+                JSON_UNQUOTE(JSON_EXTRACT(l.request_body, '$.shipmentId'))
+                    AS shipment_id,
+                CAST(JSON_UNQUOTE(JSON_EXTRACT(l.request_body, '$.sid')) AS UNSIGNED)
+                    AS sid,
+                JSON_EXTRACT(l.request_body, '$.boxes') AS boxes_json,
+                l.request_body,
+                l.success_time,
+                ROW_NUMBER() OVER (
+                    PARTITION BY
+                        JSON_UNQUOTE(JSON_EXTRACT(l.request_body, '$.inboundPlanId')),
+                        JSON_UNQUOTE(JSON_EXTRACT(l.request_body, '$.shipmentId'))
+                    ORDER BY l.id DESC
+                ) AS row_num
+            FROM customs_shipment_fee_import_log l
+            WHERE l.business_type = 'PACKING_INFO'
+              AND l.status = 'SUCCESS'
+              AND l.request_body IS NOT NULL
+              AND JSON_VALID(l.request_body)
+              AND JSON_UNQUOTE(JSON_EXTRACT(l.request_body, '$.inboundPlanId')) IS NOT NULL
+              AND JSON_UNQUOTE(JSON_EXTRACT(l.request_body, '$.shipmentId')) IS NOT NULL
+        )
+    </sql>
+
+    <select id="selectCandidateList" resultMap="SubmissionResult">
+        <include refid="LatestSavedCte"/>
+        SELECT
+            sub.id,
+            saved.inbound_plan_id,
+            MAX(saved.sid) AS sid,
+            MAX(plan.position_type) AS position_type,
+            COALESCE(sub.status, 'READY') AS status,
+            sub.task_id,
+            sub.payload_hash,
+            sub.request_body,
+            sub.initial_response_body,
+            sub.final_response_body,
+            sub.request_id,
+            sub.error_message,
+            COALESCE(sub.attempt_count, 0) AS attempt_count,
+            sub.operator,
+            sub.submit_time,
+            sub.success_time,
+            sub.failed_time,
+            sub.last_poll_time,
+            sub.create_time,
+            sub.update_time,
+            COUNT(DISTINCT saved.shipment_id) AS saved_shipment_count,
+            (
+                SELECT COUNT(*)
+                FROM lingxing_sta_inbound_plan_shipment ps
+                WHERE ps.inbound_plan_id = saved.inbound_plan_id
+            ) AS expected_shipment_count,
+            COALESCE(SUM(JSON_LENGTH(saved.boxes_json)), 0) AS box_count,
+            MAX(saved.success_time) AS last_saved_time
+        FROM saved_source saved
+        LEFT JOIN lingxing_sta_inbound_plan plan
+          ON plan.inbound_plan_id = saved.inbound_plan_id
+        LEFT JOIN customs_packing_submission sub
+          ON sub.inbound_plan_id = saved.inbound_plan_id
+        WHERE saved.row_num = 1
+        <if test="inboundPlanId != null and inboundPlanId != ''">
+            AND saved.inbound_plan_id LIKE CONCAT('%', #{inboundPlanId}, '%')
+        </if>
+        <if test="status != null and status != ''">
+            AND COALESCE(sub.status, 'READY') = #{status}
+        </if>
+        GROUP BY saved.inbound_plan_id, sub.id
+        ORDER BY MAX(saved.success_time) DESC, saved.inbound_plan_id
+    </select>
+
+    <select id="selectLatestSavedPayloads" resultMap="SavedPayloadResult">
+        <include refid="LatestSavedCte"/>
+        SELECT log_id, inbound_plan_id, shipment_id, sid, request_body, success_time
+        FROM saved_source
+        WHERE row_num = 1
+          AND inbound_plan_id = #{inboundPlanId}
+        ORDER BY shipment_id
+    </select>
+
+    <select id="selectPositionTypeByInboundPlanId" resultType="java.lang.Integer">
+        SELECT position_type
+        FROM lingxing_sta_inbound_plan
+        WHERE inbound_plan_id = #{inboundPlanId}
+        ORDER BY gmt_modified DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <select id="countExpectedShipments" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM lingxing_sta_inbound_plan_shipment
+        WHERE inbound_plan_id = #{inboundPlanId}
+    </select>
+
+    <select id="selectById" resultMap="SubmissionResult">
+        SELECT * FROM customs_packing_submission WHERE id = #{id}
+    </select>
+
+    <select id="selectByInboundPlanId" resultMap="SubmissionResult">
+        SELECT * FROM customs_packing_submission
+        WHERE inbound_plan_id = #{inboundPlanId}
+    </select>
+
+    <select id="selectPending" resultMap="SubmissionResult">
+        SELECT *
+        FROM customs_packing_submission
+        WHERE status IN ('PROCESSING', 'UNKNOWN')
+          AND task_id IS NOT NULL
+          AND task_id &lt;&gt; ''
+        ORDER BY COALESCE(last_poll_time, submit_time), id
+        LIMIT #{limit}
+    </select>
+
+    <insert id="insertReady" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO customs_packing_submission (
+            inbound_plan_id, sid, position_type, status, attempt_count
+        ) VALUES (
+            #{inboundPlanId}, #{sid}, #{positionType}, 'READY', 0
+        )
+        ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
+    </insert>
+
+    <update id="claimForSubmit">
+        UPDATE customs_packing_submission
+        SET status = 'SUBMITTING',
+            operator = #{operator},
+            submit_time = CURRENT_TIMESTAMP(3),
+            success_time = NULL,
+            failed_time = NULL,
+            error_message = NULL,
+            initial_response_body = NULL,
+            final_response_body = NULL,
+            request_id = NULL,
+            task_id = NULL,
+            last_poll_time = NULL,
+            attempt_count = attempt_count + 1,
+            update_time = CURRENT_TIMESTAMP
+        WHERE inbound_plan_id = #{inboundPlanId}
+          AND status IN ('READY', 'FAILED')
+    </update>
+
+    <update id="updatePrepared">
+        UPDATE customs_packing_submission
+        SET sid = #{sid},
+            position_type = #{positionType},
+            payload_hash = #{payloadHash},
+            request_body = #{requestBody},
+            update_time = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND status = 'SUBMITTING'
+    </update>
+
+    <update id="updateAfterSubmit">
+        UPDATE customs_packing_submission
+        SET status = #{status},
+            task_id = #{taskId},
+            request_id = #{requestId},
+            initial_response_body = #{responseBody},
+            error_message = #{errorMessage},
+            success_time = CASE WHEN #{status} = 'SUCCESS'
+                                THEN CURRENT_TIMESTAMP(3) ELSE NULL END,
+            failed_time = CASE WHEN #{status} = 'FAILED'
+                               THEN CURRENT_TIMESTAMP(3) ELSE NULL END,
+            last_poll_time = CASE WHEN #{status} IN ('PROCESSING', 'UNKNOWN')
+                                  THEN CURRENT_TIMESTAMP(3) ELSE last_poll_time END,
+            update_time = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateAfterPoll">
+        UPDATE customs_packing_submission
+        SET status = #{status},
+            request_id = COALESCE(#{requestId}, request_id),
+            final_response_body = #{responseBody},
+            error_message = #{errorMessage},
+            success_time = CASE WHEN #{status} = 'SUCCESS'
+                                THEN CURRENT_TIMESTAMP(3) ELSE success_time END,
+            failed_time = CASE WHEN #{status} = 'FAILED'
+                               THEN CURRENT_TIMESTAMP(3) ELSE failed_time END,
+            last_poll_time = CURRENT_TIMESTAMP(3),
+            update_time = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND status IN ('PROCESSING', 'UNKNOWN')
+    </update>
+
+</mapper>

@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>每日工作台</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#F6F5FA;
+    --card:#FFFFFF;
+    --text-primary:#202124;
+    --text-muted:#5F6368;
+    --text-light:#9AA0A6;
+    --border:#C9CDD4;
+    --track:#DADCE0;
+    --red:#EA4335;   --red-tint:#FDECEA;
+    --blue:#4285F4;  --blue-tint:#E8F0FE;
+    --amber:#F9AB00; --amber-tint:#FEF7E0;
+    --green:#34A853; --green-tint:#E6F4EA;
+    --shadow:0 4px 16px rgba(0,0,0,0.06);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC","Helvetica Neue",Arial,sans-serif;
+    color:var(--text-primary);
+    -webkit-font-smoothing:antialiased;
+  }
+  /* 缩放舞台：把 1440×900 设计稿等比缩放居中 */
+  .stage{
+    position:fixed;inset:0;overflow:hidden;
+    background:#E8E7F0;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .app{
+    width:1440px;height:900px;
+    background:var(--bg);
+    transform-origin:center center;
+    display:flex;flex-direction:column;
+    box-shadow:0 0 60px rgba(0,0,0,0.10);
+    overflow:hidden;
+  }
+  /* ===== 顶栏 ===== */
+  .header{
+    height:64px;flex:0 0 64px;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 24px;
+  }
+  .header-left{display:flex;align-items:center;gap:12px;}
+  .logo{display:flex;}
+  .app-title{font-size:24px;font-weight:700;letter-spacing:0;}
+  .quote-text{
+    font-size:13px;color:var(--text-muted);font-weight:400;
+    margin-left:16px;padding-left:16px;border-left:1px solid var(--border);
+    max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    opacity:0.8;transition:opacity 0.3s;cursor:pointer;
+  }
+  .quote-text:hover{opacity:1;color:var(--text-primary);}
+  .header-right{display:flex;align-items:center;gap:12px;}
+  .date-chip{
+    display:flex;align-items:center;gap:8px;
+    padding:8px 14px;border-radius:999px;background:#F1F0F6;
+    font-size:13px;color:var(--text-muted);
+  }
+  .btn-primary{
+    display:flex;align-items:center;gap:6px;
+    padding:10px 16px;border-radius:10px;border:none;cursor:pointer;
+    background:var(--text-primary);color:#fff;
+    font-size:14px;font-weight:500;font-family:inherit;
+  }
+  .btn-primary:hover{background:#3c4043;}
+  /* ===== 内容区 ===== */
+  .content{
+    flex:1;min-height:0;
+    display:flex;gap:16px;
+    padding:0 24px 24px;
+  }
+  .quadrant-area{flex:1;display:flex;flex-direction:column;gap:16px;min-width:0;}
+  .row{flex:1;display:flex;gap:16px;min-height:0;}
+  /* ===== 象限卡片 ===== */
+  .card{
+    flex:1;min-width:0;
+    background:var(--card);border-radius:16px;box-shadow:var(--shadow);
+    padding:20px;display:flex;flex-direction:column;gap:14px;
+  }
+  .card-head{display:flex;align-items:center;gap:12px;}
+  .badge{
+    width:40px;height:40px;border-radius:12px;flex:0 0 40px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .card-title{font-size:16px;font-weight:600;flex:1;}
+  .count{
+    padding:4px 10px;border-radius:999px;font-size:12px;font-weight:500;
+  }
+  .task-list{flex:1;display:flex;flex-direction:column;gap:12px;overflow-y:auto;min-height:0;}
+  .task{display:flex;align-items:center;gap:10px;}
+  .task .check{
+    width:20px;height:20px;flex:0 0 20px;border:none;background:none;padding:0;cursor:pointer;display:flex;
+  }
+  .task .check svg{width:20px;height:20px;}
+  .task .text{flex:1;font-size:14px;color:var(--text-primary);word-break:break-all;}
+  .task.done .text{color:var(--text-light);text-decoration:line-through;}
+  .task .del{
+    width:16px;height:16px;flex:0 0 16px;border:none;background:none;padding:0;cursor:pointer;display:flex;
+    opacity:0;transition:opacity .15s;
+  }
+  .task:hover .del{opacity:1;}
+  .task .del:hover svg path{stroke:#EA4335;}
+  .task .del svg{width:16px;height:16px;}
+  .add-task{
+    display:flex;align-items:center;gap:8px;
+    padding:10px 12px;border-radius:10px;cursor:pointer;border:none;width:100%;
+    font-family:inherit;
+  }
+  .add-task:hover{filter:brightness(0.96);}
+  .add-task svg{width:16px;height:16px;flex:0 0 16px;}
+  .add-task .add-label{font-size:13px;font-weight:500;}
+  .task .text .req{color:var(--text-light);white-space:pre-line;}
+  /* 添加任务弹窗 */
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(0,0,0,0.32);z-index:100;
+    display:flex;align-items:center;justify-content:center;
+    opacity:0;pointer-events:none;transition:opacity .18s;
+  }
+  .modal-overlay.show{opacity:1;pointer-events:auto;}
+  .modal{
+    width:420px;max-width:calc(100vw - 48px);background:#fff;border-radius:16px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.25);padding:24px;
+    display:flex;flex-direction:column;gap:8px;
+    transform:translateY(14px);transition:transform .18s;
+  }
+  .modal-overlay.show .modal{transform:translateY(0);}
+  .modal h3{font-size:16px;font-weight:600;}
+  .modal label{font-size:13px;color:var(--text-muted);margin-top:8px;}
+  .modal label .star{color:var(--red);}
+  .modal label .opt{color:var(--text-light);}
+  .modal input,.modal textarea{
+    border:1px solid var(--border);border-radius:8px;padding:10px 12px;
+    font-size:14px;font-family:inherit;outline:none;resize:none;color:var(--text-primary);
+  }
+  .modal input:focus,.modal textarea:focus{border-color:var(--blue);}
+  .modal textarea{min-height:76px;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px;}
+  .btn-cancel,.btn-confirm{padding:8px 16px;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit;}
+  .btn-cancel{background:#F1F0F6;border:none;color:var(--text-muted);}
+  .btn-cancel:hover{background:#E7E6EE;}
+  .btn-confirm{background:var(--text-primary);border:none;color:#fff;font-weight:500;}
+  .btn-confirm:hover{background:#3c4043;}
+  .export-options{display:flex;flex-direction:column;gap:10px;margin-top:8px;}
+  .radio-label{
+    display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;
+    padding:8px 12px;border-radius:8px;transition:background .15s;
+  }
+  .radio-label:hover{background:#F5F4F9;}
+  .radio-label input[type="radio"]{
+    width:16px;height:16px;accent-color:var(--text-primary);cursor:pointer;
+  }
+  /* ===== 右侧面板 ===== */
+  .panel{
+    width:300px;flex:0 0 300px;
+    background:var(--card);border-radius:16px;box-shadow:var(--shadow);
+    padding:20px;display:flex;flex-direction:column;gap:12px;
+    overflow-y:auto;
+    min-height:0;
+  }
+  .panel-title{font-size:16px;font-weight:600;}
+  .donut-wrap{display:flex;align-items:center;justify-content:center;height:160px;}
+  .donut{position:relative;width:160px;height:160px;}
+  .donut svg{width:160px;height:160px;display:block;}
+  .donut-center{
+    position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;pointer-events:none;
+  }
+  .donut-center .pct{font-size:26px;font-weight:700;line-height:1;}
+  .donut-center .lbl{font-size:12px;color:var(--text-muted);margin-top:4px;}
+  .legend{display:flex;flex-direction:column;gap:8px;}
+  .legend-row{display:flex;align-items:center;gap:8px;font-size:13px;}
+  .legend-row .dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px;}
+  .legend-row .name{flex:1;color:var(--text-muted);}
+  .legend-row .cnt{font-weight:500;}
+  .divider{height:1px;background:#EEF0F3;}
+  .summary{
+    display:flex;align-items:center;justify-content:space-between;
+    font-size:13px;color:var(--text-muted);
+  }
+  /* 删除菜单 */
+  .ctx-menu{
+    position:fixed;z-index:120;background:#fff;border-radius:10px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.16);padding:6px;min-width:120px;
+    flex-direction:column;display:none;
+  }
+  .ctx-menu.show{display:flex;}
+  .ctx-item{
+    display:block;width:100%;text-align:left;border:none;background:none;
+    padding:8px 12px;border-radius:7px;font-size:13px;cursor:pointer;font-family:inherit;color:var(--text-primary);
+  }
+  .ctx-item:hover{background:#F5F4F9;}
+  .ctx-item.danger{color:var(--red);}
+  .ctx-item.danger:hover{background:#FDECEA;}
+  /* 特殊任务 */
+  .special{display:flex;flex-direction:column;gap:10px;min-height:120px;}
+  .special-head{display:flex;align-items:center;justify-content:space-between;}
+  .special-title{font-size:14px;font-weight:600;color:var(--text-muted);}
+  .special-add{
+    display:flex;align-items:center;gap:4px;border:none;background:none;
+    padding:3px 6px;cursor:pointer;font-size:13px;color:#7C5CFC;font-family:inherit;border-radius:6px;
+  }
+  .special-add:hover{background:#F1ECFE;}
+  .special-list{overflow-y:auto;display:flex;flex-direction:column;gap:10px;max-height:200px;}
+  .special-empty{font-size:12px;color:var(--text-light);padding:6px 0;}
+  /* 导入导出 */
+  .panel-footer{display:flex;gap:8px;justify-content:flex-end;}
+  .util-btn{
+    border:none;background:none;font-size:12px;color:var(--text-light);cursor:pointer;
+    padding:4px 8px;border-radius:6px;font-family:inherit;
+  }
+  .util-btn:hover{background:#F1F0F6;color:var(--text-muted);}
+  /* 数据统计 */
+  .stats{display:flex;flex-direction:column;gap:12px;}
+  .stats-title{font-size:14px;font-weight:600;color:var(--text-muted);}
+  .chart-wrap{height:140px;display:flex;align-items:flex-end;justify-content:space-between;gap:8px;padding:0 4px;}
+  .chart-bar-group{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;}
+  .chart-bar{
+    width:100%;border-radius:6px 6px 0 0;min-height:4px;transition:height .3s;
+    position:relative;
+  }
+  .chart-bar:hover{filter:brightness(0.95);}
+  .chart-bar .tooltip{
+    position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
+    background:#202124;color:#fff;padding:4px 8px;border-radius:6px;font-size:11px;
+    white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .15s;
+  }
+  .chart-bar:hover .tooltip{opacity:1;}
+  .chart-label{font-size:11px;color:var(--text-light);}
+  .chart-empty{
+    flex:1;display:flex;align-items:center;justify-content:center;
+    font-size:13px;color:var(--text-light);
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="app" id="app">
+
+    <header class="header">
+      <div class="header-left">
+        <span class="logo">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="2" width="15" height="15" rx="4" fill="#EA4335"/>
+            <rect x="19" y="2" width="15" height="15" rx="4" fill="#4285F4"/>
+            <rect x="2" y="19" width="15" height="15" rx="4" fill="#F9AB00"/>
+            <rect x="19" y="19" width="15" height="15" rx="4" fill="#34A853"/>
+          </svg>
+        </span>
+        <h1 class="app-title">每日工作台</h1>
+        <span class="quote-text" id="quote-text"></span>
+      </div>
+      <div class="header-right">
+        <div class="date-chip">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" stroke="#5F6368" stroke-width="2"/>
+            <path d="M8 2v4M16 2v4M3 10h18" stroke="#5F6368" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <span id="date-text"></span>
+        </div>
+      </div>
+    </header>
+
+    <main class="content">
+      <div class="quadrant-area" id="quadrant-area"></div>
+      <aside class="panel">
+        <h2 class="panel-title">任务总进度</h2>
+        <div class="donut-wrap">
+          <div class="donut">
+            <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="100" cy="100" r="55" stroke="#DADCE0" stroke-width="16"/>
+              <g transform="rotate(-90 100 100)">
+                <circle class="seg" data-seg="red"   cx="100" cy="100" r="55" stroke="#EA4335" stroke-width="16" stroke-linecap="round" fill="none"/>
+                <circle class="seg" data-seg="blue"  cx="100" cy="100" r="55" stroke="#4285F4" stroke-width="16" stroke-linecap="round" fill="none"/>
+                <circle class="seg" data-seg="amber" cx="100" cy="100" r="55" stroke="#F9AB00" stroke-width="16" stroke-linecap="round" fill="none"/>
+                <circle class="seg" data-seg="green" cx="100" cy="100" r="55" stroke="#34A853" stroke-width="16" stroke-linecap="round" fill="none"/>
+              </g>
+            </svg>
+            <div class="donut-center">
+              <div class="pct" id="pct">0%</div>
+              <div class="lbl">已完成</div>
+            </div>
+          </div>
+        </div>
+        <div class="legend" id="legend"></div>
+        <div class="divider"></div>
+        <div class="summary">
+          <span id="sum-done">已完成 0 项</span>
+          <span id="sum-total">共 0 项</span>
+        </div>
+        <div class="divider"></div>
+        <div class="stats">
+          <h3 class="stats-title">近7天完成趋势</h3>
+          <div class="chart-wrap" id="chart-wrap"></div>
+        </div>
+        <div class="divider"></div>
+        <div class="special">
+          <div class="special-head">
+            <span class="special-title">特殊任务</span>
+            <button class="special-add" id="special-add">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="#7C5CFC" stroke-width="2" stroke-linecap="round"/></svg>
+              <span>添加</span>
+            </button>
+          </div>
+          <div class="special-list" id="special-list"></div>
+        </div>
+        <div class="panel-footer">
+          <button class="util-btn" id="btn-export">导出工作结果</button>
+        </div>
+      </aside>
+    </main>
+
+  </div>
+</div>
+
+<!-- 添加任务弹窗 -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h3>添加任务</h3>
+    <label>任务名称 <span class="star">*</span></label>
+    <input type="text" id="modal-name" placeholder="例如：处理议价">
+    <label>任务要求 <span class="opt">（选填）</span></label>
+    <textarea id="modal-req" placeholder="例如：工作时间早中晚处理三次，节假日时间早晚各一次"></textarea>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="modal-cancel">取消</button>
+      <button class="btn-confirm" id="modal-confirm">添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- 删除菜单 -->
+<div class="ctx-menu" id="ctx-menu">
+  <button class="ctx-item" data-menu="skip">仅今天</button>
+  <button class="ctx-item danger" data-menu="delete">永久删除</button>
+</div>
+
+<!-- 导出弹窗 -->
+<div class="modal-overlay" id="export-modal">
+  <div class="modal">
+    <h3>导出工作结果</h3>
+    <label>导出周期</label>
+    <div class="export-options">
+      <label class="radio-label"><input type="radio" name="export-period" value="today" checked> 今天</label>
+      <label class="radio-label"><input type="radio" name="export-period" value="7days"> 近7天</label>
+      <label class="radio-label"><input type="radio" name="export-period" value="30days"> 近30天</label>
+    </div>
+    <label>导出格式</label>
+    <div class="export-options">
+      <label class="radio-label"><input type="radio" name="export-format" value="text" checked> 纯文本（.txt）</label>
+      <label class="radio-label"><input type="radio" name="export-format" value="excel"> Excel表格（.xlsx）</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="export-cancel">取消</button>
+      <button class="btn-confirm" id="export-confirm">导出</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  /* ===== 数据模型 ===== */
+  const ICON = {
+    lightning:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" stroke="#EA4335" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    target:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#4285F4" stroke-width="2"/><circle cx="12" cy="12" r="5" stroke="#4285F4" stroke-width="2"/><circle cx="12" cy="12" r="1.5" fill="#4285F4"/></svg>',
+    bell:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke="#F9AB00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.73 21a2 2 0 0 1-3.46 0" stroke="#F9AB00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    coffee:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M17 8h1a4 4 0 1 1 0 8h-1" stroke="#34A853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z" stroke="#34A853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 2v2M10 2v2M14 2v2" stroke="#34A853" stroke-width="2" stroke-linecap="round"/></svg>'
+  };
+
+  const QUADRANTS = [
+    { id:'daily',    name:'每天任务',   period:'daily',    color:'#EA4335', tint:'#FDECEA', deep:'#C5221F', icon:ICON.lightning, tasks:[] },
+    { id:'weekly',   name:'每周任务',   period:'weekly',   color:'#4285F4', tint:'#E8F0FE', deep:'#1A73E8', icon:ICON.target,    tasks:[] },
+    { id:'biweekly', name:'每两周任务', period:'biweekly', color:'#F9AB00', tint:'#FEF7E0', deep:'#B06000', icon:ICON.bell,      tasks:[] },
+    { id:'monthly',  name:'每月任务',   period:'monthly',  color:'#34A853', tint:'#E6F4EA', deep:'#188038', icon:ICON.coffee,    tasks:[] }
+  ];
+
+  const DEFAULTS = {
+    daily:[
+      {name:'处理议价', requirement:'工作时间早中晚处理三次；节假日时间早晚各一次', done:false},
+      {name:'订单核实', requirement:'1.不得出现人为原因导致毛利为负，最高库龄小于90天产品不得出现利润为负（特殊情况除外）\n2.不得出现多个账号同时超卖，人为原因没有把数量调整到位（特殊情况除外）\n3.高库龄高仓租优先交接清理，订单发出之前交接到位', done:false},
+      {name:'市场核实', requirement:'不得出现高库销比未及时跟市场调价，低库销比负利润或者未申请补货', done:false}
+    ],
+    weekly:[
+      {name:'成都仓分货', requirement:'不得出现因为分仓失误导致的海外库存积压', done:false},
+      {name:'Listing数量核实', requirement:'1.不得出现因为数量没及时调0导致的超卖\n2.不得出现因为数量没有及时补，导致数量卖为0，热卖listing断货', done:false},
+      {name:'周销量下滑产品核实', requirement:'不得出现周销量下滑产品未做出任何原因分析处理结论', done:false},
+      {name:'平台活动跟进报名', requirement:'不得出现漏报名，错报名的listing', done:false},
+      {name:'店铺促销活动跟进', requirement:'保证店铺活动占比大于50%，不得低于50%', done:false}
+    ],
+    biweekly:[
+      {name:'新品开发确认量', requirement:'不得出现因为市场核实不到位导致的新品积压无动销，或者新品负利润销售', done:false},
+      {name:'补货计划提交', requirement:'不得出现低库销比产品负利润销售；低库销比毛利大于16%的产品无补货计划', done:false},
+      {name:'高库龄高库销比积压促销清仓', requirement:'不得出现积压产品高利润且未跟市场热卖价调整价格', done:false}
+    ],
+    monthly:[
+      {name:'30天未售商品核实', requirement:'不得出现30天未售产品未做出任何原因分析处理结论', done:false},
+      {name:'重点SKU深度优化', requirement:'不得出现重点sku积压未跟市场优化的listing', done:false},
+      {name:'二手产品处理', requirement:'不得出现退货产品超过30天未上架，上架一直无动销', done:false},
+      {name:'市占率核实补Listing', requirement:'不得出现低于规则的listing条数', done:false},
+      {name:'售后优化', requirement:'不得出现售后问题未给出解决方案的产品，且连续3月持续出现相同问题', done:false},
+      {name:'订单翻新', requirement:'不得出现上架时间超过90天未翻新的产品', done:false}
+    ]
+  };
+
+  const DEFAULT_SPECIAL = [
+    {name:'新品上架', requirement:'新品到货时处理', done:false}
+  ];
+
+  const KEY = 'workbench-tasks-v3';
+  const HISTORY_KEY = 'workbench-history-v1';
+  const HISTORY_DAYS = 90; // 保留最近90天数据
+
+  /* ===== 周期计算 ===== */
+  function pad(n){ return (n < 10 ? '0' : '') + n; }
+  function dateKey(d){ return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
+  function mondayOf(d){
+    const day = (d.getDay() + 6) % 7; // 0=周一 ... 6=周日
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() - day);
+  }
+  function periodKey(period, d){
+    if(period === 'daily') return dateKey(d);
+    if(period === 'weekly') return dateKey(mondayOf(d));
+    if(period === 'biweekly'){
+      const monday = mondayOf(d);
+      const ANCHOR = new Date(2026, 0, 5); // 一个周一，作为双周锚点
+      const weeks = Math.round((monday.getTime() - ANCHOR.getTime()) / (7 * 86400000));
+      const start = new Date(ANCHOR.getTime() + Math.floor(weeks / 2) * 14 * 86400000);
+      return dateKey(start);
+    }
+    return d.getFullYear() + '-' + pad(d.getMonth()+1); // monthly
+  }
+
+  /* ===== 状态：任务列表 + 每象限当前周期 ===== */
+  let state = { lastKeys:{}, tasks:{} };
+  function load(){
+    try{
+      const raw = localStorage.getItem(KEY);
+      if(raw){ const s = JSON.parse(raw); if(s && s.tasks) return s; }
+    }catch(e){}
+    return null;
+  }
+  function save(){
+    try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){}
+  }
+
+  /* ===== 历史数据 ===== */
+  function loadHistory(){
+    try{
+      const raw = localStorage.getItem(HISTORY_KEY);
+      if(raw){ const h = JSON.parse(raw); if(h && typeof h === 'object') return h; }
+    }catch(e){}
+    return {};
+  }
+  function saveHistory(history){
+    try{ localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); }catch(e){}
+  }
+  function cleanupHistory(history){
+    const keys = Object.keys(history).sort();
+    if(keys.length > HISTORY_DAYS){
+      keys.slice(0, keys.length - HISTORY_DAYS).forEach(k => delete history[k]);
+    }
+    return history;
+  }
+  function recordDailyStats(){
+    const today = dateKey(new Date());
+    const history = loadHistory();
+    const stats = {};
+    QUADRANTS.forEach(q => {
+      const active = activeTasks(q);
+      const done = active.filter(t => t.done).length;
+      stats[q.id] = { done: done, total: active.length };
+    });
+    history[today] = stats;
+    saveHistory(cleanupHistory(history));
+  }
+  function getHistoryData(days){
+    const history = loadHistory();
+    const result = [];
+    const now = new Date();
+    for(let i = days - 1; i >= 0; i--){
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const key = dateKey(d);
+      const stats = history[key] || null;
+      let totalDone = 0, totalTasks = 0;
+      if(stats){
+        QUADRANTS.forEach(q => {
+          if(stats[q.id]){
+            totalDone += stats[q.id].done;
+            totalTasks += stats[q.id].total;
+          }
+        });
+      }
+      result.push({
+        date: key,
+        label: (d.getMonth()+1) + '/' + d.getDate(),
+        pct: totalTasks > 0 ? Math.round(totalDone / totalTasks * 100) : 0,
+        stats: stats
+      });
+    }
+    return result;
+  }
+
+  // 初始化任务
+  const saved = load();
+  QUADRANTS.forEach(q => {
+    if(saved && saved.tasks && saved.tasks[q.id]){
+      state.tasks[q.id] = saved.tasks[q.id];
+    }else{
+      state.tasks[q.id] = DEFAULTS[q.id].map(t => ({name:t.name, requirement:t.requirement, done:t.done, skipped:false}));
+    }
+    state.lastKeys[q.id] = (saved && saved.lastKeys && saved.lastKeys[q.id]) || null;
+    q.tasks = state.tasks[q.id];
+  });
+  state.special = (saved && saved.special) ? saved.special : DEFAULT_SPECIAL.map(t => ({...t}));
+
+  // 周期刷新：首次只记录周期（保留默认勾选），周期变化才清空 done / skipped
+  function resetIfNeeded(){
+    const now = new Date();
+    let changed = false;
+    QUADRANTS.forEach(q => {
+      const key = periodKey(q.period, now);
+      if(state.lastKeys[q.id] === null){
+        state.lastKeys[q.id] = key;
+      }else if(state.lastKeys[q.id] !== key){
+        q.tasks.forEach(t => { t.done = false; t.skipped = false; });
+        state.lastKeys[q.id] = key;
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  /* ===== 图标工具 ===== */
+  function checkSvg(color){
+    return '<svg width="20" height="20" viewBox="0 0 20 20" fill="none">'
+      + '<path d="M6 1h8a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5H6a5 5 0 0 1-5-5V6a5 5 0 0 1 5-5z" fill="'+color+'"/>'
+      + '<path d="M5.5 10.5l3 3 6-6" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+  const uncheckSvg = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M6 1h8a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5H6a5 5 0 0 1-5-5V6a5 5 0 0 1 5-5z" stroke="#C9CDD4" stroke-width="1.5"/></svg>';
+  const delSvg = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round"/></svg>';
+  function plusSvg(color){ return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="'+color+'" stroke-width="2" stroke-linecap="round"/></svg>'; }
+  function taskText(t){
+    let s = escapeHtml(t.name);
+    if(t.requirement){ s += ' <span class="req">| ' + escapeHtml(t.requirement) + '</span>'; }
+    return s;
+  }
+
+  /* ===== 渲染 ===== */
+  const areaEl = document.getElementById('quadrant-area');
+  const legendEl = document.getElementById('legend');
+
+  function buildCards(){
+    let html = '';
+    for(let r=0; r<2; r++){
+      html += '<div class="row">';
+      for(let c=0; c<2; c++){
+        const q = QUADRANTS[r*2+c];
+        html += '<section class="card" data-q="'+q.id+'">'
+          +   '<div class="card-head">'
+          +     '<div class="badge" style="background:'+q.tint+'">'+q.icon+'</div>'
+          +     '<div class="card-title">'+q.name+'</div>'
+          +     '<div class="count" style="background:'+q.tint+';color:'+q.deep+'" id="count-'+q.id+'">0 待办</div>'
+          +   '</div>'
+          +   '<div class="task-list" id="list-'+q.id+'"></div>'
+          +   '<button class="add-task" style="background:'+q.tint+'" data-open="'+q.id+'">'
+          +     plusSvg(q.deep)
+          +     '<span class="add-label" style="color:'+q.deep+'">添加任务</span>'
+          +   '</button>'
+          + '</section>';
+      }
+      html += '</div>';
+    }
+    areaEl.innerHTML = html;
+  }
+
+  function activeTasks(q){ return q.tasks.filter(t => !t.skipped); }
+
+  function renderTasks(q){
+    const listEl = document.getElementById('list-'+q.id);
+    listEl.innerHTML = '';
+    q.tasks.forEach((t, i) => {
+      if(t.skipped) return; // 跳过"仅今天删除"的任务
+      const div = document.createElement('div');
+      div.className = 'task' + (t.done ? ' done' : '');
+      div.innerHTML = ''
+        + '<button class="check" data-act="toggle" data-q="'+q.id+'" data-i="'+i+'">'+(t.done ? checkSvg(q.color) : uncheckSvg)+'</button>'
+        + '<span class="text">'+taskText(t)+'</span>'
+        + '<button class="del" data-act="del" data-q="'+q.id+'" data-i="'+i+'">'+delSvg+'</button>';
+      listEl.appendChild(div);
+    });
+    const pending = activeTasks(q).filter(t => !t.done).length;
+    document.getElementById('count-'+q.id).textContent = pending + ' 待办';
+  }
+
+  function renderLegend(){
+    legendEl.innerHTML = '';
+    QUADRANTS.forEach(q => {
+      const active = activeTasks(q);
+      const done = active.filter(t=>t.done).length;
+      const row = document.createElement('div');
+      row.className = 'legend-row';
+      row.innerHTML = ''
+        + '<span class="dot" style="background:'+q.color+'"></span>'
+        + '<span class="name">'+q.name+'</span>'
+        + '<span class="cnt">'+done+'/'+active.length+'</span>';
+      legendEl.appendChild(row);
+    });
+  }
+
+  function renderDonut(){
+    const C = 2 * Math.PI * 55; // 周长
+    const total = QUADRANTS.reduce((s,q)=>s+activeTasks(q).length,0);
+    let acc = 0;
+    const colorOrder = ['red','blue','amber','green'];
+    QUADRANTS.forEach((q, i) => {
+      const done = activeTasks(q).filter(t=>t.done).length;
+      const seg = document.querySelector('.seg[data-seg="'+colorOrder[i]+'"]');
+      if(done === 0 || total === 0){
+        seg.setAttribute('stroke-dasharray','0 '+C);
+        seg.style.opacity = 0;
+      }else{
+        const len = (done / total) * C;
+        seg.setAttribute('stroke-dasharray', len + ' ' + C);
+        seg.setAttribute('stroke-dashoffset', String(-acc));
+        seg.style.opacity = 1;
+        acc += len;
+      }
+    });
+    const doneTotal = QUADRANTS.reduce((s,q)=>s+activeTasks(q).filter(t=>t.done).length,0);
+    const pct = total ? Math.round(doneTotal/total*100) : 0;
+    document.getElementById('pct').textContent = pct + '%';
+    document.getElementById('sum-done').textContent = '已完成 ' + doneTotal + ' 项';
+    document.getElementById('sum-total').textContent = '共 ' + total + ' 项';
+  }
+
+  function renderSpecial(){
+    const listEl = document.getElementById('special-list');
+    listEl.innerHTML = '';
+    if(state.special.length === 0){
+      listEl.innerHTML = '<div class="special-empty">暂无计划外任务</div>';
+      return;
+    }
+    state.special.forEach((t, i) => {
+      const div = document.createElement('div');
+      div.className = 'task' + (t.done ? ' done' : '');
+      div.innerHTML = ''
+        + '<button class="check" data-sact="toggle" data-i="'+i+'">'+(t.done ? checkSvg('#7C5CFC') : uncheckSvg)+'</button>'
+        + '<span class="text">'+taskText(t)+'</span>'
+        + '<button class="del" data-sact="del" data-i="'+i+'">'+delSvg+'</button>';
+      listEl.appendChild(div);
+    });
+  }
+
+  function render(){
+    QUADRANTS.forEach(q => renderTasks(q));
+    renderSpecial();
+    renderLegend();
+    renderDonut();
+    renderChart();
+    save();
+  }
+
+  /* ===== 图表渲染 ===== */
+  function renderChart(){
+    const wrapEl = document.getElementById('chart-wrap');
+    const data = getHistoryData(7);
+    const maxPct = Math.max(...data.map(d => d.pct), 1);
+    let html = '';
+    data.forEach(d => {
+      const height = d.pct > 0 ? Math.max((d.pct / 100) * 140, 4) : 4;
+      const color = d.stats ? '#4285F4' : '#E8E7F0';
+      const tooltip = d.stats ? d.pct + '%' : '无数据';
+      html += '<div class="chart-bar-group">'
+        + '<div class="chart-bar" style="height:' + height + 'px;background:' + color + '">'
+        + '<div class="tooltip">' + tooltip + '</div>'
+        + '</div>'
+        + '<div class="chart-label">' + d.label + '</div>'
+        + '</div>';
+    });
+    wrapEl.innerHTML = html || '<div class="chart-empty">暂无历史数据</div>';
+  }
+
+  /* ===== 交互 ===== */
+  const menuEl = document.getElementById('ctx-menu');
+  let menuTarget = null;
+
+  function showMenu(btn, q, i){
+    const rect = btn.getBoundingClientRect();
+    menuEl.classList.add('show');
+    const MENU_W = 120, MENU_H = 76;
+    let left = rect.right - MENU_W;
+    let top = rect.bottom + 6;
+    if(left < 8) left = 8;
+    if(top + MENU_H > window.innerHeight) top = rect.top - MENU_H - 6;
+    menuEl.style.left = left + 'px';
+    menuEl.style.top = top + 'px';
+    menuTarget = { q, i };
+  }
+  function hideMenu(){
+    menuEl.classList.remove('show');
+    menuTarget = null;
+  }
+
+  areaEl.addEventListener('click', e => {
+    const btn = e.target.closest('[data-act]');
+    if(!btn) return;
+    const q = QUADRANTS.find(x => x.id === btn.dataset.q);
+    const i = parseInt(btn.dataset.i, 10);
+    if(btn.dataset.act === 'toggle'){
+      q.tasks[i].done = !q.tasks[i].done;
+      hideMenu();
+      render();
+    }else if(btn.dataset.act === 'del'){
+      e.stopPropagation();
+      showMenu(btn, q, i);
+    }
+  });
+
+  menuEl.addEventListener('click', e => {
+    const item = e.target.closest('[data-menu]');
+    if(!item || !menuTarget) return;
+    if(item.dataset.menu === 'skip'){
+      menuTarget.q.tasks[menuTarget.i].skipped = true; // 仅今天：跳过本周期，下周期恢复
+    }else if(item.dataset.menu === 'delete'){
+      menuTarget.q.tasks.splice(menuTarget.i, 1); // 永久删除
+    }
+    hideMenu();
+    render();
+  });
+
+  document.addEventListener('click', e => {
+    if(!menuEl.classList.contains('show')) return;
+    if(!menuEl.contains(e.target)) hideMenu();
+  });
+
+  /* ===== 添加任务弹窗 ===== */
+  const modalEl = document.getElementById('modal');
+  const modalName = document.getElementById('modal-name');
+  const modalReq = document.getElementById('modal-req');
+  let modalTarget = null;
+
+  function openModal(qId){
+    modalTarget = qId;
+    modalName.value = '';
+    modalReq.value = '';
+    modalEl.classList.add('show');
+    setTimeout(() => modalName.focus(), 50);
+  }
+  function closeModal(){
+    modalEl.classList.remove('show');
+    modalTarget = null;
+  }
+  function confirmModal(){
+    const name = modalName.value.trim();
+    if(!name){ modalName.focus(); return; }
+    const req = modalReq.value.trim();
+    if(modalTarget === 'special'){
+      state.special.push({name:name, requirement:req, done:false});
+    }else{
+      const q = QUADRANTS.find(x => x.id === modalTarget);
+      q.tasks.push({name:name, requirement:req, done:false, skipped:false});
+    }
+    closeModal();
+    render();
+  }
+
+  areaEl.addEventListener('click', e => {
+    const opener = e.target.closest('[data-open]');
+    if(opener){ openModal(opener.dataset.open); }
+  });
+
+  modalEl.addEventListener('click', e => {
+    if(e.target === modalEl){ closeModal(); }
+  });
+  document.getElementById('modal-cancel').addEventListener('click', closeModal);
+  document.getElementById('modal-confirm').addEventListener('click', confirmModal);
+  modalName.addEventListener('keydown', e => { if(e.key === 'Enter') confirmModal(); });
+  document.addEventListener('keydown', e => { if(e.key === 'Escape') closeModal(); });
+
+  document.getElementById('special-add').addEventListener('click', () => {
+    openModal('special');
+  });
+
+  const specialListEl = document.getElementById('special-list');
+  specialListEl.addEventListener('click', e => {
+    const btn = e.target.closest('[data-sact]');
+    if(!btn) return;
+    const i = parseInt(btn.dataset.i, 10);
+    if(btn.dataset.sact === 'toggle'){
+      state.special[i].done = !state.special[i].done;
+    }else if(btn.dataset.sact === 'del'){
+      state.special.splice(i, 1);
+    }
+    renderSpecial();
+    save();
+  });
+
+  /* ===== 导出工作结果 ===== */
+  const exportModal = document.getElementById('export-modal');
+  const exportConfirm = document.getElementById('export-confirm');
+  const exportCancel = document.getElementById('export-cancel');
+
+  // 打开导出弹窗
+  document.getElementById('btn-export').addEventListener('click', () => {
+    exportModal.classList.add('show');
+  });
+
+  // 关闭导出弹窗
+  exportCancel.addEventListener('click', () => {
+    exportModal.classList.remove('show');
+  });
+  exportModal.addEventListener('click', (e) => {
+    if(e.target === exportModal) exportModal.classList.remove('show');
+  });
+
+  // 生成工作报告数据
+  function generateReport(period){
+    const now = new Date();
+    const history = loadHistory();
+    let reportData = {
+      date: dateKey(now),
+      weekDay: ['日','一','二','三','四','五','六'][now.getDay()],
+      quadrants: [],
+      totalDone: 0,
+      totalTasks: 0,
+      incompleteTasks: [],
+      history: []
+    };
+
+    // 当前任务完成情况
+    QUADRANTS.forEach(q => {
+      const active = activeTasks(q);
+      const done = active.filter(t => t.done).length;
+      reportData.quadrants.push({
+        name: q.name,
+        done: done,
+        total: active.length,
+        pct: active.length > 0 ? Math.round(done / active.length * 100) : 0
+      });
+      reportData.totalDone += done;
+      reportData.totalTasks += active.length;
+
+      // 未完成任务
+      active.filter(t => !t.done).forEach(t => {
+        reportData.incompleteTasks.push({
+          quadrant: q.name,
+          name: t.name,
+          requirement: t.requirement
+        });
+      });
+    });
+
+    // 历史数据
+    if(period === '7days' || period === '30days'){
+      const days = period === '7days' ? 7 : 30;
+      const histData = getHistoryData(days);
+      reportData.history = histData;
+    }
+
+    return reportData;
+  }
+
+  // 生成纯文本报告
+  function generateTextReport(reportData){
+    let text = '📊 每日工作台 - 工作汇报\n';
+    text += '日期：' + reportData.date + ' 周' + reportData.weekDay + '\n\n';
+
+    text += '【完成情况】\n';
+    reportData.quadrants.forEach(q => {
+      text += '• ' + q.name + '：' + q.done + '/' + q.total + '（' + q.pct + '%）\n';
+    });
+    const totalPct = reportData.totalTasks > 0 ? Math.round(reportData.totalDone / reportData.totalTasks * 100) : 0;
+    text += '• 总计：' + reportData.totalDone + '/' + reportData.totalTasks + '（' + totalPct + '%）\n\n';
+
+    if(reportData.incompleteTasks.length > 0){
+      text += '【未完成任务】\n';
+      reportData.incompleteTasks.forEach((t, i) => {
+        text += (i + 1) + '. ' + t.name + '（' + t.quadrant + '）\n';
+        if(t.requirement){
+          text += '   要求：' + t.requirement.split('\n')[0] + '\n';
+        }
+      });
+    }
+
+    if(reportData.history.length > 0){
+      text += '\n【历史趋势】\n';
+      reportData.history.forEach(h => {
+        text += '• ' + h.label + '：' + h.pct + '%\n';
+      });
+    }
+
+    return text;
+  }
+
+  // 生成Excel报告（CSV格式）
+  function generateExcelReport(reportData){
+    let csv = '\uFEFF'; // BOM for Excel
+    csv += '日期,周期,完成数,总数,完成率\n';
+
+    // 当前数据
+    reportData.quadrants.forEach(q => {
+      csv += reportData.date + ',' + q.name + ',' + q.done + ',' + q.total + ',' + q.pct + '%\n';
+    });
+    const totalPct = reportData.totalTasks > 0 ? Math.round(reportData.totalDone / reportData.totalTasks * 100) : 0;
+    csv += reportData.date + ',总计,' + reportData.totalDone + ',' + reportData.totalTasks + ',' + totalPct + '%\n';
+
+    // 历史数据
+    if(reportData.history.length > 0){
+      csv += '\n历史趋势\n';
+      csv += '日期,完成率\n';
+      reportData.history.forEach(h => {
+        csv += h.date + ',' + h.pct + '%\n';
+      });
+    }
+
+    // 未完成任务
+    if(reportData.incompleteTasks.length > 0){
+      csv += '\n未完成任务\n';
+      csv += '周期,任务名称,要求\n';
+      reportData.incompleteTasks.forEach(t => {
+        const req = t.requirement ? t.requirement.replace(/\n/g, ' ').replace(/,/g, '，') : '';
+        csv += t.quadrant + ',' + t.name + ',' + req + '\n';
+      });
+    }
+
+    return csv;
+  }
+
+  // 导出确认
+  exportConfirm.addEventListener('click', () => {
+    const period = document.querySelector('input[name="export-period"]:checked').value;
+    const format = document.querySelector('input[name="export-format"]:checked').value;
+
+    const reportData = generateReport(period);
+
+    if(format === 'text'){
+      const text = generateTextReport(reportData);
+      // 下载txt文件
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '工作汇报-' + reportData.date + '.txt';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } else {
+      // 使用SheetJS生成xlsx
+      const wb = XLSX.utils.book_new();
+      
+      // 完成情况表
+      const summaryData = [
+        ['每日工作台 - 工作汇报'],
+        ['日期：' + reportData.date + ' 周' + reportData.weekDay],
+        [],
+        ['周期', '完成数', '总数', '完成率']
+      ];
+      reportData.quadrants.forEach(q => {
+        summaryData.push([q.name, q.done, q.total, q.pct + '%']);
+      });
+      summaryData.push(['总计', reportData.totalDone, reportData.totalTasks, 
+        reportData.totalTasks > 0 ? Math.round(reportData.totalDone / reportData.totalTasks * 100) + '%' : '0%']);
+      
+      const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
+      // 设置列宽
+      ws1['!cols'] = [{ wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
+      XLSX.utils.book_append_sheet(wb, ws1, '完成情况');
+
+      // 未完成任务表
+      if(reportData.incompleteTasks.length > 0){
+        const incompleteData = [
+          ['未完成任务清单'],
+          [],
+          ['周期', '任务名称', '要求']
+        ];
+        reportData.incompleteTasks.forEach(t => {
+          incompleteData.push([t.quadrant, t.name, t.requirement || '']);
+        });
+        const ws2 = XLSX.utils.aoa_to_sheet(incompleteData);
+        ws2['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 50 }];
+        XLSX.utils.book_append_sheet(wb, ws2, '未完成任务');
+      }
+
+      // 历史趋势表
+      if(reportData.history.length > 0){
+        const historyData = [
+          ['历史趋势'],
+          [],
+          ['日期', '完成率']
+        ];
+        reportData.history.forEach(h => {
+          historyData.push([h.date, h.pct + '%']);
+        });
+        const ws3 = XLSX.utils.aoa_to_sheet(historyData);
+        ws3['!cols'] = [{ wch: 15 }, { wch: 10 }];
+        XLSX.utils.book_append_sheet(wb, ws3, '历史趋势');
+      }
+
+      // 下载xlsx文件
+      XLSX.writeFile(wb, '工作汇报-' + reportData.date + '.xlsx');
+    }
+
+    exportModal.classList.remove('show');
+  });
+
+  /* ===== 日期 ===== */
+  const now = new Date();
+  const week = ['日','一','二','三','四','五','六'];
+  document.getElementById('date-text').textContent =
+    (now.getMonth()+1) + '月' + now.getDate() + '日 · 周' + week[now.getDay()];
+
+  /* ===== 等比缩放 ===== */
+  const app = document.getElementById('app');
+  function fit(){
+    const s = Math.min(window.innerWidth / 1440, window.innerHeight / 900);
+    app.style.transform = 'scale(' + s + ')';
+  }
+  window.addEventListener('resize', fit);
+  fit();
+
+  /* ===== 每日语录 ===== */
+  const quoteEl = document.getElementById('quote-text');
+  const quotes = [
+    '今天也要加油鸭！',
+    '保持热爱，奔赴山海',
+    '每天进步一点点，量变引起质变',
+    '把平凡的日子过得不平凡',
+    '你比想象中更强大',
+    '努力的人运气都不会太差',
+    '生活明朗，万物可爱',
+    '未来可期，不负当下',
+    '越努力，越幸运',
+    '认真工作，快乐生活',
+    '今日事，今日毕',
+    '把每一件小事做好就是不简单',
+    '工作是最好的修行',
+    '保持专注，持续精进',
+    '行动是治愈焦虑的良药',
+    '做好当下，未来自来',
+    '没有完美的个人，只有完美的团队',
+    '困难是成长的阶梯',
+    '用心做事，用爱待人',
+    '今天的努力，明天的收获',
+    '坚持就是胜利',
+    '细节决定成败',
+    '主动出击，创造机会',
+    '学习是最好的投资',
+    '积极心态，积极人生',
+    '目标明确，执行到位',
+    '不怕慢，就怕站',
+    '勇于挑战，超越自我',
+    '今天的汗水，明天的微笑',
+    '相信自己，你可以的',
+    '吃得苦中苦，方为人上人',
+    '机会留给有准备的人',
+    '千里之行，始于足下',
+    '天道酬勤，功不唐捐',
+    '万事开头难，坚持更难',
+    '不积跬步，无以至千里',
+    '宝剑锋从磨砺出',
+    '阳光总在风雨后',
+    '有志者事竟成',
+    '付出总有回报',
+    '今天的付出，明天的回报',
+    '脚踏实地，仰望星空',
+    '保持初心，方得始终',
+    '做最好的自己',
+    '每天都是新的开始',
+    '微笑面对每一天',
+    '工作使我快乐',
+    '效率就是生命',
+    '团队合作，其利断金',
+    '执行力就是战斗力',
+    '客户至上，服务第一',
+    '创新是发展的动力',
+    '学无止境，进无止境',
+    '今天的努力是为了更好的明天',
+    '不抱怨，不放弃',
+    '用结果说话',
+    '简单的事情重复做',
+    '专注才能专业',
+    '态度决定一切',
+    '嘿嘿嘿嘿'
+  ];
+
+  function updateQuote() {
+    const quote = quotes[Math.floor(Math.random() * quotes.length)];
+    quoteEl.textContent = quote;
+    quoteEl.title = quote; // 鼠标悬停显示完整内容
+  }
+
+  // 初始化获取语录
+  updateQuote();
+
+  // 点击切换语录
+  quoteEl.addEventListener('click', updateQuote);
+
+  /* ===== 启动 ===== */
+  resetIfNeeded();
+  buildCards();
+  render();
+  recordDailyStats(); // 记录当天数据
+
+  // 页面关闭/隐藏时记录数据
+  document.addEventListener('visibilitychange', () => {
+    if(document.hidden) recordDailyStats();
+  });
+  window.addEventListener('beforeunload', recordDailyStats);
+
+  // 跨周期自动刷新：每分钟检测一次 + 切回页面时检测
+  setInterval(() => { if(resetIfNeeded()) render(); }, 60000);
+  document.addEventListener('visibilitychange', () => {
+    if(!document.hidden && resetIfNeeded()) render();
+  });
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c) {
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c];
+    });
+  }
+})();
+</script>
+</body>
+</html>

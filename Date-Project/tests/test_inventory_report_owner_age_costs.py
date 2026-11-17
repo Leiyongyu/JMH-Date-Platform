@@ -1,0 +1,355 @@
+"""OWNER age-cost regression tests. All DB access is mocked; no data sync."""
+from collections import defaultdict
+from copy import deepcopy
+from decimal import Decimal
+from io import BytesIO
+
+import pytest
+from openpyxl import load_workbook
+
+from backend.services import inventory_report_etl_service as service
+from backend.services import inventory_report_export_service as exporter
+
+D = Decimal
+COST_FIELDS = {"inventory_age_90_180_cost", "inventory_age_180_plus_cost", "inventory_age_cost_month"}
+
+
+@pytest.fixture
+def env(monkeypatch):
+    state = dict(costs=[], health=[], rules={"amazon": [], "ebay": []}, sku_map={}, calls=[],
+                 rule_month="report",
+                 base=[{"platform_code": "AMZ", "dimension_type": "OWNER",
+                        "department_code": "AMZ-EU", "dimension_value": "未分配",
+                        "fba_end_inventory_qty": D(10), "fba_end_inventory_total_cost": D(100)}],
+                 stat_month="2026-08", group_costs={})
+
+    def forbid(*args, **kwargs):
+        raise AssertionError("Tests must not access a real database")
+
+    monkeypatch.setattr(service.repo, "db_connection", forbid)
+    monkeypatch.setattr(service.repo, "view_snapshot", lambda *_args: None)
+    monkeypatch.setattr(
+        service.repo, "months",
+        lambda _limit: ([{"stat_month": state["stat_month"]}]
+                        if state["stat_month"] else []),
+    )
+    def dimension_summary(dim, month):
+        items = deepcopy(state["base"])
+        rule_month = state["rule_month"]
+        if rule_month == "report" and state["stat_month"]:
+            rule_month = service._next_month(state["stat_month"])
+        if rule_month:
+            for item in items:
+                item["owner_rule_month"] = rule_month
+        return {"stat_month": state["stat_month"], "items": items}
+
+    monkeypatch.setattr(service.repo, "dimension_summary", dimension_summary)
+    monkeypatch.setattr(service.repo, "inventory_age_cost_rows", lambda month: (
+        state["calls"].append(("costs", month)) or deepcopy(state["costs"])))
+    monkeypatch.setattr(service.repo, "inventory_age_health_rows", lambda month: (
+        state["calls"].append(("health", month)) or deepcopy(state["health"])))
+    monkeypatch.setattr(service.repo, "owner_rules", lambda month, platform: (
+        state["calls"].append(("rules", month, platform)) or state["rules"][platform]))
+    monkeypatch.setattr(service.repo, "ebay_product_sku_map", lambda month: (
+        state["calls"].append(("sku_map", month)) or state["sku_map"]))
+    for name in ("usd_rate", "amz_sales_amount_by_department", "ebay_sales_amount",
+                 "amz_sales_volume_by_owner", "amz_sales_volume_by_store",
+                 "ebay_sales_volume_rows", "amz_sales_volume_by_department", "ebay_sales_volume"):
+        monkeypatch.setattr(service.repo, name, lambda *args: None)
+    monkeypatch.setattr(service.repo, "sales_amount_by_owner", lambda *args: {})
+    monkeypatch.setattr(service.repo, "amz_sales_amount_by_store", lambda *args: [])
+    monkeypatch.setattr(service.clearance_repo, "ctu_over_30_costs", lambda month: {})
+    state["ctu"] = []
+    monkeypatch.setattr(service.clearance_repo, "ctu_owner_cost_rows", lambda month: (
+        state["calls"].append(("ctu", month)) or deepcopy(state["ctu"])))
+    monkeypatch.setattr(service.repo, "inventory_age_group_costs", lambda month: state["group_costs"])
+    monkeypatch.setattr(service.repo, "department_summary", lambda month: {
+        "stat_month": state["stat_month"],
+        "items": [{"department_code": code, "is_total": 0} for code, _, _ in service.DEPARTMENTS]
+                 + [{"department_code": "AUTO-PARTS-TOTAL", "is_total": 1}],
+    })
+    return state
+
+
+def amz(group, sku, store, cost1, cost2):
+    return dict(platform_code="AMZ", group_code=group, sku=sku, store_name=store,
+                cost_91_180=D(str(cost1)), cost_181_plus=D(str(cost2)), is_aged_sku=1)
+
+
+def ebay(sku, cost1, cost2):
+    return dict(platform_code="EBAY", group_code="EBAY-1", sku=sku, store_name=None,
+                cost_91_180=D(str(cost1)), cost_181_plus=D(str(cost2)), is_aged_sku=1)
+
+
+def populate(env):
+    env["rules"]["amazon"] = [
+        dict(group_code="EU", rule_type="BRAND", match_key="ABC", principal_name="品牌负责人"),
+        dict(group_code="EU", rule_type="OTH_CODE", match_key="2301", principal_name="OTH负责人"),
+        dict(group_code="US1", rule_type="STORE", match_key="店铺一", principal_name="US1负责人"),
+        dict(group_code="US3", rule_type="STORE", match_key="主体23", principal_name="员工15"),
+        dict(group_code="US3", rule_type="STORE", match_key="店铺三", principal_name="张"),
+    ]
+    env["rules"]["ebay"] = [dict(rule_type="EBAY_BRAND", match_key="BMW", principal_name="eBay负责人")]
+    env["sku_map"] = {"20078-0297": "BMW-20078-0297"}
+    env["costs"] = [
+        amz("EU", "ABC-001", "EU-店铺-DE", "10.2501", 20),
+        amz("EU", "OTH-2301-001", "EU-店铺-DE", 2, 3),
+        amz("EU", "ABC-001", "EU-店铺-UK", 1, 2),
+        amz("EU", "", "", 4, -2),  # No SKU still contributes to unassigned.
+        amz("US1", "ABC-001", "US1-店铺一-US", 8, 9),
+        amz("US1", "ABC-001", "US1-店铺一-CA", 3, 5),  # No monetary SKU dedup.
+        amz("US2", "NO-MATCH", "US2-未知-US", -1, 5),
+        amz("US2-MJ", "ABC-001", "US3-主体23-US", 4, 5),
+        amz("US1-ZXY", "ABC-001", "US3-店铺三-US", 6, 7),
+        ebay("JMH-20078-0297", 11, 12),
+        ebay("", 3, 4),
+    ]
+    env["health"] = deepcopy(env["costs"])
+    totals = defaultdict(lambda: {"inventory_91_180_cost": D(0), "inventory_181_plus_cost": D(0)})
+    for row in env["costs"]:
+        totals[row["group_code"]]["inventory_91_180_cost"] += row["cost_91_180"]
+        totals[row["group_code"]]["inventory_181_plus_cost"] += row["cost_181_plus"]
+    env["group_costs"] = totals
+
+
+def by_key(result):
+    return {(row["platform_code"], row["department_code"], row["dimension_value"]): row
+            for row in result["items"]}
+
+
+def test_owner_sums_equal_every_group_and_total_including_unassigned(env):
+    populate(env)
+    owner = service.get_dimension_summary("OWNER", "2026-08")
+    group = service.get_department_summary("2026-08")
+    rows = by_key(owner)
+    assert ("AMZ", "AMZ-EU", service.EU_UK_FIXED_OWNER) in rows
+    assert ("AMZ", "AMZ-EU", "OTH负责人") in rows
+    assert ("AMZ", "AMZ-US2-MJ", "员工15") in rows
+    assert ("AMZ", "AMZ-US1-ZXY", "张") in rows
+    assert rows[("EBAY", "EBAY-1", "eBay负责人")]["inventory_age_90_180_cost"] == "11"
+    assert rows[("AMZ", "AMZ-US1", "US1负责人")]["inventory_age_90_180_cost"] == "11"
+    assert rows[("AMZ", "AMZ-EU", "未分配")]["inventory_age_180_plus_cost"] == "-2"
+    for expected in group["items"]:
+        total = int(expected["is_total"]) == 1
+        group_codes = (
+            {"AMZ-US2-MJ", "AMZ-US1-ZXY"}
+            if expected["department_code"] == "AMZ-US3"
+            else {expected["department_code"]}
+        )
+        for field in ("inventory_age_90_180_cost", "inventory_age_180_plus_cost"):
+            actual = sum((D(row[field]) for row in owner["items"]
+                          if total or row["department_code"] in group_codes), D(0))
+            assert actual == D(expected[field])
+            if total:
+                assert D(owner["total"][field]) == actual
+        assert expected["inventory_age_cost_month"] == "2026-09"
+    assert all(row["inventory_age_cost_month"] == "2026-09" for row in owner["items"])
+
+
+def test_rules_and_sku_mapping_loaded_once_for_health_and_costs(env):
+    populate(env)
+    service.get_dimension_summary("OWNER", "2026-08")
+    assert env["calls"].count(("rules", "2026-09", "amazon")) == 1
+    assert env["calls"].count(("rules", "2026-09", "ebay")) == 1
+    assert not any(call[:2] == ("rules", "2026-08") for call in env["calls"])
+    assert env["calls"].count(("sku_map", "2026-09")) == 1
+    assert env["calls"].count(("costs", "2026-09")) == 1
+    assert env["calls"].count(("health", "2026-09")) == 1
+
+
+def test_owner_displays_department_target_without_splitting_it(env, monkeypatch):
+    monkeypatch.setattr(service.repo, "usd_rate", lambda _month: D(2))
+    monkeypatch.setattr(service.repo, "department_summary", lambda _month: {
+        "stat_month": "2026-08",
+        "items": [
+            {"department_code": "AMZ-EU", "is_total": 0,
+             "fba_end_inventory_total_cost": D(300)},
+            {"department_code": "AUTO-PARTS-TOTAL", "is_total": 1},
+        ],
+    })
+
+    result = service.get_dimension_summary("OWNER", "2026-08")
+    owner = result["items"][0]
+    expected = service._sales_target(
+        {"department_code": "AMZ-EU", "fba_end_inventory_total_cost": D(300)},
+    )
+    assert expected.quantize(D("0.01")) == D("40.40")
+    assert D(owner["group_sales_target_usd"]) == expected
+    assert D(owner["sales_target_usd"]) != expected
+    assert D(result["total"]["group_sales_target_usd"]) == expected
+
+
+def test_year_boundary_uses_report_rules_and_report_snapshot(env):
+    env["stat_month"] = "2026-12"
+    service.get_dimension_summary("OWNER", "2026-12")
+    assert ("health", "2027-01") in env["calls"]
+    assert ("costs", "2027-01") in env["calls"]
+    assert ("rules", "2027-01", "amazon") in env["calls"]
+    assert ("rules", "2027-01", "ebay") in env["calls"]
+    assert ("sku_map", "2027-01") in env["calls"]
+
+
+def test_owner_age_health_and_ctu_use_report_month_assignment(env, monkeypatch):
+    env["base"] = [{
+        "platform_code": "EBAY", "dimension_type": "OWNER",
+        "department_code": "EBAY-1", "dimension_value": "当月负责人",
+        "overseas_end_inventory_qty": D(10),
+    }]
+    env["costs"] = [ebay("BMW-30032-0018", 10, 20)]
+    env["health"] = deepcopy(env["costs"])
+    env["ctu"] = [{"sku": "BMW-30032-0018", "over_30_cost": D(5)}]
+    calls = []
+
+    def owner_rules(month, platform):
+        calls.append((month, platform))
+        if platform == "ebay":
+            owner = "当月负责人" if month == "2026-09" else "上月负责人"
+            return [{"rule_type": "EBAY_BRAND", "match_key": "BMW",
+                     "principal_name": owner}]
+        return []
+
+    monkeypatch.setattr(service.repo, "owner_rules", owner_rules)
+    result = service.get_dimension_summary("OWNER", "2026-08")
+    rows = by_key(result)
+    current = rows[("EBAY", "EBAY-1", "当月负责人")]
+    assert D(current["inventory_age_90_180_cost"]) == D(10)
+    assert D(current["inventory_age_180_plus_cost"]) == D(20)
+    assert D(current["inventory_181_plus_sku_count"]) == D(1)
+    assert D(current["ctu_over_30_cost"]) == D(5)
+    assert ("EBAY", "EBAY-1", "上月负责人") not in rows
+    assert calls == [("2026-09", "amazon"), ("2026-09", "ebay")]
+
+
+def test_legacy_month_without_saved_rule_marker_keeps_old_assignment(env, monkeypatch):
+    env["rule_month"] = None
+    env["base"] = [{
+        "platform_code": "EBAY", "dimension_type": "OWNER",
+        "department_code": "EBAY-1", "dimension_value": "原负责人",
+        "overseas_end_inventory_qty": D(10),
+    }]
+    env["costs"] = [ebay("BMW-30032-0018", 10, 20)]
+    env["health"] = deepcopy(env["costs"])
+    env["ctu"] = [{"sku": "BMW-30032-0018", "over_30_cost": D(5)}]
+    calls = []
+
+    def owner_rules(month, platform):
+        calls.append((month, platform))
+        if platform == "ebay":
+            return [{"rule_type": "EBAY_BRAND", "match_key": "BMW",
+                     "principal_name": "原负责人" if month == "2026-08" else "新负责人"}]
+        return []
+
+    monkeypatch.setattr(service.repo, "owner_rules", owner_rules)
+    rows = by_key(service.get_dimension_summary("OWNER", "2026-08"))
+    old = rows[("EBAY", "EBAY-1", "原负责人")]
+    assert D(old["inventory_age_90_180_cost"]) == D(10)
+    assert D(old["inventory_181_plus_sku_count"]) == D(1)
+    assert D(old["ctu_over_30_cost"]) == D(5)
+    assert ("EBAY", "EBAY-1", "新负责人") not in rows
+    assert calls == [("2026-08", "amazon"), ("2026-08", "ebay")]
+
+
+def test_existing_owner_metrics_and_total_are_unchanged_by_cost_only_rows(env):
+    populate(env)
+    costs = env["costs"]
+    env["costs"] = []
+    baseline = service.get_dimension_summary("OWNER", "2026-08")
+    env["costs"] = costs
+    actual = service.get_dimension_summary("OWNER", "2026-08")
+    assert {key: value for key, value in actual["total"].items() if key not in COST_FIELDS} == {
+        key: value for key, value in baseline["total"].items() if key not in COST_FIELDS}
+    for key, old in by_key(baseline).items():
+        new = by_key(actual)[key]
+        assert {k: v for k, v in new.items() if k not in COST_FIELDS} == {
+            k: v for k, v in old.items() if k not in COST_FIELDS}
+    added = [row for row in actual["items"] if row.get("is_age_cost_only")]
+    assert added
+    assert all(row.get("total_goods_value") is None for row in added)
+    assert all(row.get("actual_achievement_amount") is None for row in added)
+
+
+def test_missing_snapshot_is_none_but_zero_cost_snapshot_is_zero(env):
+    missing = service.get_dimension_summary("OWNER", "2026-08")
+    assert missing["items"][0]["inventory_age_90_180_cost"] is None
+    assert missing["total"]["inventory_age_90_180_cost"] is None
+    env["health"] = [amz("EU", "YOUNG", "EU-店-DE", 0, 0)]
+    env["health"][0]["is_aged_sku"] = 0
+    zero = service.get_dimension_summary("OWNER", "2026-08")
+    assert D(zero["items"][0]["inventory_age_90_180_cost"]) == 0
+    assert D(zero["items"][0]["inventory_age_180_plus_cost"]) == 0
+    assert zero["total"]["inventory_age_90_180_cost"] is None  # Other groups missing.
+
+
+def test_partial_snapshot_does_not_turn_missing_platform_to_zero(env):
+    env["base"].append(dict(platform_code="EBAY", department_code="EBAY-1", dimension_value="未分配"))
+    env["health"] = [amz("EU", "YOUNG", "EU-店-DE", 0, 0)]
+    rows = by_key(service.get_dimension_summary("OWNER", "2026-08"))
+    assert D(rows[("AMZ", "AMZ-EU", "未分配")]["inventory_age_90_180_cost"]) == 0
+    assert rows[("EBAY", "EBAY-1", "未分配")]["inventory_age_90_180_cost"] is None
+
+
+def test_only_cost_data_keeps_owner_visible_without_inventing_old_metrics(env):
+    env["base"] = []
+    env["costs"] = [ebay("", 1, 2)]
+    data = service.get_dimension_summary("OWNER", "2026-08")
+    assert data["items"][0]["dimension_value"] == "未分配"
+    assert data["items"][0]["is_age_cost_only"] == 1
+    assert data["total"]["is_age_cost_only"] == 1
+    assert data["total"].get("total_goods_value") is None
+
+
+def test_no_month_does_not_query_rules_or_costs(env):
+    env["stat_month"] = None
+    env["base"] = []
+    data = service.get_dimension_summary("OWNER")
+    assert data["items"] == [] and data["total"] is None
+    assert env["calls"] == []
+
+
+@pytest.mark.parametrize("dimension", ["GROUP", "STORE"])
+def test_other_dimensions_do_not_read_costs_or_add_columns(env, monkeypatch, dimension):
+    populate(env)
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Other dimensions must not call owner cost query")
+    monkeypatch.setattr(service.repo, "inventory_age_cost_rows", unexpected)
+    if dimension == "GROUP":
+        service.get_department_summary("2026-08")
+    else:
+        result = service.get_dimension_summary("STORE", "2026-08")
+        assert not any(field in row for row in result["items"] + [result["total"]] for field in COST_FIELDS)
+        assert not any("costs" == call[0] for call in env["calls"])
+
+
+def test_cost_rows_share_clearance_source_and_keep_negative_values(monkeypatch):
+    from backend.repositories import clearance_repository
+    calls = []
+    def source(month, *, include_previous):
+        calls.append((month, include_previous))
+        return [dict(sku=None, inventory_91_180_cost=D('-1'), inventory_181_plus_cost=D('2')),
+                dict(sku='ZERO', inventory_91_180_cost=0, inventory_181_plus_cost=0)]
+    monkeypatch.setattr(clearance_repository, 'metric_source_rows', source)
+    result = service.repo.inventory_age_cost_rows("2026-09")
+    assert calls == [('2026-09', False)]
+    assert len(result) == 1
+    assert result[0]['sku'] is None
+    assert result[0]["cost_91_180"] == D("-1")
+    assert result[0]['cost_181_plus'] == D('2')
+
+
+def test_owner_export_has_same_two_values_and_store_is_unchanged(env, monkeypatch):
+    populate(env)
+    data = service.get_dimension_summary("OWNER", "2026-08")
+    monkeypatch.setattr(exporter, "get_dimension_summary", lambda *args: data)
+    _, content = exporter.export_monthly_inventory_report("2026-08", "OWNER")
+    book = load_workbook(BytesIO(content), read_only=True)
+    values = list(book.active.values)
+    assert values[0][-3:] == ("90-180库龄成本", "180+库龄成本", "所属组别销售目标（USD）")
+    for excel, row in zip(values[1:], [data["total"], *data["items"]]):
+        assert excel[-3] == float(row["inventory_age_90_180_cost"])
+        assert excel[-2] == float(row["inventory_age_180_plus_cost"])
+        if row.get("is_age_cost_only"):
+            assert excel[3] is None  # total value unknown, not zero
+            assert excel[4:8] == (None, None, None, None)
+    assert len(exporter._dimension_headers("STORE")) == 13
+    assert len(exporter._group_headers("2026-09")) == 23
+    book.close()

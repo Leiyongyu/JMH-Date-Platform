@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.EbayCompetitorMapper">
+
+    <resultMap id="ProductExportMap" type="com.ruoyi.system.domain.operation.ebay.EbayCompetitorProduct">
+        <id property="id" column="id"/>
+        <result property="siteCode" column="site_code"/>
+        <result property="marketplaceId" column="marketplace_id"/>
+        <result property="currency" column="currency"/>
+        <result property="ebayItemId" column="ebay_item_id"/>
+        <result property="oe" column="oe"/>
+        <result property="sku" column="sku"/>
+        <result property="referenceUrl" column="reference_url"/>
+        <result property="remark" column="remark"/>
+        <result property="salePrice" column="sale_price"/>
+        <result property="productCostCny" column="product_cost_cny"/>
+        <result property="lengthCm" column="length_cm"/>
+        <result property="widthCm" column="width_cm"/>
+        <result property="heightCm" column="height_cm"/>
+        <result property="volumetricWeightKg" column="volumetric_weight_kg"/>
+        <result property="actualWeightKg" column="actual_weight_kg"/>
+        <result property="exchangeRate" column="exchange_rate"/>
+        <result property="seaFloorPrice" column="sea_floor_price"/>
+        <result property="railFloorPrice" column="rail_floor_price"/>
+        <result property="seaProfitRate" column="sea_profit_rate"/>
+        <result property="railProfitRate" column="rail_profit_rate"/>
+        <result property="targetProfitRate" column="target_profit_rate"/>
+        <result property="targetProductCostSea" column="target_product_cost_sea"/>
+        <result property="targetProductCostRail" column="target_product_cost_rail"/>
+        <result property="localImageUrl" column="local_image_url"/>
+        <result property="formulaVersion" column="formula_version"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+    </resultMap>
+
+    <resultMap id="ProductMap" type="com.ruoyi.system.domain.operation.ebay.EbayCompetitorProduct"
+               extends="ProductExportMap">
+        <collection property="images" column="id"
+                    select="selectImagesByProductId"
+                    ofType="com.ruoyi.system.domain.operation.ebay.EbayCompetitorProductImage"/>
+    </resultMap>
+
+    <resultMap id="ImageMap" type="com.ruoyi.system.domain.operation.ebay.EbayCompetitorProductImage">
+        <id property="id" column="id"/>
+        <result property="productId" column="product_id"/>
+        <result property="sortNo" column="sort_no"/>
+        <result property="localImageUrl" column="local_image_url"/>
+        <result property="createTime" column="create_time"/>
+    </resultMap>
+
+    <resultMap id="FormulaMap" type="com.ruoyi.system.domain.operation.ebay.EbayCompetitorFormulaConfig">
+        <id property="siteCode" column="site_code"/>
+        <result property="siteName" column="site_name"/>
+        <result property="currency" column="currency"/>
+        <result property="platformNetRate" column="platform_net_rate"/>
+        <result property="volumetricDivisor" column="volumetric_divisor"/>
+        <result property="fixedFee" column="fixed_fee"/>
+        <result property="weightHandlingRate" column="weight_handling_rate"/>
+        <result property="seaFirstLegRate" column="sea_first_leg_rate"/>
+        <result property="profitFirstLegRate" column="profit_first_leg_rate"/>
+        <result property="targetCostFirstLegRate" column="target_cost_first_leg_rate"/>
+        <result property="railFirstLegRate" column="rail_first_leg_rate"/>
+        <result property="smallWeightThreshold" column="small_weight_threshold"/>
+        <result property="smallFixedFee" column="small_fixed_fee"/>
+        <result property="largeFixedFee" column="large_fixed_fee"/>
+        <result property="smallDeliveryRate" column="small_delivery_rate"/>
+        <result property="largeDeliveryRate" column="large_delivery_rate"/>
+        <result property="chargeableVolumeFactor" column="chargeable_volume_factor"/>
+        <result property="formulaVersion" column="formula_version"/>
+        <result property="status" column="status"/>
+    </resultMap>
+
+    <sql id="ProductColumns">
+        id,site_code,marketplace_id,currency,ebay_item_id,oe,sku,
+        reference_url,remark,sale_price,product_cost_cny,length_cm,width_cm,height_cm,
+        volumetric_weight_kg,actual_weight_kg,exchange_rate,sea_floor_price,rail_floor_price,
+        sea_profit_rate,rail_profit_rate,target_profit_rate,target_product_cost_sea,
+        target_product_cost_rail,local_image_url,formula_version,
+        create_by,create_time,update_by,update_time
+    </sql>
+
+    <select id="selectProductList" resultMap="ProductMap">
+        SELECT <include refid="ProductColumns"/>
+        FROM ebay_competitor_product
+        <where>
+            <if test="siteCode != null and siteCode != ''">
+                AND site_code = #{siteCode}
+            </if>
+            <if test="oe != null and oe != ''">
+                AND oe LIKE CONCAT('%',#{oe},'%')
+            </if>
+            <if test="sku != null and sku != ''">
+                AND sku LIKE CONCAT('%',#{sku},'%')
+            </if>
+        </where>
+        ORDER BY create_time DESC,id DESC
+    </select>
+
+    <!-- 导出只映射标量字段，不加载图片明细，避免全库导出时产生N+1查询。 -->
+    <select id="selectProductsForExport" resultMap="ProductExportMap">
+        SELECT <include refid="ProductColumns"/>
+        FROM ebay_competitor_product
+        <if test="ids != null and ids.size() > 0">
+            WHERE id IN
+            <foreach collection="ids" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+        </if>
+        ORDER BY create_time DESC,id DESC
+    </select>
+
+    <select id="selectProductImagesByProductIds" resultMap="ImageMap">
+        SELECT id,product_id,sort_no,local_image_url,create_time
+        FROM ebay_competitor_product_image
+        WHERE product_id IN
+        <foreach collection="productIds" item="productId" open="(" separator="," close=")">
+            #{productId}
+        </foreach>
+        ORDER BY product_id,sort_no,id
+    </select>
+
+    <select id="selectBySiteAndItemId" resultMap="ProductMap">
+        SELECT <include refid="ProductColumns"/>
+        FROM ebay_competitor_product
+        WHERE site_code=#{siteCode} AND ebay_item_id=#{ebayItemId}
+        LIMIT 1
+    </select>
+
+    <select id="selectProductById" resultMap="ProductMap">
+        SELECT <include refid="ProductColumns"/>
+        FROM ebay_competitor_product
+        WHERE id=#{id}
+        LIMIT 1
+    </select>
+
+    <insert id="insertProduct" parameterType="com.ruoyi.system.domain.operation.ebay.EbayCompetitorProduct"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ebay_competitor_product (
+            site_code,marketplace_id,currency,ebay_item_id,oe,sku,
+            reference_url,remark,sale_price,product_cost_cny,length_cm,width_cm,height_cm,
+            volumetric_weight_kg,actual_weight_kg,exchange_rate,sea_floor_price,rail_floor_price,
+            sea_profit_rate,rail_profit_rate,target_profit_rate,target_product_cost_sea,
+            target_product_cost_rail,local_image_url,formula_version,create_by,create_time
+        ) VALUES (
+            #{siteCode},#{marketplaceId},#{currency},#{ebayItemId},#{oe},#{sku},
+            #{referenceUrl},#{remark},#{salePrice},#{productCostCny},#{lengthCm},#{widthCm},#{heightCm},
+            #{volumetricWeightKg},#{actualWeightKg},#{exchangeRate},#{seaFloorPrice},#{railFloorPrice},
+            #{seaProfitRate},#{railProfitRate},#{targetProfitRate},#{targetProductCostSea},
+            #{targetProductCostRail},#{localImageUrl},#{formulaVersion},#{createBy},NOW()
+        )
+    </insert>
+
+    <insert id="insertProductImage" parameterType="com.ruoyi.system.domain.operation.ebay.EbayCompetitorProductImage"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ebay_competitor_product_image (product_id,sort_no,local_image_url,create_time)
+        VALUES (#{productId},#{sortNo},#{localImageUrl},NOW())
+    </insert>
+
+    <update id="updateProduct" parameterType="com.ruoyi.system.domain.operation.ebay.EbayCompetitorProduct">
+        UPDATE ebay_competitor_product
+        SET oe=#{oe},sku=#{sku},remark=#{remark},currency=#{currency},
+            sale_price=#{salePrice},product_cost_cny=#{productCostCny},
+            length_cm=#{lengthCm},width_cm=#{widthCm},height_cm=#{heightCm},
+            volumetric_weight_kg=#{volumetricWeightKg},actual_weight_kg=#{actualWeightKg},
+            exchange_rate=#{exchangeRate},sea_floor_price=#{seaFloorPrice},
+            rail_floor_price=#{railFloorPrice},sea_profit_rate=#{seaProfitRate},
+            rail_profit_rate=#{railProfitRate},target_profit_rate=#{targetProfitRate},
+            target_product_cost_sea=#{targetProductCostSea},
+            target_product_cost_rail=#{targetProductCostRail},formula_version=#{formulaVersion},
+            update_by=#{updateBy},update_time=NOW()
+        WHERE id=#{id}
+    </update>
+
+    <delete id="deleteProductById">
+        DELETE FROM ebay_competitor_product WHERE id=#{id}
+    </delete>
+
+    <select id="selectImagesByProductId" resultMap="ImageMap">
+        SELECT id,product_id,sort_no,local_image_url,create_time
+        FROM ebay_competitor_product_image
+        WHERE product_id=#{productId}
+        ORDER BY sort_no,id
+    </select>
+
+    <select id="selectFormulaConfig" resultMap="FormulaMap">
+        SELECT site_code,site_name,currency,platform_net_rate,volumetric_divisor,
+               fixed_fee,weight_handling_rate,sea_first_leg_rate,profit_first_leg_rate,
+               target_cost_first_leg_rate,rail_first_leg_rate,
+               small_weight_threshold,small_fixed_fee,large_fixed_fee,
+               small_delivery_rate,large_delivery_rate,chargeable_volume_factor,
+               formula_version,status
+        FROM ebay_competitor_formula_config
+        WHERE site_code=#{siteCode} AND status='0'
+        LIMIT 1
+    </select>
+</mapper>

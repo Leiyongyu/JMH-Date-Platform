@@ -1,0 +1,121 @@
+import request from '@/utils/request'
+
+const FILE_TIMEOUT = 10 * 60 * 1000
+const LINK_TIMEOUT = 60 * 1000
+
+export function searchCustomsProducts(keyword) {
+  return request({
+    url: '/operations/customs/declaration/products/search',
+    method: 'get',
+    params: { keyword }
+  })
+}
+
+export function searchStockOrders(params) {
+  return request({
+    url: '/operations/customs/declaration/stock-orders/search',
+    method: 'get',
+    params
+  })
+}
+
+export function loadStockOrderProducts(data) {
+  return request({
+    url: '/operations/customs/declaration/stock-orders/products',
+    method: 'post',
+    data,
+    timeout: LINK_TIMEOUT
+  })
+}
+
+export function searchFbaShipments(params) {
+  return request({
+    url: '/operations/customs/declaration/fba-shipments/search',
+    method: 'get',
+    params
+  })
+}
+
+export function loadFbaShipmentProducts(data) {
+  return request({
+    url: '/operations/customs/declaration/fba-shipments/products',
+    method: 'post',
+    data,
+    timeout: LINK_TIMEOUT
+  })
+}
+
+export function importCustomsSkus(file) {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/operations/customs/declaration/import-skus',
+    method: 'post',
+    data,
+    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false },
+    timeout: FILE_TIMEOUT
+  })
+}
+
+export function importCustomsHistory(file) {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/operations/customs/declaration/import-history',
+    method: 'post',
+    data,
+    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false },
+    timeout: FILE_TIMEOUT
+  })
+}
+
+export function importCustomsHistories(files) {
+  const data = new FormData()
+  files.forEach(file => data.append('files', file))
+  return request({
+    url: '/operations/customs/declaration/import-histories',
+    method: 'post',
+    data,
+    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false },
+    timeout: FILE_TIMEOUT
+  })
+}
+
+export function importFbaShipmentBox(file) {
+  const data = new FormData()
+  data.append('file', file)
+  return request({
+    url: '/operations/customs/declaration/import-fba-shipment-box',
+    method: 'post',
+    data,
+    headers: { 'Content-Type': 'multipart/form-data', repeatSubmit: false },
+    timeout: FILE_TIMEOUT
+  })
+}
+
+export function checkCustomsProducts(data) {
+  return request({
+    url: '/operations/customs/declaration/products/existing',
+    method: 'post',
+    data
+  })
+}
+
+export function saveCustomsProducts(data, overwrite = false) {
+  return request({
+    url: '/operations/customs/declaration/products',
+    method: 'put',
+    params: { overwrite },
+    data
+  })
+}
+
+export function exportCustomsDeclaration(data) {
+  return request({
+    url: '/operations/customs/declaration/export',
+    method: 'post',
+    data,
+    responseType: 'blob',
+    timeout: FILE_TIMEOUT
+  })
+}

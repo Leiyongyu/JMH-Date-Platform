@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.WarehouseStatementMapper">
+    <resultMap type="com.ruoyi.system.domain.operation.external.WarehouseStatement" id="Result">
+        <id property="id" column="id"/>
+        <result property="wid" column="wid"/>
+        <result property="wareHouseName" column="ware_house_name"/>
+        <result property="sku" column="sku"/>
+        <result property="optTime" column="opt_time"/>
+        <result property="type" column="type"/>
+    </resultMap>
+    <select id="selectAll" resultMap="Result">SELECT id,wid,ware_house_name,sku,opt_time,type FROM warehouse_statement</select>
+    <select id="selectByType" resultMap="Result">SELECT id,wid,ware_house_name,sku,opt_time,type FROM warehouse_statement WHERE type=#{type}</select>
+    <select id="selectByUniqueKey" resultMap="Result">
+        SELECT id,wid,ware_house_name,sku,opt_time,type FROM warehouse_statement WHERE wid=#{wid} AND sku=#{sku} AND opt_time=#{optTime}
+    </select>
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO warehouse_statement (wid,ware_house_name,sku,opt_time,type,sync_time) VALUES (#{wid},#{wareHouseName},#{sku},#{optTime},#{type},NOW())
+    </insert>
+    <update id="updateById">
+        UPDATE warehouse_statement SET wid=#{wid},ware_house_name=#{wareHouseName},sku=#{sku},opt_time=#{optTime},type=#{type},sync_time=NOW() WHERE id=#{id}
+    </update>
+</mapper>

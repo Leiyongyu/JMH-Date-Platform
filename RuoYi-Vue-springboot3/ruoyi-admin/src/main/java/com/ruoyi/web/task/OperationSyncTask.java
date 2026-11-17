@@ -1,0 +1,207 @@
+package com.ruoyi.web.task;
+
+import com.ruoyi.common.core.redis.RedisCache;
+import com.ruoyi.common.utils.spring.SpringUtils;
+import com.ruoyi.system.service.operation.IOperationSyncLogService;
+import com.ruoyi.system.service.operation.external.goodcang.GoodcangGrnSyncService;
+import com.ruoyi.system.service.operation.external.goodcang.GoodcangInventoryAgeSyncService;
+import com.ruoyi.system.service.operation.external.goodcang.GoodcangProductSyncService;
+import com.ruoyi.system.service.operation.external.goodcang.GoodcangWarehouseSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.AmzOrderProfitSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.AmzOrderProfit90dSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.AmzProductPerformanceInventorySyncService;
+import com.ruoyi.system.service.operation.external.lingxing.AmzRestockSummarySyncService;
+import com.ruoyi.system.service.operation.external.lingxing.AmzWarehouseInventorySyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingAmzListingSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingEbaySyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingInventorySyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingProductProcurementSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingLogisticsChannelSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingPurchaseOrderSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingPurchasePlanSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingShopSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingStatementSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.AmzFbaShipmentSyncService;
+import com.ruoyi.system.service.operation.external.lingxing.LingxingWarehouseSyncService;
+import com.ruoyi.system.service.operation.sync.OperationSyncContext;
+import com.ruoyi.system.service.operation.sync.OperationSyncResult;
+import com.ruoyi.system.service.operation.sync.SyncOrchestratorService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+/**
+ * 运营数据同步定时任务。
+ * 定时任务和手动同步共用 Redis 锁，避免接口拉取、导入、快照刷新互相覆盖。
+ */
+@Component("operationSyncTask")
+public class OperationSyncTask
+{
+    private static final Logger LOG = LoggerFactory.getLogger(OperationSyncTask.class);
+    // 业务分组锁
+    private static final String LOCK_LINGXING_BASE = "lock:sync:lingxing:base";
+    private static final String LOCK_LINGXING_EBAY = "lock:sync:lingxing:ebay";
+    private static final String LOCK_LINGXING_AMZ  = "lock:sync:lingxing:amz";
+    private static final String LOCK_GOODCANG      = "lock:sync:goodcang";
+    private static final String LOCK_STOCK_ORDER   = "lock:sync:stock_order";
+    private static final String LOCK_CUSTOMS       = "lock:sync:customs";
+    private static final int LOCK_TIMEOUT_SECONDS = 2700;
+
+    // ==================== 低频基础同步 ====================
+    public void syncGoodcangWarehouse() { exec("goodcang_warehouse", "谷仓-仓库信息", "/base_data/get_warehouse", LOCK_GOODCANG,
+            () -> SpringUtils.getBean(GoodcangWarehouseSyncService.class).syncWarehouses()); }
+    public void syncLingxingWarehouse() { exec("warehouse", "领星-仓库信息", "erp/sc/data/local_inventory/warehouse", LOCK_LINGXING_BASE,
+            () -> SpringUtils.getBean(LingxingWarehouseSyncService.class).syncWarehouses()); }
+    public void syncLingxingShop() { exec("shop_list", "领星-店铺列表", "pb/mp/shop/v2/getSellerList", LOCK_LINGXING_BASE,
+            () -> SpringUtils.getBean(LingxingShopSyncService.class).syncShops()); }
+    public void syncLingxingLogisticsChannel() { exec("lingxing_logistics_channel", "领星-头程物流渠道", "erp/sc/data/local_inventory/channelList", LOCK_LINGXING_BASE,
+            () -> SpringUtils.getBean(LingxingLogisticsChannelSyncService.class).syncAll()); }
+    public void syncEbayListing() { exec("ebay_listing", "领星-eBay商品刊登", "basicOpen/multiplatform/ebay/list", LOCK_LINGXING_EBAY,
+            () -> SpringUtils.getBean(LingxingEbaySyncService.class).syncAll()); }
+    public void syncGoodcangProduct() { exec("goodcang_product", "谷仓-商品信息", "/product/get_product_sku_list", LOCK_GOODCANG,
+            () -> SpringUtils.getBean(GoodcangProductSyncService.class).syncFromApi()); }
+    public void syncGoodcangInventoryAge() { exec("goodcang_inventory_age_monthly", "谷仓-eBay库存库龄月快照", "/inventory/inventory_age_list", LOCK_GOODCANG,
+            () -> SpringUtils.getBean(GoodcangInventoryAgeSyncService.class).syncCurrentMonth()); }
+    public void syncGoodcangInventoryAgeLatest() { exec("goodcang_inventory_age_latest", "谷仓-eBay库存库龄每周刷新", "/inventory/inventory_age_list", LOCK_GOODCANG,
+            () -> SpringUtils.getBean(GoodcangInventoryAgeSyncService.class).syncLatest()); }
+    public void syncAmzListing() { exec("amz_listing", "领星-Amazon商品刊登", "erp/sc/data/mws/listing", LOCK_LINGXING_AMZ,
+            () -> SpringUtils.getBean(LingxingAmzListingSyncService.class).syncAll()); }
+
+    // ==================== 每日高频同步 ====================
+    public void syncLingxingInventory() { exec("lingxing_inventory", "领星-库存明细", "erp/sc/routing/data/local_inventory/inventoryDetails", LOCK_LINGXING_EBAY,
+            () -> SpringUtils.getBean(LingxingInventorySyncService.class).syncAll()); }
+    public void syncGoodcangGrnList() { exec("goodcang_grn_list", "谷仓-入库单", "/inbound_order/get_grn_list", LOCK_GOODCANG,
+            () -> SpringUtils.getBean(GoodcangGrnSyncService.class).syncGrnListSmart()); }
+    public void syncGoodcangGrnDetail() { exec("goodcang_grn_detail", "谷仓-入库单详情", "/inbound_order/get_grn_detail", LOCK_GOODCANG,
+            () -> SpringUtils.getBean(GoodcangGrnSyncService.class).syncAllGrnDetails()); }
+    public void syncLingxingStatement() { exec("warehouse_statement", "领星-库存流水", "erp/sc/routing/inventoryLog/WareHouseInventory/wareHouseCenterStatement", LOCK_LINGXING_EBAY,
+            () -> SpringUtils.getBean(LingxingStatementSyncService.class).sync()); }
+    public void syncLingxingPurchaseOrder() { exec("purchase_order", "领星-采购单", "erp/sc/routing/data/local_inventory/purchaseOrderList", LOCK_LINGXING_EBAY,
+            () -> SpringUtils.getBean(LingxingPurchaseOrderSyncService.class).sync()); }
+    public void syncLingxingPurchasePlan() { exec("purchase_plan", "领星-采购计划", "erp/sc/routing/data/local_inventory/getPurchasePlans", LOCK_LINGXING_EBAY,
+            () -> SpringUtils.getBean(LingxingPurchasePlanSyncService.class).sync()); }
+
+    // ==================== Amazon 同步 ====================
+    public void syncAmzOrderProfit() { exec("amz_order_profit", "领星-Amazon订单利润", "basicOpen/finance/mreport/OrderProfit", LOCK_LINGXING_AMZ,
+            () -> SpringUtils.getBean(AmzOrderProfitSyncService.class).syncAll()); }
+    public void syncAmzOrderProfit90d() { exec("amz_order_profit_90d", "领星-Amazon最近90天利润率", "basicOpen/finance/mreport/OrderProfit", LOCK_LINGXING_AMZ,
+            () -> SpringUtils.getBean(AmzOrderProfit90dSyncService.class).syncAll()); }
+    public void syncAmzRestockSummary() { exec("amz_restock_summary", "领星-Amazon补货建议", "erp/sc/routing/restocking/analysis/getSummaryList", LOCK_LINGXING_AMZ,
+            () -> SpringUtils.getBean(AmzRestockSummarySyncService.class).syncAll()); }
+    public void syncAmzProductPerformanceInventory() { exec("amz_product_inventory", "领星-Amazon产品表现库存", "bd/productPerformance/openApi/asinList", LOCK_LINGXING_AMZ,
+            () -> SpringUtils.getBean(AmzProductPerformanceInventorySyncService.class).syncAll()); }
+    public void syncAmzWarehouseInventory() { exec("amz_warehouse_inventory", "领星-Amazon库存明细", "erp/sc/routing/data/local_inventory/inventoryDetails", LOCK_LINGXING_AMZ,
+            () -> SpringUtils.getBean(AmzWarehouseInventorySyncService.class).syncAll()); }
+    public void refreshAmzReplenishmentSnapshot() { exec("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment", LOCK_LINGXING_AMZ,
+            () -> { int rows = SpringUtils.getBean(com.ruoyi.system.service.operation.IAmzReplenishmentSnapshotService.class).refreshSnapshot();
+                    return OperationSyncResult.success("amz_replenish_snapshot", "刷新Amazon补货快照", "compute/amzReplenishment", rows, rows, 0); }); }
+
+    // ==================== FBA 货件 ====================
+    public void syncAmzFbaShipment() { exec("amz_fba_shipment", "领星-FBA货件", "erp/sc/data/fba_report/shipmentList", LOCK_LINGXING_AMZ,
+            () -> SpringUtils.getBean(AmzFbaShipmentSyncService.class).sync()); }
+
+    // ==================== 备货单号 ====================
+    public void syncOverseasStockOrder() { exec("stock_order", "领星-备货单号", "erp/sc/routing/owms/inbound/listInbound", LOCK_STOCK_ORDER,
+            () -> SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.OverseasStockOrderSyncService.class).sync()); }
+    public void syncOverseasStockOrderDetail() { exec("stock_order_detail", "领星-备货单详情", "basicOpen/overSeaWarehouse/stockOrder/detail", LOCK_STOCK_ORDER,
+            () -> SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.OverseasStockOrderDetailSyncService.class).sync()); }
+
+    // ==================== 报关产品库 ====================
+    public void syncCustomsProduct() { exec("customs_product", "报关产品库同步", "sql/join", LOCK_CUSTOMS,
+            () -> SpringUtils.getBean(com.ruoyi.system.service.operation.sync.CustomsProductSyncService.class).sync()); }
+
+    // ==================== FBA装箱 ====================
+    public void syncAmzFbaShipmentBox() { exec("amz_fba_box", "领星-FBA装箱信息", "erp/sc/routing/fba/shipment/boxInfo", LOCK_LINGXING_AMZ,
+            () -> SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.AmzFbaShipmentBoxSyncService.class).sync()); }
+
+    // ==================== 产品管理 ====================
+    public void syncProductWeight() { exec("product_weight", "领星-产品管理", "erp/sc/routing/data/local_inventory/productInfo", LOCK_LINGXING_BASE,
+            () -> SpringUtils.getBean(com.ruoyi.system.service.operation.external.lingxing.LingxingProductWeightSyncService.class).sync()); }
+    public void syncLingxingProductProcurement() { exec("lingxing_product_procurement_monthly", "领星-产品采购与头程成本月快照", "erp/sc/routing/data/local_inventory/productList -> batchGetProductInfo", LOCK_LINGXING_BASE,
+            () -> SpringUtils.getBean(LingxingProductProcurementSyncService.class).syncCurrentMonth()); }
+
+    // ==================== 链路编排入口 ====================
+    public void runBaseChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("base"); }
+    public void runEbayChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("ebay"); }
+    public void runAmzChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("amz"); }
+    public void runFbaChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("fba"); }
+    public void runStockOrderChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("stock_order"); }
+    public void runStaShipmentChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("sta_shipment"); }
+    public void runGoodcangChain() { SpringUtils.getBean(SyncOrchestratorService.class).execute("goodcang"); }
+
+    // ==================== 内部方法 ====================
+    private static final int TASK_TIMEOUT_MINUTES = 30;
+    private static final ExecutorService TIMEOUT_POOL = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "sync-task"); t.setDaemon(true); return t;
+    });
+
+    @FunctionalInterface
+    private interface SyncRunner { OperationSyncResult run() throws Exception; }
+
+    static int timeoutMinutes(String type) {
+        return "amz_restock_summary".equals(type) ? AmzRestockSummarySyncService.TIMEOUT_MINUTES : TASK_TIMEOUT_MINUTES;
+    }
+
+    static int lockTimeoutSeconds(String type) {
+        return Math.max(LOCK_TIMEOUT_SECONDS, (timeoutMinutes(type) + 15) * 60);
+    }
+
+    private void exec(String type, String name, String api, String lockKey, SyncRunner runner) {
+        if (lockKey == null) {
+            executeWithLog(type, name, api, runner);
+            return;
+        }
+
+        RedisCache redis = SpringUtils.getBean(RedisCache.class);
+        if (!redis.tryLock(lockKey, lockTimeoutSeconds(type))) {
+            LOG.info("[SKIP] {} - {} is occupied, skip this schedule", name, lockKey);
+            OperationSyncResult skipped = OperationSyncResult.skipped(type, name, api, "分组锁被占用: " + lockKey, 0);
+            IOperationSyncLogService logSvc = SpringUtils.getBean(IOperationSyncLogService.class);
+            Long logId = logSvc.start(type, name, api, "JOB", "SYSTEM", null, null);
+            logSvc.finish(logId, skipped);
+            OperationSyncContext.set(skipped);
+            return;
+        }
+
+        try {
+            executeWithLog(type, name, api, runner);
+        } finally {
+            redis.unlock(lockKey);
+        }
+    }
+
+    private void executeWithLog(String syncType, String syncName, String apiPath, SyncRunner runner) {
+        int timeoutMinutes = timeoutMinutes(syncType);
+        long start = System.currentTimeMillis();
+        IOperationSyncLogService logService = SpringUtils.getBean(IOperationSyncLogService.class);
+        Long logId = null;
+        Future<OperationSyncResult> future = null;
+        OperationSyncResult result;
+        try {
+            logId = logService.start(syncType, syncName, apiPath, "JOB", "SYSTEM", null, null);
+            future = TIMEOUT_POOL.submit(() -> {
+                OperationSyncResult r = runner.run();
+                r.setElapsedMs(System.currentTimeMillis() - start);
+                return r;
+            });
+            result = future.get(timeoutMinutes, TimeUnit.MINUTES);
+            logService.finish(logId, result);
+        } catch (TimeoutException e) {
+            if (future != null) future.cancel(true);
+            result = OperationSyncResult.timeout(syncType, syncName, apiPath,
+                    "任务执行超时(" + timeoutMinutes + "分钟)，已请求取消后台任务", System.currentTimeMillis() - start);
+            LOG.error("同步任务超时 [{}] {}: 超过{}分钟，已请求取消后台任务", syncType, syncName, timeoutMinutes);
+            if (logId != null) logService.finish(logId, result);
+        } catch (Exception e) {
+            LOG.error("同步任务异常 [{}] {}: {}", syncType, syncName, e.getMessage(), e);
+            result = OperationSyncResult.failed(syncType, syncName, apiPath, e.getMessage(), System.currentTimeMillis() - start);
+            if (logId != null) logService.finish(logId, result);
+        }
+        OperationSyncContext.set(result);
+    }
+}

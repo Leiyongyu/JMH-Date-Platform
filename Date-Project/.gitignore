@@ -1,0 +1,40 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+
+# Python test, lint, and coverage caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+
+# Generated business files and local runtime state
+exports/
+tmp/
+.run/
+_composites/
+*.log
+*.pid
+
+# Local IDE and Codex working artifacts
+.idea/
+.agents/
+.codex-sheet-qa/
+.codex-template-inspect/
+.codex-mismatch-report/
+.codex-test-temp-*/
+outputs/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# 数据助手评测输出（含真实提问与回答，不入库）
+agent_eval/reports/
+agent_eval/feedback.json

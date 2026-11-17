@@ -1,0 +1,222 @@
+<template>
+  <section class="pivot-panel">
+    <div class="pivot-toolbar">
+      <span>共 <b>{{ total.toLocaleString() }}</b> 组负责人日期
+        <span class="snapshot-count">｜{{ detailCount.toLocaleString() }} 条站点明细</span>
+        <span class="snapshot-count">｜{{ snapshotCount }} 个统计日期</span>
+      </span>
+    </div>
+    <p class="history-note">每周一 07:30 随周报成功拉取后采集库存明细；历史按统计日期冻结，同日重新生成覆盖当日，跨日长期保留。负责人保留采集时归属，不随之后的规则调整改变。金额仅汇总有值数据，缺失金额不计入；已冻结历史中未记录的金额汇总不追溯重算。日期范围统一使用库存明细顶部筛选。</p>
+    <p class="summary-note">每个统计日期展示全部站点明细及负责人汇总，汇总行以红色加粗显示。仅受顶部统计日期范围影响，不受库存明细的站点、核心码、品牌或等级筛选影响。</p>
+    <el-alert v-if="dataReady && !options.dates.length" title="暂无历史快照，请等待周报任务成功采集。"
+      type="info" :closable="false" show-icon class="empty-history" />
+
+    <el-table v-loading="loading" :data="rows" :row-key="rowKey" :row-class-name="rowClassName"
+      :default-sort="defaultSort" border stripe height="620" class="pivot-table"
+      empty-text="暂无符合条件的历史快照" @sort-change="handleSortChange">
+      <el-table-column v-for="column in columns" :key="column.key" :prop="column.key"
+        :label="column.label" :min-width="column.width || 145" :fixed="column.fixed"
+        :align="column.format ? 'right' : 'left'" sortable="custom" :show-overflow-tooltip="!column.format">
+        <template #header>
+          <el-tooltip :content="column.tip" placement="top" :show-after="200">
+            <span class="pivot-heading">{{ column.label }}<app-icon name="help" :size="13" /></span>
+          </el-tooltip>
+        </template>
+        <template #default="{ row }">
+          <el-tooltip v-if="column.key === 'stat_date'" :content="'统计年月：' + (row.stat_month || '--') + '；生成时间：' + (row.generated_at || '--') + '；库存源日期：' + (row.inventory_snapshot_date || '--') + '；库存拉取时间：' + (row.inventory_pulled_at || '--')" placement="top">
+            <span>{{ row.stat_date || '--' }}</span>
+          </el-tooltip>
+          <el-tooltip v-else-if="missingMessage(row, column.key)" :content="missingMessage(row, column.key)" placement="top">
+            <span class="missing-value">{{ formatValue(row[column.key], column.format) }} <app-icon name="help" :size="13" /></span>
+          </el-tooltip>
+          <span v-else :class="{ 'numeric-value': column.format }">{{ formatValue(row[column.key], column.format) }}</span>
+        </template>
+      </el-table-column>
+    </el-table>
+    <div class="pivot-pagination">
+      <span class="page-range" role="status" aria-live="polite">
+        当前显示 {{ pageRange.start.toLocaleString() }}–{{ pageRange.end.toLocaleString() }} 组负责人日期，共 {{ total.toLocaleString() }} 组
+      </span>
+      <div class="pagination-controls">
+        <el-select :model-value="pageQuery.pageSize" aria-label="每页负责人日期组数" style="width: 125px"
+          @change="handlePagination({ page: 1, limit: $event })">
+          <el-option v-for="size in [10, 20, 30, 50, 100, 200]" :key="size" :label="size + ' 组/页'" :value="size" />
+        </el-select>
+        <Pagination v-model:page="pageQuery.pageNum" v-model:limit="pageQuery.pageSize"
+          :total="total" :auto-scroll="false" layout="prev, pager, next, jumper" @pagination="handlePagination" />
+      </div>
+    </div>
+  </section>
+</template>
+
+<script setup name="EbayInventoryHistoryPivot">
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import Pagination from '@/components/Pagination/index.vue'
+import { listEbayInventoryPivot } from '@/api/operations/ebay/inventoryDetail'
+
+const props = defineProps({ dateRange: { type: Array, default: () => [] } })
+const rows = ref([])
+const total = ref(0)
+const loading = ref(false)
+const dataReady = ref(false)
+const metadata = ref({})
+const options = reactive({ dates: [] })
+const pageQuery = reactive({ pageNum: 1, pageSize: 50 })
+const sort = reactive({ sortField: 'stat_date', sortOrder: 'descending' })
+const defaultSort = computed(() => ({ prop: sort.sortField, order: sort.sortOrder }))
+const snapshotCount = computed(() => Number(metadata.value.snapshot_count || 0))
+const detailCount = computed(() => Number(metadata.value.detail_count || 0))
+const pageOwnerTotalCount = computed(() => rows.value.filter(isOwnerTotal).length)
+const pageRange = computed(() => {
+  if (!pageOwnerTotalCount.value || total.value <= 0) return { start: 0, end: 0 }
+  const start = (pageQuery.pageNum - 1) * pageQuery.pageSize + 1
+  return { start, end: Math.min(total.value, start + pageOwnerTotalCount.value - 1) }
+})
+let loadVersion = 0
+let unmounted = false
+
+const columns = [
+  { key: 'owner', label: '负责人', width: 135, fixed: 'left', tip: '历史库存明细采集时匹配的负责人，归属已冻结；未分配记录也保留。' },
+  { key: 'site', label: '站点', width: 120, fixed: 'left', tip: '沿用库存明细的仓库与站点映射；站点明细后附红色负责人汇总，汇总该日期全部站点。' },
+  { key: 'stat_date', label: '统计日期', width: 145, tip: '按北京时间记录真实生成日期（YYYY-MM-DD）；同日覆盖，跨日长期保存。悬浮单元格可查看统计年月。' },
+  { key: 'sku_count', label: 'SKU数', format: 'quantity', width: 110, tip: '新生成快照按站点＋中间码合并后计数，无有效中间码的SKU独立保留；负责人汇总为各站点计数之和，跨站点分别计数。旧日期保持原完整SKU计数，不追溯重算。' },
+  { key: 'overseas_sellable_quantity', label: '海外可售', format: 'quantity', tip: '该负责人、站点下库存明细的海外可售数量合计。' },
+  { key: 'overseas_total_quantity', label: '海外总库存', format: 'quantity', tip: '该负责人、站点下海外在途与海外可售之和；由库存明细汇总。' },
+  { key: 'sales_qty_30d', label: '近30天销量', format: 'quantity', tip: '保存当次库存明细计算的销量合计，不随查看日期重算。新快照按生成日前30个完整日期统计，不含生成当天，并排除已作废；旧快照与Excel导入历史保留原值。' },
+  { key: 'in_stock_sales_ratio', label: '可售库销比', format: 'percent', tip: '汇总海外可售 ÷ 汇总近30天销量，显示为百分比；销量为0时为0%。负责人汇总亦先加总各站点库存和销量再相除，不对SKU行或站点库销比求和或平均。' },
+  { key: 'total_stock_sales_ratio', label: '总库销比', format: 'percent', tip: '汇总海外总库存 ÷ 汇总近30天销量，显示为百分比；销量为0时为0%。负责人汇总亦先加总各站点库存和销量再相除，不对SKU行或站点库销比求和或平均。' },
+  { key: 'overseas_sellable_value', label: '海外可售货值', format: 'money', width: 160, tip: '采集时各SKU海外可售货值合计（人民币）；忽略缺失金额，仅汇总有值金额，0为有效值；该项金额全部缺失才显示--。已冻结历史中未记录的金额汇总不追溯重算，仍显示--。' },
+  { key: 'overseas_total_value', label: '海外总货值', format: 'money', width: 160, tip: '采集时各SKU海外总货值合计（人民币）；忽略缺失金额，仅汇总有值金额，0为有效值；该项金额全部缺失才显示--。已冻结历史中未记录的金额汇总不追溯重算，仍显示--。' },
+  { key: 'warehouse_rent_30d_cny', label: '30天谷仓仓租', format: 'money', width: 165, tip: '采集时各SKU的人民币仓租合计；匹配冲突、缺汇率或缺仓租数据造成的缺失金额不计入，仅汇总有值金额，0为有效值；该项金额全部缺失才显示--。已冻结历史中未记录的金额汇总不追溯重算，仍显示--。' }
+]
+
+function currentFilters() {
+  const dates = props.dateRange || []
+  return {
+    startDate: dates[0] || undefined,
+    endDate: dates[1] || undefined
+  }
+}
+
+function rowKey(row) {
+  return JSON.stringify([row.stat_date, row.owner, row.site, row.row_type || 'DETAIL'])
+}
+
+function isOwnerTotal(row) {
+  return row.row_type === 'OWNER_TOTAL'
+}
+
+function rowClassName({ row }) {
+  return isOwnerTotal(row) ? 'owner-total-row' : ''
+}
+
+function formatValue(value, format) {
+  if (value === null || value === undefined || String(value).trim() === '') return '--'
+  if (!format) return String(value)
+  const number = Number(value)
+  if (!Number.isFinite(number)) return '--'
+  if (format === 'percent') {
+    return number.toLocaleString('zh-CN', { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+  const money = format === 'money'
+  return (money ? '¥' : '') + number.toLocaleString('zh-CN', {
+    minimumFractionDigits: money ? 2 : 0, maximumFractionDigits: money ? 2 : 0
+  })
+}
+
+function missingMessage(row, key) {
+  const isPrice = ['overseas_sellable_value', 'overseas_total_value'].includes(key)
+  if (!isPrice && key !== 'warehouse_rent_30d_cny') return ''
+  const missingCount = Number(row[isPrice ? 'missing_price_count' : 'missing_rent_count'] || 0)
+  const reason = isPrice ? '缺少有效采购价' : '仓租无法完整计算'
+  if (isOwnerTotal(row)) {
+    return '按该日期全部站点的已冻结金额汇总相加，忽略空值，0为有效值；未记录的历史金额不追溯重算。'
+      + (formatValue(row[key], 'money') === '--' ? '该项站点金额均无有效记录，合计显示--。' : '')
+      + (missingCount > 0 ? '原快照记录有 ' + missingCount + ' 个SKU' + reason + '（跨站点分别计数）。' : '')
+  }
+  if (formatValue(row[key], 'money') !== '--') {
+    return missingCount > 0
+      ? '有 ' + missingCount + ' 个库存行存在缺失（' + reason + '），仅汇总有值金额；合并行只排除缺失部分，未将缺失值按0计算。'
+      : ''
+  }
+  if (Number(row.sku_count) > 0 && missingCount >= Number(row.sku_count)) {
+    return '该组 ' + missingCount + ' 个SKU' + reason + '，该项金额全部缺失，合计显示--，未将缺失值按0计算。'
+  }
+  return '历史该项未记录金额汇总，显示--；已冻结历史不追溯重算。'
+    + (missingCount > 0 ? '该组有 ' + missingCount + ' 个SKU' + reason + '。' : '')
+}
+
+async function loadRows() {
+  const version = ++loadVersion
+  loading.value = true
+  dataReady.value = false
+  try {
+    if (props.dateRange.length !== 2) { rows.value = []; total.value = 0; return }
+    const response = await listEbayInventoryPivot({ ...currentFilters(), ...pageQuery, ...sort })
+    if (unmounted || version !== loadVersion) return
+    const data = response.data || {}
+    rows.value = data.items || []
+    total.value = Number(data.pagination?.total || 0)
+    pageQuery.pageNum = Number(data.pagination?.page || pageQuery.pageNum)
+    pageQuery.pageSize = Number(data.pagination?.page_size || pageQuery.pageSize)
+    options.dates = data.options?.dates || []
+    metadata.value = data.metadata || {}
+    dataReady.value = true
+  } catch (error) {
+    // Shared request interceptor reports failure; keep the last successful view.
+  } finally {
+    if (!unmounted && version === loadVersion) loading.value = false
+  }
+}
+
+function handlePagination({ page, limit }) {
+  Object.assign(pageQuery, { pageNum: page, pageSize: limit })
+  return loadRows()
+}
+
+function handleSortChange({ prop, order }) {
+  const nextField = order ? prop : 'stat_date'
+  const nextOrder = order || 'descending'
+  if (!columns.some(column => column.key === nextField)) return
+  if (sort.sortField === nextField && sort.sortOrder === nextOrder) return
+  Object.assign(sort, { sortField: nextField, sortOrder: nextOrder })
+  pageQuery.pageNum = 1
+  return loadRows()
+}
+
+onMounted(loadRows)
+onBeforeUnmount(() => {
+  unmounted = true
+  loadVersion += 1
+})
+</script>
+
+<style scoped>
+.pivot-panel { background: #fff; color: var(--jb-ink-700, #24334a); }
+.pivot-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--jb-ink-500, #5a6b85); font-size: 12px; }
+.pivot-toolbar b { color: var(--jb-ink-700, #24334a); }
+.snapshot-count { color: var(--jb-ink-300, #94a0b1); margin-left: 8px; }
+.history-note { color: var(--jb-ink-300, #94a0b1); font-size: 12px; line-height: 1.8; margin: 12px 0; }
+.summary-note { color: var(--jb-ink-500, #5a6b85); font-size: 12px; line-height: 1.8; margin: 0 0 12px; }
+.empty-history { margin-bottom: 12px; }
+.pivot-table {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+  border-radius: 8px;
+}
+.pivot-table :deep(th.el-table__cell) { height: 46px; font-size: 12px; font-weight: 600; }
+.pivot-table :deep(td.el-table__cell) { height: 44px; font-size: 12px; }
+.pivot-heading { display: inline-flex; align-items: center; gap: 4px; cursor: help; }
+.pivot-heading .app-icon { color: #9ba8bb; }
+.missing-value { display: inline-flex; align-items: center; gap: 4px; color: var(--jb-warn, #b88230); }
+.pivot-table :deep(.owner-total-row > td.el-table__cell) { background: #fdeeee !important; color: #c62828; font-weight: 700; }
+.pivot-table :deep(.owner-total-row .cell), .pivot-table :deep(.owner-total-row .missing-value) { color: #c62828; font-weight: 700; }
+.numeric-value { font-variant-numeric: tabular-nums; }
+.pivot-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--jb-line, #e3e9f2); }
+.page-range { color: var(--jb-ink-500, #5a6b85); font-size: 12px; white-space: nowrap; }
+.pagination-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; max-width: 100%; }
+.pivot-pagination :deep(.pagination-container) { margin-top: 0; max-width: 100%; overflow-x: auto; }
+@media (max-width: 600px) { .pivot-toolbar { align-items: flex-start; flex-wrap: wrap; } }
+</style>

@@ -1,0 +1,101 @@
+/**
+ * JMH 设计令牌（Design Tokens）
+ * ------------------------------------------------------------
+ * 只新增 --jb-* 变量，不改动 Element Plus 的 --el-* 变量。
+ * 因此引入本文件不会让现有界面瞬间变色，但所有新组件都从这里取色，
+ * 后续整体换肤时只需修改本文件即可全站生效。
+ */
+
+:root {
+  /* ---------- 品牌色 ---------- */
+  --jb-brand-900: #0a2a5e;
+  --jb-brand-700: #0e45a8;
+  --jb-brand-600: #1257d6;
+  --jb-brand-500: #2c74f0;
+  --jb-brand-100: #e7efff;
+  --jb-brand-50: #f4f8ff;
+
+  --jb-teal-600: #0e9e96;
+  --jb-teal-500: #12b2a6;
+  --jb-teal-100: #d9f5f2;
+
+  /* 主色：默认跟随当前 Element Plus 主色，换肤时无需改组件 */
+  --jb-accent: var(--el-color-primary, #409eff);
+  --jb-accent-hover: var(--el-color-primary-dark-2, #337ecc);
+  --jb-accent-weak: var(--el-color-primary-light-9, #ecf5ff);
+  --jb-accent-ring: var(--el-color-primary-light-5, #a0cfff);
+
+  /* ---------- 中性色（带 8% 蓝调的石板灰） ---------- */
+  --jb-ink-900: #0b1526;
+  --jb-ink-700: #24334a;
+  --jb-ink-500: #5a6b85;
+  --jb-ink-400: #8a99b0;
+  --jb-ink-300: #b4c0d2;
+  --jb-line: #e3e9f2;
+  --jb-line-strong: #cfd9e8;
+  --jb-surface: #ffffff;
+  --jb-canvas: #f5f7fb;
+  --jb-hover: #f1f5fb;
+  --jb-pressed: #e7edf7;
+
+  /* ---------- 语义色（涨红跌绿，遵循国内惯例） ---------- */
+  --jb-ok: #12a150;
+  --jb-ok-bg: #e7f6ec;
+  --jb-warn: #d97706;
+  --jb-warn-bg: #fef4e6;
+  --jb-danger: #dc2626;
+  --jb-danger-bg: #fdecec;
+  --jb-up: #d93f3f;
+  --jb-down: #12a150;
+
+  /* ---------- 圆角 ---------- */
+  --jb-r-xs: 3px;
+  --jb-r-sm: 4px;
+  --jb-r-md: 6px;
+  --jb-r-lg: 10px;
+
+  /* ---------- 控件尺寸 ---------- */
+  --jb-h-xs: 24px;
+  --jb-h-sm: 28px;
+  --jb-h-md: 32px;
+  --jb-h-lg: 36px;
+  --jb-icon-xs: 12px;
+  --jb-icon-sm: 14px;
+  --jb-icon-md: 16px;
+  --jb-icon-lg: 18px;
+
+  /* ---------- 阴影 ---------- */
+  --jb-sh-1: 0 1px 2px rgba(13, 26, 45, 0.06);
+  --jb-sh-2: 0 4px 16px -8px rgba(13, 26, 45, 0.16);
+  --jb-sh-3: 0 16px 40px -16px rgba(13, 26, 45, 0.28);
+
+  /* ---------- 动效 ---------- */
+  --jb-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --jb-dur: 150ms;
+}
+
+/* 深色模式：不再用纯黑，改为墨蓝黑分层 */
+html.dark {
+  --jb-ink-900: #f2f6fc;
+  --jb-ink-700: #d5deec;
+  --jb-ink-500: #9baabf;
+  --jb-ink-400: #6f7f96;
+  --jb-ink-300: #4a5a73;
+  --jb-line: rgba(255, 255, 255, 0.08);
+  --jb-line-strong: rgba(255, 255, 255, 0.14);
+  --jb-surface: #111c2e;
+  --jb-canvas: #0b1220;
+  --jb-hover: rgba(255, 255, 255, 0.06);
+  --jb-pressed: rgba(255, 255, 255, 0.1);
+
+  --jb-brand-50: rgba(18, 87, 214, 0.16);
+  --jb-brand-100: rgba(18, 87, 214, 0.26);
+
+  --jb-ok-bg: rgba(18, 161, 80, 0.16);
+  --jb-warn-bg: rgba(217, 119, 6, 0.16);
+  --jb-danger-bg: rgba(220, 38, 38, 0.16);
+
+  --jb-sh-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --jb-sh-2: 0 4px 16px -8px rgba(0, 0, 0, 0.6);
+  --jb-sh-3: 0 16px 40px -16px rgba(0, 0, 0, 0.7);
+}

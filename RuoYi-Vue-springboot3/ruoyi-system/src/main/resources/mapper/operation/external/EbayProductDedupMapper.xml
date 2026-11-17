@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.EbayProductDedupMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.EbayProductDedup" id="Result">
+        <id property="id" column="id" />
+        <result property="site" column="site" />
+        <result property="sku" column="sku" />
+        <result property="productName" column="product_name" />
+        <result property="productNature" column="product_nature" />
+        <result property="profitRate" column="profit_rate" />
+        <result property="returnRate" column="return_rate" />
+        <result property="lowestPrice" column="lowest_price" />
+        <result property="lowestItemNumber" column="lowest_item_number" />
+        <result property="lowestUploadTime" column="lowest_upload_time" />
+        <result property="oeNumber" column="oe_number" />
+        <result property="trackingPrice" column="tracking_price" />
+        <result property="trackingProfitMargin" column="tracking_profit_margin" />
+        <result property="floorPrice" column="floor_price" />
+        <result property="remark" column="remark" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="Result">
+        SELECT id, site, sku, product_name, product_nature, profit_rate, return_rate, lowest_price,
+               lowest_item_number, lowest_upload_time,
+               oe_number, tracking_price, tracking_profit_margin, floor_price, remark
+        FROM ebay_product_dedup
+    </select>
+
+    <update id="updateProfitRate">
+        UPDATE ebay_product_dedup SET profit_rate = #{rate}
+        WHERE site = #{site} AND sku LIKE CONCAT('%', #{middleCode}, '%')
+    </update>
+
+    <insert id="upsertProfitRate">
+        INSERT INTO ebay_product_dedup (site, sku, profit_rate)
+        VALUES (#{site}, #{sku}, #{rate})
+        ON DUPLICATE KEY UPDATE
+            profit_rate = VALUES(profit_rate),
+            update_time = CURRENT_TIMESTAMP
+    </insert>
+
+    <update id="updateReturnRate">
+        UPDATE ebay_product_dedup SET return_rate = #{rate}
+        WHERE site = #{site} AND sku LIKE CONCAT('%', #{middleCode}, '%') LIMIT 1
+    </update>
+
+    <update id="updateReturnRateByMiddleCode">
+        UPDATE ebay_product_dedup SET return_rate = #{rate}
+        WHERE sku LIKE CONCAT('%', #{middleCode}, '%')
+    </update>
+
+    <update id="updateLowestPrice">
+        UPDATE ebay_product_dedup
+        SET lowest_price = #{price},
+            lowest_item_number = #{itemNumber},
+            lowest_upload_time = NOW()
+        WHERE site = #{site} AND sku = #{sku}
+    </update>
+
+    <update id="updateTrackingCalc">
+        UPDATE ebay_product_dedup
+        SET tracking_price = #{trackingPrice},
+            tracking_profit_margin = #{trackingProfitMargin},
+            floor_price = #{floorPrice}
+        WHERE site = #{site} AND sku = #{sku}
+    </update>
+
+    <update id="updateOeNumber">
+        UPDATE ebay_product_dedup SET oe_number = #{oeNumber}
+        WHERE site = #{site} AND sku = #{sku}
+    </update>
+
+    <update id="updateRemark">
+        UPDATE ebay_product_dedup SET remark = #{remark}
+        WHERE site = #{site} AND sku = #{sku}
+    </update>
+
+    <insert id="rebuildFromListing">
+        INSERT INTO ebay_product_dedup (site, sku, product_name, product_nature)
+        SELECT
+          CASE
+            WHEN l.site_name IN ('德国', '法国', '美国', '英国') THEN l.site_name
+            WHEN UPPER(TRIM(l.site_name)) IN ('US', 'USA', 'UNITED STATES', 'MOTO') THEN '美国'
+            WHEN UPPER(TRIM(l.site_name)) IN ('DE', 'GER', 'GERMANY') THEN '德国'
+            WHEN UPPER(TRIM(l.site_name)) IN ('UK', 'GB', 'UNITED KINGDOM') THEN '英国'
+            WHEN UPPER(TRIM(l.site_name)) IN ('FR', 'FRANCE') THEN '法国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) IN ('US', 'MOTO') THEN '美国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'DE' THEN '德国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'UK' THEN '英国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'FR' THEN '法国'
+            ELSE COALESCE(NULLIF(l.site_name, ''), l.site_code)
+          END,
+          l.sku,
+          MAX(l.title),
+          CASE
+            WHEN MIN(first_listing.first_listing_start_time) IS NULL THEN 2
+            WHEN DATEDIFF(CURDATE(), DATE(MIN(first_listing.first_listing_start_time))) > 60 THEN 1
+            ELSE 2
+          END
+        FROM ebay_product_listing l
+        LEFT JOIN (
+          SELECT sku, MIN(listing_start_time) AS first_listing_start_time
+          FROM ebay_product_listing
+          WHERE sku IS NOT NULL AND sku != '' AND listing_start_time IS NOT NULL
+          GROUP BY sku
+        ) first_listing ON first_listing.sku = l.sku
+        WHERE l.sku IS NOT NULL AND l.sku != ''
+          AND (l.site_name IS NOT NULL AND l.site_name != '' OR l.site_code IS NOT NULL AND l.site_code != '')
+        GROUP BY
+          CASE
+            WHEN l.site_name IN ('德国', '法国', '美国', '英国') THEN l.site_name
+            WHEN UPPER(TRIM(l.site_name)) IN ('US', 'USA', 'UNITED STATES', 'MOTO') THEN '美国'
+            WHEN UPPER(TRIM(l.site_name)) IN ('DE', 'GER', 'GERMANY') THEN '德国'
+            WHEN UPPER(TRIM(l.site_name)) IN ('UK', 'GB', 'UNITED KINGDOM') THEN '英国'
+            WHEN UPPER(TRIM(l.site_name)) IN ('FR', 'FRANCE') THEN '法国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) IN ('US', 'MOTO') THEN '美国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'DE' THEN '德国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'UK' THEN '英国'
+            WHEN UPPER(SUBSTRING_INDEX(l.site_code, '-', -1)) = 'FR' THEN '法国'
+            ELSE COALESCE(NULLIF(l.site_name, ''), l.site_code)
+          END,
+          l.sku
+        ON DUPLICATE KEY UPDATE product_name = VALUES(product_name), product_nature = VALUES(product_nature), site = VALUES(site)
+    </insert>
+
+    <update id="updateProductNature">
+        UPDATE ebay_product_dedup SET product_nature = #{productNature} WHERE site = #{site} AND sku = #{sku}
+    </update>
+
+</mapper>

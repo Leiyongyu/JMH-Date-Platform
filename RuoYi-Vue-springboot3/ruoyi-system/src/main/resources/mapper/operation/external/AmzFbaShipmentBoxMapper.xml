@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.AmzFbaShipmentBoxMapper">
+
+    <select id="count" resultType="int">
+        SELECT COUNT(1) FROM amz_fba_shipment_box
+    </select>
+
+    <select id="selectExistingShipmentIds" resultType="String">
+        SELECT DISTINCT shipment_id FROM amz_fba_shipment_box
+        WHERE shipment_id IN
+        <foreach collection="shipmentIds" item="shipmentId" open="(" separator="," close=")">
+            #{shipmentId}
+        </foreach>
+    </select>
+
+    <select id="selectSidByShipmentIds" resultType="map">
+        SELECT shipment_id, MIN(sid) AS sid
+        FROM amz_fba_shipment
+        WHERE shipment_id IN
+        <foreach collection="shipmentIds" item="shipmentId" open="(" separator="," close=")">
+            #{shipmentId}
+        </foreach>
+        GROUP BY shipment_id
+    </select>
+
+    <delete id="deleteByShipmentId">
+        DELETE FROM amz_fba_shipment_box WHERE shipment_id = #{shipmentId}
+    </delete>
+
+    <insert id="batchInsert" parameterType="java.util.List">
+        INSERT IGNORE INTO amz_fba_shipment_box (
+            sid, shipment_id, box_type,
+            box_length, box_width, box_height, box_weight, box_volume,
+            box_dimensions_unit, box_weight_unit, box_num, box_no,
+            msku, sku, product_name, fulfillment_network_sku, quantity_in_case, sync_time
+        ) VALUES
+        <foreach collection="list" item="e" separator=",">
+        (
+            #{e.sid}, #{e.shipmentId}, #{e.boxType},
+            #{e.boxLength}, #{e.boxWidth}, #{e.boxHeight}, #{e.boxWeight}, #{e.boxVolume},
+            #{e.boxDimensionsUnit}, #{e.boxWeightUnit}, #{e.boxNum}, #{e.boxNo},
+            #{e.msku}, #{e.sku}, #{e.productName}, #{e.fulfillmentNetworkSku}, #{e.quantityInCase}, NOW()
+        )
+        </foreach>
+    </insert>
+
+    <update id="updateSkuFromListing">
+        UPDATE amz_fba_shipment_box b
+        JOIN amz_product_listing p ON b.msku COLLATE utf8mb4_unicode_ci = p.seller_sku
+        SET b.sku = CASE WHEN b.sku IS NULL OR b.sku = '' THEN p.local_sku ELSE b.sku END,
+            b.product_name = CASE WHEN b.product_name IS NULL OR b.product_name = '' THEN p.local_name ELSE b.product_name END,
+            b.sync_time = NOW()
+        WHERE b.sku IS NULL OR b.sku = '' OR b.product_name IS NULL OR b.product_name = ''
+    </update>
+
+    <update id="updateSkuFromListingByShipmentIds">
+        UPDATE amz_fba_shipment_box b
+        JOIN amz_product_listing p
+          ON b.sid = p.sid
+         AND b.msku COLLATE utf8mb4_unicode_ci = p.seller_sku COLLATE utf8mb4_unicode_ci
+        SET b.sku = CASE WHEN b.sku IS NULL OR b.sku = '' THEN p.local_sku ELSE b.sku END,
+            b.product_name = CASE WHEN b.product_name IS NULL OR b.product_name = '' THEN p.local_name ELSE b.product_name END,
+            b.sync_time = NOW()
+        WHERE b.shipment_id IN
+        <foreach collection="shipmentIds" item="shipmentId" open="(" separator="," close=")">
+            #{shipmentId}
+        </foreach>
+          AND (b.sku IS NULL OR b.sku = '' OR b.product_name IS NULL OR b.product_name = '')
+    </update>
+
+</mapper>

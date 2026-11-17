@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from backend.api import customs, export, health, import_jobs, inventory, upload
+from backend.api.v1 import finance as v1_finance
+from backend.api.v1 import health as v1_health
+from backend.api.v1 import ai_assistant as v1_ai_assistant
+from backend.api.v1 import internal_scheduler as v1_internal_scheduler
+from backend.api.v1 import inventory as v1_inventory
+from backend.api.v1 import lingxing as v1_lingxing
+from backend.api.v1 import ebay_sku_analysis as v1_ebay_sku_analysis
+from backend.api.v1 import ebay_replenishment_v2 as v1_ebay_replenishment_v2
+from backend.api.v1 import ebay_inventory_detail as v1_ebay_inventory_detail
+from backend.api.v1 import weekly_inventory
+from backend.api.v1 import amz_owner_sku
+from backend.api.v1 import ebay_owner_sku
+from backend.api.v1 import ebay_price_tier
+from backend.api.v1 import amz_price_tier
+from backend.api.v1 import home_product_nature_snapshot
+from backend.api.v1 import sales_dashboard
+from backend.api.v1 import amz_profit_report
+from backend.api.v1 import amz_monthly_profit
+from backend.api.v1 import ebay_monthly_profit
+from backend.api.v1 import project_profit
+from backend.api.v1 import ebay_friday_report
+from backend.api.v1 import ebay_price_analysis
+
+
+api_router = APIRouter()
+api_router.include_router(health.router)
+api_router.include_router(inventory.router)
+api_router.include_router(upload.router)
+api_router.include_router(import_jobs.router)
+api_router.include_router(customs.router)
+api_router.include_router(export.router)
+api_router.include_router(v1_health.router)
+api_router.include_router(v1_ai_assistant.router)
+api_router.include_router(v1_inventory.router)
+api_router.include_router(v1_lingxing.router)
+api_router.include_router(v1_finance.router)
+api_router.include_router(v1_ebay_sku_analysis.router)
+api_router.include_router(v1_ebay_replenishment_v2.router)
+api_router.include_router(v1_ebay_inventory_detail.router)
+api_router.include_router(v1_internal_scheduler.router)
+api_router.include_router(weekly_inventory.router)
+api_router.include_router(amz_owner_sku.router)
+api_router.include_router(ebay_owner_sku.router)
+api_router.include_router(ebay_price_tier.router)
+api_router.include_router(amz_price_tier.router)
+api_router.include_router(home_product_nature_snapshot.router)
+api_router.include_router(sales_dashboard.router)
+api_router.include_router(amz_profit_report.router)
+api_router.include_router(amz_monthly_profit.router)
+api_router.include_router(ebay_monthly_profit.router)
+api_router.include_router(project_profit.router)
+api_router.include_router(ebay_friday_report.router)
+api_router.include_router(ebay_price_analysis.router)

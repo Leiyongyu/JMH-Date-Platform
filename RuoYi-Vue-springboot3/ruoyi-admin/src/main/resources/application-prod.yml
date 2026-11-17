@@ -1,0 +1,21 @@
+ruoyi:
+  security:
+    public-monitor-enabled: false
+    druid-monitor-enabled: true
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+spring:
+  datasource:
+    druid:
+      webStatFilter:
+        enabled: true
+      statViewServlet:
+        enabled: true
+        allow: ${DRUID_ALLOW:}
+        login-username: ${DRUID_USERNAME:admin}
+        login-password: ${DRUID_PASSWORD:change-me}

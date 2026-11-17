@@ -1,0 +1,1167 @@
+from __future__ import annotations
+
+import json
+from collections.abc import Iterable
+from contextlib import contextmanager
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
+
+from pymysql.connections import Connection
+
+from backend.config import settings
+from backend.repositories import shop_pull
+from backend.database import db_connection
+from backend.parsers.performance_common import UNASSIGNED
+
+
+RANKING_TABLES = {
+    "amazon": "dws_amz_performance_ranking",
+    "ebay": "dws_ebay_performance_ranking",
+    "combined": "dws_combined_performance_ranking",
+}
+
+
+@contextmanager
+def performance_connection():
+    with db_connection() as connection:
+        yield connection
+
+
+@contextmanager
+def named_lock(lock_name: str):
+    """Hold a MySQL advisory lock for the lifetime of one connection."""
+    with db_connection() as connection:
+        acquired = False
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT GET_LOCK(%s, 0) AS acquired", (lock_name,))
+            row = cursor.fetchone()
+            acquired = bool(row and int(row["acquired"] or 0) == 1)
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
+
+
+def last_complete_stat_month(reference_date: date | None = None) -> str:
+    current = reference_date or date.today()
+    if current.month == 1:
+        return f"{current.year - 1}-12"
+    return f"{current.year}-{current.month - 1:02d}"
+
+
+def latest_ranking_month(platform: str) -> str | None:
+    table = _ranking_table(platform)
+    completed_through = last_complete_stat_month()
+    with db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT MAX(stat_month) AS stat_month FROM {table} WHERE stat_month <= %s",
+                (completed_through,),
+            )
+            row = cursor.fetchone()
+    return row["stat_month"] if row else None
+
+
+def list_rankings(
+    platform: str,
+    stat_month: str | None,
+    principal_name: str | None,
+    order_by: str,
+    order: str,
+    page: int,
+    page_size: int,
+    exclude_unassigned: bool = False,
+) -> dict[str, Any]:
+    table = _ranking_table(platform)
+    month = stat_month or latest_ranking_month(platform)
+    if not month:
+        return {"stat_month": None, "items": [], "total": 0}
+
+    order_column = "gross_profit" if order_by == "gross_profit" else "net_sales_amount"
+    direction = "ASC" if order.lower() == "asc" else "DESC"
+    where = ["stat_month = %s"]
+    params: list[Any] = [month]
+    if principal_name:
+        where.append("principal_name LIKE %s")
+        params.append(f"%{principal_name}%")
+    if exclude_unassigned:
+        # Ranking charts compare people, so the catch-all bucket is hidden
+        # there. The row stays in the table: the monthly inventory report and
+        # the AI assistant both read it, and the unmatched diagnostics explain
+        # it instead.
+        where.append("principal_name <> %s")
+        params.append(UNASSIGNED)
+    where_sql = " AND ".join(where)
+    offset = (page - 1) * page_size
+
+    with db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(f"SELECT COUNT(*) AS total FROM {table} WHERE {where_sql}", params)
+            total = int(cursor.fetchone()["total"])
+            cursor.execute(
+                f"""
+                SELECT *
+                FROM {table}
+                WHERE {where_sql}
+                ORDER BY {order_column} {direction}, id ASC
+                LIMIT %s OFFSET %s
+                """,
+                [*params, page_size, offset],
+            )
+            rows = cursor.fetchall()
+    return {"stat_month": month, "items": rows, "total": total}
+
+
+def months_status(limit: int = 12) -> list[dict[str, Any]]:
+    completed_through = last_complete_stat_month()
+    with db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT stat_month
+                FROM (
+                    SELECT stat_month FROM dwd_amz_monthly_order_profit
+                    UNION
+                    SELECT stat_month FROM dwd_ebay_monthly_profit
+                    UNION
+                    SELECT stat_month FROM dws_combined_performance_ranking
+                ) available_months
+                WHERE stat_month <= %s
+                ORDER BY stat_month DESC
+                LIMIT %s
+                """,
+                (completed_through, limit),
+            )
+            months = [row["stat_month"] for row in cursor.fetchall()]
+            result = []
+            for month in months:
+                result.append(
+                    {
+                        "stat_month": month,
+                        "amazon_ready": _exists(cursor, "dws_amz_performance_ranking", month),
+                        "ebay_ready": _exists(cursor, "dws_ebay_performance_ranking", month),
+                        "combined_ready": _exists(cursor, "dws_combined_performance_ranking", month),
+                        "partial": _combined_partial(cursor, month),
+                        "last_refreshed_at": _last_refresh_time(cursor, month),
+                    }
+                )
+    return result
+
+
+def get_amz_profit_rows(connection: Connection, stat_month: str) -> list[dict]:
+    with connection.cursor() as cursor:
+        table_name = _shop_table_name(cursor)
+        cursor.execute(
+            f"""
+            SELECT p.*, s.store_name
+            FROM dwd_amz_monthly_order_profit p
+            LEFT JOIN {table_name} s ON CAST(s.sid AS CHAR) = CAST(p.sid AS CHAR)
+            WHERE p.stat_month = %s
+            """,
+            (stat_month,),
+        )
+        return list(cursor.fetchall())
+
+
+def count_amz_profit_rows(connection: Connection, stat_month: str) -> int:
+    return _count(connection, "dwd_amz_monthly_order_profit", stat_month)
+
+
+def count_ebay_profit_rows(connection: Connection, stat_month: str) -> int:
+    return _count(connection, "dwd_ebay_monthly_profit", stat_month)
+
+
+def get_owner_rules(connection: Connection, platform: str, stat_month: str) -> dict[tuple[str, str, str], str]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT group_code, rule_type, match_key, principal_name
+            FROM dwd_performance_owner_rule
+            WHERE platform = %s AND stat_month = %s
+            """,
+            (platform, stat_month),
+        )
+        rows = cursor.fetchall()
+    return {
+        (
+            (row["group_code"] or "").upper(),
+            (row["rule_type"] or "").upper(),
+            row["match_key"] or "",
+        ): normalize_principal(row["principal_name"])
+        for row in rows
+    }
+
+
+def get_owner_rules_raw(
+    connection: Connection, platform: str, stat_month: str
+) -> dict[tuple[str, str, str], str]:
+    """Same keys as :func:`get_owner_rules`, with the stored owner text kept.
+
+    The diagnostics need the untouched cell to tell "no rule row at all" apart
+    from "rule row exists but its owner cell is blank for this month".
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT group_code, rule_type, match_key, principal_name
+            FROM dwd_performance_owner_rule
+            WHERE platform = %s AND stat_month = %s
+            """,
+            (platform, stat_month),
+        )
+        rows = cursor.fetchall()
+    return {
+        (
+            (row["group_code"] or "").upper(),
+            (row["rule_type"] or "").upper(),
+            row["match_key"] or "",
+        ): row["principal_name"]
+        for row in rows
+    }
+
+
+def ebay_unmatched_breakdown(
+    connection: Connection, stat_month: str
+) -> list[dict[str, Any]]:
+    """Group eBay profit rows that reach no real owner, by brand code.
+
+    Mirrors the CASE in :func:`refresh_ebay_ranking_sql`, and additionally
+    surfaces owner cells holding only invisible whitespace: MySQL ``TRIM()``
+    keeps U+3000 / U+00A0, so that ranking SQL accepts them as a real owner
+    while every Python path treats them as unassigned.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                p.brand_code AS match_key,
+                CASE
+                    WHEN p.brand_code = '' OR p.brand_code = 'UNKNOWN'
+                        THEN 'KEY_EMPTY'
+                    WHEN r.match_key IS NULL
+                        THEN 'RULE_MISSING'
+                    WHEN TRIM(r.principal_name) <> ''
+                         AND TRIM(REPLACE(REPLACE(r.principal_name,
+                                  _utf8mb4 0xE38080, ' '),
+                                  _utf8mb4 0xC2A0, ' ')) = ''
+                        THEN 'OWNER_WHITESPACE'
+                    ELSE 'OWNER_BLANK'
+                END AS reason,
+                COUNT(*) AS source_rows,
+                SUM(p.gross_profit) AS gross_profit,
+                SUM(p.net_sales_amount) AS net_sales_amount,
+                MIN(p.sku) AS sample_sku
+            FROM dwd_ebay_monthly_profit p
+            LEFT JOIN dwd_performance_owner_rule r
+                ON r.platform = 'ebay'
+                AND r.stat_month = p.stat_month
+                AND r.rule_type = 'EBAY_BRAND'
+                AND r.match_key = p.brand_code
+            WHERE p.stat_month = %s
+              AND p.brand_code NOT IN ('FLL', 'LEJ')
+              AND (
+                    r.principal_name IS NULL
+                    OR LOWER(TRIM(r.principal_name)) IN
+                       ('', '待定', '待到', 'nan', 'nat', '<na>', 'none', 'null')
+                    OR TRIM(REPLACE(REPLACE(r.principal_name,
+                             _utf8mb4 0xE38080, ' '),
+                             _utf8mb4 0xC2A0, ' ')) = ''
+              )
+            GROUP BY p.brand_code, reason
+            ORDER BY gross_profit DESC
+            """,
+            (stat_month,),
+        )
+        return list(cursor.fetchall())
+
+
+def delete_owner_rules_by_group(
+    connection: Connection,
+    *,
+    platform: str,
+    group_code: str,
+    stat_months: list[str],
+) -> dict[str, int]:
+    """Delete an obsolete rule group only for the months being re-imported."""
+    if not stat_months:
+        return {"ods_rows": 0, "dwd_rows": 0}
+    placeholders = ",".join(["%s"] * len(stat_months))
+    params = [platform, group_code, *stat_months]
+    deleted: dict[str, int] = {}
+    with connection.cursor() as cursor:
+        for result_key, table_name in (
+            ("ods_rows", "ods_performance_owner_rule_raw"),
+            ("dwd_rows", "dwd_performance_owner_rule"),
+        ):
+            cursor.execute(
+                f"""
+                DELETE FROM {table_name}
+                WHERE platform = %s
+                  AND group_code = %s
+                  AND stat_month IN ({placeholders})
+                """,
+                params,
+            )
+            deleted[result_key] = int(cursor.rowcount or 0)
+    return deleted
+
+
+def replace_amz_ranking(connection: Connection, stat_month: str, rows: list[dict]) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute("DELETE FROM dws_amz_performance_ranking WHERE stat_month = %s", (stat_month,))
+        if rows:
+            cursor.executemany(
+                """
+                INSERT INTO dws_amz_performance_ranking (
+                    stat_month, principal_name, gross_profit, amount, refund_amount,
+                    promotion_discount, net_sales_amount, source_rows, matched_rows,
+                    unmatched_rows, missing_shop_rows
+                ) VALUES (
+                    %(stat_month)s, %(principal_name)s, %(gross_profit)s, %(amount)s,
+                    %(refund_amount)s, %(promotion_discount)s, %(net_sales_amount)s,
+                    %(source_rows)s, %(matched_rows)s, %(unmatched_rows)s,
+                    %(missing_shop_rows)s
+                )
+                """,
+                rows,
+            )
+
+
+def refresh_ebay_ranking_sql(connection: Connection, stat_month: str) -> dict[str, int]:
+    with connection.cursor() as cursor:
+        source_rows = _count_with_cursor(cursor, "dwd_ebay_monthly_profit", stat_month)
+        cursor.execute("DELETE FROM dws_ebay_performance_ranking WHERE stat_month = %s", (stat_month,))
+        cursor.execute(
+            """
+            INSERT INTO dws_ebay_performance_ranking (
+                stat_month, principal_name, gross_profit, sales_amount, refund_amount,
+                net_sales_amount, source_rows, matched_rows, unmatched_rows
+            )
+            SELECT
+                ranked.stat_month,
+                ranked.principal_name,
+                SUM(ranked.gross_profit),
+                SUM(ranked.sales_amount),
+                SUM(ranked.refund_amount),
+                SUM(ranked.net_sales_amount),
+                COUNT(*),
+                SUM(ranked.matched_flag),
+                SUM(ranked.unmatched_flag)
+            FROM (
+                SELECT
+                    p.stat_month,
+                    p.gross_profit,
+                    p.sales_amount,
+                    p.refund_amount,
+                    p.net_sales_amount,
+                    CASE
+                        -- 只有 FLL/LEJ 固定归员工01；CL 按当月规则（与 _ebay_assignment 一致）
+                        WHEN p.brand_code IN ('FLL', 'LEJ') THEN '员工01'
+                        WHEN r.principal_name IS NULL
+                             OR LOWER(TRIM(r.principal_name)) IN ('', '待定', '待到', 'nan', 'nat', '<na>', 'none', 'null')
+                        THEN '未分配'
+                        ELSE TRIM(r.principal_name)
+                    END AS principal_name,
+                    CASE
+                        WHEN p.brand_code IN ('FLL', 'LEJ') THEN 1
+                        WHEN r.principal_name IS NOT NULL
+                             AND LOWER(TRIM(r.principal_name)) NOT IN ('', '待定', '待到', 'nan', 'nat', '<na>', 'none', 'null')
+                        THEN 1
+                        ELSE 0
+                    END AS matched_flag,
+                    CASE
+                        WHEN p.brand_code IN ('FLL', 'LEJ') THEN 0
+                        WHEN r.principal_name IS NULL
+                             OR LOWER(TRIM(r.principal_name)) IN ('', '待定', '待到', 'nan', 'nat', '<na>', 'none', 'null')
+                        THEN 1
+                        ELSE 0
+                    END AS unmatched_flag
+                FROM dwd_ebay_monthly_profit p
+                LEFT JOIN dwd_performance_owner_rule r
+                    ON r.platform = 'ebay'
+                    AND r.stat_month = p.stat_month
+                    AND r.rule_type = 'EBAY_BRAND'
+                    AND r.match_key = p.brand_code
+                WHERE p.stat_month = %s
+            ) ranked
+            GROUP BY ranked.stat_month, ranked.principal_name
+            """,
+            (stat_month,),
+        )
+        ranking_rows = cursor.rowcount
+        cursor.execute(
+            """
+            SELECT COALESCE(SUM(matched_rows), 0) AS matched_rows,
+                   COALESCE(SUM(unmatched_rows), 0) AS unmatched_rows
+            FROM dws_ebay_performance_ranking
+            WHERE stat_month = %s
+            """,
+            (stat_month,),
+        )
+        match_stats = cursor.fetchone() or {}
+    return {
+        "source_rows": source_rows,
+        "matched_rows": int(match_stats.get("matched_rows") or 0),
+        "unmatched_rows": int(match_stats.get("unmatched_rows") or 0),
+        "ranking_rows": ranking_rows,
+    }
+
+
+def refresh_combined_ranking_sql(connection: Connection, stat_month: str, partial: bool) -> int:
+    with connection.cursor() as cursor:
+        cursor.execute("DELETE FROM dws_combined_performance_ranking WHERE stat_month = %s", (stat_month,))
+        cursor.execute(
+            """
+            INSERT INTO dws_combined_performance_ranking (
+                stat_month, principal_name, gross_profit, net_sales_amount,
+                amz_gross_profit, amz_net_sales_amount, ebay_gross_profit,
+                ebay_net_sales_amount, partial
+            )
+            SELECT
+                stat_month,
+                principal_name,
+                SUM(gross_profit),
+                SUM(net_sales_amount),
+                SUM(amz_gross_profit),
+                SUM(amz_net_sales_amount),
+                SUM(ebay_gross_profit),
+                SUM(ebay_net_sales_amount),
+                %s
+            FROM (
+                SELECT stat_month, principal_name, gross_profit, net_sales_amount,
+                       gross_profit AS amz_gross_profit, net_sales_amount AS amz_net_sales_amount,
+                       0 AS ebay_gross_profit, 0 AS ebay_net_sales_amount
+                FROM dws_amz_performance_ranking
+                WHERE stat_month = %s
+                UNION ALL
+                SELECT stat_month, principal_name, gross_profit, net_sales_amount,
+                       0 AS amz_gross_profit, 0 AS amz_net_sales_amount,
+                       gross_profit AS ebay_gross_profit, net_sales_amount AS ebay_net_sales_amount
+                FROM dws_ebay_performance_ranking
+                WHERE stat_month = %s
+            ) t
+            GROUP BY stat_month, principal_name
+            """,
+            (1 if partial else 0, stat_month, stat_month),
+        )
+        return cursor.rowcount
+
+
+def upsert_refresh_run(connection: Connection, payload: dict[str, Any]) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO performance_refresh_run (
+                refresh_id, stat_month, platform, status, partial, source_rows,
+                matched_rows, unmatched_rows, missing_shop_rows, amz_profit_rows,
+                ebay_profit_rows, amz_ranking_rows, ebay_ranking_rows,
+                combined_ranking_rows, trigger_source, request_id, error_message,
+                started_at, completed_at
+            ) VALUES (
+                %(refresh_id)s, %(stat_month)s, %(platform)s, %(status)s, %(partial)s,
+                %(source_rows)s, %(matched_rows)s, %(unmatched_rows)s,
+                %(missing_shop_rows)s, %(amz_profit_rows)s, %(ebay_profit_rows)s,
+                %(amz_ranking_rows)s, %(ebay_ranking_rows)s, %(combined_ranking_rows)s,
+                %(trigger_source)s, %(request_id)s, %(error_message)s,
+                %(started_at)s, %(completed_at)s
+            )
+            ON DUPLICATE KEY UPDATE
+                status = VALUES(status),
+                partial = VALUES(partial),
+                source_rows = VALUES(source_rows),
+                matched_rows = VALUES(matched_rows),
+                unmatched_rows = VALUES(unmatched_rows),
+                missing_shop_rows = VALUES(missing_shop_rows),
+                amz_profit_rows = VALUES(amz_profit_rows),
+                ebay_profit_rows = VALUES(ebay_profit_rows),
+                amz_ranking_rows = VALUES(amz_ranking_rows),
+                ebay_ranking_rows = VALUES(ebay_ranking_rows),
+                combined_ranking_rows = VALUES(combined_ranking_rows),
+                error_message = VALUES(error_message),
+                completed_at = VALUES(completed_at)
+            """,
+            payload,
+        )
+
+
+def owner_rule_snapshot(months: list[str]) -> dict[tuple[str, str, str, str, str], str]:
+    """指定月份现有的负责人规则：(platform, stat_month, group_code, rule_type, match_key) → 负责人（空=未分配）。"""
+    if not months:
+        return {}
+    placeholders = ", ".join(["%s"] * len(months))
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT platform, stat_month, group_code, rule_type, match_key, principal_name
+            FROM dwd_performance_owner_rule WHERE stat_month IN ({placeholders})
+            """,
+            tuple(months),
+        )
+        return {(r["platform"], r["stat_month"], r["group_code"], r["rule_type"], r["match_key"]):
+                r["principal_name"] or "" for r in cursor.fetchall()}
+
+
+def latest_import_hash(import_type: str) -> str | None:
+    """某类导入最近一次成功批次的来源指纹（飞书同步用来判断内容是否有变化）。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT file_hash FROM performance_import_batch
+            WHERE import_type = %s AND status = 'completed'
+            ORDER BY completed_at DESC, started_at DESC LIMIT 1
+            """,
+            (import_type,),
+        )
+        row = cursor.fetchone()
+    return row["file_hash"] if row else None
+
+
+def insert_import_batch(connection: Connection, payload: dict[str, Any]) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO performance_import_batch (
+                batch_id, import_type, platform, stat_month, source_file_name,
+                file_hash, idempotency_key, status, total_rows, inserted_rows,
+                updated_rows, skipped_rows, operator, request_id, error_message,
+                started_at, completed_at
+            ) VALUES (
+                %(batch_id)s, %(import_type)s, %(platform)s, %(stat_month)s,
+                %(source_file_name)s, %(file_hash)s, %(idempotency_key)s,
+                %(status)s, %(total_rows)s, %(inserted_rows)s, %(updated_rows)s,
+                %(skipped_rows)s, %(operator)s, %(request_id)s,
+                %(error_message)s, %(started_at)s, %(completed_at)s
+            )
+            ON DUPLICATE KEY UPDATE
+                batch_id = VALUES(batch_id),
+                source_file_name = VALUES(source_file_name),
+                idempotency_key = VALUES(idempotency_key),
+                status = VALUES(status),
+                total_rows = VALUES(total_rows),
+                inserted_rows = VALUES(inserted_rows),
+                updated_rows = VALUES(updated_rows),
+                skipped_rows = VALUES(skipped_rows),
+                operator = VALUES(operator),
+                request_id = VALUES(request_id),
+                error_message = VALUES(error_message),
+                started_at = VALUES(started_at),
+                completed_at = VALUES(completed_at)
+            """,
+            payload,
+        )
+
+
+def replace_ebay_profit_month(
+    connection: Connection,
+    stat_month: str,
+    rows: list[dict[str, Any]],
+    raw_rows: list[dict[str, Any]],
+) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute("DELETE FROM ods_ebay_monthly_profit_raw WHERE stat_month = %s", (stat_month,))
+        cursor.execute("DELETE FROM dwd_ebay_monthly_profit WHERE stat_month = %s", (stat_month,))
+        if raw_rows:
+            cursor.executemany(
+                """
+                INSERT INTO ods_ebay_monthly_profit_raw (
+                    stat_month, source_file_name, source_sheet, source_row,
+                    sku, brand_code, image_url, multi_variant, sold_quantity,
+                    gross_profit,
+                    product_sales_amount, receivable_shipping_amount,
+                    sales_amount, refund_amount, net_sales_amount, import_batch_id
+                ) VALUES (
+                    %(stat_month)s, %(source_file_name)s, %(source_sheet)s,
+                    %(source_row)s, %(sku)s, %(brand_code)s, %(image_url)s,
+                    %(multi_variant)s, %(sold_quantity)s, %(gross_profit)s,
+                    %(product_sales_amount)s,
+                    %(receivable_shipping_amount)s, %(sales_amount)s,
+                    %(refund_amount)s, %(net_sales_amount)s, %(import_batch_id)s
+                )
+                """,
+                raw_rows,
+            )
+        if rows:
+            cursor.executemany(
+                """
+                INSERT INTO dwd_ebay_monthly_profit (
+                    stat_month, sku, brand_code, image_url, multi_variant,
+                    sold_quantity,
+                    gross_profit, product_sales_amount, receivable_shipping_amount,
+                    sales_amount, refund_amount, net_sales_amount, source_file_name,
+                    source_sheet, source_row, import_batch_id
+                ) VALUES (
+                    %(stat_month)s, %(sku)s, %(brand_code)s, %(image_url)s,
+                    %(multi_variant)s, %(sold_quantity)s, %(gross_profit)s,
+                    %(product_sales_amount)s,
+                    %(receivable_shipping_amount)s, %(sales_amount)s,
+                    %(refund_amount)s, %(net_sales_amount)s, %(source_file_name)s,
+                    %(source_sheet)s, %(source_row)s, %(import_batch_id)s
+                )
+                """,
+                rows,
+            )
+
+
+def upsert_owner_rules(
+    connection: Connection,
+    rules: list[dict[str, Any]],
+    raw_rows: list[dict[str, Any]],
+) -> None:
+    with connection.cursor() as cursor:
+        if raw_rows:
+            cursor.executemany(
+                """
+                INSERT INTO ods_performance_owner_rule_raw (
+                    platform, stat_month, source_file_name, source_sheet, source_row,
+                    group_code, rule_type, match_key, principal_name, import_batch_id
+                ) VALUES (
+                    %(platform)s, %(stat_month)s, %(source_file_name)s,
+                    %(source_sheet)s, %(source_row)s,
+                    %(group_code)s, %(rule_type)s, %(match_key)s, %(principal_name)s,
+                    %(import_batch_id)s
+                )
+                ON DUPLICATE KEY UPDATE
+                    principal_name = VALUES(principal_name),
+                    source_file_name = VALUES(source_file_name),
+                    source_sheet = VALUES(source_sheet),
+                    source_row = VALUES(source_row),
+                    import_batch_id = VALUES(import_batch_id)
+                """,
+                raw_rows,
+            )
+        if rules:
+            cursor.executemany(
+                """
+                INSERT INTO dwd_performance_owner_rule (
+                    platform, stat_month, group_code, rule_type, match_key,
+                    principal_name, source_file_name, source_sheet, source_row,
+                    import_batch_id
+                ) VALUES (
+                    %(platform)s, %(stat_month)s, %(group_code)s, %(rule_type)s,
+                    %(match_key)s, %(principal_name)s, %(source_file_name)s,
+                    %(source_sheet)s, %(source_row)s, %(import_batch_id)s
+                )
+                ON DUPLICATE KEY UPDATE
+                    principal_name = VALUES(principal_name),
+                    source_file_name = VALUES(source_file_name),
+                    source_sheet = VALUES(source_sheet),
+                    source_row = VALUES(source_row),
+                    import_batch_id = VALUES(import_batch_id),
+                    update_time = CURRENT_TIMESTAMP
+                """,
+                rules,
+            )
+
+
+def owner_rule_summary(platform: str, stat_month: str) -> list[dict[str, Any]]:
+    with db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT group_code, rule_type, COUNT(*) AS rule_count,
+                       MAX(update_time) AS last_updated_at
+                FROM dwd_performance_owner_rule
+                WHERE platform = %s AND stat_month = %s
+                GROUP BY group_code, rule_type
+                ORDER BY group_code, rule_type
+                """,
+                (platform, stat_month),
+            )
+            return list(cursor.fetchall())
+
+
+def replace_amz_profit_raw_month(
+    connection: Connection,
+    stat_month: str,
+    raw_rows: list[dict[str, Any]],
+) -> None:
+    """Keep one current source snapshot per month; scheduler runs hold audit history."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM ods_lingxing_amz_order_profit_raw WHERE stat_month = %s",
+            (stat_month,),
+        )
+        if raw_rows:
+            cursor.executemany(
+                """
+                INSERT INTO ods_lingxing_amz_order_profit_raw (
+                    stat_month, sid, seller_sku, local_sku, asin, country,
+                    currency_code, gross_profit, amount, refund_amount,
+                    promotion_discount, net_sales_amount, principal_names,
+                    sync_batch_id, sync_time
+                ) VALUES (
+                    %(stat_month)s, %(sid)s, %(seller_sku)s, %(local_sku)s,
+                    %(asin)s, %(country)s, %(currency_code)s, %(gross_profit)s,
+                    %(amount)s, %(refund_amount)s, %(promotion_discount)s,
+                    %(net_sales_amount)s, %(principal_names)s,
+                    %(sync_batch_id)s, %(sync_time)s
+                )
+                """,
+                raw_rows,
+            )
+
+
+def replace_amz_profit_month(
+    connection: Connection,
+    stat_month: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Replace one complete DWD month and return exact key-level changes."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT sid, seller_sku
+            FROM dwd_amz_monthly_order_profit
+            WHERE stat_month = %s
+            """,
+            (stat_month,),
+        )
+        old_keys = {
+            (str(row["sid"]), str(row["seller_sku"]))
+            for row in cursor.fetchall()
+        }
+        new_keys = {
+            (str(row["sid"]), str(row["seller_sku"]))
+            for row in rows
+        }
+        cursor.execute(
+            "DELETE FROM dwd_amz_monthly_order_profit WHERE stat_month = %s",
+            (stat_month,),
+        )
+        if rows:
+            cursor.executemany(
+                """
+                INSERT INTO dwd_amz_monthly_order_profit (
+                    stat_month, sid, seller_sku, local_sku, asin, country, currency_code,
+                    gross_profit, amount, refund_amount, promotion_discount,
+                    net_sales_amount, principal_names, sync_batch_id, sync_time
+                ) VALUES (
+                    %(stat_month)s, %(sid)s, %(seller_sku)s, %(local_sku)s, %(asin)s,
+                    %(country)s, %(currency_code)s, %(gross_profit)s, %(amount)s,
+                    %(refund_amount)s, %(promotion_discount)s,
+                    %(net_sales_amount)s, %(principal_names)s, %(sync_batch_id)s,
+                    %(sync_time)s
+                )
+                """,
+                rows,
+            )
+    return {
+        "inserted_rows": len(new_keys - old_keys),
+        "updated_rows": len(new_keys & old_keys),
+        "deleted_rows": len(old_keys - new_keys),
+        "dwd_rows": len(new_keys),
+    }
+
+
+def amazon_shop_sids(month: str | None = None) -> list[str]:
+    """要向领星拉取月利润的店铺；month 给出时，停止日期在该月开始之后的店铺仍会拉取（重跑历史月不丢数据）。"""
+    with db_connection() as connection:
+        with connection.cursor() as cursor:
+            table_name = _shop_table_name(cursor)
+            source = None if table_name == "shop_list" else settings.shop_source_database.strip()
+            condition, params = shop_pull.pull_condition(cursor, source, month=month)
+            cursor.execute(
+                f"""
+                SELECT DISTINCT CAST(sid AS CHAR) AS sid
+                FROM {table_name}
+                WHERE sid IS NOT NULL AND sid <> ''
+                  AND platform_code = '10001'{condition}
+                """,
+                params,
+            )
+            return [str(row["sid"]) for row in cursor.fetchall() if row.get("sid")]
+
+
+def shop_table_sql(cursor) -> str:
+    return _shop_table_name(cursor)
+
+
+def scheduler_tasks() -> list[dict[str, Any]]:
+    with db_connection() as connection:
+        _ensure_default_scheduler_task(connection)
+        connection.commit()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM scheduler_task ORDER BY task_code")
+            return list(cursor.fetchall())
+
+
+def scheduler_runs(task_code: str, limit: int = 50) -> list[dict[str, Any]]:
+    with db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT * FROM scheduler_task_run
+                WHERE task_code = %s
+                ORDER BY started_at DESC
+                LIMIT %s
+                """,
+                (task_code, limit),
+            )
+            return list(cursor.fetchall())
+
+
+def update_scheduler_task_enabled(task_code: str, enabled: bool) -> None:
+    with db_connection() as connection:
+        _ensure_default_scheduler_task(connection)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE scheduler_task SET enabled = %s WHERE task_code = %s",
+                (1 if enabled else 0, task_code),
+            )
+        connection.commit()
+
+
+def insert_scheduler_run(connection: Connection, payload: dict[str, Any]) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task_run (
+                run_id, task_code, status, stat_month, trigger_type, source_rows,
+                sync_batch_id, extract_rows, ods_rows, inserted_rows, updated_rows,
+                deleted_rows, skipped_rows, amz_ranking_rows,
+                combined_ranking_rows, etl_stage, error_message, request_id,
+                started_at, completed_at
+            ) VALUES (
+                %(run_id)s, %(task_code)s, %(status)s, %(stat_month)s,
+                %(trigger_type)s, %(source_rows)s, %(sync_batch_id)s,
+                %(extract_rows)s, %(ods_rows)s, %(inserted_rows)s,
+                %(updated_rows)s, %(deleted_rows)s, %(skipped_rows)s,
+                %(amz_ranking_rows)s, %(combined_ranking_rows)s,
+                %(etl_stage)s, %(error_message)s, %(request_id)s,
+                %(started_at)s, %(completed_at)s
+            )
+            ON DUPLICATE KEY UPDATE
+                status = VALUES(status),
+                stat_month = VALUES(stat_month),
+                source_rows = VALUES(source_rows),
+                sync_batch_id = VALUES(sync_batch_id),
+                extract_rows = VALUES(extract_rows),
+                ods_rows = VALUES(ods_rows),
+                inserted_rows = VALUES(inserted_rows),
+                updated_rows = VALUES(updated_rows),
+                deleted_rows = VALUES(deleted_rows),
+                skipped_rows = VALUES(skipped_rows),
+                amz_ranking_rows = VALUES(amz_ranking_rows),
+                combined_ranking_rows = VALUES(combined_ranking_rows),
+                etl_stage = VALUES(etl_stage),
+                error_message = VALUES(error_message),
+                completed_at = VALUES(completed_at)
+            """,
+            payload,
+        )
+        if payload.get("completed_at") is not None:
+            cursor.execute(
+                """
+                UPDATE scheduler_task
+                SET last_run_at = %s
+                WHERE task_code = %s
+                """,
+                (payload["completed_at"], payload["task_code"]),
+            )
+
+
+def _ensure_default_scheduler_task(connection: Connection) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (task_code, task_name, cron_expression, enabled, description)
+            VALUES ('goodcang_wh_inventory_storage_sync', '谷仓仓租概要及明细近30天同步', '0 0 7 ? * MON', 1,
+             '每周一07:00；北京时间包含当天近30天；先拉概要，再按去重单号分页拉明细，全部校验后两表同一事务全量替换。Quartz为唯一计时器。')
+            ON DUPLICATE KEY UPDATE task_name=VALUES(task_name), cron_expression=VALUES(cron_expression),
+             description=VALUES(description);
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
+                'amz_monthly_order_profit_sync',
+                'Amazon月度完整订单利润同步',
+                '0 0 22 4 * ?',
+                1,
+                '每月4日22:00拉取上一个完整自然月的领星Amazon订单利润'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
+                'currency_month_sync',
+                '领星月度汇率同步',
+                '0 0 6 1 * ?',
+                0,
+                '拉取领星currencyMonth全部币种的当月汇率；默认禁用，可手动触发；月度库存源数据任务也会同步汇率'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
+                'amz_profit_report_sync',
+                'AMZ利润报表数据拉取',
+                '0 0 5 7 * ?',
+                1,
+                '每月7日05:00拉取上个完整自然月领星利润统计（店铺、MSKU，结算口径）和订单利润（MSKU，订单口径），USD，按月整月替换'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
+                'monthly_inventory_report_sales_snapshot_refresh',
+                '月度库存上月销售回填补偿',
+                '0 0 13 * * ?',
+                1,
+                '每天13:00用已入库的上月Amazon/eBay销量、实际达成和USD汇率回填上月报表快照，只改销售及关联指标，不调用领星接口'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
+                'monthly_inventory_report_opening_inventory_fill',
+                '月度库存次月月初库存填充',
+                '0 0 23 2 * ?',
+                1,
+                '每月2日23:00将上月海外仓与FBA仓期末库存数量之和回填为次月月初库存数量'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
+                'monthly_inventory_report_sales_volume_sync',
+                '月度库存实际达成及销量填充',
+                '0 0 12 1 * ?',
+                1,
+                '每月1日12:00拉取上个完整自然月Amazon订单利润amount和volume，覆盖ODS并重建实际达成及销量DWD；eBay实际达成和销量读取绩效利润表sales_amount及sold_quantity'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
+                'monthly_inventory_report_source_sync',
+                '月度库存统计表数据拉取',
+                '0 0 6 1 * ?',
+                1,
+                '每月1日06:00先同步当月和上月领星全部币种汇率，再拉取上月FBA、海外仓、本地仓数据并重建月度库存报表'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO scheduler_task (
+                task_code, task_name, cron_expression, enabled, description
+            ) VALUES (
+                'amz_fba_inventory_snapshot_sync',
+                'AMZ FBA与eBay海外仓库存库龄月度快照',
+                '0 30 22 1 * ?',
+                1,
+                '每月1日22:30由Java先刷新谷仓eBay库龄和领星产品成本，再拉取当前月FBA库存并重建滞销清货汇总'
+            )
+            ON DUPLICATE KEY UPDATE
+                task_name = VALUES(task_name),
+                cron_expression = VALUES(cron_expression),
+                description = VALUES(description)
+            """
+        )
+
+
+def normalize_principal(value: Any) -> str:
+    text = "" if value is None else str(value).replace("\u3000", " ").replace("\xa0", " ").strip()
+    return UNASSIGNED if text.casefold() in {"", "待定", "待到", "nan", "nat", "<na>", "none", "null"} else text
+
+
+def decimal_zero() -> Decimal:
+    return Decimal("0")
+
+
+def json_dumps(data: Any) -> str:
+    return json.dumps(data, ensure_ascii=False, default=str)
+
+
+def _ranking_table(platform: str) -> str:
+    try:
+        return RANKING_TABLES[platform]
+    except KeyError as exc:
+        raise ValueError(f"不支持的平台: {platform}") from exc
+
+
+def _exists(cursor, table: str, stat_month: str) -> bool:
+    cursor.execute(f"SELECT 1 FROM {table} WHERE stat_month = %s LIMIT 1", (stat_month,))
+    return cursor.fetchone() is not None
+
+
+def _combined_partial(cursor, stat_month: str) -> bool:
+    cursor.execute(
+        "SELECT MAX(partial) AS partial FROM dws_combined_performance_ranking WHERE stat_month = %s",
+        (stat_month,),
+    )
+    row = cursor.fetchone()
+    return bool(row and row["partial"])
+
+
+def _last_refresh_time(cursor, stat_month: str):
+    cursor.execute(
+        """
+        SELECT MAX(completed_at) AS completed_at
+        FROM performance_refresh_run
+        WHERE stat_month = %s AND status = 'completed'
+        """,
+        (stat_month,),
+    )
+    row = cursor.fetchone()
+    return row["completed_at"] if row else None
+
+
+def _count(connection: Connection, table: str, stat_month: str) -> int:
+    with connection.cursor() as cursor:
+        return _count_with_cursor(cursor, table, stat_month)
+
+
+def _count_with_cursor(cursor, table: str, stat_month: str) -> int:
+    cursor.execute(f"SELECT COUNT(*) AS total FROM {table} WHERE stat_month = %s", (stat_month,))
+    return int(cursor.fetchone()["total"])
+
+
+def _shop_table_name(cursor) -> str:
+    if _table_exists(cursor, None, "shop_list"):
+        return "shop_list"
+    source_database = settings.shop_source_database.strip()
+    if source_database and _table_exists(cursor, source_database, "shop_list"):
+        escaped = source_database.replace("`", "``")
+        return f"`{escaped}`.shop_list"
+    raise ValueError(
+        "未找到店铺表 shop_list；请在当前库创建 shop_list，或设置 SHOP_SOURCE_DATABASE 指向包含 shop_list 的库"
+    )
+
+
+def _table_exists(cursor, database: str | None, table: str) -> bool:
+    if database:
+        cursor.execute(
+            """
+            SELECT 1
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+            LIMIT 1
+            """,
+            (database, table),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT 1
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s
+            LIMIT 1
+            """,
+            (table,),
+        )
+    return cursor.fetchone() is not None
+
+
+def recent_completed_runs(task_code: str, limit: int) -> list[dict[str, Any]]:
+    """最近几次成功运行的行数指标（新到旧），供数据质量门禁做基线。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT run_id, extract_rows, ods_rows, inserted_rows, skipped_rows, started_at
+            FROM scheduler_task_run
+            WHERE task_code = %s AND status = 'completed'
+            ORDER BY started_at DESC
+            LIMIT %s
+            """,
+            (task_code, limit),
+        )
+        return list(cursor.fetchall())
+
+
+def insert_quality_check(run_id: str, task_code: str, status: str, issues_json: str) -> None:
+    with db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO scheduler_task_quality_check
+                    (run_id, task_code, status, issues, checked_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON DUPLICATE KEY UPDATE status = VALUES(status),
+                    issues = VALUES(issues), checked_at = VALUES(checked_at)
+                """,
+                (run_id, task_code, status, issues_json),
+            )
+        connection.commit()
+
+
+def running_scheduler_run(task_code: str, stat_month: str | None, exclude_run_id: str) -> dict[str, Any] | None:
+    """同一任务、同一月份最近一条仍在执行的运行记录（用于重复触发时告诉用户是哪一次在跑）。"""
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT run_id, trigger_type, request_id, started_at
+            FROM scheduler_task_run
+            WHERE task_code = %s AND status = 'running' AND run_id <> %s
+              AND (stat_month <=> %s)
+            ORDER BY started_at DESC LIMIT 1
+            """,
+            (task_code, exclude_run_id, stat_month),
+        )
+        return cursor.fetchone()
+
+
+def get_scheduler_run(run_id: str) -> dict[str, Any] | None:
+    with db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT run_id, task_code, status, stat_month, sync_batch_id, extract_rows,
+                   ods_rows, inserted_rows, updated_rows, deleted_rows, skipped_rows,
+                   error_message
+            FROM scheduler_task_run WHERE run_id = %s
+            """,
+            (run_id,),
+        )
+        return cursor.fetchone()

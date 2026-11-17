@@ -1,0 +1,792 @@
+<template>
+  <div class="app-container inventory-detail-page">
+    <div class="view-switch">
+      <el-radio-group v-model="activeView" :disabled="recalculating || importing || exporting || ageRatioBusy" aria-label="库存视图切换">
+        <el-radio-button value="detail">库存明细</el-radio-button>
+        <el-radio-button value="pivot">历史透视</el-radio-button>
+        <el-radio-button value="ageRatio">海外仓库龄占比</el-radio-button>
+      </el-radio-group>
+    </div>
+    <section class="table-panel">
+      <el-form v-show="showSearch" :model="query" :inline="true" :disabled="recalculating" class="query-form" @submit.prevent="handleQuery">
+        <el-form-item label="统计日期">
+          <el-date-picker v-model="query.dateRange" type="daterange" value-format="YYYY-MM-DD"
+            start-placeholder="开始日期（默认最新）" end-placeholder="结束日期" clearable
+            style="width: 300px" @change="handleDateQuery" />
+        </el-form-item>
+        <el-form-item v-show="activeView === 'detail'" label="站点">
+          <el-select v-model="query.site" clearable filterable placeholder="全部站点" style="width: 160px">
+            <el-option v-for="site in sites" :key="site" :label="site" :value="site" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-show="activeView === 'detail'" label="核心码">
+          <el-input v-model="query.sku" clearable maxlength="2048" placeholder="多个核心码用英文逗号分隔，如10053,10027Y" style="width: 340px" @keyup.enter="handleQuery" />
+        </el-form-item>
+        <el-form-item v-show="activeView === 'detail'" label="品牌">
+          <el-select v-model="query.brand" multiple clearable filterable collapse-tags collapse-tags-tooltip :multiple-limit="100" placeholder="全部品牌（多选）" style="width: 210px">
+            <el-option v-for="brand in brands" :key="brand" :label="brand" :value="brand" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-show="activeView === 'detail'" label="等级">
+          <el-select v-model="query.grade" multiple clearable filterable collapse-tags collapse-tags-tooltip :multiple-limit="100" placeholder="全部等级（多选）" style="width: 180px">
+            <el-option v-for="grade in grades" :key="grade" :label="grade" :value="grade" />
+          </el-select>
+        </el-form-item>
+        <el-form-item class="query-actions">
+          <el-button type="primary" :disabled="loading" @click="handleQuery">
+            <app-icon name="search" :size="15" class="btn-icon" />查询
+          </el-button>
+          <el-button :disabled="loading" @click="resetQuery">
+            <app-icon name="undo" :size="15" class="btn-icon" />重置
+          </el-button>
+          <div v-if="canImportData || canExportData" class="transfer-actions" role="group" aria-label="库存数据导入导出">
+            <el-tooltip content="按统一统计日期范围导出库存明细、历史透视和海外仓库龄占比，分别保存为三个Sheet，不受行筛选、勾选和分页影响。" placement="top">
+              <span>
+                <el-button class="transfer-primary" type="primary"
+                  :loading="exporting" :disabled="exportUnavailable" @click="handleExport">
+                  <app-icon v-if="!exporting" name="export" :size="15" class="btn-icon" />导出全部数据
+                </el-button>
+              </span>
+            </el-tooltip>
+            <el-dropdown trigger="click" :disabled="transferBusy" @command="handleTransferCommand">
+              <el-button class="transfer-toggle" type="primary" :disabled="transferBusy" aria-label="展开导入导出菜单">
+                <app-icon name="chevronDown" :size="14" />
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item v-if="canExportData" command="export" :disabled="exportUnavailable">
+                    <app-icon name="export" :size="14" style="margin-right: 5px; vertical-align: -2px" />导出全部数据
+                  </el-dropdown-item>
+                  <el-dropdown-item v-if="canImportData" command="prices">
+                    <app-icon name="import" :size="14" style="margin-right: 5px; vertical-align: -2px" />导入产品单价
+                  </el-dropdown-item>
+                  <el-dropdown-item v-if="canImportData" command="history">
+                    <app-icon name="import" :size="14" style="margin-right: 5px; vertical-align: -2px" />导入历史数据
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
+        </el-form-item>
+      </el-form>
+
+      <div class="table-toolbar">
+        <div v-show="activeView === 'detail'" class="selection-info">
+          <span>共 <b>{{ total.toLocaleString() }}</b> 条</span>
+          <span v-if="filtersDirty" class="pending-filter-text">筛选条件已更改，请点击查询</span>
+          <span v-if="selectedCount" class="selected-text">已选 {{ selectedCount }} 条（支持跨页）</span>
+          <span class="muted">导出可选择统计日期范围，不受筛选和勾选影响</span>
+          <el-button v-if="selectedCount" link type="primary" @click="clearSelection">清空选择</el-button>
+        </div>
+        <right-toolbar v-model:showSearch="showSearch" :show-column-config="activeView === 'detail'"
+          :refresh-loading="recalculating" :refresh-disabled="loading || importing || exporting || !canRecalculate"
+          :refresh-tooltip="canRecalculate ? '统一刷新三个模块：覆盖今日快照，保留其他日期，不重新拉取接口' : '重新计算需要产品导入权限'"
+          @queryTable="handleRefresh" @columnConfig="openColumnConfig" />
+      </div>
+
+      <InventoryHistoryPivot v-if="activeView === 'pivot'" :key="sharedViewKey" :date-range="sharedDateRange" />
+      <InventoryAgeRatio v-if="activeView === 'ageRatio'" :key="sharedViewKey" :date-range="sharedDateRange" />
+      <div v-show="activeView === 'detail'">
+      <el-table v-if="columnConfigLoaded" :key="columnTableKey" ref="tableRef" v-loading="loading || recalculating"
+        :data="rows" :row-key="rowKey" :default-sort="defaultSort" border stripe
+        height="620" empty-text="暂无符合条件的库存数据" class="inventory-table"
+        @selection-change="handleSelectionChange" @sort-change="handleSortChange">
+        <el-table-column type="selection" width="46" fixed="left" align="center" :selectable="() => dataReady && !loading && !recalculating && !filtersDirty" />
+        <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key"
+          :label="column.label" :min-width="column.width || 132"
+          :fixed="fixedColumnKeys.includes(column.key) ? 'left' : false"
+          :align="column.format ? 'right' : 'left'" :sortable="column.sortable ? 'custom' : false"
+          :show-overflow-tooltip="!column.format">
+          <template #header>
+            <el-tooltip placement="top" effect="light" :show-after="200">
+              <template #content>
+                <div class="column-help">
+                  <p>以下为当前生成口径：站点＋中间码合并，原SKU仍用于来源匹配。历史日期读取已冻结值，不按新口径重算；Excel导入历史只读取原表值，不套用以下公式，空值、0及错误值显示--。</p>
+                  <div class="column-help-title">{{ column.label }} · 数据口径</div>
+                  <dl>
+                    <div><dt>来源接口</dt><dd>{{ column.help.sourceApi }}</dd></div>
+                    <div><dt>源表</dt><dd class="column-help-table">{{ column.help.sourceTable }}</dd></div>
+                    <div><dt>计算公式</dt><dd>{{ column.help.formula }}</dd></div>
+                    <div><dt>空值处理</dt><dd>{{ column.help.emptyHandling }}</dd></div>
+                  </dl>
+                </div>
+              </template>
+              <span class="column-heading" tabindex="0" :aria-label="`${column.label}：数据来源与计算口径`">
+                {{ column.label }}<app-icon name="help" :size="13" class="column-tip" aria-hidden="true" />
+              </span>
+            </el-tooltip>
+          </template>
+          <template #default="{ row }">
+            <el-tooltip v-if="column.key === 'sku' && row.merged_sku_count > 1"
+              :content="`按站点＋中间码合并 ${row.merged_sku_count} 个SKU：${row.sku_aliases.join('、')}`" placement="top">
+              <span class="sku-text">{{ row.sku }} <app-icon name="help" :size="13" /></span>
+            </el-tooltip>
+            <el-tooltip v-else-if="['grade', 'owner'].includes(column.key) && row.merge_warning"
+              :content="row.merge_warning" placement="top">
+              <span class="rent-warning-value">{{ formatValue(row[column.key], column.format) }} <app-icon name="help" :size="13" /></span>
+            </el-tooltip>
+            <el-tag v-else-if="column.key === 'grade' && hasValue(row.grade)" type="info" effect="plain" size="small" class="grade-tag">{{ row.grade }}</el-tag>
+            <span v-else-if="column.key === 'grade'" class="empty-value">--</span>
+            <span v-else-if="['in_stock_sales_ratio', 'total_stock_sales_ratio'].includes(column.key)"
+              :class="{ 'empty-value': !hasValue(row[column.key]), 'numeric-value': true }">
+              {{ formatStockSalesRatio(row, column.key) }}
+            </span>
+            <el-tooltip v-else-if="column.key === 'warehouse_rent_30d_cny' && row.rent_warning"
+              :content="row.rent_warning" placement="top">
+              <span class="rent-warning-value">{{ formatValue(row[column.key], column.format) }} <app-icon name="help" :size="13" /></span>
+            </el-tooltip>
+            <el-tooltip v-else-if="priceColumnKeys.includes(column.key) && row.price_warning"
+              :content="row.price_warning" placement="top">
+              <span class="price-warning-value">{{ formatValue(row[column.key], column.format) }} <app-icon name="help" :size="13" /></span>
+            </el-tooltip>
+            <el-tooltip v-else-if="column.key === 'overseas_max_age_days' && row.age_warning"
+              :content="row.age_warning" placement="top">
+              <span class="age-warning-value">{{ formatValue(row[column.key], column.format) }} <app-icon name="help" :size="13" /></span>
+            </el-tooltip>
+            <span v-else :class="{ 'sku-text': column.key === 'sku', 'empty-value': !hasValue(row[column.key]), 'numeric-value': !!column.format }">
+              {{ formatValue(row[column.key], column.format) }}
+            </span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="table-pagination">
+        <span class="page-range" role="status" aria-live="polite">
+          当前显示 {{ pageRange.start.toLocaleString() }}–{{ pageRange.end.toLocaleString() }} 条，共 {{ total.toLocaleString() }} 条
+        </span>
+        <Pagination v-model:page="pageQuery.pageNum" v-model:limit="pageQuery.pageSize"
+          :total="total" :page-sizes="[10, 20, 30, 50, 100, 200]" :auto-scroll="false"
+          layout="total, sizes, prev, pager, next, jumper" @pagination="handlePagination" />
+      </div>
+      </div>
+    </section>
+
+    <column-config-drawer v-model="showColumnDrawer" :columns="columnDefs" :fixed-keys="fixedColumnKeys"
+      :visible-keys="visibleKeys" @apply="handleColumnApply" />
+
+    <el-dialog v-model="exportDialogVisible" title="导出库存明细" width="560px" append-to-body
+      :close-on-click-modal="!exporting" :close-on-press-escape="!exporting" :show-close="!exporting">
+      <el-form label-position="top">
+        <el-form-item label="统计日期范围（包含开始和结束日期）">
+          <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD"
+            start-placeholder="开始日期" end-placeholder="结束日期" range-separator="至"
+            :disabled="exporting" :clearable="false" style="width: 100%" />
+        </el-form-item>
+      </el-form>
+      <p>统一导出库存明细、历史透视、海外仓库龄占比三个Sheet；库龄占比包含个人和站点维度。无快照日期自动跳过，不重新计算。</p>
+      <p>包含全部字段及统计日期，不受列表筛选、勾选、分页或隐藏列影响。单次最多20万行，超过请分段导出。</p>
+      <template #footer>
+        <el-button :disabled="exporting" @click="exportDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="exporting" :disabled="exportUnavailable" @click="confirmExport">开始导出</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="importDialogVisible" :title="`导入 eBay ${activeImportConfig.label}`" width="620px" append-to-body
+      :close-on-click-modal="!importing" :close-on-press-escape="!importing" :show-close="!importing">
+      <el-alert type="info" :closable="false" show-icon :title="activeImportConfig.summary" />
+      <p class="import-description">{{ activeImportConfig.description }}</p>
+      <el-upload ref="uploadRef" drag :auto-upload="false" :limit="1" accept=".xlsx" :disabled="importing"
+        :on-change="handleImportFileChange" :on-remove="handleImportFileRemove" :on-exceed="handleFileExceed">
+        <app-icon name="upload" :size="38" class="upload-icon" />
+        <div>拖入{{ activeImportConfig.label }}文件，或<span class="upload-link">点击选择</span></div>
+        <template #tip><div class="el-upload__tip">仅支持 .xlsx，最大 {{ activeImportConfig.maxMb || 10 }} MB；{{ activeImportConfig.tip }}</div></template>
+      </el-upload>
+      <template #footer>
+        <el-button :disabled="importing" @click="importDialogVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!importFile" :loading="importing" @click="handleImport">确认导入</el-button>
+      </template>
+    </el-dialog>
+    <el-dialog v-model="importResultVisible" :title="`${importModes[importResultMode].label}导入结果`" width="680px" append-to-body>
+      <el-alert :type="Number(importResult.skipped_rows) || importWarnings.length ? 'warning' : 'success'" :closable="false" show-icon
+        :title="importResultSummary" />
+      <p class="import-description">{{ importModes[importResultMode].resultDescription }}
+        <template v-if="importResultMode !== 'history'">导入不会自动重算快照；请点击表格右上角刷新，重新计算并覆盖今日快照，历史日期保持不变。</template>
+      </p>
+      <el-scrollbar v-if="importWarnings.length" max-height="330px" class="import-warning-list">
+        <div v-for="(warning, index) in importWarnings" :key="index">{{ warning }}</div>
+      </el-scrollbar>
+      <template #footer><el-button type="primary" @click="importResultVisible = false">知道了</el-button></template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup name="EbayInventoryDetail">
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
+import Pagination from '@/components/Pagination/index.vue'
+import ColumnConfigDrawer from '@/components/ColumnConfigDrawer/index.vue'
+import { useColumnConfig } from '@/composables/useColumnConfig'
+import download from '@/plugins/download'
+import { blobValidate } from '@/utils/ruoyi'
+import { checkPermi } from '@/utils/permission'
+import { listEbayInventoryDetail, exportEbayInventoryDetail, importEbayInventoryPrices, importEbayInventoryHistory, recalculateEbayInventorySnapshot } from '@/api/operations/ebay/inventoryDetail'
+import { inventoryColumnHelp } from './columnHelp'
+import InventoryHistoryPivot from './InventoryHistoryPivot.vue'
+import InventoryAgeRatio from './InventoryAgeRatio.vue'
+
+const activeView = ref('detail')
+const ageRatioBusy = ref(false)
+const refreshRevision = ref(0)
+const sharedDateRange = computed(() => {
+  const filters = appliedFilters.value
+  return filters.startDate && filters.endDate ? [filters.startDate, filters.endDate]
+    : filters.statDate && filters.statDate !== 'latest' ? [filters.statDate, filters.statDate] : []
+})
+const sharedViewKey = computed(() => JSON.stringify([sharedDateRange.value, refreshRevision.value]))
+const rows = ref([])
+const total = ref(0)
+const sites = ref([])
+const brands = ref([])
+const grades = ref([])
+const availableDates = ref([])
+const loading = ref(false)
+const recalculating = ref(false)
+const canRecalculate = computed(() => checkPermi(['operations:ebayInventoryDetail:import']))
+const dataReady = ref(false)
+const exporting = ref(false)
+const showSearch = ref(true)
+const tableRef = ref()
+const query = reactive({ statDate: undefined, dateRange: [], site: undefined, sku: '', brand: [], grade: [] })
+const appliedFilters = ref({})
+const filtersDirty = computed(() => JSON.stringify(currentFilters()) !== JSON.stringify(appliedFilters.value))
+// Keep state distinct from the Pagination component: script-setup bindings win
+// over globally registered components with the same name.
+const pageQuery = reactive({ pageNum: 1, pageSize: 50 })
+const pageRange = computed(() => {
+  if (!rows.value.length || total.value <= 0) return { start: 0, end: 0 }
+  const start = (pageQuery.pageNum - 1) * pageQuery.pageSize + 1
+  return { start, end: Math.min(total.value, start + rows.value.length - 1) }
+})
+const sort = reactive({ sortField: 'sales_qty_30d', sortOrder: 'descending' })
+const defaultSort = computed(() => ({ prop: sort.sortField, order: sort.sortOrder }))
+const selection = reactive(new Map())
+const selectedCount = computed(() => selection.size)
+let restoringSelection = false
+let loadVersion = 0
+let unmounted = false
+
+const fixedColumnKeys = ['site', 'sku']
+const priceColumnKeys = ['unit_price_tax', 'overseas_sellable_value', 'overseas_total_value']
+const columnDefs = [
+  { key: 'site', label: '站点', width: 90 },
+  { key: 'sku', label: 'SKU', width: 205 },
+  { key: 'sku_middle_site_code', label: '中间码+站点', width: 150 },
+  { key: 'sku_middle_code', label: '中间码', width: 110 },
+  { key: 'brand', label: '品牌', width: 100 },
+  { key: 'product_name', label: '产品名称', width: 240 },
+  { key: 'grade', label: '等级', width: 100 },
+  { key: 'overseas_in_transit_quantity', label: '海外在途', format: 'quantity', sortable: true },
+  { key: 'overseas_sellable_quantity', label: '海外可售', format: 'quantity', sortable: true },
+  { key: 'overseas_total_quantity', label: '海外总库存', format: 'quantity', sortable: true },
+  { key: 'chengdu_in_transit_quantity', label: '成都在途', format: 'quantity', sortable: true },
+  { key: 'chengdu_sellable_quantity', label: '成都可售', format: 'quantity', sortable: true },
+  { key: 'procurement_plan_quantity', label: '采购计划', format: 'quantity' },
+  { key: 'pending_outbound_quantity', label: '待出库', format: 'quantity' },
+  { key: 'cycle_total_quantity', label: '周期总库存', format: 'quantity', sortable: true },
+  { key: 'overseas_max_age_days', label: '海外最高库龄', format: 'quantity', sortable: true, width: 150 },
+  { key: 'sales_qty_30d', label: '近30天销量', format: 'quantity', sortable: true },
+  { key: 'average_monthly_sales_3m', label: '近3个月均销量', format: 'decimal2', sortable: true, width: 150 },
+  { key: 'profit_rate', label: '利润率', format: 'percent', sortable: true, width: 110 },
+  { key: 'max_monthly_sales', label: '历史最大月销', format: 'quantity', sortable: true, width: 150 },
+  { key: 'in_stock_sales_ratio', label: '在库库销比', format: 'percent', sortable: true },
+  { key: 'total_stock_sales_ratio', label: '总库销比', format: 'percent', sortable: true },
+  { key: 'unit_price_tax', label: '单价（含税）', format: 'money', sortable: true, width: 140 },
+  { key: 'overseas_sellable_value', label: '海外可售货值', format: 'money', sortable: true, width: 150 },
+  { key: 'overseas_total_value', label: '海外总货值', format: 'money', sortable: true, width: 145 },
+  { key: 'owner', label: '负责人', width: 125 },
+  { key: 'warehouse_rent_30d_cny', label: '30天谷仓仓租', format: 'money', sortable: true, width: 155 },
+  { key: 'total_duration_months', label: '总时长（月）', format: 'decimal', width: 145 },
+  { key: 'total_stock_sales_ratio_months', label: '总库销比（月）', format: 'percent', sortable: true, width: 155 },
+  { key: 'purchase_quantity', label: '申购量', format: 'quantity' },
+  { key: 'last_sold_at', label: '最后售出时间', width: 180 },
+  { key: 'stat_date', label: '统计日期', width: 130 }
+].map(column => ({ ...column, help: inventoryColumnHelp[column.key] }))
+const {
+  showColumnDrawer, columnConfigLoaded, columnTableKey, visibleKeys, visibleColumns,
+  openColumnConfig, initColumnConfig, applyColumnConfig
+} = useColumnConfig('operations:ebay:inventory-detail', columnDefs, fixedColumnKeys, fixedColumnKeys,
+  { average_daily_sales_30d: 'average_monthly_sales_3m' },
+  { sku_middle_code: 'sku', sku_middle_site_code: { before: 'sku_middle_code', after: 'sku' } })
+
+function hasValue(value) {
+  return value !== undefined && value !== null && String(value).trim() !== ''
+}
+
+function formatValue(value, format) {
+  if (!hasValue(value)) return '--'
+  if (!format) return String(value)
+  const number = Number(value)
+  if (!Number.isFinite(number)) return '--'
+  if (format === 'percent') {
+    // Intl percent formatting scales the ratio by 100 for display only.
+    return number.toLocaleString('zh-CN', {
+      style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2
+    })
+  }
+  const money = format === 'money'
+  const fixedTwo = money || format === 'decimal2'
+  return `${money ? '¥' : ''}${number.toLocaleString('zh-CN', {
+    minimumFractionDigits: fixedTwo ? 2 : 0,
+    maximumFractionDigits: fixedTwo ? 2 : (format === 'decimal' ? 6 : 0)
+  })}`
+}
+
+function formatStockSalesRatio(row, key) {
+  const ratio = row[key]
+  if (!hasValue(ratio)) return '--'
+  const stockKey = key === 'in_stock_sales_ratio'
+    ? 'overseas_sellable_quantity' : 'overseas_total_quantity'
+  if (Number(ratio) === 0 && hasValue(row.sales_qty_30d)
+    && Number(row.sales_qty_30d) === 0 && hasValue(row[stockKey])
+    && Number(row[stockKey]) > 0) return '0销量'
+  return formatValue(ratio, 'percent')
+}
+
+function rowKey(row) {
+  const key = [String(row.site || '').trim(), String(row.sku || '').trim()]
+  if (row.stat_date) key.push(row.stat_date)
+  if (row.record_key) key.push(row.record_key)
+  return JSON.stringify(key)
+}
+
+function filterCsv(value) {
+  const values = Array.isArray(value) ? value : String(value || '').split(',')
+  return [...new Set(values.map(item => String(item).trim()).filter(Boolean))].join(',') || undefined
+}
+
+function currentFilters() {
+  return {
+    // The service accepts either a single snapshot or a date range, never both.
+    ...(query.dateRange?.length === 2
+      ? { startDate: query.dateRange[0], endDate: query.dateRange[1] }
+      : { statDate: query.statDate || 'latest' }),
+    site: query.site || undefined,
+    sku: filterCsv(query.sku),
+    brand: filterCsv(query.brand),
+    grade: filterCsv(query.grade)
+  }
+}
+
+function disabledStatDate(value) {
+  const key = [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'),
+    String(value.getDate()).padStart(2, '0')].join('-')
+  return !availableDates.value.includes(key)
+}
+
+function handleSelectionChange(selectedRows) {
+  if (restoringSelection || loading.value || filtersDirty.value || !dataReady.value) return
+  // Only mutate the current page's keys, preserving selections on other pages.
+  rows.value.forEach(row => selection.delete(rowKey(row)))
+  selectedRows.forEach(row => selection.set(rowKey(row), {
+    site: row.site, sku: row.sku || '', ...(row.stat_date ? { stat_date: row.stat_date } : {}),
+    ...(row.record_key ? { record_key: row.record_key } : {})
+  }))
+}
+
+function clearSelection() {
+  selection.clear()
+  tableRef.value?.clearSelection()
+}
+
+async function restorePageSelection() {
+  restoringSelection = true
+  try {
+    await nextTick()
+    tableRef.value?.clearSelection()
+    for (const row of rows.value) {
+      if (selection.has(rowKey(row))) tableRef.value?.toggleRowSelection(row, true)
+    }
+  } finally {
+    restoringSelection = false
+  }
+}
+
+async function loadRows() {
+  const version = ++loadVersion
+  loading.value = true
+  dataReady.value = false
+  try {
+    const response = await listEbayInventoryDetail({ ...appliedFilters.value, ...pageQuery, ...sort })
+    if (unmounted || version !== loadVersion) return
+    const data = response.data || {}
+    restoringSelection = true
+    rows.value = data.items || []
+    total.value = Number(data.pagination?.total || 0)
+    pageQuery.pageNum = Number(data.pagination?.page || pageQuery.pageNum)
+    pageQuery.pageSize = Number(data.pagination?.page_size || pageQuery.pageSize)
+    sites.value = data.sites || []
+    brands.value = data.brands || []
+    grades.value = data.grades || []
+    availableDates.value = data.metadata?.available_dates || []
+    // Resolve "latest" once; pagination and export stay on the displayed date.
+    if (appliedFilters.value.statDate === 'latest' && data.metadata?.stat_date) {
+      appliedFilters.value = { ...appliedFilters.value, statDate: data.metadata.stat_date }
+      if (!query.statDate) query.statDate = data.metadata.stat_date
+    }
+    await restorePageSelection()
+    if (version === loadVersion) dataReady.value = true
+  } catch (error) {
+    // The shared request interceptor displays the server error. Keep the last successful view.
+  } finally {
+    if (!unmounted && version === loadVersion) loading.value = false
+  }
+}
+
+function handlePagination({ page, limit }) {
+  if (recalculating.value) return
+  Object.assign(pageQuery, { pageNum: page, pageSize: limit })
+  return loadRows()
+}
+
+function handleQuery() {
+  if (recalculating.value) return
+  const filters = currentFilters()
+  if (filters.startDate && filters.startDate > filters.endDate) {
+    ElMessage.error('开始日期不能晚于结束日期')
+    return
+  }
+  if (filters.sku && filters.sku.split(',').some(code => !/^(?=[a-zA-Z0-9]*[0-9])[a-zA-Z0-9]{1,64}$/.test(code))) {
+    ElMessage.error('请输入核心码（数字或字母数字组合），多个核心码使用英文逗号分隔，例如10053,10027Y')
+    return
+  }
+  if (['sku', 'brand', 'grade'].some(key => filters[key]?.length > 2048 || (filters[key]?.split(',').length || 0) > 100)) {
+    ElMessage.error('每个筛选条件最多100项、2048个字符')
+    return
+  }
+  clearSelection()
+  pageQuery.pageNum = 1
+  appliedFilters.value = filters
+  return loadRows()
+}
+
+function resetQuery() {
+  Object.assign(query, { statDate: undefined, dateRange: [], site: undefined, sku: '', brand: [], grade: [] })
+  Object.assign(sort, { sortField: 'sales_qty_30d', sortOrder: 'descending' })
+  tableRef.value?.sort(sort.sortField, sort.sortOrder)
+  return handleQuery()
+}
+
+function handleSortChange({ prop, order }) {
+  if (recalculating.value) return
+  const nextField = order ? prop : 'sales_qty_30d'
+  const nextOrder = order || 'descending'
+  if (sort.sortField === nextField && sort.sortOrder === nextOrder) return
+  Object.assign(sort, { sortField: nextField, sortOrder: nextOrder })
+  pageQuery.pageNum = 1
+  loadRows()
+}
+
+async function handleRefresh() {
+  if (recalculating.value || loading.value || importing.value || exporting.value || !canRecalculate.value) return
+  recalculating.value = true
+  dataReady.value = false
+  clearSelection()
+  try {
+    const response = await recalculateEbayInventorySnapshot()
+    if (unmounted) return
+    const day = response.data?.stat_date
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) {
+      ElMessage.error('服务未返回有效的统计日期，请查询核对后再操作')
+      return
+    }
+    // Never write the date currently selected by the user; the server supplies today.
+    query.statDate = day
+    query.dateRange = [day, day]
+    refreshRevision.value++
+    pageQuery.pageNum = 1
+    appliedFilters.value = currentFilters()
+    await loadRows()
+    if (unmounted) return
+    if (dataReady.value) ElMessage.success(`已重新计算并保存 ${day} 的库存明细、历史透视及海外仓库龄占比；同日覆盖，其他日期保留`)
+    else ElMessage.warning('今日快照已保存，列表读取失败，请点击查询重试')
+  } catch (error) {
+    // The request interceptor displays server errors; no second write/retry is automatic.
+  } finally {
+    recalculating.value = false
+  }
+}
+
+async function handleColumnApply(keys) {
+  restoringSelection = true
+  try {
+    // Applying keys remounts the table immediately; do not block selection while
+    // the unrelated preference save is still waiting for the server.
+    const saving = applyColumnConfig(keys)
+    await restorePageSelection()
+    await saving
+    ElMessage.success('列配置已保存')
+  } catch (error) {
+    ElMessage.warning('列配置已在本机应用，服务器保存失败')
+  }
+}
+
+const exportDialogVisible = ref(false)
+const exportDateRange = ref([])
+
+function handleExport() {
+  if (exportUnavailable.value) return
+  const day = appliedFilters.value.statDate
+  exportDateRange.value = appliedFilters.value.startDate && appliedFilters.value.endDate
+    ? [appliedFilters.value.startDate, appliedFilters.value.endDate]
+    : day && day !== 'latest' ? [day, day] : []
+  exportDialogVisible.value = true
+}
+
+async function confirmExport() {
+  if (exportUnavailable.value) return
+  const [startDate, endDate] = exportDateRange.value || []
+  if (!startDate || !endDate || startDate > endDate) {
+    ElMessage.error('请选择有效的统计开始和结束日期')
+    return
+  }
+  exporting.value = true
+  try {
+    const data = await exportEbayInventoryDetail({
+      startDate, endDate,
+      ...sort
+    })
+    if (!(data instanceof Blob)) throw new Error('导出响应不是文件，请稍后重试')
+    const contentType = data.type.split(';')[0].toLowerCase()
+    if (!blobValidate(data) || contentType === 'application/json' || contentType.endsWith('+json')) {
+      const error = JSON.parse(await data.text())
+      throw new Error(error.detail || error.msg || error.error || '导出失败，请稍后重试')
+    }
+    const signature = new Uint8Array(await data.slice(0, 4).arrayBuffer())
+    if (signature[0] !== 0x50 || signature[1] !== 0x4b || signature[2] !== 0x03 || signature[3] !== 0x04) {
+      throw new Error('服务未返回有效的 Excel 文件，请稍后重试')
+    }
+    const dateLabel = startDate === endDate ? startDate : `${startDate}_至_${endDate}`
+    download.saveAs(data, `库存明细持续更新-ebay-${dateLabel}.xlsx`)
+    exportDialogVisible.value = false
+  } catch (error) {
+    ElMessage.error(error?.message || '导出失败，请稍后重试')
+  } finally {
+    exporting.value = false
+  }
+}
+
+const importDialogVisible = ref(false)
+const importing = ref(false)
+const canImportData = computed(() => checkPermi(['operations:ebayInventoryDetail:import']))
+const canExportData = computed(() => checkPermi(['operations:ebayInventoryDetail:export']))
+const transferBusy = computed(() => loading.value || importing.value || exporting.value || recalculating.value)
+const exportUnavailable = computed(() => transferBusy.value || !canExportData.value
+  || !dataReady.value)
+
+function handleTransferCommand(command) {
+  if (transferBusy.value) return
+  if (command === 'export') {
+    if (!exportUnavailable.value) return handleExport()
+  } else if (canImportData.value && ['prices', 'history'].includes(command)) {
+    openImportDialog(command)
+  }
+}
+
+const importMode = ref('prices')
+const importFile = ref(null)
+const uploadRef = ref()
+const importResultVisible = ref(false)
+const importResultMode = ref('prices')
+const importResult = ref({})
+const importWarnings = computed(() => Array.isArray(importResult.value.warnings) ? importResult.value.warnings : [])
+const importModes = {
+  history: {
+    label: '库存历史', maxMb: 50,
+    summary: '仅填充历史原始行，不合并、不计算、不覆盖已有日期的其他批次。',
+    description: '只读取库存明细持续更新-US、库存明细持续更新-DE、库存明细持续更新-UK三个sheet，按统计时间保存。重复行全部保留；空SKU、空值、0、公式错误和无法识别的数值显示--。最后售出时间保留原值，不推算年份。',
+    tip: '相同文件重复上传不会增加记录。已有日期与本次文件冲突时整份拒绝；原Excel不会修改。',
+    resultDescription: '已按原统计日期填充明细，可通过日期选择器查询。不生成或覆盖透视数据，也不需要点击刷新重算。'
+  },
+  prices: {
+    label: '产品单价',
+    summary: '按核心码更新价格；同核心码取最低价，所有站点共用。',
+    description: '上传 .xlsx，包含「产品代码」/「SKU」、「核心」/「核心码」和「单价(默认采购价)」/「单价（含税）」。优先使用核心码列，也兼容「中间码」；旧表未提供时取 SKU 第二段。支持数字或字母数字组合，前导零请按文本保存。每次按 SKU＋单价去重，替换本次涉及核心码的全部旧价格（包括未再上传的后缀SKU），未涉及核心码保留；同核心码取最低人民币含税价，允许零价，不读取产品管理价格。',
+    tip: '核心码列为空或无效、同一SKU对应多个核心码、缺少SKU或无效单价均拒绝整份导入。上传核心码与库存SKU第二段不一致时可能无法匹配，请核对导入警告。原Excel文件不修改。',
+    resultDescription: '已替换本次涉及核心码的全部价格集合；同核心码的最低价供所有站点使用。请刷新重新计算今日快照，历史日期保持不变。'
+  }
+}
+const activeImportConfig = computed(() => importModes[importMode.value])
+const importResultSummary = computed(() => importResultMode.value === 'history'
+  ? `新增 ${importResult.value.imported_rows ?? 0} 行、${importResult.value.imported_dates ?? 0} 个日期；已有相同文件跳过 ${importResult.value.skipped_existing_dates ?? 0} 个日期；重复行保留 ${importResult.value.duplicate_rows_preserved ?? 0} 条、空SKU ${importResult.value.missing_sku_rows ?? 0} 条`
+  : importResultMode.value === 'prices'
+  ? `导入 ${importResult.value.imported_rows ?? 0} 条 SKU＋单价，合并重复 ${importResult.value.duplicate_rows ?? 0} 条，涉及 ${importResult.value.sku_count ?? 0} 个 SKU、${importResult.value.middle_code_count ?? 0} 个核心码，${importResult.value.unmatched_middle_rows ?? 0} 条无有效核心码，${importResult.value.core_mismatch_rows ?? 0} 条核心码与SKU第二段不一致`
+  : `更新 ${importResult.value.imported_rows ?? 0} 条，合并重复 ${importResult.value.duplicate_rows ?? 0} 条，跳过无效 ${importResult.value.skipped_rows ?? 0} 条`)
+
+function openImportDialog(mode) {
+  if (!importModes[mode] || loading.value || importing.value || exporting.value || recalculating.value
+    || !checkPermi(['operations:ebayInventoryDetail:import'])) return
+  importMode.value = mode
+  importFile.value = null
+  uploadRef.value?.clearFiles()
+  importDialogVisible.value = true
+}
+
+function handleImportFileChange(file) {
+  const raw = file.raw
+  const maxMb = activeImportConfig.value.maxMb || 10
+  if (!raw || !/\.xlsx$/i.test(raw.name) || raw.size > maxMb * 1024 * 1024) {
+    ElMessage.warning(`请选择不超过${maxMb} MB的 .xlsx 文件`)
+    importFile.value = null
+    uploadRef.value?.clearFiles()
+    return
+  }
+  importFile.value = raw
+}
+
+function handleImportFileRemove() {
+  importFile.value = null
+}
+
+function handleFileExceed() {
+  ElMessage.warning('一次只导入一个文件，请先移除当前文件')
+}
+
+async function handleImport() {
+  if (!importFile.value || importing.value || loading.value || exporting.value || recalculating.value
+    || !checkPermi(['operations:ebayInventoryDetail:import'])) return
+  importing.value = true
+  const mode = importMode.value
+  try {
+    const importRequest = mode === 'history' ? importEbayInventoryHistory : importEbayInventoryPrices
+    const response = await importRequest(importFile.value)
+    if (unmounted) return
+    const result = response.data || {}
+    importResult.value = result
+    importResultMode.value = mode
+    importResultVisible.value = true
+    importDialogVisible.value = false
+    importFile.value = null
+    uploadRef.value?.clearFiles()
+    if (mode === 'history') {
+      query.statDate = result.latest_import_date
+      query.dateRange = [result.latest_import_date, result.latest_import_date]
+      query.site = undefined
+      query.sku = ''
+      query.brand = []
+      query.grade = []
+    }
+    await handleQuery()
+    if (!unmounted) ElMessage.success(mode === 'history' ? '历史数据已保存，可按统计日期查询；无需重算'
+      : `${importModes[mode].label}已导入；请点击表格右上角刷新，重新计算并覆盖今日快照`)
+  } catch (error) {
+    // The shared request interceptor reports validation and transport errors.
+  } finally {
+    importing.value = false
+  }
+}
+
+function handleDateQuery() {
+  query.statDate = undefined
+  return handleQuery()
+}
+
+watch(() => [query.statDate, query.dateRange, query.site, query.sku, query.brand, query.grade], clearSelection, { deep: true })
+onMounted(async () => {
+  appliedFilters.value = currentFilters()
+  await Promise.all([initColumnConfig(), loadRows()])
+})
+onBeforeUnmount(() => {
+  unmounted = true
+  loadVersion += 1
+})
+</script>
+
+<style scoped>
+.inventory-detail-page { background: var(--jb-page, #f5f7fb); min-height: calc(100vh - 84px); color: var(--jb-ink-700, #24334a); }
+
+/* 视图切换：分段控件 */
+.view-switch { margin-bottom: 14px; }
+.view-switch :deep(.el-radio-group) {
+  background: #e9eef7;
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+.view-switch :deep(.el-radio-button__inner) {
+  border: none !important;
+  background: transparent;
+  box-shadow: none !important;
+  border-radius: 8px !important;
+  height: 32px;
+  line-height: 32px;
+  padding: 0 18px;
+  font-size: 13px;
+  color: var(--jb-ink-500, #5a6b85);
+  transition: color .2s, background .2s;
+}
+.view-switch :deep(.el-radio-button__inner:hover) { color: var(--jb-brand-500, #1257d6); }
+.view-switch :deep(.el-radio-button.is-active .el-radio-button__inner) {
+  background: linear-gradient(135deg, var(--jb-brand-600, #0e45a8) 0%, var(--jb-brand-500, #1257d6) 60%, #2c74f0 100%);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(18, 87, 214, .3) !important;
+}
+
+/* 主面板 */
+.table-panel {
+  background: #fff;
+  border: 1px solid var(--jb-line, #e3e9f2);
+  border-radius: 12px;
+  box-shadow: var(--jb-sh-1, 0 1px 2px rgba(16, 42, 90, .04), 0 4px 16px rgba(16, 42, 90, .05));
+  padding: 18px;
+}
+.query-form { border-bottom: 1px solid var(--jb-line, #e3e9f2); padding: 0 0 2px; margin-bottom: 14px; }
+.query-form :deep(.el-form-item) { margin-right: 20px; margin-bottom: 14px; }
+.query-form :deep(.el-form-item__label) { color: var(--jb-ink-500, #5a6b85); font-weight: 500; }
+.query-actions :deep(.el-form-item__content) { gap: 8px; }
+.query-actions :deep(.el-button + .el-button) { margin-left: 0; }
+.btn-icon { margin-right: 5px; vertical-align: -2px; }
+.query-actions .el-button { border-radius: 8px; font-weight: 500; }
+
+/* 导入导出分裂按钮 */
+.transfer-actions { display: inline-flex; align-items: center; }
+.transfer-primary { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+.transfer-toggle { border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; margin-left: -1px; padding: 8px 10px; border-left-color: rgba(255, 255, 255, .35) !important; }
+
+/* 工具条 / 选中信息 */
+.table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.selection-info { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--jb-ink-500, #5a6b85); }
+.selection-info b { color: var(--jb-ink-700, #24334a); font-weight: 600; }
+.selected-text { color: var(--jb-brand-500, #1257d6); font-weight: 500; }
+.pending-filter-text { color: var(--jb-warn, #b88230); }
+.muted { color: var(--jb-ink-300, #94a0b1); }
+
+/* 分页 */
+.table-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--jb-line, #e3e9f2); }
+.page-range { color: var(--jb-ink-500, #5a6b85); font-size: 12px; white-space: nowrap; }
+.table-pagination :deep(.pagination-container) { margin-top: 0; max-width: 100%; overflow-x: auto; }
+
+/* 表格 */
+.inventory-table {
+  --el-table-header-bg-color: #f5f8fd;
+  --el-table-header-text-color: #51627c;
+  --el-table-border-color: var(--jb-line, #e3e9f2);
+  --el-table-row-hover-bg-color: rgba(18, 87, 214, .055);
+  border-radius: 8px;
+}
+.inventory-table :deep(th.el-table__cell) { height: 46px; font-size: 12px; font-weight: 600; }
+.inventory-table :deep(td.el-table__cell) { height: 44px; font-size: 12px; }
+.column-heading { display: inline-flex; align-items: center; gap: 4px; cursor: help; }
+.column-heading:focus-visible { outline: 2px solid var(--jb-brand-300, #7297cd); outline-offset: 3px; border-radius: 2px; }
+.column-tip { color: #9ba8bb; }
+.column-help { width: min(540px, calc(100vw - 48px)); max-height: min(520px, calc(100vh - 80px)); overflow-y: auto; font-size: 12px; line-height: 1.7; color: #51627c; }
+.column-help-title { color: var(--jb-brand-700, #0b3d93); font-size: 13px; font-weight: 600; padding-bottom: 8px; border-bottom: 1px solid var(--jb-line, #e3e9f2); }
+.column-help dl { margin: 0; }
+.column-help dl > div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; padding-top: 9px; }
+.column-help dt { font-weight: 600; color: #344d72; }
+.column-help dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.column-help-table { font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+.sku-text { font-weight: 550; color: #344d72; }
+.numeric-value { font-variant-numeric: tabular-nums; }
+.empty-value { color: #b3bdcb; }
+.grade-tag { border-radius: 6px; }
+.rent-warning-value { display: inline-flex; align-items: center; gap: 4px; color: var(--jb-warn, #b88230); }
+.price-warning-value { display: inline-flex; align-items: center; gap: 4px; color: var(--jb-warn, #b88230); }
+.age-warning-value { display: inline-flex; align-items: center; gap: 4px; color: var(--jb-warn, #b88230); }
+
+/* 导入弹窗 */
+.import-warning-list { padding: 12px; border-radius: 8px; background: #fff8ec; color: #947142; font-size: 12px; line-height: 1.9; }
+.import-description { line-height: 1.8; color: var(--jb-ink-500, #5a6b85); font-size: 13px; margin: 16px 0; }
+.upload-icon { color: var(--jb-brand-300, #7297cd); margin-bottom: 12px; }
+.upload-link { color: var(--jb-brand-500, #1257d6); }
+
+@media (max-width: 600px) { .inventory-detail-page { padding: 12px; } .table-panel { padding: 12px; } .table-toolbar { align-items: flex-start; } .selection-info { gap: 8px; } }
+</style>

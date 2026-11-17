@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.report.InventoryOpeningMapper">
+
+    <resultMap id="InventoryOpeningValueResult" type="com.ruoyi.system.domain.report.InventoryOpeningValue">
+        <id property="id" column="id"/>
+        <result property="batchId" column="batch_id"/>
+        <result property="reportDate" column="report_date"/>
+        <result property="sourceSystem" column="source_system"/>
+        <result property="platform" column="platform"/>
+        <result property="warehouseType" column="warehouse_type"/>
+        <result property="warehouseTypeName" column="warehouse_type_name"/>
+        <result property="sysWid" column="sys_wid"/>
+        <result property="warehouseName" column="warehouse_name"/>
+        <result property="sellerName" column="seller_name"/>
+        <result property="sku" column="sku"/>
+        <result property="fnsku" column="fnsku"/>
+        <result property="spu" column="spu"/>
+        <result property="productName" column="product_name"/>
+        <result property="brand" column="brand"/>
+        <result property="category1" column="category1"/>
+        <result property="category2" column="category2"/>
+        <result property="category3" column="category3"/>
+        <result property="openingQty" column="opening_qty"/>
+        <result property="openingCost" column="opening_cost"/>
+        <result property="unitCost" column="unit_cost"/>
+        <result property="costStatus" column="cost_status"/>
+        <result property="anomalyFlag" column="anomaly_flag"/>
+        <result property="anomalyReason" column="anomaly_reason"/>
+        <result property="sourceOdsId" column="source_ods_id"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="selectList" resultMap="InventoryOpeningValueResult">
+        SELECT * FROM jmh_report.ads_monthly_opening_inventory_value
+        <where>
+            <if test="vo.reportDate != null">AND report_date = #{vo.reportDate}</if>
+            <if test="vo.warehouseType != null and vo.warehouseType != ''">AND warehouse_type = #{vo.warehouseType}</if>
+            <if test="vo.costStatus != null and vo.costStatus != ''">AND cost_status = #{vo.costStatus}</if>
+            <if test="vo.sku != null and vo.sku != ''">
+                AND (sku LIKE CONCAT('%', #{vo.sku}, '%') OR fnsku LIKE CONCAT('%', #{vo.sku}, '%'))
+            </if>
+            <if test="vo.anomalyFlag != null">AND anomaly_flag = #{vo.anomalyFlag}</if>
+        </where>
+        ORDER BY report_date DESC, warehouse_type, sku
+    </select>
+
+    <select id="selectByReportDate" resultMap="InventoryOpeningValueResult">
+        SELECT * FROM jmh_report.ads_monthly_opening_inventory_value
+        <where>
+            <if test="reportDate != null and reportDate != ''">AND report_date = #{reportDate}</if>
+            <if test="warehouseType != null and warehouseType != ''">AND warehouse_type = #{warehouseType}</if>
+            <if test="costStatus != null and costStatus != ''">AND cost_status = #{costStatus}</if>
+            <if test="sku != null and sku != ''">
+                AND (sku LIKE CONCAT('%', #{sku}, '%') OR fnsku LIKE CONCAT('%', #{sku}, '%'))
+            </if>
+        </where>
+        ORDER BY report_date DESC, warehouse_type, sku
+    </select>
+
+</mapper>

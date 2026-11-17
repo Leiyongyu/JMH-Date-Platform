@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.GoodcangGrnDetailMapper">
+
+    <resultMap type="com.ruoyi.system.domain.operation.external.GoodcangGrnDetail" id="Result">
+        <id property="id" column="id" />
+        <result property="receivingCode" column="receiving_code" />
+        <result property="productSku" column="product_sku" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="Result">
+        SELECT id, receiving_code, product_sku FROM goodcang_grn_detail
+    </select>
+    <delete id="deleteByReceivingCode">
+        DELETE FROM goodcang_grn_detail WHERE receiving_code=#{receivingCode}
+    </delete>
+    <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO goodcang_grn_detail (receiving_code,product_sku,box_no,transit_pre_count,transit_receiving_count,sync_time) VALUES
+        <foreach collection="list" item="e" separator=",">
+        (#{e.receivingCode},#{e.productSku},#{e.boxNo},#{e.transitPreCount},#{e.transitReceivingCount},NOW())
+        </foreach>
+    </insert>
+    <select id="selectOutboundTimes" resultType="java.util.HashMap">
+        SELECT SUBSTRING_INDEX(d.product_sku, '-', 2) AS mid,
+               gw.wid AS wid,
+               MAX(DATE_FORMAT(l.create_at, '%Y-%m-%d')) AS latest_date
+        FROM goodcang_grn_detail d
+        JOIN goodcang_grn_list l ON l.receiving_code = d.receiving_code
+        JOIN goodcang_warehouse gw ON gw.warehouse_code = l.warehouse_code AND gw.wid IS NOT NULL
+        GROUP BY mid, gw.wid
+    </select>
+</mapper>

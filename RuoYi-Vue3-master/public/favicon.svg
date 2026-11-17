@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="JMH">
+  <defs>
+    <linearGradient id="jmhG" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B3D93"/>
+      <stop offset=".5" stop-color="#1268C9"/>
+      <stop offset="1" stop-color="#12B2A6"/>
+    </linearGradient>
+    <linearGradient id="jmhSheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".18"/>
+      <stop offset=".55" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="24" height="24" rx="6.2" fill="url(#jmhG)"/>
+  <rect x="0" y="0" width="24" height="24" rx="6.2" fill="url(#jmhSheen)"/>
+  <path d="M14.9 5.8 L14.9 13.2 C14.9 16.6 12.8 18.5 10.1 18.5 C7.7 18.5 6.1 17.1 5.6 15.2"
+        fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

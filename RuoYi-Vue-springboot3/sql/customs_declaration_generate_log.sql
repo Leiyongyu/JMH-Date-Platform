@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS `customs_declaration_generate_log` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `declaration_no` varchar(80) NOT NULL COMMENT '本次报关生成批次号',
+  `source_type` varchar(20) NOT NULL COMMENT '来源类型：EBAY/FBA/MANUAL',
+  `source_order_no` varchar(100) NOT NULL COMMENT '来源单号：备货单号/FBA货件号/手工批次',
+  `source_line_id` varchar(100) NOT NULL COMMENT '来源明细ID',
+  `raw_sku` varchar(200) DEFAULT NULL COMMENT '来源原始SKU',
+  `standard_sku` varchar(200) NOT NULL COMMENT '匹配后的出入库清单SKU',
+  `product_code` varchar(200) NOT NULL DEFAULT '' COMMENT '商品编码',
+  `source_location` varchar(200) DEFAULT NULL COMMENT '货源地',
+  `warehouse_bucket` varchar(30) NOT NULL COMMENT '仓库归类：CZ/UK/US_GC/DE/FBA_DE/FBA_UK/FBA_US/FBA_FR/UNKNOWN',
+  `warehouse_name` varchar(200) DEFAULT NULL COMMENT '实际仓库名称或原始仓库信息',
+  `quantity` decimal(18,4) NOT NULL DEFAULT 0.0000 COMMENT '本次报关数量',
+  `match_status` varchar(30) NOT NULL DEFAULT 'MATCHED' COMMENT '匹配状态：MATCHED/UNKNOWN_WAREHOUSE/MISSING_INVENTORY',
+  `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+  `created_by` varchar(64) DEFAULT NULL COMMENT '创建人',
+  `created_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_customs_decl_source_line` (`source_type`,`source_order_no`,`source_line_id`,`warehouse_bucket`),
+  KEY `idx_customs_decl_sku_code` (`standard_sku`,`product_code`),
+  KEY `idx_customs_decl_bucket` (`warehouse_bucket`),
+  KEY `idx_customs_decl_no` (`declaration_no`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='报关单生成库存扣减日志';

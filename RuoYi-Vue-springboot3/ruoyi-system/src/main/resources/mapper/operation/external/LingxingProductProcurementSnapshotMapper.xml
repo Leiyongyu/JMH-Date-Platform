@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.operation.external.LingxingProductProcurementSnapshotMapper">
+
+    <delete id="deleteStepPricesBySnapshotMonth">
+        DELETE FROM ods_lingxing_product_supplier_step_price_monthly
+        WHERE snapshot_month = #{snapshotMonth}
+    </delete>
+
+    <delete id="deleteTransportCostsBySnapshotMonth">
+        DELETE FROM ods_lingxing_product_transport_cost_monthly
+        WHERE snapshot_month = #{snapshotMonth}
+    </delete>
+
+    <delete id="deleteProductsBySnapshotMonth">
+        DELETE FROM ods_lingxing_product_procurement_monthly
+        WHERE snapshot_month = #{snapshotMonth}
+    </delete>
+
+    <insert id="batchInsertProducts">
+        INSERT INTO ods_lingxing_product_procurement_monthly (
+            snapshot_month, sku, cg_price, sync_batch_id, pulled_at
+        ) VALUES
+        <foreach collection="list" item="e" separator=",">
+            (#{e.snapshotMonth}, #{e.sku}, #{e.cgPrice},
+             #{e.syncBatchId}, #{e.pulledAt})
+        </foreach>
+    </insert>
+
+    <insert id="batchInsertStepPrices">
+        INSERT INTO ods_lingxing_product_supplier_step_price_monthly (
+            snapshot_month, sku, supplier_index, quote_index,
+            step_price_index, price, sync_batch_id, pulled_at
+        ) VALUES
+        <foreach collection="list" item="e" separator=",">
+            (#{e.snapshotMonth}, #{e.sku}, #{e.supplierIndex},
+             #{e.quoteIndex}, #{e.stepPriceIndex}, #{e.price},
+             #{e.syncBatchId}, #{e.pulledAt})
+        </foreach>
+    </insert>
+
+    <insert id="batchInsertTransportCosts">
+        INSERT INTO ods_lingxing_product_transport_cost_monthly (
+            snapshot_month, sku, relation_index, country_code,
+            transport_cost, sync_batch_id, pulled_at
+        ) VALUES
+        <foreach collection="list" item="e" separator=",">
+            (#{e.snapshotMonth}, #{e.sku}, #{e.relationIndex},
+             #{e.countryCode}, #{e.transportCost},
+             #{e.syncBatchId}, #{e.pulledAt})
+        </foreach>
+    </insert>
+
+</mapper>
